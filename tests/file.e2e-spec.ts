@@ -2,7 +2,7 @@ import { Test, TestingModule } from '@nestjs/testing';
 import * as fs from 'fs';
 import { PubSub } from 'graphql-subscriptions';
 import { VariableType } from 'json-to-graphql-query';
-import { MongoClient, ObjectId } from 'mongodb';
+import { ObjectId } from 'mongodb';
 import * as path from 'path';
 
 import { HttpExceptionLogFilter, TestGraphQLType, TestHelper } from '../src';
@@ -13,6 +13,7 @@ import { User } from '../src/server/modules/user/user.model';
 import { UserService } from '../src/server/modules/user/user.service';
 import { ServerModule } from '../src/server/server.module';
 import { createFixtureDir, removeFixtureDir } from './helpers/tmp-fixtures';
+import { type IamTestDb, openIamTestDb } from './helpers/iam-test-db';
 
 describe('File (e2e)', () => {
   // To enable debugging, include these flags in the options of the request you want to debug
@@ -24,8 +25,7 @@ describe('File (e2e)', () => {
   let testHelper: TestHelper;
 
   // database
-  let connection;
-  let db;
+  let iamDb: IamTestDb;
 
   // Global vars
   let userService: UserService;
@@ -68,8 +68,7 @@ describe('File (e2e)', () => {
       userService = moduleFixture.get(UserService);
 
       // Connection to database
-      connection = await MongoClient.connect(envConfig.mongoose.uri);
-      db = await connection.db();
+      iamDb = await openIamTestDb(envConfig.mongoose.uri);
     } catch (e) {
       console.error('beforeAllError', e);
     }
@@ -80,7 +79,7 @@ describe('File (e2e)', () => {
    */
   afterAll(async () => {
     await removeFixtureDir(fixtureDir);
-    await connection.close();
+    await iamDb?.close();
     await app.close();
   });
 
@@ -116,7 +115,7 @@ describe('File (e2e)', () => {
       // which is undefined, and `new ObjectId(undefined)` mints a FRESH id rather
       // than throwing, so the update silently matched zero documents and nobody
       // was ever verified.
-      await db.collection('users').updateOne({ _id: new ObjectId(res.user.id) }, { $set: { verified: true } });
+      await iamDb.updateUser({ id: res.user.id }, { verified: true });
     }
     expect(users.length).toBeGreaterThanOrEqual(userCount);
   });
@@ -147,9 +146,7 @@ describe('File (e2e)', () => {
    * Prepare users
    */
   it('prepareUsers', async () => {
-    await db
-      .collection('users')
-      .findOneAndUpdate({ _id: new ObjectId(users[0].id) }, { $set: { roles: [RoleEnum.ADMIN] } });
+    await iamDb.updateUser({ id: users[0].id }, { roles: [RoleEnum.ADMIN] });
   });
 
   // ===================================================================================================================

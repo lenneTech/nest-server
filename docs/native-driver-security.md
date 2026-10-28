@@ -135,6 +135,27 @@ this.getNativeConnection('');          // throws Error
 
 ---
 
+## Native access on PostgreSQL (12.1.0+)
+
+On a model routed to PostgreSQL there is no Mongoose model and no native collection: `getNativeCollection()` /
+`getNativeConnection()` refuse, and so does every Mongoose data method of the model (`routed-model.guard.ts`). The data
+store has the two native tiers instead, with the same mandatory, logged reason:
+
+| Tier | API | What still protects the data |
+|---|---|---|
+| 2 | `this.dataStore.native(reason)` — the engine's own API (TypeORM `EntityManager`, Kysely, Drizzle), bound to the store's transaction | row-level security (same connection, tenant scope set), HTTP interceptors |
+| 3 | `this.dataStore.raw(reason)` — raw SQL on that connection | row-level security, HTTP interceptors |
+
+The framework's before-layer policies (tenant stamping, audit fields, password hashing, role guard, system roles) do
+**not** run on tiers 2 and 3 — exactly as the Mongoose plugins do not run on the native MongoDB driver. Row-level
+security does: a query without a tenant scope on a tenant-scoped table fails (42501 → 403) instead of reading every
+tenant. Parameters only; a table or column name never comes from user input. On MySQL / MariaDB (phase 6) there is no
+row-level security, so a native query on a tenant-scoped table filters by tenant itself.
+
+Rules for all of it: `.claude/rules/persistence.md` → "Native access in three tiers".
+
+---
+
 ## Review Checklist
 
 When reviewing code (manual or AI), check for `.collection.` and `.db.collection(`:

@@ -1,12 +1,12 @@
 import { Injectable, Logger, OnModuleInit } from '@nestjs/common';
-import { InjectConnection } from '@nestjs/mongoose';
+import { InjectConnection } from '../../../common/persistence/mongo/mongoose-compat.js';
 import { AsyncLocalStorage } from 'node:async_hooks';
 import { createHash, createHmac, randomBytes, timingSafeEqual } from 'node:crypto';
 import type { Connection } from 'mongoose';
 
 import { isLocalEnv, resolveAppUrlFromConfig } from '../../../common/helpers/cookies.helper.js';
 import type { DataStore } from '../../../common/persistence/data-store.interface.js';
-import { getStoreForModel } from '../../../common/persistence/persistence-runtime.registry.js';
+import { getModelStore } from '../../../common/persistence/persistence-runtime.registry.js';
 import { ConfigService } from '../../../common/services/config.service.js';
 import { getApiTokenContext, hasApiTokenCredential } from '../../api-token/core-api-token.helpers.js';
 import { getBetterAuthSqlStore } from '../../better-auth/core-better-auth-sql.registry.js';
@@ -26,6 +26,7 @@ import {
   renderMcpOAuthConsentPage,
 } from '../helpers/ai-mcp-oauth-consent.helper.js';
 import { getMountedMcpOAuth } from '../helpers/ai-mcp-oauth.registry.js';
+import { isValidObjectId, newObjectId } from '../../../common/persistence/mongo/mongoose-compat.js';
 
 /** One of the MCP SDK's OAuth error classes: constructed with a message (and optionally an error URI) and thrown. */
 export interface IMcpOAuthErrorClass {
@@ -485,8 +486,7 @@ export class CoreAiMcpOAuthService implements OnModuleInit {
         const row = await sql.findUser({ id: userId }, ['roles']);
         return row ? { id: userId, roles: Array.isArray(row.roles) ? row.roles : [] } : null;
       }
-      const { ObjectId } = await import('mongodb');
-      const query = ObjectId.isValid(userId) ? { _id: new ObjectId(userId) } : { _id: userId as any };
+      const query = isValidObjectId(userId) ? { _id: newObjectId(userId) } : { _id: userId as any };
       const doc = await this.db()
         .collection('users')
         .findOne(query, { projection: { roles: 1 } });
@@ -917,8 +917,7 @@ export class CoreAiMcpOAuthService implements OnModuleInit {
    * The models are registered by `CoreAiModule` through `CorePersistenceModule.forFeature()`.
    */
   protected sqlStore(modelName: string): DataStore<any> | undefined {
-    const model = (this.connection as { models?: Record<string, unknown> } | undefined)?.models?.[modelName];
-    const store = model ? getStoreForModel(model) : undefined;
+    const store = getModelStore(this.connection, modelName);
     return store && !store.capabilities.mongoosePopulate ? store : undefined;
   }
 }

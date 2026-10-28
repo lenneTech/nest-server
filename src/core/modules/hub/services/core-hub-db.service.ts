@@ -1,7 +1,6 @@
 import { Inject, Injectable, Logger, Optional } from '@nestjs/common';
-import { InjectConnection } from '@nestjs/mongoose';
-import * as mongo from 'mongodb';
-import { type Connection, Types } from 'mongoose';
+import type * as mongo from 'mongodb';
+import type { Connection } from 'mongoose';
 
 import { ConfigService } from '../../../common/services/config.service.js';
 import { CoreS3Service } from '../../../common/services/core-s3.service.js';
@@ -25,6 +24,12 @@ import {
   HubUnavailable,
 } from '../interfaces/hub-panels.interface.js';
 import type { ResolvedHubConfig } from '../interfaces/hub-config.interface.js';
+import {
+  createGridFsBucket,
+  InjectConnection,
+  isValidObjectId,
+  newObjectId,
+} from '../../../common/persistence/mongo/mongoose-compat.js';
 
 /**
  * Read-only MongoDB introspection for the DB, Models/ERD and Files panels.
@@ -124,10 +129,10 @@ export class CoreHubDbService {
     if (!db) {
       throw new Error(HubActionMessage.mongoUnavailable);
     }
-    if (!Types.ObjectId.isValid(id)) {
+    if (!isValidObjectId(id)) {
       throw new Error(HubActionMessage.invalidFileId);
     }
-    const objectId = new Types.ObjectId(id);
+    const objectId = newObjectId(id);
 
     // Same probe order as `CoreFileService.deleteFile()`: S3, then filesystem, then GridFS as the
     // fallthrough. Keeping the two in step matters — a Hub that resolved a file differently from the
@@ -167,7 +172,7 @@ export class CoreHubDbService {
         break;
       }
       default: {
-        const gridFs = new mongo.GridFSBucket(db as unknown as mongo.Db, { bucketName: bucket });
+        const gridFs = createGridFsBucket(db as unknown as mongo.Db, { bucketName: bucket });
         await gridFs.delete(objectId as unknown as mongo.ObjectId);
       }
     }

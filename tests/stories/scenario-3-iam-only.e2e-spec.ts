@@ -16,7 +16,6 @@ import { ScheduleModule } from '@nestjs/schedule';
 import { Test, TestingModule } from '@nestjs/testing';
 import { createHash } from 'crypto';
 import { PubSub } from 'graphql-subscriptions';
-import { Db, MongoClient } from 'mongodb';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 
 import { CoreBetterAuthModule, CoreBetterAuthService, CoreModule, HttpExceptionLogFilter, TestGraphQLType, TestHelper } from '../../src';
@@ -28,6 +27,7 @@ import { CronJobs } from '../../src/server/common/services/cron-jobs.service';
 import { BetterAuthModule } from '../../src/server/modules/better-auth/better-auth.module';
 import { FileModule } from '../../src/server/modules/file/file.module';
 import { ServerController } from '../../src/server/server.controller';
+import { type IamTestDb, openIamTestDb } from '../helpers/iam-test-db';
 
 // Helper to create SHA256 hash
 function sha256(password: string): string {
@@ -80,8 +80,7 @@ class Scenario3ServerModule {}
 describe('Story: Scenario 3 - IAM Only', () => {
   let app;
   let testHelper: TestHelper;
-  let mongoClient: MongoClient;
-  let db: Db;
+  let iamDb: IamTestDb;
   let betterAuthService: CoreBetterAuthService;
 
   // Test data tracking for cleanup
@@ -116,29 +115,18 @@ describe('Story: Scenario 3 - IAM Only', () => {
     betterAuthService = moduleFixture.get(CoreBetterAuthService);
 
     // Connect to MongoDB for cleanup
-    mongoClient = await MongoClient.connect(scenario3Config.mongoose.uri);
-    db = mongoClient.db();
+    iamDb = await openIamTestDb(scenario3Config.mongoose.uri);
   });
 
   afterAll(async () => {
     // Clean up test users and their associated data
-    if (db) {
-      if (testEmails.length > 0) {
-        // Get user IDs before deletion for cleaning up related collections
-        const testUsers = await db.collection('users').find({ email: { $in: testEmails } }).toArray();
-        const testIamIds = testUsers.map((u) => u.iamId).filter(Boolean);
-
-        // Delete users
-        await db.collection('users').deleteMany({ email: { $in: testEmails } });
-
-        // Delete only test user's accounts and sessions (not all data!)
-        if (testIamIds.length > 0) {
-          await db.collection('account').deleteMany({ userId: { $in: testIamIds } });
-          await db.collection('session').deleteMany({ userId: { $in: testIamIds } });
-        }
+    if (iamDb) {
+      // Sessions and accounts go with the users
+      for (const email of testEmails) {
+        await iamDb.deleteUsers({ email });
       }
+      await iamDb.close();
     }
-    if (mongoClient) await mongoClient.close();
     if (app) await app.close();
 
     // Reset module static state to avoid test pollution
@@ -395,16 +383,13 @@ describe('Story: Scenario 3 - IAM Only', () => {
       }
 
       // Check database - user should exist
-      const dbUser = await db.collection('users').findOne({ email });
+      const dbUser = await iamDb.findUser({ email: email });
       expect(dbUser).toBeDefined();
       expect(dbUser!.iamId).toBeDefined();
 
       // Check account collection for scrypt hash
-      const iamAccount = await db.collection('account').findOne({
-        providerId: 'credential',
-        userId: dbUser!._id,
-      });
-      expect(iamAccount).toBeDefined();
+      const iamAccount = await iamDb.credentialAccount(dbUser!.id);
+      expect(iamAccount).toBeTruthy();
       expect(iamAccount!.password).toBeDefined();
       // scrypt format: salt:hash (both hex)
       expect(iamAccount!.password).toContain(':');
@@ -429,7 +414,7 @@ describe('Story: Scenario 3 - IAM Only', () => {
       }
 
       // Check database - users.password should have bcrypt hash
-      const dbUser = await db.collection('users').findOne({ email });
+      const dbUser = await iamDb.findUser({ email: email });
       expect(dbUser).toBeDefined();
       expect(dbUser!.password).toBeDefined();
       expect(dbUser!.password.startsWith('$2')).toBe(true); // bcrypt prefix
@@ -464,9 +449,9 @@ describe('Story: Scenario 3 - IAM Only', () => {
       });
 
       // Check database - session should exist
-      const dbUser = await db.collection('users').findOne({ email });
-      const session = await db.collection('session').findOne({ userId: dbUser!._id });
-      expect(session).toBeDefined();
+      const dbUser = await iamDb.findUser({ email: email });
+      const session = await iamDb.findUserSession(dbUser!.id);
+      expect(session).toBeTruthy();
       expect(session!.token).toBeDefined();
     });
 
@@ -493,9 +478,9 @@ describe('Story: Scenario 3 - IAM Only', () => {
       });
 
       // Verify session was created
-      const dbUser = await db.collection('users').findOne({ email });
-      const session = await db.collection('session').findOne({ userId: dbUser!._id });
-      expect(session).toBeDefined();
+      const dbUser = await iamDb.findUser({ email: email });
+      const session = await iamDb.findUserSession(dbUser!.id);
+      expect(session).toBeTruthy();
       expect(session!.token).toBeDefined();
 
       // Note: Sign-out behavior depends on BetterAuth configuration

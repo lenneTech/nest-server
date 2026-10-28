@@ -22,23 +22,17 @@
 
 import { Test, TestingModule } from '@nestjs/testing';
 import { PubSub } from 'graphql-subscriptions';
-import { MongoClient, ObjectId } from 'mongodb';
 
-import {
-  HttpExceptionLogFilter,
-  RoleEnum,
-  TestGraphQLType,
-  TestHelper,
-} from '../../src';
+import { HttpExceptionLogFilter, RoleEnum, TestGraphQLType, TestHelper } from '../../src';
 import envConfig from '../../src/config.env';
 import { CorePermissionsService } from '../../src/core/modules/permissions/core-permissions.service';
 import { ServerModule } from '../../src/server/server.module';
+import { type IamTestDb, openIamTestDb } from '../helpers/iam-test-db';
 
 describe('Story: Permissions Report', () => {
   let app;
   let testHelper: TestHelper;
-  let connection;
-  let db;
+  let iamDb: IamTestDb;
 
   // ===================================================================================================================
   // Setup & Teardown
@@ -64,9 +58,8 @@ describe('Story: Permissions Report', () => {
 
       testHelper = new TestHelper(app);
 
-      // Database connection for admin role setup
-      connection = await MongoClient.connect(envConfig.mongoose.uri);
-      db = await connection.db();
+      // Database access for admin role setup — MongoDB, or PostgreSQL in the `postgres` project
+      iamDb = await openIamTestDb(envConfig.mongoose.uri);
     } catch (e) {
       console.error('beforeAll Error', e);
       throw e;
@@ -74,8 +67,8 @@ describe('Story: Permissions Report', () => {
   });
 
   afterAll(async () => {
-    if (connection) {
-      await connection.close();
+    if (iamDb) {
+      await iamDb.close();
     }
     if (app) {
       await app.close();
@@ -115,7 +108,7 @@ describe('Story: Permissions Report', () => {
 
     it('should find modules from src/server/modules/', async () => {
       const report = await service.getOrScan();
-      const moduleNames = report.modules.map(m => m.name);
+      const moduleNames = report.modules.map((m) => m.name);
       expect(moduleNames).toContain('user');
       expect(moduleNames).toContain('auth');
     });
@@ -130,7 +123,7 @@ describe('Story: Permissions Report', () => {
 
     it('should scan models with fields', async () => {
       const report = await service.getOrScan();
-      const userModule = report.modules.find(m => m.name === 'user');
+      const userModule = report.modules.find((m) => m.name === 'user');
       expect(userModule).toBeDefined();
       expect(userModule.models.length).toBeGreaterThan(0);
       const userModel = userModule.models[0];
@@ -141,7 +134,7 @@ describe('Story: Permissions Report', () => {
 
     it('should scan resolvers with methods', async () => {
       const report = await service.getOrScan();
-      const userModule = report.modules.find(m => m.name === 'user');
+      const userModule = report.modules.find((m) => m.name === 'user');
       expect(userModule).toBeDefined();
       expect(userModule.resolvers.length).toBeGreaterThan(0);
       const resolver = userModule.resolvers[0];
@@ -182,7 +175,8 @@ describe('Story: Permissions Report', () => {
     it('should have consistent warningsByType counts', async () => {
       const report = await service.getOrScan();
       const wbt = report.stats.warningsByType;
-      const sum = wbt.NO_RESTRICTION + wbt.NO_ROLES + wbt.NO_SECURITY_CHECK + wbt.UNRESTRICTED_FIELD + wbt.UNRESTRICTED_METHOD;
+      const sum =
+        wbt.NO_RESTRICTION + wbt.NO_ROLES + wbt.NO_SECURITY_CHECK + wbt.UNRESTRICTED_FIELD + wbt.UNRESTRICTED_METHOD;
       expect(sum).toBe(report.stats.totalWarnings);
     });
 
@@ -247,12 +241,7 @@ describe('Story: Permissions Report', () => {
       userId = signUpResult?.user?.id;
 
       // 2. Set admin role and verify user in database
-      await db
-        .collection('users')
-        .findOneAndUpdate(
-          { _id: new ObjectId(userId) },
-          { $set: { roles: [RoleEnum.ADMIN], verified: true } },
-        );
+      await iamDb.updateUser({ id: userId }, { roles: [RoleEnum.ADMIN], verified: true });
 
       // 3. Sign in to get a token with admin role
       const signInResult = await testHelper.graphQl({
@@ -267,7 +256,7 @@ describe('Story: Permissions Report', () => {
     afterAll(async () => {
       // Cleanup: remove test user
       if (userId) {
-        await db.collection('users').deleteOne({ _id: new ObjectId(userId) });
+        await iamDb.deleteUsers({ id: userId });
       }
     });
 

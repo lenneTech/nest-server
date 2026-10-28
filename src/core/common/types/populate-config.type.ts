@@ -1,4 +1,4 @@
-import { PopulateOptions } from 'mongoose';
+import type { PopulateOptions } from 'mongoose';
 
 /**
  * Configuration (path or options) for Mongoose populate methode

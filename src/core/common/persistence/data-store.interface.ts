@@ -44,6 +44,12 @@ export interface FindOptions {
   collation?: Record<string, unknown>;
   limit?: number;
   /**
+   * Return this many records chosen at random from the page — after filter, sort, skip and limit, as MongoDB's `$sample`
+   * stage follows them in `CrudService.findAndCount()`. A positive integer; a sample larger than the page returns the
+   * whole page. The order of the result is random too.
+   */
+  sample?: number;
+  /**
    * Field names to leave out (MongoDB's `-name` projection); everything else the model returns by default is read.
    * Not combinable with `select`, as MongoDB does not combine them either.
    */

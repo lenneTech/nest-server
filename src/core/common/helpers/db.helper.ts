@@ -1,5 +1,5 @@
 import { FieldNode, GraphQLResolveInfo, SelectionNode } from 'graphql';
-import { Document, Model, PopulateOptions, Query, Types } from 'mongoose';
+import type { Document, Model, PopulateOptions, Query } from 'mongoose';
 
 import { ResolveSelector } from '../interfaces/resolve-selector.interface.js';
 import { CoreModel } from '../models/core-model.model.js';
@@ -9,6 +9,8 @@ import { IdsType } from '../types/ids.type.js';
 import { StringOrObjectId } from '../types/string-or-object-id.type.js';
 import { equalIds, getObjectIds, getStringIds } from './id.helper.js';
 import { removePropertiesDeep } from './input.helper.js';
+import { isMongooseQuery } from '../persistence/mongo/mongoose-compat.js';
+import { isObjectIdLike } from './id.helper.js';
 
 /**
  * The ID helpers moved to `./id.helper` and are re-exported here so every existing import path keeps
@@ -68,10 +70,10 @@ export function addIds(
     if (
       result.length &&
       convert === 'auto' &&
-      ((result[0] instanceof Types.ObjectId && !(ids instanceof Types.ObjectId)) ||
+      ((isObjectIdLike(result[0]) && !isObjectIdLike(ids)) ||
         (typeof result[0] === 'string' && typeof ids !== 'string'))
     ) {
-      const converted = result[0] instanceof Types.ObjectId ? getObjectIds(ids) : getStringIds(ids);
+      const converted = isObjectIdLike(result[0]) ? getObjectIds(ids) : getStringIds(ids);
       result.push(...(converted as any));
     } else {
       // Add ID
@@ -311,7 +313,7 @@ export function objectIdsToStrings(element: any, prepared: WeakMap<any, any> = n
   }
 
   // ObjectId to string
-  if (element instanceof Types.ObjectId) {
+  if (isObjectIdLike(element)) {
     return element.toHexString();
   }
 
@@ -378,10 +380,10 @@ export async function popAndMap<T extends CoreModel>(
   let result;
   const populateOptions = toPopulateOptions(populate);
   const ignoreSelections = options?.ignoreSelections;
-  if (queryOrDocument instanceof Query) {
+  if (isMongooseQuery(queryOrDocument)) {
     // Get result
     result = await setPopulates(queryOrDocument, populateOptions, mongooseModel);
-    if (result instanceof Query) {
+    if (isMongooseQuery(result)) {
       result = await result.exec();
     }
 
@@ -486,7 +488,7 @@ export function removeUnresolvedReferences<T = any>(
 
     // populatedOptions is a string — leaf operation, no deep recursion risk
     if (typeof populatedOptions === 'string') {
-      if (!['_id', 'id'].includes(populatedOptions) && populated[populatedOptions] instanceof Types.ObjectId) {
+      if (!['_id', 'id'].includes(populatedOptions) && isObjectIdLike(populated[populatedOptions])) {
         populated[populatedOptions] = null;
       }
       return populated;
@@ -495,7 +497,7 @@ export function removeUnresolvedReferences<T = any>(
     // populatedOptions is a PopulateOptions object
     if (populatedOptions.path) {
       const key = populatedOptions.path;
-      if (!['_id', 'id'].includes(key) && populated[key] instanceof Types.ObjectId) {
+      if (!['_id', 'id'].includes(key) && isObjectIdLike(populated[key])) {
         populated[key] = null;
       } else if (populatedOptions.populate) {
         // Prevent circular reference loops when descending into nested populates
@@ -540,7 +542,7 @@ export async function setPopulates<T = Document | Query<any, any>>(
   }
 
   // Query => Chaining
-  if (queryOrDocument instanceof Query) {
+  if (isMongooseQuery(queryOrDocument)) {
     for (const populateOption of populateOptions) {
       queryOrDocument = (queryOrDocument as any).populate(populateOption);
     }

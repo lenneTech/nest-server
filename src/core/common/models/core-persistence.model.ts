@@ -1,12 +1,12 @@
 import { ObjectType } from '@nestjs/graphql';
-import { Schema } from '@nestjs/mongoose';
-import { Types } from 'mongoose';
+import { Schema } from '../persistence/mongo/mongoose-compat.js';
 
 import { Restricted } from '../decorators/restricted.decorator.js';
 import { UnifiedField } from '../decorators/unified-field.decorator.js';
 import { RoleEnum } from '../enums/role.enum.js';
 import { getStringIds } from '../helpers/db.helper.js';
 import { CoreModel } from './core-model.model.js';
+import { newObjectId } from '../persistence/mongo/mongoose-compat.js';
 
 /**
  * Metadata for persistent objects
@@ -33,7 +33,7 @@ export abstract class CorePersistenceModel extends CoreModel {
 
   @Restricted(RoleEnum.S_EVERYONE)
   get _id() {
-    return new Types.ObjectId(this.id);
+    return newObjectId(this.id);
   }
 
   /**

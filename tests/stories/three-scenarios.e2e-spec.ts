@@ -19,12 +19,12 @@ import { NestExpressApplication } from '@nestjs/platform-express';
 import { Test, TestingModule } from '@nestjs/testing';
 import { createHash } from 'crypto';
 import { PubSub } from 'graphql-subscriptions';
-import { Db, MongoClient } from 'mongodb';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 
 import { CoreBetterAuthService, HttpExceptionLogFilter, TestGraphQLType, TestHelper } from '../../src';
 import envConfig from '../../src/config.env';
 import { ServerModule } from '../../src/server/server.module';
+import { type IamTestDb, openIamTestDb } from '../helpers/iam-test-db';
 
 // Helper to create SHA256 hash
 function sha256(password: string): string {
@@ -34,8 +34,7 @@ function sha256(password: string): string {
 describe('Story: Three Authentication Scenarios', () => {
   let app: NestExpressApplication;
   let testHelper: TestHelper;
-  let mongoClient: MongoClient;
-  let db: Db;
+  let iamDb: IamTestDb;
   let betterAuthService: CoreBetterAuthService;
   let isBetterAuthEnabled: boolean;
 
@@ -70,26 +69,18 @@ describe('Story: Three Authentication Scenarios', () => {
     isBetterAuthEnabled = betterAuthService.isEnabled();
 
     // Connect to MongoDB for cleanup
-    mongoClient = await MongoClient.connect(envConfig.mongoose.uri);
-    db = mongoClient.db();
+    iamDb = await openIamTestDb(envConfig.mongoose.uri);
   });
 
   afterAll(async () => {
     // Clean up test users (filtered by userId to avoid interfering with parallel tests)
-    if (db && testEmails.length > 0) {
-      const testUsers = await db.collection('users').find({ email: { $in: testEmails } }).toArray();
-      const userIds = testUsers.flatMap((u) => {
-        const ids: any[] = [u._id, u._id.toString()];
-        if (u.iamId) ids.push(u.iamId);
-        return ids;
-      });
-      await db.collection('users').deleteMany({ email: { $in: testEmails } });
-      if (userIds.length > 0) {
-        await db.collection('account').deleteMany({ userId: { $in: userIds } });
-        await db.collection('session').deleteMany({ userId: { $in: userIds } });
+    if (iamDb) {
+      // Sessions and accounts go with the users
+      for (const email of testEmails) {
+        await iamDb.deleteUsers({ email });
       }
+      await iamDb.close();
     }
-    if (mongoClient) await mongoClient.close();
     if (app) await app.close();
   });
 
@@ -301,9 +292,9 @@ describe('Story: Three Authentication Scenarios', () => {
       expect(signInResult.token).toBeDefined();
 
       // Get user ID from database
-      const dbUser = await db.collection('users').findOne({ email });
+      const dbUser = await iamDb.findUser({ email: email });
       expect(dbUser).toBeDefined();
-      const userId = dbUser!._id.toString();
+      const userId = dbUser!.id;
 
       // Call getUser GraphQL query with IAM JWT
       // With the BetterAuth JWT fallback in RolesGuard, this should now SUCCEED
@@ -346,9 +337,9 @@ describe('Story: Three Authentication Scenarios', () => {
       expect(signInResult.token).toBeDefined();
 
       // Get user ID from database
-      const dbUser = await db.collection('users').findOne({ email });
+      const dbUser = await iamDb.findUser({ email: email });
       expect(dbUser).toBeDefined();
-      const userId = dbUser!._id.toString();
+      const userId = dbUser!.id;
 
       // Call updateUser GraphQL mutation with IAM JWT
       // With the BetterAuth JWT fallback in RolesGuard, this should now SUCCEED

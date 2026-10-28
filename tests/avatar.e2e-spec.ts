@@ -1,6 +1,6 @@
 import { Test, TestingModule } from '@nestjs/testing';
 import * as fs from 'fs';
-import { MongoClient, ObjectId } from 'mongodb';
+import { ObjectId } from 'mongodb';
 import * as path from 'path';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 
@@ -8,6 +8,7 @@ import { TestGraphQLType, TestHelper } from '../src';
 import envConfig from '../src/config.env';
 import { ServerModule } from '../src/server/server.module';
 import { createFixtureDir, removeFixtureDir } from './helpers/tmp-fixtures';
+import { type IamTestDb, openIamTestDb } from './helpers/iam-test-db';
 /**
  * The avatar upload had NO test at all, and was broken the whole time: `setAvatar()` looked the
  * user up with `findOne({ id })`, but `id` is a Mongoose virtual that does not exist in MongoDB,
@@ -26,7 +27,7 @@ import { createFixtureDir, removeFixtureDir } from './helpers/tmp-fixtures';
  */
 describe('Avatar upload (e2e)', () => {
   let app;
-  let mongoClient: MongoClient;
+  let iamDb: IamTestDb;
   let testHelper: TestHelper;
   // Upload fixtures are staged OUTSIDE the repository. They used to be written
   // into `tests/` and unlinked after the upload assertion — which leaks the file
@@ -51,12 +52,12 @@ describe('Avatar upload (e2e)', () => {
     app = moduleFixture.createNestApplication();
     await app.init();
     testHelper = new TestHelper(app);
-    mongoClient = await MongoClient.connect(envConfig.mongoose.uri);
+    iamDb = await openIamTestDb(envConfig.mongoose.uri);
   }, 60_000);
 
   afterAll(async () => {
     await removeFixtureDir(fixtureDir);
-    await mongoClient?.close();
+    await iamDb?.close();
     await app?.close();
   });
 
@@ -105,7 +106,7 @@ describe('Avatar upload (e2e)', () => {
     expect(avatarId).toMatch(/^[a-f0-9]{24}$/);
 
     // The user references the stored file...
-    const dbUser = await mongoClient.db().collection('users').findOne({ email: user.email });
+    const dbUser = await iamDb.findUser({ email: user.email });
     expect(String(dbUser?.avatar)).toBe(avatarId);
 
     // ...and the bytes are reachable by id from the file storage, which is what lets a second
@@ -140,10 +141,7 @@ describe('Avatar upload (e2e)', () => {
   it('lets ADMIN through, because the rule says so and not because the caller owns the file', async () => {
     // The same account that was just refused, promoted. Nothing about ownership changed — only the
     // role — so a 200 here can only come from `checkRights()`'s ADMIN branch.
-    await mongoClient
-      .db()
-      .collection('users')
-      .updateOne({ email: stranger.email }, { $set: { roles: ['admin'] } });
+    await iamDb.updateUser({ email: stranger.email }, { roles: ['admin'] });
     const signInAsAdmin: any = await testHelper.graphQl({
       arguments: { input: { email: stranger.email, password: stranger.password } },
       fields: ['token'],

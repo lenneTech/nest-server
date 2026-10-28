@@ -17,7 +17,6 @@
 import { Body, Controller, Get, Param, Patch, Post } from '@nestjs/common';
 import { Query, Resolver } from '@nestjs/graphql';
 import { InjectModel, MongooseModule, Prop, Schema, SchemaFactory } from '@nestjs/mongoose';
-import { Db, MongoClient, ObjectId } from 'mongodb';
 import { Model } from 'mongoose';
 import request from 'supertest';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
@@ -30,8 +29,10 @@ import {
   CoreTenantService,
   CurrentTenant,
   CurrentUser,
+  type DataStore,
   DefaultHR,
   getApiTokenContext,
+  InjectStore,
   RequestContext,
   Restricted,
   RoleEnum,
@@ -54,6 +55,7 @@ import {
   resetPasswordViaIam,
   signUpAndSignIn,
 } from './helpers/api-token-e2e.helpers';
+import { type IamTestDb, openIamTestDb } from './helpers/iam-test-db';
 
 // =================================================================================================
 // Fixtures
@@ -104,6 +106,7 @@ class ProofReport extends CoreModel {
 class ApiTokenProofController {
   constructor(
     @InjectModel('ProofNote') private readonly noteModel: Model<ProofNote>,
+    @InjectStore('User') private readonly userStore: DataStore<any>,
     @InjectModel('User') private readonly userModel: Model<any>,
     private readonly userService: UserService,
   ) {}
@@ -162,7 +165,17 @@ class ApiTokenProofController {
   @Post('grant-admin/:id')
   @Roles(RoleEnum.S_USER)
   async grantAdmin(@Param('id') id: string) {
-    // A raw Mongoose update — the role-guard plugin is the only thing standing in the way.
+    // A direct store write, past CrudService — the role guard (the Mongoose plugin on MongoDB, the store's policy on
+    // PostgreSQL) is the only thing standing in the way.
+    await this.userStore.updateOne({ id }, { $set: { roles: [RoleEnum.ADMIN] } });
+    return { done: true };
+  }
+
+  @ApiTokenScopes('write')
+  @Post('grant-admin-model/:id')
+  @Roles(RoleEnum.S_USER)
+  async grantAdminThroughModel(@Param('id') id: string) {
+    // A raw Mongoose update (MongoDB only) — the role-guard plugin's `updateOne` hook is the only thing in the way
     await this.userModel.updateOne({ _id: id }, { $set: { roles: [RoleEnum.ADMIN] } }).exec();
     return { done: true };
   }
@@ -250,8 +263,7 @@ class ApiTokenProofResolver {
 describe('API tokens — security proof (IAM-only stack with multi-tenancy)', () => {
   let app: any;
   let helper: TestHelper;
-  let mongo: MongoClient;
-  let db: Db;
+  let iamDb: IamTestDb;
   let previousConfig: any;
   let tokens: CoreApiTokenService;
   let tenants: CoreTenantService;
@@ -293,21 +305,21 @@ describe('API tokens — security proof (IAM-only stack with multi-tenancy)', ()
       providers: [ApiTokenProofResolver],
     });
     helper = new TestHelper(app);
-    mongo = await MongoClient.connect(config.mongoose.uri);
-    db = mongo.db();
+    iamDb = await openIamTestDb(config.mongoose.uri);
     tokens = app.get(CoreApiTokenService);
     tenants = app.get(CoreTenantService);
 
-    ownerA = await signUpAndSignIn(helper, db, 'proof-owner-a');
-    memberAB = await signUpAndSignIn(helper, db, 'proof-member-ab');
-    platformAdmin = await signUpAndSignIn(helper, db, 'proof-admin', [RoleEnum.ADMIN]);
-    auditor = await signUpAndSignIn(helper, db, 'proof-auditor', ['auditor']);
+    ownerA = await signUpAndSignIn(helper, iamDb, 'proof-owner-a');
+    memberAB = await signUpAndSignIn(helper, iamDb, 'proof-member-ab');
+    platformAdmin = await signUpAndSignIn(helper, iamDb, 'proof-admin', [RoleEnum.ADMIN]);
+    auditor = await signUpAndSignIn(helper, iamDb, 'proof-auditor', ['auditor']);
 
     await tenants.addMember(tenantA, ownerA.id, 'owner');
     await tenants.addMember(tenantA, memberAB.id, 'member');
     await tenants.addMember(tenantB, memberAB.id, 'member');
 
-    await db.collection('proofnotes').insertMany([
+    // The notes model is registered with MongooseModule alone: it stays on MongoDB
+    await iamDb.mongo.collection('proofnotes').insertMany([
       { tenantId: tenantA, text: 'a-1' },
       { tenantId: tenantB, text: 'b-1' },
     ]);
@@ -315,7 +327,7 @@ describe('API tokens — security proof (IAM-only stack with multi-tenancy)', ()
 
   afterAll(async () => {
     await app?.close();
-    await mongo?.close();
+    await iamDb?.close();
     if (previousConfig) {
       ConfigService.setConfig(previousConfig, { reInit: true, warn: false });
     }
@@ -345,7 +357,7 @@ describe('API tokens — security proof (IAM-only stack with multi-tenancy)', ()
         statusCode: 403,
         token: created.token,
       });
-      expect(await db.collection('proofnotes').countDocuments({ text: 'smuggled' })).toBe(0);
+      expect(await iamDb.mongo.collection('proofnotes').countDocuments({ text: 'smuggled' })).toBe(0);
     });
 
     it('an unrestricted user token reads exactly what its user’s session reads — every membership, or one', async () => {
@@ -425,12 +437,9 @@ describe('API tokens — security proof (IAM-only stack with multi-tenancy)', ()
 
   describe('Q1: Better-Auth', () => {
     async function sessionTokenOf(user: ApiTokenTestUser): Promise<string> {
-      const doc = await db.collection('users').findOne({ _id: new ObjectId(user.id) });
-      const session = await db.collection('session').findOne({
-        $or: [{ userId: doc!._id }, { userId: doc!._id.toString() }, ...(doc!.iamId ? [{ userId: doc!.iamId }] : [])],
-      });
-      expect(session?.token, 'a Better-Auth session must exist or this proves nothing').toBeTruthy();
-      return session!.token;
+      const token = await iamDb.latestSessionToken(user.id);
+      expect(token, 'a Better-Auth session must exist or this proves nothing').toBeTruthy();
+      return token!;
     }
 
     it('a session cookie riding along never turns a token request into a session request', async () => {
@@ -541,18 +550,16 @@ describe('API tokens — security proof (IAM-only stack with multi-tenancy)', ()
         statusCode: 403,
         token: (await userToken(platformAdmin)).token,
       });
-      const owner = await db.collection('users').findOne({ _id: new ObjectId(ownerA.id) });
+      const owner = await iamDb.findUser({ id: ownerA.id });
       expect(owner!.firstName).toBe('ByAdmin');
-      expect((await db.collection('users').findOne({ _id: new ObjectId(memberAB.id) }))!.roles ?? []).not.toContain(
-        RoleEnum.ADMIN,
-      );
+      expect((await iamDb.findUser({ id: memberAB.id }))!.roles ?? []).not.toContain(RoleEnum.ADMIN);
     });
 
-    it('the role-guard plugin stops a token from granting roles through a raw Mongoose update', async () => {
-      const victim = await signUpAndSignIn(helper, db, 'proof-victim');
+    it('the role guard stops a token from granting roles through a direct store write', async () => {
+      const victim = await signUpAndSignIn(helper, iamDb, 'proof-victim');
       for (const credential of [(await tenantToken()).token, (await userToken(platformAdmin)).token]) {
         await helper.rest(`/proof/grant-admin/${victim.id}`, { method: 'POST', statusCode: 201, token: credential });
-        const doc = await db.collection('users').findOne({ _id: new ObjectId(victim.id) });
+        const doc = await iamDb.findUser({ id: victim.id });
         expect(doc!.roles ?? []).not.toContain(RoleEnum.ADMIN);
       }
       // Control: the same route with the admin's session does grant — so the plugin, not the route, refused.
@@ -561,7 +568,37 @@ describe('API tokens — security proof (IAM-only stack with multi-tenancy)', ()
         statusCode: 201,
         token: platformAdmin.token,
       });
-      expect((await db.collection('users').findOne({ _id: new ObjectId(victim.id) }))!.roles).toContain(RoleEnum.ADMIN);
+      expect((await iamDb.findUser({ id: victim.id }))!.roles).toContain(RoleEnum.ADMIN);
+    });
+
+    /**
+     * @regression   DEV-3833 (db-agnostic phase 5) — porting this suite to the store left the role-guard plugin's
+     *   `updateOne` hook without a test: on MongoDB the store writes through findOneAndUpdate, while project code calling
+     *   `Model.updateOne()` reaches the plugin's own hook.
+     * @seen-failing Register the hook under another name in src/core/common/plugins/mongoose-role-guard.plugin.ts —
+     *   registered as mutation `role-guard-skips-updateone` in tests/regression-mutations.json.
+     */
+    it('the role guard stops a token from granting roles through a direct Model.updateOne (MongoDB)', async () => {
+      if (iamDb.driver !== 'mongodb') {
+        // On PostgreSQL the Mongoose model refuses every data method; the store case above is the whole path there
+        return;
+      }
+      const victim = await signUpAndSignIn(helper, iamDb, 'proof-model-victim');
+      for (const credential of [(await tenantToken()).token, (await userToken(platformAdmin)).token]) {
+        await helper.rest(`/proof/grant-admin-model/${victim.id}`, {
+          method: 'POST',
+          statusCode: 201,
+          token: credential,
+        });
+        expect((await iamDb.findUser({ id: victim.id }))!.roles ?? []).not.toContain(RoleEnum.ADMIN);
+      }
+      // Control: the same route with the admin's session does grant — so the plugin, not the route, refused.
+      await helper.rest(`/proof/grant-admin-model/${victim.id}`, {
+        method: 'POST',
+        statusCode: 201,
+        token: platformAdmin.token,
+      });
+      expect((await iamDb.findUser({ id: victim.id }))!.roles).toContain(RoleEnum.ADMIN);
     });
 
     it('S_NO_ONE stays locked for every token', async () => {
@@ -571,9 +608,11 @@ describe('API tokens — security proof (IAM-only stack with multi-tenancy)', ()
 
     it('S_VERIFIED: a user token carries its user’s verification state', async () => {
       await helper.rest('/proof/verified', { statusCode: 200, token: (await userToken(ownerA)).token });
-      const unverifiedId = (
-        await db.collection('users').insertOne({ email: `unverified-${suffix}@test.com`, roles: [], verified: false })
-      ).insertedId.toString();
+      const unverifiedId = await iamDb.insertUser({
+        email: `unverified-${suffix}@test.com`,
+        roles: [],
+        verified: false,
+      });
       const unverified = await tokens.createUserToken({ name: 'u' }, { id: unverifiedId, roles: [] });
       await helper.rest('/proof/verified', { statusCode: 403, token: unverified.token });
     });
@@ -608,10 +647,10 @@ describe('API tokens — security proof (IAM-only stack with multi-tenancy)', ()
     });
 
     it('follows a change of user.roles on the very next request', async () => {
-      const editor = await signUpAndSignIn(helper, db, 'proof-editor', ['editor']);
+      const editor = await signUpAndSignIn(helper, iamDb, 'proof-editor', ['editor']);
       const created = await userToken(editor);
       await helper.rest('/proof/editor', { statusCode: 200, token: created.token });
-      await db.collection('users').updateOne({ _id: new ObjectId(editor.id) }, { $set: { roles: [] } });
+      await iamDb.updateUser({ id: editor.id }, { roles: [] });
       await helper.rest('/proof/editor', { statusCode: 403, token: created.token });
     });
 
@@ -621,10 +660,10 @@ describe('API tokens — security proof (IAM-only stack with multi-tenancy)', ()
     });
 
     it('dies with its user', async () => {
-      const leaver = await signUpAndSignIn(helper, db, 'proof-deleted');
+      const leaver = await signUpAndSignIn(helper, iamDb, 'proof-deleted');
       const created = await userToken(leaver);
       await helper.rest('/proof/editor', { statusCode: 403, token: created.token });
-      await db.collection('users').deleteOne({ _id: new ObjectId(leaver.id) });
+      await iamDb.deleteUsers({ id: leaver.id });
       await helper.rest('/proof/editor', { statusCode: 401, token: created.token });
     });
   });
@@ -635,7 +674,7 @@ describe('API tokens — security proof (IAM-only stack with multi-tenancy)', ()
 
   describe('password reset (revokeSessionsOnPasswordReset: true)', () => {
     it('an IAM reset revokes every user token of that user — and nobody else’s', async () => {
-      const resetUser = await signUpAndSignIn(helper, db, 'proof-reset');
+      const resetUser = await signUpAndSignIn(helper, iamDb, 'proof-reset');
       const own = await userToken(resetUser);
       const assertion = signApiTokenAssertion({
         expiresInSeconds: 300,
@@ -648,7 +687,7 @@ describe('API tokens — security proof (IAM-only stack with multi-tenancy)', ()
         await helper.rest('/proof/current-tenant', { statusCode: 200, token: credential });
       }
 
-      await resetPasswordViaIam(helper, db, resetUser.email, 'Reset-Password-123!');
+      await resetPasswordViaIam(helper, iamDb, resetUser.email, 'Reset-Password-123!');
 
       await helper.rest('/proof/current-tenant', { statusCode: 401, token: own.token });
       await helper.rest('/proof/current-tenant', { statusCode: 401, token: assertion });

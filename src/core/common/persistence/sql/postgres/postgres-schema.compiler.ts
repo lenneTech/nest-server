@@ -1,5 +1,4 @@
-import mongoose from 'mongoose';
-
+import { defaultCollectionName } from '../../mongo/collection-name.js';
 import type { FieldDescriptor, IndexDescriptor, ModelDescriptor } from '../../model-descriptor.interface.js';
 import { UnsupportedQueryError } from '../sql-errors.js';
 import { columnName, quoteIdentifier, SqlLiterals, sqlLiteral } from '../sql-naming.js';
@@ -105,8 +104,7 @@ export interface PostgresSchemaOptions {
  * `s3_files`): MongoDB allows it in a collection name, SQL not in an unquoted identifier
  */
 export function tableName(model: ModelDescriptor): string {
-  const pluralize = mongoose.pluralize();
-  const collection = model.collection ?? (pluralize ? pluralize(model.name) : model.name);
+  const collection = model.collection ?? defaultCollectionName(model.name);
   return columnName(collection.replace(/-/g, '_'));
 }
 

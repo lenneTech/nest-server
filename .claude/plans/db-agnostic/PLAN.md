@@ -566,6 +566,35 @@ CI job, all three engines in the parity matrix); `mongoose`/`@nestjs/mongoose`/`
 REQUEST-LIFECYCLE, configurable-features, native-driver-security, CLAUDE.md, `docs/choosing-a-database.md`,
 `.claude/rules/persistence.md`), migration guide for the release (MINOR); downstream tickets (§10).
 
+**Decided while implementing phase 5 (2026-10-28, autopilot — every point is an assumption recorded on DEV-3833):**
+* *Both databases in one CI job, not a matrix:* the `postgres` vitest project runs every e2e suite outside
+  `POSTGRES_E2E_EXCLUDED` (MONGODB-ONLY or OWN-DATABASES, each with its reason, guarded by
+  `tests/unit/postgres-e2e-coverage.spec.ts`) with the default engine, a PostgreSQL database per test file (two suites
+  with different `multiTenancy` sharing one stop each other's boot); the IAM suites run on Kysely and Drizzle too.
+  `pnpm test` / `test:ci` run all projects, so the existing Build job covers both databases; a job matrix would add a
+  second install and build for no additional coverage. Revisit when the Build job's wall time hurts.
+* *Optional MongoDB through a compat leaf, not a second set of decorators:* `common/persistence/mongo/` loads the three
+  packages synchronously through `createRequire()` from the package's location (decorators run at class definition;
+  `require(esm)` and `import` share one instance). The framework's `Schema`/`Prop`/`SchemaFactory`/`InjectModel`/…
+  record each declaration and apply `@nestjs/mongoose`'s where installed; without Mongoose a descriptor comes from the
+  record through a view that reproduces Mongoose's paths and indexes (`declared-schema.view.ts`), and the descriptor
+  spec proves both sources agree for every shipped model. `UnifiedField` needed no change beyond using the compat
+  `Prop`. The pluralizer is Mongoose's legacy rules, copied (MIT) — a project's own `mongoose.pluralize()` still wins
+  where Mongoose is installed.
+* *MongoDB only when a source uses it:* `CoreModule` imports `MongooseModule.forRoot()` only for a MongoDB source;
+  otherwise `NoMongoConnectionModule` provides `null` for the connection token. Before, a `database` URL without
+  explicit `mongoose` still connected to the fallback URI — a breaking change, in the migration guide.
+  `CorePersistenceModule.forFeature()` provides the model tokens itself (`@nestjs/mongoose`'s provider shape); without
+  a connection the token is a stand-in that refuses data access, and the model runs on its routed store.
+* *`database: false`* runs without any database: stores of registered models refuse with the reason (the framework
+  registers its file metadata, so there always are some), Better-Auth is refused at boot.
+* *`$set` with `undefined`* is skipped by the SQL update compiler, as Mongoose does — the phase-4 call-site workaround
+  is now the store's behaviour (matrix case `update-undefined-ignored`).
+* *`samples`* (`findAndCount`) runs on SQL as `ORDER BY random() LIMIT n` over the page (port option `sample`).
+* *Proof of the optional peers:* `pnpm run check:without-mongodb` (in `check`, against `dist/` with the packages made
+  unresolvable by module hooks) and `--package` (publish path: the tarball installed with npm into a project that does
+  not declare them; the step fails if any reaches `node_modules`).
+
 ### Phase 6 — MySQL / MariaDB (own ticket)
 MySQL dialect for compiler, DDL and introspection; claim via `INSERT IGNORE` + conditional `UPDATE`; JSON value
 mapping; before- and after-layer only, documented as such; write guard via triggers on session variables evaluated as

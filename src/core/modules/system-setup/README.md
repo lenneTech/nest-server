@@ -172,6 +172,9 @@ NEST_SERVER_CONFIG='{ "systemSetup": { "initialAdmin": { "email": "admin@example
   After a SUCCESSFUL setup the marker REMAINS — setup must never run twice in a deployment. Test
   suites that reset the database to replay the setup flow therefore have to drop `system-setup-locks`
   alongside `users`; clearing only `users` leaves setup refused until the claim goes stale (5 min).
+- **On a PostgreSQL default source** (`database`) the claim is the row `system-setup:initial-admin` in
+  the lease table `lt_locks`, with the same semantics: one replica wins, released on failure, kept
+  after success, taken over once stale. Where this README names `system-setup-locks`, read that row.
 
 ### Security Best Practices
 
@@ -248,8 +251,10 @@ confirms a state that is not the problem, and step 2 confirms an empty database 
 empty.
 
 1. Look at the server log. Since 11.36.5 the service logs a warning naming the collection, the
-   release-on-failure semantics and the stale window.
-2. Check the collection directly: `db.getCollection('system-setup-locks').find()`
+   release-on-failure semantics and the stale window — on a PostgreSQL default source the
+   `lt_locks` row instead.
+2. Check the collection directly: `db.getCollection('system-setup-locks').find()` — on PostgreSQL
+   `SELECT * FROM lt_locks WHERE id = 'system-setup:initial-admin'`
 3. If you reset the database to replay the setup, drop `system-setup-locks` alongside `users` -
    see **Resetting for tests** below. Otherwise wait for the claim to go stale (5 minutes after it
    was taken).
@@ -265,6 +270,13 @@ executed on every test run in `tests/stories/system-setup.e2e-spec.ts`:
 for (const col of ['users', 'account', 'session', 'system-setup-locks']) {
   await db.collection(col).deleteMany({});
 }
+```
+
+On a PostgreSQL default source, the same reset (run there by the same suite in the `postgres` project):
+
+```sql
+DELETE FROM session; DELETE FROM account; DELETE FROM users;
+DELETE FROM lt_locks WHERE id = 'system-setup:initial-admin';
 ```
 
 ### Init returns 403 "System setup requires BetterAuth"

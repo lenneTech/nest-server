@@ -3,7 +3,8 @@ import { ModuleRef } from '@nestjs/core';
 import { FileStore } from '@tus/file-store';
 import { Server, Upload } from '@tus/server';
 import * as fs from 'fs';
-import { type Connection, mongo } from 'mongoose';
+import type { Connection } from 'mongoose';
+import type { mongo } from 'mongoose';
 import * as path from 'path';
 import { Readable } from 'stream';
 
@@ -26,6 +27,7 @@ import {
   normalizeTusConfig,
   parseExpirationTime,
 } from './interfaces/tus-config.interface.js';
+import { createGridFsBucket } from '../../common/persistence/mongo/mongoose-compat.js';
 
 /**
  * Optional dependencies of CoreTusService.
@@ -138,8 +140,8 @@ export class CoreTusService implements OnModuleDestroy, OnModuleInit {
       return;
     }
 
-    // Initialize GridFS bucket
-    this.files = new mongo.GridFSBucket(this.connection.db, { bucketName: 'fs' });
+    // Initialize GridFS bucket — where MongoDB is connected; finished uploads go to GridFS only on that driver
+    this.files = this.connection?.db ? createGridFsBucket(this.connection.db, { bucketName: 'fs' }) : undefined;
 
     // Ensure upload directory exists
     const uploadDir = this.config.uploadDir || DEFAULT_TUS_CONFIG.uploadDir;

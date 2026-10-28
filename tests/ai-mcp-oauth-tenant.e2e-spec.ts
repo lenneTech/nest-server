@@ -17,7 +17,7 @@
 import { Injectable, Module } from '@nestjs/common';
 import { NestExpressApplication } from '@nestjs/platform-express';
 import { InjectModel, MongooseModule, Prop, Schema, SchemaFactory } from '@nestjs/mongoose';
-import { Db, MongoClient } from 'mongodb';
+import type { Db } from 'mongodb';
 import { Model } from 'mongoose';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 
@@ -34,6 +34,7 @@ import {
   signUpAndSignIn,
 } from './helpers/api-token-e2e.helpers';
 import { createPostgresTestDatabase, type PostgresTestDatabase } from './helpers/postgres-test-db';
+import { type IamTestDb, openIamTestDb } from './helpers/iam-test-db';
 
 @Schema({ timestamps: true })
 class McpTenantNote {
@@ -86,10 +87,10 @@ describe('MCP OAuth — tenant context for an OAuth access token (e2e)', () => {
   let app: NestExpressApplication;
   let db: Db;
   let helper: TestHelper;
-  let mongo: MongoClient;
+  let iamDb: IamTestDb;
   let oauth: CoreAiMcpOAuthService;
   let previousConfig: any;
-  // In the iam-sql projects: a PostgreSQL database of this suite's own. Its configuration (multiTenancy) isolates the
+  // In the postgres and iam-sql projects: a PostgreSQL database of this suite's own. Its configuration (multiTenancy) isolates the
   // tenant-scoped AI tables, and the project's shared database is used by suites without multiTenancy
   let sqlDatabase: PostgresTestDatabase | undefined;
 
@@ -136,12 +137,13 @@ describe('MCP OAuth — tenant context for an OAuth access token (e2e)', () => {
     });
     app = await bootApiTokenIamApp(config, { imports: [McpTenantNotesModule] });
     helper = new TestHelper(app);
-    mongo = await MongoClient.connect(config.mongoose.uri);
-    db = mongo.db();
+    // CoreModule.forRoot() alone registers no user model: users and Better-Auth stay on MongoDB
+    iamDb = await openIamTestDb(config.mongoose.uri, { users: 'mongodb' });
+    db = iamDb.mongo;
     oauth = app.get(CoreAiMcpOAuthService);
 
-    member = await signUpAndSignIn(helper, db, 'mcp-member');
-    outsider = await signUpAndSignIn(helper, db, 'mcp-outsider');
+    member = await signUpAndSignIn(helper, iamDb, 'mcp-member');
+    outsider = await signUpAndSignIn(helper, iamDb, 'mcp-outsider');
     await app.get(CoreTenantService).addMember(tenantA, member.id, 'member');
 
     await db.collection('mcptenantnotes').insertMany([
@@ -153,7 +155,7 @@ describe('MCP OAuth — tenant context for an OAuth access token (e2e)', () => {
 
   afterAll(async () => {
     await app?.close();
-    await mongo?.close();
+    await iamDb?.close();
     await sqlDatabase?.drop();
     CoreBetterAuthModule.reset();
     if (previousConfig) {

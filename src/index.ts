@@ -91,6 +91,8 @@ export * from './core/common/persistence/inject-store.decorator.js';
 export * from './core/common/persistence/lock-store.interface.js';
 export * from './core/common/persistence/model-descriptor.interface.js';
 export * from './core/common/persistence/model-metadata.registry.js';
+export * from './core/common/persistence/mongo/mongo-packages.js';
+export * from './core/common/persistence/mongo/mongoose-compat.js';
 export * from './core/common/persistence/mongo-lock-store.js';
 export * from './core/common/persistence/mongoose-data-store.js';
 export * from './core/common/persistence/persisted-model.decorator.js';

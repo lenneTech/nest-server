@@ -8,7 +8,7 @@ import {
   OnModuleInit,
   Optional,
 } from '@nestjs/common';
-import { InjectConnection } from '@nestjs/mongoose';
+import { InjectConnection } from '../../common/persistence/mongo/mongoose-compat.js';
 import {
   freshSessionMiddleware,
   requestOnlySessionMiddleware,
@@ -1417,8 +1417,8 @@ export class CoreBetterAuthService implements OnApplicationBootstrap, OnModuleDe
         return this.verifyHs256Token(token);
       }
 
-      // For asymmetric algorithms (EdDSA, RS256, ES256), use JWKS
-      if (kid && this.connection) {
+      // For asymmetric algorithms (EdDSA, RS256, ES256), use JWKS — from MongoDB or the SQL source, whichever holds them
+      if (kid) {
         return this.verifyJwksToken(token, kid, alg);
       }
 

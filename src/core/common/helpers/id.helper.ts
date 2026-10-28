@@ -29,9 +29,10 @@
  * See .claude/rules/architecture.md → "DI Token Placement (SWC-Safe)".
  */
 import _ from 'lodash';
-import { Types } from 'mongoose';
+import type { Types } from 'mongoose';
 
 import { IdsType } from '../types/ids.type.js';
+import { newObjectId } from '../persistence/mongo/mongoose-compat.js';
 
 /**
  * Whether a value is an ObjectId, recognised by bson's own type tag instead of by class identity, so
@@ -109,9 +110,9 @@ export function getObjectIds(ids: any[]): Types.ObjectId[];
 export function getObjectIds(ids: any): Types.ObjectId;
 export function getObjectIds<T extends any | any[]>(ids: T): Types.ObjectId | Types.ObjectId[] {
   if (Array.isArray(ids)) {
-    return ids.map((id) => new Types.ObjectId(getStringId(id)));
+    return ids.map((id) => newObjectId(getStringId(id)));
   }
-  return new Types.ObjectId(getStringId(ids));
+  return newObjectId(getStringId(ids));
 }
 
 /**

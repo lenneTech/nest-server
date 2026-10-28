@@ -1,7 +1,6 @@
 import { passkey } from '@better-auth/passkey';
 import { Logger } from '@nestjs/common';
 import { betterAuth, BetterAuthPlugin } from 'better-auth';
-import { mongodbAdapter } from 'better-auth/adapters/mongodb';
 import { jwt, openAPI, twoFactor } from 'better-auth/plugins';
 import * as crypto from 'crypto';
 import * as fs from 'fs';
@@ -15,6 +14,7 @@ import { ConfigService } from '../../common/services/config.service.js';
 import { detectCookiePrefixDrift, resolveBetterAuthCookiePrefix } from './better-auth-cookie-prefix.helper.js';
 import { withSqlStorage } from './better-auth-sql.helper.js';
 import { projectProvidesOpenApiPlugin } from './core-better-auth-openapi.helper.js';
+import { requireBetterAuthMongoAdapter } from '../../common/persistence/mongo/mongo-packages.js';
 
 /**
  * Type for better-auth instance with plugins
@@ -648,7 +648,7 @@ export function buildBetterAuthOptions(options: CreateBetterAuthOptions): Better
     },
     basePath,
     baseURL: betterAuthBaseUrl,
-    database: sqlPool ? undefined : mongodbAdapter(db),
+    database: sqlPool ? undefined : (requireBetterAuthMongoAdapter()(db) as any),
     // Enable email/password authentication by default (required by Better-Auth 1.x)
     // Can be disabled by setting config.emailAndPassword.enabled = false
     emailAndPassword: {

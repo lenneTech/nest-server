@@ -24,7 +24,15 @@ import {
   resolveTenantFilter,
   resolveTenantScope,
 } from '../policies/tenant.policy.js';
-import { assertAccessReason, assertArrayField, assertProjection, assertSelectFields } from '../store-guards.js';
+import {
+  assertAccessReason,
+  assertArrayField,
+  assertProjection,
+  assertSampleSize,
+  assertSelectFields,
+} from '../store-guards.js';
+import { computedDefault } from '../mongo/declared-schema.view.js';
+import type { DeclaredSchema } from '../mongo/model-declarations.js';
 import { tableName } from './postgres/postgres-schema.compiler.js';
 import { compilePostgresUpdate, pullExpression } from './postgres/postgres-update.compiler.js';
 import { compilePostgresPath, compilePostgresWhere } from './postgres/postgres-where.compiler.js';
@@ -51,7 +59,7 @@ export interface SqlDataStoreOptions {
    * The model's Mongoose schema, when there is one: computes the defaults a descriptor cannot carry (functions such
    * as `Date.now`). Literal defaults come from the column defaults.
    */
-  schema?: { path(name: string): any };
+  schema?: DeclaredSchema | { path(name: string): any };
 }
 
 const SCALAR_KINDS = new Set([
@@ -154,6 +162,7 @@ export class SqlDataStore<T = Record<string, any>> implements DataStore<T> {
   }
 
   async find(where?: Where<T>, options: FindOptions = {}): Promise<StoredRecord<T>[]> {
+    const sample = options.sample === undefined ? undefined : assertSampleSize(options.sample);
     const params = new SqlParams();
     let text = `SELECT ${this.selectList(options.select, options.exclude)} FROM ${this.table} WHERE ${this.where(where, params)}`;
     text += this.orderBy(options, params);
@@ -162,6 +171,10 @@ export class SqlDataStore<T = Record<string, any>> implements DataStore<T> {
     }
     if (options.skip !== undefined) {
       text += ` OFFSET ${params.add(nonNegativeInteger(options.skip, 'skip'))}`;
+    }
+    if (sample !== undefined) {
+      // The page first, then the draw — MongoDB's `$sample` after `$sort`, `$skip` and `$limit`
+      text = `SELECT * FROM (${text}) AS "page" ORDER BY random() LIMIT ${params.add(sample)}`;
     }
     const { rows } = await this.run({ params: params.values, text });
     return this.toRecords(rows, options.select);
@@ -648,7 +661,7 @@ export class SqlDataStore<T = Record<string, any>> implements DataStore<T> {
         doc[field.name] === undefined &&
         field.name !== '_id'
       ) {
-        const value = schema.path(field.name)?.getDefault?.(doc);
+        const value = computedDefault(schema, field.name, doc);
         if (value !== undefined) {
           doc[field.name] = value;
         }

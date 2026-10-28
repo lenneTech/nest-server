@@ -1,6 +1,6 @@
 import { ObjectType } from '@nestjs/graphql';
-import { Schema as MongooseSchema, SchemaFactory } from '@nestjs/mongoose';
-import { Document, Schema } from 'mongoose';
+import { Schema as MongooseSchema, SchemaFactory } from '../../../common/persistence/mongo/mongoose-compat.js';
+import type { Document } from 'mongoose';
 
 import { Restricted } from '../../../common/decorators/restricted.decorator.js';
 import { UnifiedField } from '../../../common/decorators/unified-field.decorator.js';
@@ -26,7 +26,7 @@ export class CoreAiInteraction extends CorePersistenceModel {
   @UnifiedField({
     description: 'Tool actions executed during the run',
     isOptional: true,
-    mongoose: { type: Schema.Types.Mixed },
+    mongoose: { type: Object },
     roles: RoleEnum.ADMIN,
     type: () => JSON,
   })

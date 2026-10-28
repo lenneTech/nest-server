@@ -1,9 +1,9 @@
 import { Injectable, Logger, Optional } from '@nestjs/common';
-import { InjectConnection } from '@nestjs/mongoose';
+import { InjectConnection } from '../../common/persistence/mongo/mongoose-compat.js';
 import * as bcrypt from 'bcrypt';
 import { randomBytes, scrypt, ScryptOptions } from 'crypto';
 import { sha256 } from 'js-sha256';
-import { ObjectId } from 'mongodb';
+import type { ObjectId } from 'mongodb';
 import type { Connection } from 'mongoose';
 
 // Promisify Node.js crypto.scrypt
@@ -21,6 +21,7 @@ import { maskEmail } from '../../common/helpers/logging.helper.js';
 import { legacyCredentialAccountIssuer } from './core-better-auth-account-issuer.helper.js';
 import { getBetterAuthSqlStore } from './core-better-auth-sql.registry.js';
 import type { BetterAuthSqlStore } from './core-better-auth-sql.store.js';
+import { isValidObjectId, newObjectId } from '../../common/persistence/mongo/mongoose-compat.js';
 
 /**
  * Interface for Better-Auth session user
@@ -975,8 +976,8 @@ export class CoreBetterAuthUserMapper {
       }
 
       // Try by MongoDB _id
-      if (!user && ObjectId.isValid(userIdentifier)) {
-        user = await usersCollection.findOne({ _id: new ObjectId(userIdentifier) });
+      if (!user && isValidObjectId(userIdentifier)) {
+        user = await usersCollection.findOne({ _id: newObjectId(userIdentifier) });
       }
 
       if (!user) {
@@ -1040,7 +1041,7 @@ export class CoreBetterAuthUserMapper {
       const accountCollection = this.connection.collection('account');
       const sessionCollection = this.connection.collection('session');
 
-      const userObjectId = typeof userId === 'string' ? new ObjectId(userId) : userId;
+      const userObjectId = typeof userId === 'string' ? newObjectId(userId) : userId;
 
       // Delete Better-Auth sessions
       const sessionsResult = await sessionCollection.deleteMany({ userId: userObjectId });

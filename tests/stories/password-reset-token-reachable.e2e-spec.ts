@@ -38,20 +38,20 @@
 
 import { Test, TestingModule } from '@nestjs/testing';
 import { PubSub } from 'graphql-subscriptions';
-import { Db, MongoClient } from 'mongodb';
+import { Db } from 'mongodb';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 
 import { EmailService, HttpExceptionLogFilter, TestHelper } from '../../src';
 import envConfig from '../../src/config.env';
 import { ServerModule } from '../../src/server/server.module';
 import { UserService } from '../../src/server/modules/user/user.service';
+import { type IamTestDb, openIamTestDb } from '../helpers/iam-test-db';
 
 describe('Story: the reset token reaches the code that mails it', () => {
   let app: any;
   let testHelper: TestHelper;
   let userService: UserService;
-  let mongoClient: MongoClient;
-  let db: Db;
+  let iamDb: IamTestDb;
 
   const email = `reset-token-reach-${Date.now()}@test.com`.toLowerCase();
 
@@ -81,8 +81,7 @@ describe('Story: the reset token reaches the code that mails it', () => {
     testHelper = new TestHelper(app);
     userService = moduleFixture.get(UserService);
 
-    mongoClient = await MongoClient.connect(envConfig.mongoose.uri);
-    db = mongoClient.db();
+    iamDb = await openIamTestDb(envConfig.mongoose.uri);
 
     // `logError` on purpose: this call fell over once under a full 34-worker run, and the bare
     // status assertion reported only "expected X to be 201" — which says nothing about whether it
@@ -97,16 +96,11 @@ describe('Story: the reset token reaches the code that mails it', () => {
   });
 
   afterAll(async () => {
-    if (db) {
-      const user = await db.collection('users').findOne({ email });
-      if (user) {
-        const ids: any[] = [user._id, user._id.toString(), user.iamId, user.id].filter(Boolean);
-        await db.collection('users').deleteOne({ _id: user._id });
-        await db.collection('account').deleteMany({ userId: { $in: ids } });
-        await db.collection('session').deleteMany({ userId: { $in: ids } });
-      }
+    if (iamDb) {
+      // Sessions and accounts go with the user
+      await iamDb.deleteUsers({ email: email });
     }
-    await mongoClient?.close();
+    await iamDb?.close();
     await app?.close();
   });
 
@@ -118,7 +112,7 @@ describe('Story: the reset token reaches the code that mails it', () => {
 
     // The assertion that was missing everywhere: not merely a well-shaped token, but THE token —
     // a value that does not match the database unlocks nothing.
-    const stored = await db.collection('users').findOne({ email });
+    const stored = await iamDb.findUser({ email: email });
     expect(result!.token).toBe(stored?.passwordResetToken);
   });
 
@@ -183,7 +177,7 @@ describe('Story: the reset token reaches the code that mails it', () => {
     expect(link).not.toContain('undefined');
 
     // THE token, not merely a well-shaped one — a value that does not match unlocks nothing.
-    const stored = await db.collection('users').findOne({ email });
+    const stored = await iamDb.findUser({ email: email });
     expect(link!.endsWith(String(stored?.passwordResetToken))).toBe(true);
   });
 
@@ -194,9 +188,7 @@ describe('Story: the reset token reaches the code that mails it', () => {
     expect(created).not.toBeNull();
 
     // Backdate the stored expiry rather than waiting an hour.
-    await db
-      .collection('users')
-      .updateOne({ email }, { $set: { passwordResetTokenExpiresAt: new Date(Date.now() - 60_000) } });
+    await iamDb.updateUser({ email: email }, { passwordResetTokenExpiresAt: new Date(Date.now() - 60_000) });
 
     // 404, exactly as for a token that never existed. Distinguishing the two would tell somebody
     // holding a stale token that it was once real and belongs to a live account.
@@ -208,7 +200,7 @@ describe('Story: the reset token reaches the code that mails it', () => {
 
     // Burned on sight: a rejected token must not stay in the row waiting for a later change to
     // start honouring it again.
-    const after = await db.collection('users').findOne({ email });
+    const after = await iamDb.findUser({ email: email });
     expect(after?.passwordResetToken ?? null).toBeNull();
   });
 
@@ -231,7 +223,7 @@ describe('Story: the reset token reaches the code that mails it', () => {
     // selected the first user holding ANY live token and reset THAT account, with the attacker
     // never seeing the mail.
     const created = await userService.createPasswordResetToken(email);
-    const before = await db.collection('users').findOne({ email });
+    const before = await iamDb.findUser({ email: email });
 
     await testHelper.rest('/users/password/reset', {
       method: 'POST',
@@ -240,7 +232,7 @@ describe('Story: the reset token reaches the code that mails it', () => {
     });
 
     // The victim's credential is untouched and their legitimate token still works.
-    const after = await db.collection('users').findOne({ email });
+    const after = await iamDb.findUser({ email: email });
     expect(after?.password).toBe(before?.password);
     expect(after?.passwordResetToken).toBe(created!.token);
   });

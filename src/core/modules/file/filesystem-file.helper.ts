@@ -1,6 +1,6 @@
 import { createReadStream, createWriteStream } from 'fs';
 import { mkdir, rm, stat } from 'fs/promises';
-import { Types } from 'mongoose';
+import type { Types } from 'mongoose';
 import * as path from 'path';
 import { pipeline } from 'stream/promises';
 import { Readable } from 'stream';
@@ -14,6 +14,7 @@ import {
   findMetadataByName,
 } from './file-metadata.helper.js';
 import { streamToBuffer } from './s3-file.helper.js';
+import { newObjectId } from '../../common/persistence/mongo/mongoose-compat.js';
 
 /** Metadata collection for files stored on the local filesystem (on a SQL source: the table `filesystem_files`) */
 export const FILESYSTEM_FILES_COLLECTION = 'filesystem-files';
@@ -59,7 +60,7 @@ export class FilesystemFileHelper {
    * a user-supplied filename here.
    */
   static filePath(directory: string, id: string | Types.ObjectId): string {
-    const objectId = typeof id === 'string' ? new Types.ObjectId(id) : id;
+    const objectId = typeof id === 'string' ? newObjectId(id) : id;
     return path.join(path.resolve(directory), objectId.toHexString());
   }
 
@@ -85,7 +86,7 @@ export class FilesystemFileHelper {
       metadata?: Record<string, any>;
     },
   ): Promise<FilesystemFileInfo> {
-    const _id = new Types.ObjectId();
+    const _id = newObjectId();
     const target = FilesystemFileHelper.filePath(directory, _id);
 
     await mkdir(path.dirname(target), { recursive: true });
@@ -165,7 +166,7 @@ export class FilesystemFileHelper {
    * up through the API.
    */
   static async deleteFile(directory: string, collection: FileCollection, id: string | Types.ObjectId): Promise<void> {
-    const objectId = typeof id === 'string' ? new Types.ObjectId(id) : id;
+    const objectId = typeof id === 'string' ? newObjectId(id) : id;
     await rm(FilesystemFileHelper.filePath(directory, objectId), { force: true });
     await collection.deleteOne({ _id: objectId });
   }

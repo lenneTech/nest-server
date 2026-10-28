@@ -1,6 +1,6 @@
 import { ForbiddenException, Inject, Injectable, Logger } from '@nestjs/common';
-import { InjectModel } from '@nestjs/mongoose';
-import { Model } from 'mongoose';
+import { InjectModel } from '../../../common/persistence/mongo/mongoose-compat.js';
+import type { Model } from 'mongoose';
 
 import { RoleEnum } from '../../../common/enums/role.enum.js';
 import { ServiceOptions } from '../../../common/interfaces/service-options.interface.js';

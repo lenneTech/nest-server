@@ -7,7 +7,6 @@ import { NestExpressApplication } from '@nestjs/platform-express';
 import { ScheduleModule } from '@nestjs/schedule';
 import { Test, TestingModule } from '@nestjs/testing';
 import { PubSub } from 'graphql-subscriptions';
-import { Db } from 'mongodb';
 import { expect } from 'vitest';
 
 import { CoreBetterAuthModule, CoreModule, HttpExceptionLogFilter, TestHelper } from '../../src';
@@ -17,6 +16,7 @@ import { DateScalar } from '../../src/core/common/scalars/date.scalar';
 import { JSON as JSONScalar } from '../../src/core/common/scalars/json.scalar';
 import { ConfigService } from '../../src/core/common/services/config.service';
 import { deriveTestDbUri } from '../db-lifecycle.reporter';
+import type { IamTestDb } from './iam-test-db';
 
 export const API_TOKEN_TEST_ENCRYPTION_KEY = 'e2e-api-token-encryption-key-of-32-plus-chars';
 
@@ -74,7 +74,7 @@ let userCounter = 0;
 /** Sign a user up and in through Better-Auth; `roles` are written BEFORE sign-in so no cache holds old ones. */
 export async function signUpAndSignIn(
   helper: TestHelper,
-  db: Db,
+  iamDb: IamTestDb,
   label: string,
   roles?: string[],
 ): Promise<ApiTokenTestUser> {
@@ -85,18 +85,15 @@ export async function signUpAndSignIn(
     payload: { email, name: label, password, termsAndPrivacyAccepted: true },
     statusCode: 201,
   });
-  await db
-    .collection('users')
-    .updateOne({ email }, { $set: { emailVerified: true, verified: true, ...(roles ? { roles } : {}) } });
-  await db.collection('iam_user').updateOne({ email }, { $set: { emailVerified: true } });
+  await iamDb.updateUser({ email }, { emailVerified: true, verified: true, ...(roles ? { roles } : {}) });
   const signIn = await helper.rest('/iam/sign-in/email', {
     method: 'POST',
     payload: { email, password },
     statusCode: 200,
   });
-  const user = await db.collection('users').findOne({ email });
+  const user = await iamDb.findUser({ email });
   expect(signIn?.token, `sign-in of ${label} must yield a token`).toBeTruthy();
-  return { email, id: user!._id.toString(), password, token: signIn.token };
+  return { email, id: user!.id, password, token: signIn.token };
 }
 
 /**
@@ -105,7 +102,7 @@ export async function signUpAndSignIn(
  */
 export async function resetPasswordViaIam(
   helper: TestHelper,
-  db: Db,
+  iamDb: IamTestDb,
   email: string,
   newPassword: string,
 ): Promise<void> {
@@ -113,16 +110,8 @@ export async function resetPasswordViaIam(
     method: 'POST',
     payload: { email, redirectTo: `${envConfig.baseUrl}/reset` },
   });
-  const user = await db.collection('users').findOne({ email });
-  const verification = await db
-    .collection('verification')
-    .find({ identifier: /^reset-password:/, value: { $in: [user?.id, user?.iamId, user?._id?.toString()] } })
-    .sort({ _id: -1 })
-    .limit(1)
-    .toArray();
-  expect(verification.length, 'the IAM reset request must store a verification token').toBe(1);
-  await helper.rest('/iam/reset-password', {
-    method: 'POST',
-    payload: { newPassword, token: String(verification[0].identifier).replace('reset-password:', '') },
-  });
+  const user = await iamDb.findUser({ email });
+  const [token] = await iamDb.passwordResetTokens(user!.id);
+  expect(token, 'the IAM reset request must store a verification token').toBeTruthy();
+  await helper.rest('/iam/reset-password', { method: 'POST', payload: { newPassword, token } });
 }

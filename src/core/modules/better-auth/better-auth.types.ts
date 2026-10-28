@@ -5,7 +5,7 @@
  * and reduce the need for `as any` casts throughout the codebase.
  */
 
-import { Types } from 'mongoose';
+import type { Types } from 'mongoose';
 
 import { BetterAuthSessionUser } from './core-better-auth-user.mapper.js';
 

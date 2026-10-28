@@ -1,4 +1,3 @@
-import { Prop, Schema, SchemaFactory } from '@nestjs/mongoose';
 import mongoose, { Schema as MongooseSchema } from 'mongoose';
 import { describe, expect, it } from 'vitest';
 
@@ -10,11 +9,19 @@ import {
   getModelDescriptor,
   registerModelSchema,
 } from '../../src/core/common/persistence/model-metadata.registry';
+import { DeclaredSchema, declaredSchema } from '../../src/core/common/persistence/mongo/model-declarations';
+// The framework's own decorators: they apply @nestjs/mongoose's AND record the declaration, the second source
+import { Prop, Schema, SchemaFactory } from '../../src/core/common/persistence/mongo/mongoose-compat';
 import { tableName } from '../../src/core/common/persistence/sql/postgres/postgres-schema.compiler';
 import { CoreAiBudgetLimit } from '../../src/core/modules/ai/models/core-ai-budget-limit.model';
 import { CoreAiConnectionPreference } from '../../src/core/modules/ai/models/core-ai-connection-preference.model';
 import { CoreAiConnection } from '../../src/core/modules/ai/models/core-ai-connection.model';
 import { CoreAiConversation } from '../../src/core/modules/ai/models/core-ai-conversation.model';
+import {
+  AiMcpOAuthClientSchema,
+  AiMcpOAuthCodeSchema,
+  AiMcpOAuthRefreshTokenSchema,
+} from '../../src/core/modules/ai/models/core-ai-mcp-oauth.models';
 import { CoreAiInteraction } from '../../src/core/modules/ai/models/core-ai-interaction.model';
 import { CoreAiMode } from '../../src/core/modules/ai/models/core-ai-mode.model';
 import { CoreAiPromptHint } from '../../src/core/modules/ai/models/core-ai-prompt-hint.model';
@@ -24,6 +31,7 @@ import { CoreAiToolGrant } from '../../src/core/modules/ai/models/core-ai-tool-g
 import { CoreAiToolPolicy } from '../../src/core/modules/ai/models/core-ai-tool-policy.model';
 import { CoreApiTokenModel } from '../../src/core/modules/api-token/core-api-token.model';
 import { CoreTenantMemberModel } from '../../src/core/modules/tenant/core-tenant-member.model';
+import { FILE_METADATA_MODELS } from '../../src/core/modules/file/file-metadata.models';
 import { FileInfo } from '../../src/server/modules/file/file-info.model';
 import { User } from '../../src/server/modules/user/user.model';
 
@@ -102,6 +110,25 @@ class FixtureItem extends CorePersistenceModel {
 
 const FixtureItemSchema = SchemaFactory.createForClass(FixtureItem);
 FixtureItemSchema.index({ email: 1, tenantId: 1 }, { unique: true });
+
+/** Every persisted model class the framework ships or exercises */
+const SHIPPED_MODELS = [
+  CoreAiBudgetLimit,
+  CoreAiConnection,
+  CoreAiConnectionPreference,
+  CoreAiConversation,
+  CoreAiInteraction,
+  CoreAiMode,
+  CoreAiPrompt,
+  CoreAiPromptHint,
+  CoreAiSlot,
+  CoreAiToolGrant,
+  CoreAiToolPolicy,
+  CoreApiTokenModel,
+  CoreTenantMemberModel,
+  FileInfo,
+  User,
+];
 
 describe('persistence model descriptor', () => {
   const item = describeSchema('FixtureItem', FixtureItemSchema);
@@ -190,24 +217,7 @@ describe('persistence model descriptor', () => {
    * proves both sources still agree.
    */
   it('describes every persisted core and reference model', () => {
-    const models = [
-      CoreAiBudgetLimit,
-      CoreAiConnection,
-      CoreAiConnectionPreference,
-      CoreAiConversation,
-      CoreAiInteraction,
-      CoreAiMode,
-      CoreAiPrompt,
-      CoreAiPromptHint,
-      CoreAiSlot,
-      CoreAiToolGrant,
-      CoreAiToolPolicy,
-      CoreApiTokenModel,
-      CoreTenantMemberModel,
-      FileInfo,
-      User,
-    ];
-    const described = Object.fromEntries(models.map((model) => [model.name, describeModelClass(model)]));
+    const described = Object.fromEntries(SHIPPED_MODELS.map((model) => [model.name, describeModelClass(model)]));
     for (const descriptor of Object.values(described)) {
       expect(descriptor.fields._id?.kind).toBe('id');
     }
@@ -215,6 +225,63 @@ describe('persistence model descriptor', () => {
     expect(described.User.fields.roles.isArray).toBe(true);
     expect(described.CoreTenantMemberModel.tenantScoped).toBe(false);
     expect(described).toMatchSnapshot();
+  });
+
+  /**
+   * The second source: where Mongoose is not installed (a project on PostgreSQL alone, 12.1.0+), a model is described
+   * from what its decorators recorded, through a view that builds paths and indexes as Mongoose does. Field for field
+   * and index for index it must answer what Mongoose answers — for every shipped model and for every shape the
+   * fixture exercises (scalars, enums, arrays, refs, sub-documents, maps, TTL, unique, sparse, select, compound).
+   */
+  /**
+   * @regression   DEV-3833 (db-agnostic phase 5) — a model described without Mongoose must lose nothing Mongoose would
+   *   derive; a lost TTL would leave a SQL table without its expiry sweep.
+   * @seen-failing Drop the `expires` handling in src/core/common/persistence/mongo/declared-schema.view.ts — registered
+   *   as mutation `declared-view-ignores-expires` in tests/regression-mutations.json.
+   */
+  it('describes every model the same from its recorded declaration as from its Mongoose schema', () => {
+    for (const model of [...SHIPPED_MODELS, FixtureItem, FixtureAddress]) {
+      expect(describeSchema(model.name, declaredSchema(model)), model.name).toEqual(describeModelClass(model));
+    }
+    // The models declared inline (`createSchema()`): the same definition and options, read both ways
+    const inline: Array<[string, any]> = [
+      ...FILE_METADATA_MODELS.map((model) => [model.name, model.schema] as [string, any]),
+      ['AiMcpOAuthClient', AiMcpOAuthClientSchema],
+      ['AiMcpOAuthCode', AiMcpOAuthCodeSchema],
+      ['AiMcpOAuthRefreshToken', AiMcpOAuthRefreshTokenSchema],
+    ];
+    for (const [name, schema] of inline) {
+      const declared = new DeclaredSchema({ definition: schema.obj, options: schema.options });
+      expect(describeSchema(name, declared), name).toEqual(describeSchema(name, schema));
+    }
+  });
+
+  /**
+   * @regression   DEV-3833 (db-agnostic phase 5) — the comparison above builds both sides fresh from the class, so the
+   *   compound indexes a module adds afterwards (`TenantMember {user, tenant}`, the upsert keys of the AI grants and
+   *   preferences) were compared nowhere: a view that lost them left a SQL table without its unique constraint.
+   * @seen-failing Drop the compound indexes from the index list in
+   *   src/core/common/persistence/mongo/declared-schema.view.ts — registered as mutation
+   *   `declared-view-drops-compound-indexes` in tests/regression-mutations.json.
+   */
+  it('keeps the compound indexes a module adds after createForClass()', () => {
+    const withIndexes = <
+      S extends { index(fields: Record<string, number>, options?: Record<string, unknown>): unknown },
+    >(
+      schema: S,
+    ): S => {
+      schema.index({ email: 1, tenantId: 1 }, { unique: true });
+      schema.index({ tenantId: 1, email: -1 });
+      return schema;
+    };
+    const declared = describeSchema('FixtureItem', withIndexes(declaredSchema(FixtureItem)));
+    expect(declared.indexes).toContainEqual(
+      expect.objectContaining({
+        fields: { email: 1, tenantId: 1 },
+        options: expect.objectContaining({ unique: true }),
+      }),
+    );
+    expect(declared).toEqual(describeSchema('FixtureItem', withIndexes(SchemaFactory.createForClass(FixtureItem))));
   });
 
   it('names the SQL table after the collection, a hyphen as an underscore', () => {

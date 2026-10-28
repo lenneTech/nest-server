@@ -31,11 +31,11 @@ import {
   UseGuards,
 } from '@nestjs/common';
 import { InjectModel, MongooseModule, Prop, Schema, SchemaFactory } from '@nestjs/mongoose';
-import { Db, MongoClient, ObjectId } from 'mongodb';
 import { Model } from 'mongoose';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 
 import {
+  API_TOKEN_MODEL_TOKEN,
   ApiTokenKind,
   ApiTokenScopes,
   AuthGuard,
@@ -46,8 +46,10 @@ import {
   CoreTenantService,
   CurrentTenant,
   CurrentUser,
+  type DataStore,
   DefaultHR,
   getApiTokenContext,
+  getStoreToken,
   HttpExceptionLogFilter,
   RequestContext,
   RoleEnum,
@@ -64,6 +66,8 @@ import {
   resetPasswordViaIam,
   signUpAndSignIn,
 } from './helpers/api-token-e2e.helpers';
+import { type IamTestDb, openIamTestDb } from './helpers/iam-test-db';
+import { onOwnPostgresDatabase, ownPostgresDatabase, type PostgresTestDatabase } from './helpers/postgres-test-db';
 
 // =================================================================================================
 // Fixtures shared by all stacks
@@ -238,9 +242,20 @@ const ENCRYPTION_KEY = API_TOKEN_TEST_ENCRYPTION_KEY;
 
 describe('API tokens — IAM-only stack with multi-tenancy', () => {
   let app: any;
+  /** The API tokens as the application stores them: MongoDB, or PostgreSQL in the `postgres` project */
+  const apiTokenStore = () => app.get(getStoreToken(API_TOKEN_MODEL_TOKEN), { strict: false }) as DataStore<any>;
+  /**
+   * A stored token as it lies in the database, read as system work (token records are tenant-scoped): every field,
+   * the secret ones (`select: false`) included — a store leaves those out unless they are named
+   */
+  const storedToken = (id: string) =>
+    RequestContext.runWithBypassTenantGuard(async () => {
+      const record = await apiTokenStore().findById(id);
+      const secrets = await apiTokenStore().findById(id, { select: ['secretHash', 'signingKeyEncrypted'] });
+      return record && { ...record, ...secrets };
+    });
   let helper: TestHelper;
-  let mongo: MongoClient;
-  let db: Db;
+  let iamDb: IamTestDb;
   let previousConfig: any;
 
   const suffix = `${Date.now()}`;
@@ -280,13 +295,13 @@ describe('API tokens — IAM-only stack with multi-tenancy', () => {
       imports: [MongooseModule.forFeature([{ name: 'ApiTokenNote', schema: ApiTokenNoteSchema }])],
     });
     helper = new TestHelper(app);
-    mongo = await MongoClient.connect(config.mongoose.uri);
-    db = mongo.db();
+    // CoreModule.forRoot() alone registers no user model: users and Better-Auth stay on MongoDB
+    iamDb = await openIamTestDb(config.mongoose.uri, { users: 'mongodb' });
 
-    ownerA = await signUpAndSignIn(helper, db, 'owner-a');
-    memberA = await signUpAndSignIn(helper, db, 'member-a');
-    ownerB = await signUpAndSignIn(helper, db, 'owner-b');
-    platformAdmin = await signUpAndSignIn(helper, db, 'platform-admin', [RoleEnum.ADMIN]);
+    ownerA = await signUpAndSignIn(helper, iamDb, 'owner-a');
+    memberA = await signUpAndSignIn(helper, iamDb, 'member-a');
+    ownerB = await signUpAndSignIn(helper, iamDb, 'owner-b');
+    platformAdmin = await signUpAndSignIn(helper, iamDb, 'platform-admin', [RoleEnum.ADMIN]);
 
     const tenants = app.get(CoreTenantService);
     await tenants.addMember(tenantA, ownerA.id, 'owner');
@@ -294,7 +309,8 @@ describe('API tokens — IAM-only stack with multi-tenancy', () => {
     await tenants.addMember(tenantB, ownerB.id, 'owner');
     await tenants.addMember(tenantB, memberA.id, 'member');
 
-    await db.collection('apitokennotes').insertMany([
+    // The notes model is registered with MongooseModule alone: it stays on MongoDB
+    await iamDb.mongo.collection('apitokennotes').insertMany([
       { tenantId: tenantA, text: 'a-1' },
       { tenantId: tenantA, text: 'a-2' },
       { tenantId: tenantB, text: 'b-1' },
@@ -303,7 +319,7 @@ describe('API tokens — IAM-only stack with multi-tenancy', () => {
 
   afterAll(async () => {
     await app?.close();
-    await mongo?.close();
+    await iamDb?.close();
     CoreBetterAuthModule.reset();
     if (previousConfig) {
       ConfigService.setConfig(previousConfig, { reInit: true, warn: false });
@@ -338,7 +354,7 @@ describe('API tokens — IAM-only stack with multi-tenancy', () => {
       expect(serialized).not.toContain('secretHash');
 
       // Stored: only the hash of the secret, and an encrypted signing key — never the plaintext.
-      const stored = await db.collection('apitokens').findOne({ _id: new ObjectId(created.apiToken.id) });
+      const stored = await storedToken(created.apiToken.id);
       expect(stored!.secretHash).toBe(createHash('sha256').update(secret).digest('hex'));
       expect(stored!.signingKeyEncrypted).toBeTruthy();
       expect(JSON.stringify(stored)).not.toContain(secret);
@@ -465,7 +481,7 @@ describe('API tokens — IAM-only stack with multi-tenancy', () => {
       ).rejects.toBeInstanceOf(ForbiddenException);
       await expect(service.findTenantTokens(tenantA, tokenCaller)).rejects.toBeInstanceOf(ForbiddenException);
 
-      const stored = await db.collection('apitokens').findOne({ _id: new ObjectId(narrow.apiToken.id) });
+      const stored = await storedToken(narrow.apiToken.id);
       expect(stored).toMatchObject({ maxTenantRole: 'member', scopes: ['read'], tenant: tenantA });
 
       // Paired control: the same person WITHOUT the token context may do every one of these.
@@ -506,7 +522,7 @@ describe('API tokens — IAM-only stack with multi-tenancy', () => {
         payload: smuggled,
         token: ownerA.token,
       });
-      const stored = await db.collection('apitokens').findOne({ _id: new ObjectId(created.apiToken.id) });
+      const stored = await storedToken(created.apiToken.id);
       expect(stored).toMatchObject({ kind: ApiTokenKind.TENANT, scopes: ['read'], tenant: tenantA });
       expect(stored?.user ?? null).toBeNull();
       expect(stored?.publicId).not.toBe('f'.repeat(24));
@@ -541,7 +557,7 @@ describe('API tokens — IAM-only stack with multi-tenancy', () => {
         payload: { kind: ApiTokenKind.TENANT, tenant: tenantB, user: ownerA.id },
         token: memberA.token,
       });
-      const storedUserToken = await db.collection('apitokens').findOne({ _id: new ObjectId(own.apiToken.id) });
+      const storedUserToken = await storedToken(own.apiToken.id);
       expect(storedUserToken).toMatchObject({ kind: ApiTokenKind.USER, user: memberA.id });
       expect(storedUserToken?.tenant ?? null).toBeNull();
     });
@@ -614,9 +630,9 @@ describe('API tokens — IAM-only stack with multi-tenancy', () => {
       });
 
       const expired = await createTenantToken(['read']);
-      await db
-        .collection('apitokens')
-        .updateOne({ _id: new ObjectId(expired.apiToken.id) }, { $set: { expiresAt: new Date(Date.now() - 1000) } });
+      await RequestContext.runWithBypassTenantGuard(() =>
+        apiTokenStore().updateById(expired.apiToken.id, { $set: { expiresAt: new Date(Date.now() - 1000) } }),
+      );
 
       const secret = readToken.split('_')[2];
       const tampered = readToken.replace(secret, `${secret.slice(0, -1)}${secret.endsWith('0') ? '1' : '0'}`);
@@ -639,7 +655,7 @@ describe('API tokens — IAM-only stack with multi-tenancy', () => {
       const created = await createTenantToken(['read']);
       await helper.rest('/api-token-probe/whoami', { token: created.token });
       await new Promise((resolve) => setTimeout(resolve, 200));
-      const stored = await db.collection('apitokens').findOne({ _id: new ObjectId(created.apiToken.id) });
+      const stored = await storedToken(created.apiToken.id);
       expect(stored!.lastUsedAt).toBeInstanceOf(Date);
     });
   });
@@ -860,7 +876,7 @@ describe('API tokens — IAM-only stack with multi-tenancy', () => {
 
     it('lose access with their user’s membership', async () => {
       const tenants = app.get(CoreTenantService);
-      const leaver = await signUpAndSignIn(helper, db, 'leaver');
+      const leaver = await signUpAndSignIn(helper, iamDb, 'leaver');
       await tenants.addMember(tenantA, leaver.id, 'member');
       const created = await createUserToken(leaver);
       await helper.rest('/api-token-probe/notes', {
@@ -893,9 +909,9 @@ describe('API tokens — IAM-only stack with multi-tenancy', () => {
     });
 
     it('survive an IAM password reset while revokeSessionsOnPasswordReset is off (the default)', async () => {
-      const resetUser = await signUpAndSignIn(helper, db, 'reset-default');
+      const resetUser = await signUpAndSignIn(helper, iamDb, 'reset-default');
       const created = await createUserToken(resetUser);
-      await resetPasswordViaIam(helper, db, resetUser.email, 'Reset-Password-123!');
+      await resetPasswordViaIam(helper, iamDb, resetUser.email, 'Reset-Password-123!');
       await helper.rest('/api-token-probe/whoami', { statusCode: 200, token: created.token });
     });
 
@@ -958,32 +974,38 @@ describe('API tokens — IAM-only stack with multi-tenancy', () => {
 describe('API tokens — IAM-only stack without multi-tenancy', () => {
   let app: any;
   let helper: TestHelper;
-  let mongo: MongoClient;
-  let db: Db;
+  let iamDb: IamTestDb;
   let previousConfig: any;
+  // Without multiTenancy the tenant tables lose their row-level security: on PostgreSQL a database of its own
+  let sql: PostgresTestDatabase | undefined;
   let user: ApiTokenTestUser;
   let admin: ApiTokenTestUser;
 
   beforeAll(async () => {
     previousConfig = ConfigService.configFastButReadOnly;
-    const config = apiTokenIamConfig('api-tokens-plain', {
-      apiTokens: { encryptionKey: ENCRYPTION_KEY, scopes: SCOPES },
-      multiTenancy: undefined,
-    });
+    sql = await ownPostgresDatabase('api-tokens-plain');
+    const config = onOwnPostgresDatabase(
+      apiTokenIamConfig('api-tokens-plain', {
+        apiTokens: { encryptionKey: ENCRYPTION_KEY, scopes: SCOPES },
+        multiTenancy: undefined,
+      }),
+      sql,
+    );
     app = await bootApiTokenIamApp(config, {
       controllers: [ApiTokenProbeController, ApiTokenAdminController],
       imports: [MongooseModule.forFeature([{ name: 'ApiTokenNote', schema: ApiTokenNoteSchema }])],
     });
     helper = new TestHelper(app);
-    mongo = await MongoClient.connect(config.mongoose.uri);
-    db = mongo.db();
-    user = await signUpAndSignIn(helper, db, 'plain-user');
-    admin = await signUpAndSignIn(helper, db, 'plain-admin', [RoleEnum.ADMIN]);
+    // CoreModule.forRoot() alone registers no user model: users and Better-Auth stay on MongoDB
+    iamDb = await openIamTestDb(config.mongoose.uri, { users: 'mongodb' });
+    user = await signUpAndSignIn(helper, iamDb, 'plain-user');
+    admin = await signUpAndSignIn(helper, iamDb, 'plain-admin', [RoleEnum.ADMIN]);
   });
 
   afterAll(async () => {
     await app?.close();
-    await mongo?.close();
+    await iamDb?.close();
+    await sql?.drop();
     CoreBetterAuthModule.reset();
     if (previousConfig) {
       ConfigService.setConfig(previousConfig, { reInit: true, warn: false });

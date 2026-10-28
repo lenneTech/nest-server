@@ -27,14 +27,16 @@
     "check": "node scripts/check.mjs",
     "check:consumer": "node scripts/check-consumer.mjs",
     "check:esm": "node scripts/check-esm-core.mjs",
-    "check:fix": "pnpm install && pnpm run spectaql:sync && pnpm audit --fix && pnpm run check:overrides && pnpm peers check && pnpm run format && pnpm run lint:fix && pnpm run typecheck:tests && pnpm run typecheck:vendor && pnpm run check:esm && pnpm run check:swc-tdz && pnpm test && pnpm run build && pnpm run check:manifest && pnpm run check:server-start",
+    "check:fix": "pnpm install && pnpm run spectaql:sync && pnpm audit --fix && pnpm run check:overrides && pnpm peers check && pnpm run format && pnpm run lint:fix && pnpm run typecheck:tests && pnpm run typecheck:vendor && pnpm run check:esm && pnpm run check:swc-tdz && pnpm test && pnpm run build && pnpm run check:manifest && pnpm run check:without-mongodb && pnpm run check:server-start",
     "check:manifest": "node scripts/check-package-manifest.mjs",
     "check:mutations": "node scripts/check-mutations.mjs",
-    "check:naf": "pnpm install && pnpm run spectaql:sync && pnpm run check:overrides && pnpm peers check && pnpm run format && pnpm run lint:fix && pnpm run typecheck:tests && pnpm run typecheck:vendor && pnpm run check:esm && pnpm run check:swc-tdz && pnpm test && pnpm run build && pnpm run check:manifest && pnpm run check:server-start",
+    "check:naf": "pnpm install && pnpm run spectaql:sync && pnpm run check:overrides && pnpm peers check && pnpm run format && pnpm run lint:fix && pnpm run typecheck:tests && pnpm run typecheck:vendor && pnpm run check:esm && pnpm run check:swc-tdz && pnpm test && pnpm run build && pnpm run check:manifest && pnpm run check:without-mongodb && pnpm run check:server-start",
     "check:overrides": "node scripts/check-overrides.mjs",
-    "check:raw": "pnpm install --frozen-lockfile && pnpm run spectaql:sync && pnpm audit && pnpm run check:overrides && pnpm peers check && pnpm run format:check && pnpm run lint && pnpm run typecheck:tests && pnpm run typecheck:vendor && pnpm run check:esm && pnpm run check:swc-tdz && pnpm test && pnpm run build && pnpm run check:manifest && pnpm run check:server-start",
+    "check:raw": "pnpm install --frozen-lockfile && pnpm run spectaql:sync && pnpm audit && pnpm run check:overrides && pnpm peers check && pnpm run format:check && pnpm run lint && pnpm run typecheck:tests && pnpm run typecheck:vendor && pnpm run check:esm && pnpm run check:swc-tdz && pnpm test && pnpm run build && pnpm run check:manifest && pnpm run check:without-mongodb && pnpm run check:server-start",
     "check:server-start": "cross-env NODE_ENV=local node scripts/check-server-start.mjs --entry=dist/main.js --port-env=NSC__PORT --ready=\"Server starte[dt] at\" --path=/",
     "check:swc-tdz": "nest build -b swc -p tsconfig.swc-tdz.json && node scripts/check-swc-tdz.mjs",
+    "check:without-mongodb": "node scripts/check-without-mongodb.mjs --dist",
+    "check:without-mongodb:package": "node scripts/check-without-mongodb.mjs --package",
     "cnaf": "pnpm run check:naf",
     "docs": "pnpm run docs:ci && node scripts/open.mjs http://127.0.0.1:8080/ ./public/index.html && compodoc -p tsconfig.json -s",
     "docs:bootstrap": "node extras/update-spectaql-version.mjs && node scripts/run-spectaql.mjs",
@@ -100,7 +102,6 @@
     "@nestjs/core": "12.2.0",
     "@nestjs/graphql": "14.0.3",
     "@nestjs/jwt": "12.0.3",
-    "@nestjs/mongoose": "12.0.0",
     "@nestjs/passport": "12.0.0",
     "@nestjs/platform-express": "12.2.0",
     "@nestjs/schedule": "12.0.2",
@@ -127,8 +128,6 @@
     "js-sha256": "1.0.0",
     "json-to-graphql-query": "2.3.0",
     "lodash": "4.18.1",
-    "mongodb": "7.7.0",
-    "mongoose": "9.11.4",
     "multer": "2.5.0",
     "node-mailjet": "6.0.11",
     "nodemailer": "10.2.1",
@@ -149,6 +148,7 @@
     "@aws-sdk/s3-request-presigner": ">=3.1045.0 <4",
     "@better-auth/core": ">=1.7.12 <1.8.0",
     "@better-auth/passkey": ">=1.7.12 <1.8.0",
+    "@nestjs/mongoose": ">=12.0.0 <13",
     "@swc/core": ">=1.10.0 <2",
     "@tus/s3-store": ">=2.0.5 <3",
     "better-auth": ">=1.7.12 <1.8.0",
@@ -156,6 +156,8 @@
     "drizzle-orm": "1.0.0-rc.5",
     "ioredis": ">=5.0.0 <7",
     "kysely": ">=0.29.0 <0.30.0",
+    "mongodb": ">=7.7.0 <8",
+    "mongoose": ">=9.11.4 <10",
     "pg": ">=8.23.0 <9",
     "typeorm": ">=1.1.0 <2"
   },
@@ -174,6 +176,9 @@
     },
     "@better-auth/passkey": {
       "optional": false
+    },
+    "@nestjs/mongoose": {
+      "optional": true
     },
     "@swc/core": {
       "optional": true
@@ -196,6 +201,12 @@
     "kysely": {
       "optional": true
     },
+    "mongodb": {
+      "optional": true
+    },
+    "mongoose": {
+      "optional": true
+    },
     "pg": {
       "optional": true
     },
@@ -211,6 +222,7 @@
     "@better-auth/passkey": "1.7.13",
     "@compodoc/compodoc": "2.0.0",
     "@nestjs/cli": "12.0.10",
+    "@nestjs/mongoose": "12.0.0",
     "@nestjs/schematics": "12.0.10",
     "@nestjs/testing": "12.2.0",
     "@swc/cli": "0.8.1",
@@ -232,6 +244,8 @@
     "drizzle-orm": "1.0.0-rc.5",
     "ioredis": "6.0.0",
     "kysely": "0.29.7",
+    "mongodb": "7.7.0",
+    "mongoose": "9.11.4",
     "nodemon": "3.1.14",
     "otpauth": "9.5.2",
     "oxfmt": "0.74.0",

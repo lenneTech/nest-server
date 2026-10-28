@@ -46,12 +46,13 @@
 
 import { Test, TestingModule } from '@nestjs/testing';
 import { PubSub } from 'graphql-subscriptions';
-import { Db, MongoClient } from 'mongodb';
+import { Db } from 'mongodb';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 
 import { EmailService, HttpExceptionLogFilter, TestHelper } from '../../src';
 import envConfig from '../../src/config.env';
 import { ServerModule } from '../../src/server/server.module';
+import { type IamTestDb, openIamTestDb } from '../helpers/iam-test-db';
 
 /**
  * What a real mail send costs, standing in for SMTP/Brevo.
@@ -65,8 +66,7 @@ const MAIL_LATENCY_MS = 250;
 describe('Story: the password-reset request reveals nothing', () => {
   let app: any;
   let testHelper: TestHelper;
-  let mongoClient: MongoClient;
-  let db: Db;
+  let iamDb: IamTestDb;
 
   const knownEmail = `reset-enum-known-${Date.now()}@test.com`.toLowerCase();
   const unknownEmail = `reset-enum-unknown-${Date.now()}-nobody@test.com`.toLowerCase();
@@ -101,8 +101,7 @@ describe('Story: the password-reset request reveals nothing', () => {
     await app.init();
     testHelper = new TestHelper(app);
 
-    mongoClient = await MongoClient.connect(envConfig.mongoose.uri);
-    db = mongoClient.db();
+    iamDb = await openIamTestDb(envConfig.mongoose.uri);
 
     await testHelper.rest('/iam/sign-up/email', {
       method: 'POST',
@@ -112,16 +111,11 @@ describe('Story: the password-reset request reveals nothing', () => {
   });
 
   afterAll(async () => {
-    if (db) {
-      const user = await db.collection('users').findOne({ email: knownEmail });
-      if (user) {
-        const ids: any[] = [user._id, user._id.toString(), user.iamId, user.id].filter(Boolean);
-        await db.collection('users').deleteOne({ _id: user._id });
-        await db.collection('account').deleteMany({ userId: { $in: ids } });
-        await db.collection('session').deleteMany({ userId: { $in: ids } });
-      }
+    if (iamDb) {
+      // Sessions and accounts go with the user
+      await iamDb.deleteUsers({ email: knownEmail });
     }
-    await mongoClient?.close();
+    await iamDb?.close();
     await app?.close();
   });
 
@@ -155,7 +149,7 @@ describe('Story: the password-reset request reveals nothing', () => {
     // working would also answer identically, and would pass a status-only assertion.
     await timeResetRequest(knownEmail);
 
-    const user = await db.collection('users').findOne({ email: knownEmail });
+    const user = await iamDb.findUser({ email: knownEmail });
     expect(user?.passwordResetToken, 'the known address must still get a usable reset token').toBeTruthy();
     expect(String(user!.passwordResetToken)).toMatch(/^[a-f0-9]{64}$/);
   });
@@ -163,7 +157,7 @@ describe('Story: the password-reset request reveals nothing', () => {
   it('writes no token for the unknown address', async () => {
     await timeResetRequest(unknownEmail);
 
-    const ghost = await db.collection('users').findOne({ email: unknownEmail });
+    const ghost = await iamDb.findUser({ email: unknownEmail });
     expect(ghost, 'answering identically must not mean creating the account').toBeNull();
   });
 

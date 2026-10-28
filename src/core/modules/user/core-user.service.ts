@@ -2,7 +2,7 @@ import { BadRequestException, Logger, NotFoundException, UnprocessableEntityExce
 import bcrypt from 'bcrypt';
 import * as crypto from 'crypto';
 import { sha256 } from 'js-sha256';
-import { Document, Model } from 'mongoose';
+import type { Document, Model } from 'mongoose';
 
 import { looksLikeSystemRole, SYSTEM_ROLE_PREFIX } from '../../common/enums/role.enum.js';
 import { accessDeniedException } from '../../common/exceptions/access-denied.exception.js';

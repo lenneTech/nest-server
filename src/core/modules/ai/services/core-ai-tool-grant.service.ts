@@ -1,6 +1,6 @@
 import { Inject, Injectable, Logger } from '@nestjs/common';
-import { InjectModel } from '@nestjs/mongoose';
-import { Model } from 'mongoose';
+import { InjectModel } from '../../../common/persistence/mongo/mongoose-compat.js';
+import type { Model } from 'mongoose';
 
 import { upsertRecord } from '../../../common/persistence/store-upsert.js';
 import { CrudService } from '../../../common/services/crud.service.js';

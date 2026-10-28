@@ -1,7 +1,7 @@
 import { DECORATORS } from '@nestjs/swagger';
 import { Test, TestingModule } from '@nestjs/testing';
 import { PubSub } from 'graphql-subscriptions';
-import { MongoClient, ObjectId } from 'mongodb';
+import { ObjectId } from 'mongodb';
 
 import {
   ComparisonOperatorEnum,
@@ -16,6 +16,7 @@ import envConfig from '../src/config.env';
 import { User } from '../src/server/modules/user/user.model';
 import { UserService } from '../src/server/modules/user/user.service';
 import { ServerModule } from '../src/server/server.module';
+import { type IamTestDb, openIamTestDb } from './helpers/iam-test-db';
 
 describe('Project (e2e)', () => {
   // To enable debugging, include these flags in the options of the request you want to debug
@@ -27,8 +28,7 @@ describe('Project (e2e)', () => {
   let testHelper: TestHelper;
 
   // database
-  let connection;
-  let db;
+  let iamDb: IamTestDb;
 
   // Global vars
   let userService: UserService;
@@ -62,8 +62,7 @@ describe('Project (e2e)', () => {
       userService = moduleFixture.get(UserService);
 
       // Connection to database
-      connection = await MongoClient.connect(envConfig.mongoose.uri);
-      db = await connection.db();
+      iamDb = await openIamTestDb(envConfig.mongoose.uri);
     } catch (e) {
       console.error('beforeAllError', e);
     }
@@ -73,7 +72,7 @@ describe('Project (e2e)', () => {
    * After all tests are finished
    */
   afterAll(async () => {
-    await connection.close();
+    await iamDb?.close();
     await app.close();
   });
 
@@ -106,7 +105,7 @@ describe('Project (e2e)', () => {
       users.push(res.user);
 
       // Verify user
-      await db.collection('users').updateOne({ _id: new ObjectId(res.id) }, { $set: { verified: true } });
+      await iamDb.updateUser({ id: res.id }, { verified: true });
     }
     expect(users.length).toBeGreaterThanOrEqual(userCount);
   });
@@ -137,9 +136,7 @@ describe('Project (e2e)', () => {
    * Prepare users
    */
   it('prepareUsers', async () => {
-    await db
-      .collection('users')
-      .findOneAndUpdate({ _id: new ObjectId(users[0].id) }, { $set: { roles: [RoleEnum.ADMIN] } });
+    await iamDb.updateUser({ id: users[0].id }, { roles: [RoleEnum.ADMIN] });
   });
 
   it('updateUser', async () => {

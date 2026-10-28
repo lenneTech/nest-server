@@ -215,7 +215,9 @@ describe('data source configuration', () => {
       ['a PostgreSQL default source', 'postgres://app@db/app'],
       ['a PostgreSQL default with an owner', { ownerUrl: 'postgres://owner@db/app', url: 'postgres://app@db/app' }],
       ['an additional PostgreSQL source', { sources: { reports: 'postgresql://app@db/reports' } }],
-    ])('accepts %s (phase 1)', (_label, database) => {
+      // Refused until phase 5 (12.1.0), which runs a project without a database
+      ['no database at all', false],
+    ])('accepts %s', (_label, database) => {
       expect(() =>
         assertDataSourcesSupported(resolveDataSources({ database: database as any, mongooseUri: MONGO })),
       ).not.toThrow();
@@ -224,7 +226,6 @@ describe('data source configuration', () => {
     it.each([
       ['a MySQL source', 'mysql://app@db/app', /mysql/],
       ['a MariaDB source', { sources: { legacy: 'mariadb://app@db/app' } }, /mariadb/],
-      ['no database at all', false, /database: false/],
       ['a second MongoDB source', { sources: { logs: 'mongodb://logs/app' } }, /logs/],
     ])('refuses %s with a named error', (_label, database, message) => {
       const resolved = resolveDataSources({ database: database as any, mongooseUri: MONGO });

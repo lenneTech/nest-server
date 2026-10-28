@@ -1,5 +1,6 @@
 import _ from 'lodash';
-import { Document, Model, Types } from 'mongoose';
+import type { Document, Model } from 'mongoose';
+import type { Types } from 'mongoose';
 
 import { ProcessType } from '../enums/process-type.enum.js';
 import { getStringIds, popAndMap, toPopulateOptions } from '../helpers/db.helper.js';
@@ -16,6 +17,7 @@ import { FieldSelection } from '../types/field-selection.type.js';
 import { ConfigService } from './config.service.js';
 import { ModelRegistry } from './model-registry.service.js';
 import { RequestContext } from './request-context.service.js';
+import { isObjectIdLike } from '../helpers/id.helper.js';
 
 /**
  * Mongoose Model with native driver access paths removed to prevent
@@ -268,7 +270,7 @@ export abstract class ModuleService<T extends CoreModel = any> {
     // S_CREATOR and S_SELF checks. The full process() pipeline would remove
     // restricted fields, potentially breaking these checks.
     if (config.dbObject && config.checkRights && this.checkRights) {
-      if (typeof config.dbObject === 'string' || config.dbObject instanceof Types.ObjectId) {
+      if (typeof config.dbObject === 'string' || isObjectIdLike(config.dbObject)) {
         if (this.usesNeutralStore) {
           const record = await this.dataStore.findById(getStringIds(config.dbObject));
           if (record) {

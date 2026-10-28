@@ -5,6 +5,7 @@ import { CorePersistenceModule } from '../../src/core/common/persistence/core-pe
 import { MongooseDataStore } from '../../src/core/common/persistence/mongoose-data-store';
 import { getStoreToken } from '../../src/core/common/persistence/persistence.tokens';
 import { CrudService } from '../../src/core/common/services/crud.service';
+import { getModelToken } from '../../src/core/common/persistence/mongo/mongoose-compat';
 
 const fakeModel = (modelName: string) => ({ modelName }) as any;
 
@@ -56,9 +57,18 @@ describe('data store wiring', () => {
     expect(new LateAssignmentService(undefined).store()).toBeUndefined();
   });
 
-  it('provides and exports one store token per model from forFeature()', () => {
+  /**
+   * Since 12.1.0 forFeature() provides the model token itself (as `MongooseModule.forFeature()` did, through
+   * `@nestjs/mongoose`'s provider shape) instead of importing `MongooseModule`: without a MongoDB connection the token
+   * gets a stand-in, so the module needs no MongoDB library to be declared.
+   */
+  it('provides and exports the model token and one store token per model from forFeature()', () => {
     const module = CorePersistenceModule.forFeature([{ name: 'Alpha', schema: new mongoose.Schema({ name: String }) }]);
-    expect(module.exports).toContain(getStoreToken('Alpha'));
-    expect((module.providers as any[]).map((provider) => provider.provide)).toEqual([getStoreToken('Alpha')]);
+    expect(module.exports).toEqual([getModelToken('Alpha'), getStoreToken('Alpha')]);
+    expect(module.imports ?? []).toEqual([]);
+    expect((module.providers as any[]).map((provider) => provider.provide)).toEqual([
+      getModelToken('Alpha'),
+      getStoreToken('Alpha'),
+    ]);
   });
 });

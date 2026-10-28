@@ -10,14 +10,16 @@ import { Test, TestingModule } from '@nestjs/testing';
 import * as fs from 'fs';
 import { PubSub } from 'graphql-subscriptions';
 import * as http from 'http';
-import { MongoClient } from 'mongodb';
 import * as path from 'path';
 import * as tus from 'tus-js-client';
 
-import { HttpExceptionLogFilter, RoleEnum, TestHelper } from '../../src';
+import { FILESYSTEM_FILE_MODEL, getStoreToken, HttpExceptionLogFilter, RoleEnum, TestHelper } from '../../src';
 import envConfig from '../../src/config.env';
 import { TusModule } from '../../src/core/modules/tus';
+import { FileService } from '../../src/server/modules/file/file.service';
 import { ServerModule } from '../../src/server/server.module';
+import { type IamTestDb, openIamTestDb } from '../helpers/iam-test-db';
+import { createFixtureDir, removeFixtureDir } from '../helpers/tmp-fixtures';
 
 /**
  * Poll until `check` returns a truthy value, or give up after `timeoutMs`.
@@ -50,16 +52,30 @@ describe('TUS Upload Story', () => {
   let serverUrl: string;
 
   // Database
-  let connection;
-  let db;
+  let iamDb: IamTestDb;
 
   // Test data
-  const testFilePath = path.join(__dirname, 'test-tus-upload.txt');
+  // Staged outside the repository, in a directory of this run's own: the `e2e` and `postgres` projects run this file at
+  // the same time, and a shared path let one run delete the other's fixtures (see tests/helpers/tmp-fixtures.ts)
+  let fixtureDir: string;
+  let testFilePath: string;
   const testFileContent = 'Hello TUS! This is a test file for resumable uploads.';
-  const largeTestFilePath = path.join(__dirname, 'test-tus-upload-large.bin');
+  let largeTestFilePath: string;
 
   // Unique test identifier for cleanup
   const testId = `tus-${Date.now()}-${Math.random().toString(36).substring(2, 8)}`;
+
+  /** The driver the finished uploads go to: GridFS on MongoDB, the filesystem where the file metadata is on PostgreSQL */
+  const fileDriver = (): string => app.get(FileService)['storageDriver'];
+
+  /** The stored file's record, in the store the active driver keeps it — with its id as a string */
+  const storedFile = async (filename: string): Promise<null | Record<string, any>> => {
+    if (fileDriver() === 'gridfs') {
+      const file = await iamDb.mongo.collection('fs.files').findOne({ filename });
+      return file && { ...file, id: String(file._id) };
+    }
+    return app.get(getStoreToken(FILESYSTEM_FILE_MODEL), { strict: false }).findOne({ filename });
+  };
 
   // TUS now requires a session by default (`tus.roles`, default S_USER), so every
   // protocol request below carries the admin session cookie. Anonymous access is
@@ -94,13 +110,12 @@ describe('TUS Upload Story', () => {
       statusCode: 201,
     });
 
-    const created = await waitFor(() => db.collection('users').findOne({ email }));
+    const created = await waitFor(() => iamDb.findUser({ email: email }));
     if (!created) {
       throw new Error(`signUpUser: user ${email} was never persisted`);
     }
 
-    await db.collection('users').updateOne({ email }, { $set: { emailVerified: true, roles, verified: true } });
-    await db.collection('iam_user').updateOne({ email }, { $set: { emailVerified: true } });
+    await iamDb.updateUser({ email }, { emailVerified: true, roles, verified: true });
 
     await testHelper.rest('/iam/sign-in/email', {
       method: 'POST',
@@ -108,16 +123,8 @@ describe('TUS Upload Story', () => {
       statusCode: 200,
     });
 
-    const dbUser = await db.collection('users').findOne({ email });
-    const session = await waitFor<{ token?: string }>(() =>
-      db.collection('session').findOne({
-        $or: [
-          { userId: dbUser?._id },
-          { userId: dbUser?._id?.toString() },
-          ...(dbUser?.iamId ? [{ userId: dbUser.iamId }] : []),
-        ],
-      }) as Promise<{ token?: string } | null>,
-    );
+    const dbUser = await iamDb.findUser({ email });
+    const session = await waitFor<{ token?: string }>(() => iamDb.findUserSession(dbUser!.id));
 
     // Throw rather than returning ''. An empty cookie string is falsy, so
     // `download(url, { cookies: '' })` sets no Cookie header at all and the
@@ -151,6 +158,9 @@ describe('TUS Upload Story', () => {
 
   beforeAll(async () => {
     // Create test files
+    fixtureDir = await createFixtureDir('nest-server-tus-');
+    testFilePath = path.join(fixtureDir, 'test-tus-upload.txt');
+    largeTestFilePath = path.join(fixtureDir, 'test-tus-upload-large.bin');
     await fs.promises.writeFile(testFilePath, testFileContent);
     // Create a larger file for chunked upload testing (100KB)
     const largeContent = Buffer.alloc(100 * 1024, 'x');
@@ -182,8 +192,7 @@ describe('TUS Upload Story', () => {
       testHelper = new TestHelper(app);
 
       // Connection to database
-      connection = await MongoClient.connect(envConfig.mongoose.uri);
-      db = await connection.db();
+      iamDb = await openIamTestDb(envConfig.mongoose.uri);
 
       adminToken = await signUpAdmin();
       memberToken = await signUpUser(memberEmail, 'TUS Member', []);
@@ -195,17 +204,21 @@ describe('TUS Upload Story', () => {
 
   afterAll(async () => {
     // Clean up test files
-    try {
-      await fs.promises.unlink(testFilePath);
-      await fs.promises.unlink(largeTestFilePath);
-    } catch {
-      // Ignore if files don't exist
-    }
+    await removeFixtureDir(fixtureDir);
 
-    // Clean up uploaded files from GridFS
+    // Clean up uploaded files from the file store: GridFS on MongoDB, the filesystem records otherwise
     try {
-      const filesCollection = db.collection('fs.files');
-      const chunksCollection = db.collection('fs.chunks');
+      if (fileDriver() !== 'gridfs') {
+        // Through the service, so the bytes on disk go with their record — as system work
+        const records = await app
+          .get(getStoreToken(FILESYSTEM_FILE_MODEL), { strict: false })
+          .find({ filename: { $regex: testId } });
+        for (const record of records) {
+          await app.get(FileService).deleteFile(record.id, { force: true });
+        }
+      }
+      const filesCollection = iamDb.mongo.collection('fs.files');
+      const chunksCollection = iamDb.mongo.collection('fs.chunks');
       const files = await filesCollection.find({ filename: { $regex: testId } }).toArray();
       for (const file of files) {
         await chunksCollection.deleteMany({ files_id: file._id });
@@ -219,23 +232,9 @@ describe('TUS Upload Story', () => {
     // access-control cases
     for (const email of [adminEmail, memberEmail]) {
       try {
-        const dbUser = await db.collection('users').findOne({ email });
-        if (dbUser) {
-          await db.collection('session').deleteMany({
-            $or: [
-              { userId: dbUser._id },
-              { userId: dbUser._id?.toString() },
-              ...(dbUser.iamId ? [{ userId: dbUser.iamId }] : []),
-            ],
-          });
-          // `account` holds the Better-Auth credential row; other suites clean it too.
-          // Matters on a FAILING run, where the per-run DB is deliberately kept.
-          await db.collection('account').deleteMany({
-            $or: [{ userId: dbUser._id }, { userId: dbUser._id?.toString() }, ...(dbUser.iamId ? [{ userId: dbUser.iamId }] : [])],
-          });
-        }
-        await db.collection('users').deleteMany({ email });
-        await db.collection('iam_user').deleteMany({ email });
+        // Sessions and the Better-Auth credential row go with the user. Matters on a FAILING run, where the per-run DB
+        // is deliberately kept.
+        await iamDb.deleteUsers({ email });
       } catch {
         // Ignore cleanup errors
       }
@@ -245,7 +244,7 @@ describe('TUS Upload Story', () => {
     if (httpServer) {
       await new Promise<void>((resolve) => httpServer.close(() => resolve()));
     }
-    await connection?.close();
+    await iamDb?.close();
     await app?.close();
   });
 
@@ -326,7 +325,7 @@ describe('TUS Upload Story', () => {
       expect(uploadedUrl).toContain('/tus/');
     });
 
-    it('should create a File entity in GridFS after upload completion', async () => {
+    it('should create a File entity in the file store after upload completion', async () => {
       // Upload a file
       const filename = `${testId}-gridfs-test.txt`;
       await new Promise<void>((resolve, reject) => {
@@ -351,14 +350,12 @@ describe('TUS Upload Story', () => {
       // Wait a bit for async processing
       await new Promise((resolve) => setTimeout(resolve, 500));
 
-      // Verify file exists in GridFS
-      const filesCollection = db.collection('fs.files');
-      const file = await filesCollection.findOne({ filename });
-      expect(file).toBeDefined();
+      // Verify the file exists in the file store
+      const file = await storedFile(filename);
       expect(file).not.toBeNull();
       expect(file.length).toBe(testFileContent.length);
-      // GridFS stores contentType in metadata (MongoDB 4.0+ standard)
-      expect(file.metadata?.contentType).toBe('text/plain');
+      // GridFS keeps contentType in metadata (the MongoDB 4.0+ standard), the filesystem and S3 records at the top
+      expect(file.metadata?.contentType ?? file.contentType).toBe('text/plain');
     });
 
     it('should download TUS-uploaded file via FileController by ID', async () => {
@@ -383,11 +380,10 @@ describe('TUS Upload Story', () => {
       // Wait for GridFS migration
       await new Promise((resolve) => setTimeout(resolve, 500));
 
-      // Get file ID from GridFS
-      const filesCollection = db.collection('fs.files');
-      const file = await filesCollection.findOne({ filename });
-      expect(file).toBeDefined();
-      const fileId = file._id.toString();
+      // Get the file ID from the file store
+      const file = await storedFile(filename);
+      expect(file).not.toBeNull();
+      const fileId = file.id;
 
       // Download via FileController by ID (ADMIN endpoint — session cookie required)
       const response = await testHelper.download(`/files/id/${fileId}`, { cookies: adminToken });
@@ -461,8 +457,7 @@ describe('TUS Upload Story', () => {
 
       // Verify file is complete in GridFS
       await new Promise((resolve) => setTimeout(resolve, 500));
-      const filesCollection = db.collection('fs.files');
-      const file = await filesCollection.findOne({ filename });
+      const file = await storedFile(filename);
       expect(file).toBeDefined();
       expect(file).not.toBeNull();
       expect(file.length).toBe(fileBuffer.length);
@@ -775,18 +770,17 @@ describe('TUS Upload Story', () => {
       // Wait for async processing
       await new Promise((resolve) => setTimeout(resolve, 500));
 
-      // Verify file metadata in GridFS
-      const filesCollection = db.collection('fs.files');
-      const file = await filesCollection.findOne({ filename });
+      // Verify the file metadata in the file store
+      const file = await storedFile(filename);
 
       expect(file).toBeDefined();
       expect(file).not.toBeNull();
-      // GridFS stores contentType in metadata (MongoDB 4.0+ standard)
-      expect(file.metadata?.contentType).toBe(contentType);
+      // GridFS keeps contentType in metadata (the MongoDB 4.0+ standard), the filesystem and S3 records at the top
+      expect(file.metadata?.contentType ?? file.contentType).toBe(contentType);
       expect(file.metadata).toBeDefined();
     });
 
-    it('should store uploaded file in GridFS (download requires authentication)', async () => {
+    it('should store uploaded file in the file store (download requires authentication)', async () => {
       const filename = `${testId}-download-test.txt`;
 
       await new Promise<void>((resolve, reject) => {
@@ -812,20 +806,22 @@ describe('TUS Upload Story', () => {
       await new Promise((resolve) => setTimeout(resolve, 500));
 
       // Get file info from GridFS
-      const filesCollection = db.collection('fs.files');
-      const file = await filesCollection.findOne({ filename });
+      const file = await storedFile(filename);
 
       expect(file).toBeDefined();
       expect(file).not.toBeNull();
       expect(file.length).toBe(testFileContent.length);
 
-      // Verify the file content is accessible via GridFS directly (download via API requires auth)
-      const chunksCollection = db.collection('fs.chunks');
-      const chunks = await chunksCollection.find({ files_id: file._id }).toArray();
-      expect(chunks.length).toBeGreaterThan(0);
-
-      const content = Buffer.concat(chunks.map((c) => c.data.buffer)).toString('utf-8');
-      expect(content).toBe(testFileContent);
+      // Verify the stored bytes: in GridFS's chunks directly, elsewhere through the authenticated download
+      if (fileDriver() === 'gridfs') {
+        const chunks = await iamDb.mongo.collection('fs.chunks').find({ files_id: file._id }).toArray();
+        expect(chunks.length).toBeGreaterThan(0);
+        expect(Buffer.concat(chunks.map((c) => c.data.buffer)).toString('utf-8')).toBe(testFileContent);
+      } else {
+        const download = await testHelper.download(`/files/id/${file.id}`, { cookies: adminToken });
+        expect(download.statusCode).toBe(200);
+        expect(download.data).toBe(testFileContent);
+      }
     });
   });
 

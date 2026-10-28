@@ -82,6 +82,11 @@ export const PERSISTENCE_CASES: readonly PersistenceCase[] = [
     title: 'updateById with a partial record sets those fields (an ObjectId value included) and returns the result',
   },
   { drivers: ALL, id: 'update-operators', title: 'updateById applies $inc and $unset' },
+  {
+    drivers: ALL,
+    id: 'update-undefined-ignored',
+    title: 'an update leaves a field given as undefined unchanged, in a partial record and in $set',
+  },
   { drivers: ALL, id: 'update-nested-path', title: 'updateById sets and increments paths inside an embedded object' },
   { drivers: ALL, id: 'update-array-operators', title: 'updateById applies $push, $addToSet and $pull' },
   {
@@ -103,6 +108,11 @@ export const PERSISTENCE_CASES: readonly PersistenceCase[] = [
   { drivers: ALL, id: 'delete-many', title: 'deleteMany removes every match and returns the count' },
   { drivers: ALL, id: 'sum', title: 'sum counts the matches and totals a numeric field, a missing value as 0' },
   { drivers: ALL, id: 'find-exclude', title: 'exclude leaves fields out of a read, never the id, never with select' },
+  {
+    drivers: ALL,
+    id: 'find-sample',
+    title: 'find with sample returns that many random records of the page, after filter, sort, skip and limit',
+  },
   { drivers: ALL, id: 'delete-one', title: 'deleteOne removes the first match and returns it, null without one' },
   { drivers: ALL, id: 'update-many', title: 'updateMany applies the update to every match and returns the count' },
   {

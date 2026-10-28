@@ -128,6 +128,13 @@ jobs:
       - name: Consumer gate (install the tarball into the starter and run its tests)
         run: node scripts/check-consumer.mjs --fast --starter="$GITHUB_WORKSPACE/consumer/nest-server-starter"
 
+      # The other consumer since 12.1.0: a project on PostgreSQL alone. The tarball is installed with npm into a fresh
+      # project that declares no MongoDB library; the step fails if mongoose, @nestjs/mongoose or mongodb reach
+      # node_modules at all, then boots there on PostgreSQL (CRUD, Better-Auth sign-up and sign-in, file storage).
+      # `check` proves the same against dist/ with the packages hidden; only this proves the INSTALL.
+      - name: PostgreSQL-only consumer (the tarball installed without MongoDB's libraries)
+        run: node scripts/check-without-mongodb.mjs --package
+
       - uses: JS-DevTools/npm-publish@v4
         with:
           access: public

@@ -1,5 +1,5 @@
 import { Inject, Injectable, Logger, OnModuleDestroy, OnModuleInit, Optional } from '@nestjs/common';
-import { InjectConnection } from '@nestjs/mongoose';
+import { InjectConnection } from '../../../common/persistence/mongo/mongoose-compat.js';
 import type { Connection } from 'mongoose';
 
 import { redactSensitiveText } from '../../../common/helpers/logging.helper.js';

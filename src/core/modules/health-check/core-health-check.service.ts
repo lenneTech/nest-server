@@ -1,4 +1,4 @@
-import { Injectable, Optional } from '@nestjs/common';
+import { Inject, Injectable, Optional } from '@nestjs/common';
 import {
   DiskHealthIndicator,
   type DiskHealthIndicatorOptions,
@@ -22,7 +22,8 @@ import { ConfigService } from '../../common/services/config.service.js';
 export class CoreHealthCheckService {
   constructor(
     protected config: ConfigService,
-    protected db: MongooseHealthIndicator,
+    // Explicit token: a union type gives Nest no class to inject; `null` where no MongoDB is configured (module factory)
+    @Inject(MongooseHealthIndicator) protected db: MongooseHealthIndicator | null,
     protected disk: DiskHealthIndicator,
     protected health: HealthCheckService,
     protected memory: MemoryHealthIndicator,
@@ -31,7 +32,8 @@ export class CoreHealthCheckService {
 
   healthCheck(): Promise<HealthCheckResult> {
     const healthIndicatorFunctions = [];
-    if (this.config.get<boolean>('healthCheck.configs.database.enabled')) {
+    // The MongoDB ping where MongoDB is configured — a project on PostgreSQL alone has no MongoDB to ping
+    if (this.db && this.config.get<boolean>('healthCheck.configs.database.enabled')) {
       healthIndicatorFunctions.push(() => {
         // `timeout` stays part of the config contract, but @nestjs/terminus 12 deprecated it on the
         // indicator in favour of `.withTimeout()` on the returned attempt — translate it here, so the

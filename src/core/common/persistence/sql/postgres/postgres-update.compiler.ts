@@ -67,6 +67,11 @@ class UpdateCompiler {
         throw new UnsupportedQueryError(`${operator} needs an object`);
       }
       for (const [path, value] of Object.entries(fields)) {
+        // `undefined` means "not given": Mongoose drops such a key from every operator before MongoDB sees it, so a
+        // field given as undefined keeps its value — writing NULL here would erase it on PostgreSQL alone
+        if (value === undefined) {
+          continue;
+        }
         switch (operator) {
           case '$addToSet':
             this.addToSet(path, value);

@@ -1,6 +1,6 @@
 import { ObjectType } from '@nestjs/graphql';
-import { Prop, Schema as MongooseSchema, SchemaFactory } from '@nestjs/mongoose';
-import { Document } from 'mongoose';
+import { Prop, Schema as MongooseSchema, SchemaFactory } from '../../../common/persistence/mongo/mongoose-compat.js';
+import type { Document } from 'mongoose';
 
 import { Restricted } from '../../../common/decorators/restricted.decorator.js';
 import { UnifiedField } from '../../../common/decorators/unified-field.decorator.js';

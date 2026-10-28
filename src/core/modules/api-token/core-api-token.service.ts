@@ -12,8 +12,9 @@ import {
   UnauthorizedException,
 } from '@nestjs/common';
 import { ModuleRef } from '@nestjs/core';
-import { InjectConnection, InjectModel } from '@nestjs/mongoose';
-import { type Connection, Model, Types } from 'mongoose';
+import { InjectConnection, InjectModel } from '../../common/persistence/mongo/mongoose-compat.js';
+import type { Connection, Model } from 'mongoose';
+import type { Types } from 'mongoose';
 
 import { RoleEnum } from '../../common/enums/role.enum.js';
 import type { DataStore } from '../../common/persistence/data-store.interface.js';
@@ -50,6 +51,7 @@ import {
 } from './core-api-token.helpers.js';
 import { CoreApiTokenModel } from './core-api-token.model.js';
 import { ApiTokenOwnerIdentity, setApiTokenRevoker } from './core-api-token.registry.js';
+import { newObjectId } from '../../common/persistence/mongo/mongoose-compat.js';
 
 /** Fields a caller can never set through a create/update input. */
 const PROTECTED_FIELDS = new Set([
@@ -383,7 +385,7 @@ export class CoreApiTokenService implements OnModuleDestroy, OnModuleInit {
       ? await users.findById(userId).then((record) => record && withoutSecrets({ ...record, _id: record.id }))
       : await this.connection
           .collection('users')
-          .findOne({ _id: new Types.ObjectId(userId) }, { projection: USER_SECRET_PROJECTION });
+          .findOne({ _id: newObjectId(userId) }, { projection: USER_SECRET_PROJECTION });
     if (!doc) {
       return null;
     }
@@ -778,7 +780,7 @@ export class CoreApiTokenService implements OnModuleDestroy, OnModuleInit {
     if (typeof tokenId !== 'string' || !/^[0-9a-f]{24}$/i.test(tokenId)) {
       throw new NotFoundException('API token not found');
     }
-    return new Types.ObjectId(tokenId);
+    return newObjectId(tokenId);
   }
 
   protected commonUpdate(input: IUpdateApiTokenInput, config: IResolvedApiTokenConfig): Record<string, unknown> {

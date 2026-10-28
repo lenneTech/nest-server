@@ -1,5 +1,5 @@
 import { Injectable, Optional } from '@nestjs/common';
-import { InjectConnection } from '@nestjs/mongoose';
+import { InjectConnection } from '../../../core/common/persistence/mongo/mongoose-compat.js';
 import type { Connection } from 'mongoose';
 
 import { RoleEnum } from '../../../core/common/enums/role.enum.js';

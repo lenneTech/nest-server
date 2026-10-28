@@ -69,3 +69,39 @@ export function guardRoutedModel(model: unknown, store: DataStore<any>): void {
     Object.defineProperty(target.prototype, method, { configurable: true, value: refuse(method), writable: true });
   }
 }
+
+const STAND_IN_MODEL = Symbol('lt:stand-in-model');
+
+/** Whether `@InjectModel()` received a stand-in — no MongoDB connection exists */
+export function isStandInModel(model: unknown): boolean {
+  return !!model && (model as Record<symbol, unknown>)[STAND_IN_MODEL] === true;
+}
+
+/**
+ * What `@InjectModel()` receives for a model where no MongoDB connection exists (a project on PostgreSQL alone): an
+ * object shaped like a Mongoose model — `modelName`, `schema`, a prototype — whose data methods all refuse. A service
+ * that only received `@InjectModel()` follows the store bound to it (`bindStoreToModel()`), exactly as with a real
+ * model routed to SQL; a direct `Model.find()` names the cause instead of failing somewhere inside Mongoose.
+ */
+export function standInModel(modelName: string, schema: unknown): unknown {
+  const standIn = function StandInModel(): never {
+    throw new UnsupportedCapabilityError(`new ${modelName}() is a Mongoose document, and no MongoDB is configured`);
+  } as unknown as Record<string, unknown> & { prototype: object };
+  Object.defineProperty(standIn, 'modelName', { value: modelName });
+  Object.defineProperty(standIn, STAND_IN_MODEL, { value: true });
+  Object.defineProperty(standIn, 'schema', { value: schema });
+  const refuse = (method: string) =>
+    function refused(): never {
+      throw new UnsupportedCapabilityError(
+        `${modelName}.${method}() reaches MongoDB, and no MongoDB is configured — use the data store ` +
+          '(this.dataStore in a CrudService, or @InjectStore())',
+      );
+    };
+  for (const method of MODEL_DATA_METHODS) {
+    Object.defineProperty(standIn, method, { configurable: true, value: refuse(method), writable: true });
+  }
+  for (const method of DOCUMENT_DATA_METHODS) {
+    Object.defineProperty(standIn.prototype, method, { configurable: true, value: refuse(method), writable: true });
+  }
+  return standIn;
+}

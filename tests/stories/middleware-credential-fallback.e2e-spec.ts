@@ -22,7 +22,7 @@ import { ScheduleModule } from '@nestjs/schedule';
 import { Test, TestingModule } from '@nestjs/testing';
 import { PubSub } from 'graphql-subscriptions';
 import { Server } from 'http';
-import { Db, MongoClient } from 'mongodb';
+import { Db } from 'mongodb';
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest';
 
 import {
@@ -40,6 +40,7 @@ import { Any } from '../../src/core/common/scalars/any.scalar';
 import { DateScalar } from '../../src/core/common/scalars/date.scalar';
 import { JSON as JSONScalar } from '../../src/core/common/scalars/json.scalar';
 import { CronJobs } from '../../src/server/common/services/cron-jobs.service';
+import { type IamTestDb, openIamTestDb } from '../helpers/iam-test-db';
 
 // =================================================================================================
 // Test Controller
@@ -108,8 +109,7 @@ describe('Story: Middleware Credential Fallback', () => {
   let app: NestExpressApplication;
   let httpServer: Server;
   let testHelper: TestHelper;
-  let mongoClient: MongoClient;
-  let db: Db;
+  let iamDb: IamTestDb;
 
   // User A: Used for JWT (Authorization header)
   let userAEmail: string;
@@ -155,12 +155,9 @@ describe('Story: Middleware Credential Fallback', () => {
   }
 
   async function getSessionTokenFromDb(email: string): Promise<null | string> {
-    const dbUser = await db.collection('users').findOne({ email });
+    const dbUser = await iamDb.findUser({ email });
     if (!dbUser) return null;
-    const session = await db.collection('session').findOne({
-      $or: [{ userId: dbUser._id }, { userId: dbUser._id.toString() }, ...(dbUser.iamId ? [{ userId: dbUser.iamId }] : [])],
-    });
-    return session?.token || null;
+    return iamDb.latestSessionToken(dbUser.id);
   }
 
   async function ensureValidCookieToken(sessionToken: string | undefined, email: string, password: string): Promise<string> {
@@ -193,8 +190,8 @@ describe('Story: Middleware Credential Fallback', () => {
   }
 
   async function getUserIdFromDb(email: string): Promise<string> {
-    const dbUser = await db.collection('users').findOne({ email });
-    return dbUser?._id?.toString() || '';
+    const dbUser = await iamDb.findUser({ email });
+    return dbUser?.id || '';
   }
 
   // =================================================================================================
@@ -246,8 +243,8 @@ describe('Story: Middleware Credential Fallback', () => {
 
       testHelper = new TestHelper(app);
 
-      mongoClient = await MongoClient.connect(testConfig.mongoose.uri);
-      db = mongoClient.db();
+      // CoreModule.forRoot() alone registers no user model: users and Better-Auth stay on MongoDB
+      iamDb = await openIamTestDb(testConfig.mongoose.uri, { users: 'mongodb' });
 
       await setupTestUsers();
     } catch (e) {
@@ -257,27 +254,13 @@ describe('Story: Middleware Credential Fallback', () => {
   });
 
   afterAll(async () => {
-    if (db) {
-      const testEmails = [userAEmail, userBEmail].filter(Boolean);
-      if (testEmails.length > 0) {
-        const testUsers = await db.collection('users').find({ email: { $in: testEmails } }).toArray();
-        const testUserIds = testUsers.map((u) => u._id.toString());
-        const testIamIds = testUsers.map((u) => u.iamId).filter(Boolean);
-
-        await db.collection('users').deleteMany({ email: { $in: testEmails } });
-
-        if (testIamIds.length > 0) {
-          await db.collection('account').deleteMany({ userId: { $in: testIamIds } });
-          await db.collection('session').deleteMany({ userId: { $in: testIamIds } });
-        }
-        if (testUserIds.length > 0) {
-          await db.collection('account').deleteMany({ userId: { $in: testUserIds } });
-          await db.collection('session').deleteMany({ userId: { $in: testUserIds } });
-        }
+    if (iamDb) {
+      // Sessions and accounts go with the users
+      for (const email of [userAEmail, userBEmail].filter(Boolean)) {
+        await iamDb.deleteUsers({ email });
       }
+      await iamDb.close();
     }
-
-    if (mongoClient) await mongoClient.close();
     if (httpServer) {
       await new Promise<void>((resolve) => httpServer.close(() => resolve()));
     }
@@ -308,8 +291,7 @@ describe('Story: Middleware Credential Fallback', () => {
     });
 
     await waitForDb();
-    await db.collection('users').updateOne({ email: userAEmail }, { $set: { emailVerified: true, verified: true } });
-    await db.collection('iam_user').updateOne({ email: userAEmail }, { $set: { emailVerified: true } });
+    await iamDb.updateUser({ email: userAEmail }, { emailVerified: true, verified: true });
     await waitForDb();
 
     const signInA = await testHelper.rest('/iam/sign-in/email', {
@@ -331,8 +313,7 @@ describe('Story: Middleware Credential Fallback', () => {
     });
 
     await waitForDb();
-    await db.collection('users').updateOne({ email: userBEmail }, { $set: { emailVerified: true, verified: true } });
-    await db.collection('iam_user').updateOne({ email: userBEmail }, { $set: { emailVerified: true } });
+    await iamDb.updateUser({ email: userBEmail }, { emailVerified: true, verified: true });
     await waitForDb();
 
     await testHelper.rest('/iam/sign-in/email', {
@@ -636,8 +617,7 @@ describe('Story: Valid Legacy JWT + Valid Cookie (Parallel Mode)', () => {
   let app: NestExpressApplication;
   let httpServer: Server;
   let testHelper: TestHelper;
-  let mongoClient: MongoClient;
-  let db: Db;
+  let iamDb: IamTestDb;
 
   // User C: Legacy Auth user (JWT from GraphQL signUp)
   let userCEmail: string;
@@ -656,17 +636,14 @@ describe('Story: Valid Legacy JWT + Valid Cookie (Parallel Mode)', () => {
   };
 
   async function getSessionTokenFromDb(email: string): Promise<null | string> {
-    const dbUser = await db.collection('users').findOne({ email });
+    const dbUser = await iamDb.findUser({ email });
     if (!dbUser) return null;
-    const session = await db.collection('session').findOne({
-      $or: [{ userId: dbUser._id }, { userId: dbUser._id.toString() }, ...(dbUser.iamId ? [{ userId: dbUser.iamId }] : [])],
-    });
-    return session?.token || null;
+    return iamDb.latestSessionToken(dbUser.id);
   }
 
   async function getUserIdFromDb(email: string): Promise<string> {
-    const dbUser = await db.collection('users').findOne({ email });
-    return dbUser?._id?.toString() || '';
+    const dbUser = await iamDb.findUser({ email });
+    return dbUser?.id || '';
   }
 
   // =================================================================================================
@@ -709,8 +686,7 @@ describe('Story: Valid Legacy JWT + Valid Cookie (Parallel Mode)', () => {
 
       testHelper = new TestHelper(app);
 
-      mongoClient = await MongoClient.connect(envConfig.mongoose.uri);
-      db = mongoClient.db();
+      iamDb = await openIamTestDb(envConfig.mongoose.uri);
 
       await setupParallelTestUsers();
     } catch (e) {
@@ -720,27 +696,13 @@ describe('Story: Valid Legacy JWT + Valid Cookie (Parallel Mode)', () => {
   });
 
   afterAll(async () => {
-    if (db) {
-      const testEmails = [userCEmail, userDEmail].filter(Boolean);
-      if (testEmails.length > 0) {
-        const testUsers = await db.collection('users').find({ email: { $in: testEmails } }).toArray();
-        const testUserIds = testUsers.map((u) => u._id.toString());
-        const testIamIds = testUsers.map((u) => u.iamId).filter(Boolean);
-
-        await db.collection('users').deleteMany({ email: { $in: testEmails } });
-
-        if (testIamIds.length > 0) {
-          await db.collection('account').deleteMany({ userId: { $in: testIamIds } });
-          await db.collection('session').deleteMany({ userId: { $in: testIamIds } });
-        }
-        if (testUserIds.length > 0) {
-          await db.collection('account').deleteMany({ userId: { $in: testUserIds } });
-          await db.collection('session').deleteMany({ userId: { $in: testUserIds } });
-        }
+    if (iamDb) {
+      // Sessions and accounts go with the users
+      for (const email of [userCEmail, userDEmail].filter(Boolean)) {
+        await iamDb.deleteUsers({ email });
       }
+      await iamDb.close();
     }
-
-    if (mongoClient) await mongoClient.close();
     if (httpServer) {
       await new Promise<void>((resolve) => httpServer.close(() => resolve()));
     }
@@ -775,8 +737,7 @@ describe('Story: Valid Legacy JWT + Valid Cookie (Parallel Mode)', () => {
       statusCode: 201,
     });
     await waitForDb();
-    await db.collection('users').updateOne({ email: userDEmail }, { $set: { emailVerified: true, verified: true } });
-    await db.collection('iam_user').updateOne({ email: userDEmail }, { $set: { emailVerified: true } });
+    await iamDb.updateUser({ email: userDEmail }, { emailVerified: true, verified: true });
     await waitForDb();
 
     await testHelper.rest('/iam/sign-in/email', {

@@ -1,14 +1,18 @@
-import { SchemaFactory } from '@nestjs/mongoose';
-
 import type { FieldDescriptor, FieldKind, IndexDescriptor, ModelDescriptor } from './model-descriptor.interface.js';
+import { declaredSchemaView } from './mongo/declared-schema.view.js';
+import { type DeclaredSchema, isDeclaredSchema } from './mongo/model-declarations.js';
+import { SchemaFactory } from './mongo/mongoose-compat.js';
 
 /**
  * Registry of database-neutral model descriptors.
  *
- * The descriptors are derived from the model's Mongoose schema, which is what MongoDB stores today
- * and therefore the most faithful source: it covers fields declared through `@UnifiedField({ mongoose })`
- * and through a plain `@Prop()` alike, which consumer projects mix freely. `SchemaFactory.createForClass`
- * works without a connection, so a descriptor exists before any database is reached.
+ * The descriptors are derived from the model's Mongoose schema where Mongoose is installed — what MongoDB stores,
+ * and therefore the most faithful source: it covers fields declared through `@UnifiedField({ mongoose })` and through
+ * a plain `@Prop()` alike, which consumer projects mix freely. `SchemaFactory.createForClass` works without a
+ * connection, so a descriptor exists before any database is reached. Where Mongoose is NOT installed (12.1.0+, a
+ * project on PostgreSQL alone), the schema is the recorded declaration (`DeclaredSchema`), read through a view that
+ * builds the paths and indexes exactly as Mongoose would (`mongo/declared-schema.view.ts`); the snapshot of every
+ * model the framework ships proves both sources agree.
  *
  * Only the schema's own declarations are read — never documents — so describing a model is free of
  * side effects and safe at boot.
@@ -34,7 +38,8 @@ interface SchemaLike {
 /**
  * Describe a schema under the given model name.
  */
-export function describeSchema(name: string, schema: SchemaLike): ModelDescriptor {
+export function describeSchema(name: string, given: DeclaredSchema | SchemaLike): ModelDescriptor {
+  const schema: SchemaLike = isDeclaredSchema(given) ? declaredSchemaView(given) : given;
   const indexes = describeIndexes(schema);
   const descriptor: ModelDescriptor = {
     fields: describeFields(schema, indexes),
@@ -69,7 +74,7 @@ export function describeModelClass(modelClass: abstract new (...args: any[]) => 
  * Register the schema a model is persisted with, under its model name. A later registration under
  * the same name replaces the earlier one — the last `forFeature` wins, as it does in Mongoose.
  */
-export function registerModelSchema(name: string, schema: SchemaLike): ModelDescriptor {
+export function registerModelSchema(name: string, schema: DeclaredSchema | SchemaLike): ModelDescriptor {
   const descriptor = describeSchema(name, schema);
   descriptorsByName.set(name, descriptor);
   return descriptor;

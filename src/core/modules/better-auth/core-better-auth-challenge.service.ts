@@ -1,7 +1,7 @@
 import { Injectable, Logger, OnModuleInit, Optional } from '@nestjs/common';
-import { InjectConnection } from '@nestjs/mongoose';
+import { InjectConnection } from '../../common/persistence/mongo/mongoose-compat.js';
 import * as crypto from 'crypto';
-import { Collection, Document } from 'mongodb';
+import type { Collection, Document } from 'mongodb';
 import type { Connection } from 'mongoose';
 
 import { IBetterAuth } from '../../common/interfaces/server-options.interface.js';
@@ -105,8 +105,8 @@ export class CoreBetterAuthChallengeService implements OnModuleInit {
 
     try {
       if (!this.connection) {
-        this.logger.warn('MongoDB connection not available, challenge storage disabled');
-        this.enabled = false;
+        // No MongoDB (PostgreSQL alone): the mappings are Better-Auth verification values on the SQL source, reached per
+        // call through getBetterAuthSqlStore() — isEnabled() answers from it
         return;
       }
 

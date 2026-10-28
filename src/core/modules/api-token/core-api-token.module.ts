@@ -1,5 +1,5 @@
 import { DynamicModule, Global, MiddlewareConsumer, Module, NestModule, Type } from '@nestjs/common';
-import { SchemaFactory } from '@nestjs/mongoose';
+import { SchemaFactory } from '../../common/persistence/mongo/mongoose-compat.js';
 
 import { CorePersistenceModule } from '../../common/persistence/core-persistence.module.js';
 import { API_TOKEN_MODEL_TOKEN } from './core-api-token.constants.js';

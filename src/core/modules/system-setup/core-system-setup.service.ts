@@ -2,7 +2,7 @@ import { randomUUID } from 'node:crypto';
 import { hostname } from 'node:os';
 
 import { ForbiddenException, Injectable, Logger, OnApplicationBootstrap } from '@nestjs/common';
-import { InjectConnection } from '@nestjs/mongoose';
+import { InjectConnection } from '../../common/persistence/mongo/mongoose-compat.js';
 import { isEmail } from 'class-validator';
 import type { Collection } from 'mongodb';
 import type { Connection } from 'mongoose';
@@ -204,6 +204,18 @@ export class CoreSystemSetupService implements OnApplicationBootstrap {
   }
 
   /**
+   * Where the claim lives, in the words an operator needs to clear it: the lease row on a SQL default source, the
+   * marker collection on MongoDB. The refusal log names it, so it must name the store `setupLocks()` actually uses.
+   */
+  protected async setupClaimLocation(): Promise<{ remedy: string; where: string }> {
+    if (await defaultSqlLockStore('system-setup')) {
+      const row = `system-setup:${SYSTEM_SETUP_LOCK_KEY}`;
+      return { remedy: `delete the row "${row}" from "lt_locks"`, where: `"lt_locks" (row "${row}")` };
+    }
+    return { remedy: `drop "${SETUP_LOCK_COLLECTION}"`, where: `"${SETUP_LOCK_COLLECTION}"` };
+  }
+
+  /**
    * How many users exist, wherever the `users` table lives: a user model on a SQL source is counted there — counting the
    * MongoDB collection instead would find none and let an anonymous caller create an administrator
    */
@@ -267,11 +279,12 @@ export class CoreSystemSetupService implements OnApplicationBootstrap {
       // Two records with contradictory severity for one non-event trains operators to ignore the
       // louder one. The HTTP caller is not left without a diagnosis: the message is unchanged and
       // an operator investigating a 403 reads it at the default level.
+      const claim = await this.setupClaimLocation();
       this.logger.log(
-        `System setup refused: the initial-admin claim in "${SETUP_LOCK_COLLECTION}" is held. ` +
+        `System setup refused: the initial-admin claim in ${claim.where} is held. ` +
           'Either another instance is running the setup right now, or a previous SUCCESSFUL setup ' +
           'left the marker behind — it is removed only when creation FAILS. If you reset the ' +
-          `database to replay the setup, drop "${SETUP_LOCK_COLLECTION}" alongside "users"; ` +
+          `database to replay the setup, ${claim.remedy} alongside "users"; ` +
           `otherwise setup stays refused until the claim goes stale after ` +
           `${INITIAL_ADMIN_CLAIM_STALE_AFTER_MS / 60_000} minutes.`,
       );

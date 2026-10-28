@@ -107,6 +107,12 @@ compatible with either downstream layout:
   other entry on that list, was never imported by framework code — only by the
   pre-commit hook's `extras/sync-version.ts` — and left together with `husky`
   in 11.41.8; its list entry is now inert.
+  **Since 12.1.0 `mongoose`, `@nestjs/mongoose` and `mongodb` are OPTIONAL peers** (an npm-mode project on
+  PostgreSQL alone installs none of them): a vendor-mode project that keeps data in MongoDB must declare them
+  itself — the CLI's vendoring step has to add them for a MongoDB project (lt CLI ticket of the db-agnostic
+  epic). A PostgreSQL vendor project needs `pg` plus its engine, AND keeps the three as `devDependencies`: the
+  vendored core is the project's own source and imports their TYPES (`import type { Connection } from
+  'mongoose'`), so its `tsc` fails with TS2307 without them; at runtime it loads none of them.
   **A peer listed there must ALSO stay in `devDependencies`**: the CLI reads
   the version from the upstream devDeps, so removing it as "redundant with
   the peer range" silently leaves vendor consumers without the package, with
@@ -168,6 +174,9 @@ pnpm run check:esm      # Compiles what a vendor project receives as a "type": "
                         # imports EVERY module — the proof that the core runs as ESM. Catches a
                         # named import Node cannot see in a CJS package, a type imported as a value,
                         # a missing `.js`; see .claude/rules/architecture.md → "Module Format"
+pnpm run check:without-mongodb # dist/ with mongoose, @nestjs/mongoose and mongodb unresolvable: loads, boots on
+                        # PostgreSQL, CRUD, Better-Auth sign-up/in, file storage. `:package` installs the packed
+                        # tarball into a project WITHOUT them (publish path). See .claude/rules/persistence.md
 pnpm run check:swc-tdz  # SWC→CJS build, loads EVERY module as its own entry point.
                         # The only step that catches a temporal-dead-zone crash from an
                         # import cycle — tsc, vitest and oxlint are all blind to it.
@@ -362,6 +371,7 @@ Detailed documentation in `.claude/rules/`:
 | `migration-guides.md` | Process for creating version migration guides |
 | `configurable-features.md` | Configuration patterns: "Presence implies enabled" and "Boolean shorthand" (`true` / `{}`) |
 | `package-management.md` | Fixed package versions only - no `^`, `~`, or ranges |
+| `persistence.md` | MongoDB and PostgreSQL: the data store, `forFeature()`, optional MongoDB libraries, native tiers, hot paths per database |
 | `framework-compatibility.md` | Maintenance obligations for FRAMEWORK-API.md, shipped docs, cross-repo dependencies |
 
 ## Native MongoDB Driver — Security Rules
@@ -450,6 +460,12 @@ These alternatives bypass `process()` but keep Mongoose plugins (Tenant, Audit, 
 > - **`CheckSecurityInterceptor`** (HTTP-level, Safety Net): Removes the full configurable `security.secretFields` list (additionally `refreshTokens`, `tempTokens`) — these are needed internally for token validation and process flows but must not reach HTTP clients.
 
 ### High-Frequency Path Design Rules
+
+**Per database (12.1.0+):** the rules below name Mongoose APIs because on MongoDB the Mongoose plugins still fire on
+`Model.create()` / `findByIdAndUpdate()`. On PostgreSQL there is no Mongoose model to call (a model routed to SQL
+refuses every Mongoose data method), and the policies live in the store. The neutral form of every rule below is the
+data store — `this.dataStore.insert()`, `updateById()`, `findById()`, `pushToArray()` skip `process()` and keep every
+policy on both databases; prefer it in new code (`.claude/rules/persistence.md` → "High-frequency paths").
 
 These rules apply when building features that execute many times per minute (monitoring, metrics, queue processors). These paths are always system-internal — no user context, no authorization needed.
 

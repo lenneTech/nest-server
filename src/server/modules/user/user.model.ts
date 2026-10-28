@@ -1,7 +1,12 @@
 import { ObjectType } from '@nestjs/graphql';
-import { Schema as MongooseSchema, Prop, SchemaFactory } from '@nestjs/mongoose';
+import {
+  objectIdType,
+  Prop,
+  Schema as MongooseSchema,
+  SchemaFactory,
+} from '../../../core/common/persistence/mongo/mongoose-compat.js';
 import { IsEmail } from 'class-validator';
-import { Document, Schema } from 'mongoose';
+import type { Document } from 'mongoose';
 
 import { Restricted } from '../../../core/common/decorators/restricted.decorator.js';
 import { Translatable } from '../../../core/common/decorators/translatable.decorator.js';
@@ -48,7 +53,7 @@ export class User extends CoreUserModel implements PersistenceModel {
   @UnifiedField({
     description: 'ID of the user who created the object',
     isOptional: true,
-    mongoose: { ref: 'User', type: Schema.Types.ObjectId },
+    mongoose: { ref: 'User', type: objectIdType() },
     roles: RoleEnum.S_EVERYONE,
     type: () => String,
   })
@@ -96,13 +101,13 @@ export class User extends CoreUserModel implements PersistenceModel {
   @UnifiedField({
     description: 'ID of the user who last updated the object',
     isOptional: true,
-    mongoose: { ref: 'User', type: Schema.Types.ObjectId },
+    mongoose: { ref: 'User', type: objectIdType() },
     roles: RoleEnum.S_USER,
     type: () => String,
   })
   updatedBy: string = undefined;
 
-  @Prop({ default: {}, type: Schema.Types.Mixed })
+  @Prop({ default: {}, type: Object })
   @Restricted(RoleEnum.S_EVERYONE)
   _translations?: Record<string, Partial<User>> = undefined;
 

@@ -1,5 +1,5 @@
 import { SelectionNode } from 'graphql';
-import { PopulateOptions } from 'mongoose';
+import type { PopulateOptions } from 'mongoose';
 
 import { ResolveSelector } from '../interfaces/resolve-selector.interface.js';
 

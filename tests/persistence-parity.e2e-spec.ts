@@ -343,6 +343,22 @@ for (const driver of PERSISTENCE_DRIVERS) {
       expect(String(referenced.ownerId)).toBe(owner.toHexString());
     });
 
+    /**
+     * @regression   DEV-3833 (db-agnostic phase 5) — the SQL store wrote NULL for a field given as undefined; phase 4 had
+     *   worked around it at the AI services' call sites only.
+     * @seen-failing Stop skipping undefined values in src/core/common/persistence/sql/postgres/postgres-update.compiler.ts
+     *   — registered as mutation `sql-update-writes-undefined` in tests/regression-mutations.json.
+     */
+    persistenceIt('update-undefined-ignored', driver, async () => {
+      // `undefined` is "not given" — MongoDB's driver drops such a key; a database that wrote NULL would erase the field
+      const record = await items.insert({ age: 1, name: 'a', status: 'open' });
+      const partial = await items.updateById(record.id, { age: undefined, name: 'b' });
+      expect(partial).toMatchObject({ age: 1, name: 'b', status: 'open' });
+      const viaSet = await items.updateById(record.id, { $set: { name: 'c', status: undefined } });
+      expect(viaSet).toMatchObject({ age: 1, name: 'c', status: 'open' });
+      expect(await items.findById(record.id)).toMatchObject({ age: 1, name: 'c', status: 'open' });
+    });
+
     persistenceIt('update-operators', driver, async () => {
       const record = await items.insert({ age: 1, name: 'a' });
       const updated = await items.updateById(record.id, { $inc: { age: 2 }, $unset: { name: '' } });
@@ -443,6 +459,39 @@ for (const driver of PERSISTENCE_DRIVERS) {
       expect((await items.find({ status: 'x' }, { exclude: ['age', 'name'] }))[0]).toMatchObject({ status: 'x' });
       await expect(items.find({}, { exclude: ['age'], select: ['name'] })).rejects.toThrow();
       await expect(items.find({}, { exclude: ['id'] })).rejects.toThrow();
+    });
+
+    /**
+     * @regression   DEV-3833 (db-agnostic phase 5) — findAndCount() with samples was refused on a SQL store; the port had no
+     *   sample option, so a project moving a model to PostgreSQL lost random sampling.
+     * @seen-failing Make the sample wrap in SqlDataStore.find() unreachable — registered as mutation
+     *   `sql-store-ignores-sample` in tests/regression-mutations.json.
+     */
+    persistenceIt('find-sample', driver, async () => {
+      for (const [name, age] of [
+        ['a', 30],
+        ['b', 20],
+        ['c', 40],
+        ['d', 10],
+        ['e', 50],
+      ] as const) {
+        await items.insert({ age, name });
+      }
+      // The page first, as MongoDB's $sample after $match, $sort, $skip and $limit: b, a, c, e → skip 1, limit 2 → a, c
+      const page = ['a', 'c'];
+      const seen = new Set<string>();
+      for (let draw = 0; draw < 24; draw++) {
+        const sampled = await items.find({ age: { $gte: 15 } }, { limit: 2, sample: 1, skip: 1, sort: { age: 1 } });
+        expect(sampled).toHaveLength(1);
+        expect(page).toContain(sampled[0].name);
+        seen.add(sampled[0].name);
+      }
+      // Random, not the first of the page: 24 draws of one in two all landing on the same record has a chance of 2⁻²³
+      expect([...seen].sort()).toEqual(page);
+      // A sample larger than the matches returns every match, once
+      expect((await items.find({}, { sample: 10 })).map((record) => record.name).sort()).toEqual(['a', 'b', 'c', 'd', 'e']);
+      await expect(items.find({}, { sample: 0 })).rejects.toThrow(/sample/);
+      await expect(items.find({}, { sample: 1.5 })).rejects.toThrow(/sample/);
     });
 
     persistenceIt('delete-one', driver, async () => {

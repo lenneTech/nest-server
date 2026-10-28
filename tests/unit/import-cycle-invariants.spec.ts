@@ -114,7 +114,10 @@ describe('SWC/TDZ import-cycle invariants', () => {
     const ALLOWED = /^(node:)?(inspector|util|lodash|rfdc|mongoose)$/;
 
     it.each([
-      ['id.helper.ts', ['../types/ids.type', '../types/ids.type.js']],
+      [
+        'id.helper.ts',
+        ['../types/ids.type', '../types/ids.type.js', '../persistence/mongo/mongoose-compat.js'],
+      ],
       ['clone.helper.ts', []],
     ])('%s imports no framework code', (file, allowedRelative) => {
       const source = read('core', 'common', 'helpers', file);
@@ -129,6 +132,33 @@ describe('SWC/TDZ import-cycle invariants', () => {
         ).toBe(true);
       }
     });
+  });
+
+  /**
+   * `id.helper` builds its ObjectIds through `persistence/mongo/mongoose-compat` (12.1.0: Mongoose is optional), so that
+   * module joins the leaf on the same terms: everything it reaches, transitively, stays inside `persistence/mongo/` or is
+   * the location helper — nothing that could import `db.helper`, `input.helper` or a module back.
+   */
+  it('the MongoDB compat modules id.helper uses reach nothing outside their own leaf', () => {
+    const seen = new Set<string>();
+    const visit = (file: string) => {
+      if (seen.has(file)) {
+        return;
+      }
+      seen.add(file);
+      const source = code(readFileSync(join(SRC, file), 'utf8'));
+      for (const [, specifier] of source.matchAll(/^(?:import|export)\s+(?!type\b)[^;]*?from\s+['"](\.[^'"]+)['"]/gm)) {
+        const target = join(file, '..', specifier).replace(/\.js$/, '.ts');
+        expect(
+          target.startsWith(join('core', 'common', 'persistence', 'mongo')) ||
+            target === join('core', 'common', 'helpers', 'module-location.helper.ts'),
+          `${file} imports ${specifier} — the compat modules must stay a leaf`,
+        ).toBe(true);
+        visit(target);
+      }
+    };
+    visit(join('core', 'common', 'persistence', 'mongo', 'mongoose-compat.ts'));
+    expect(seen.size).toBeGreaterThan(1);
   });
 
   describe('filter inputs — mutually recursive classes must share one module', () => {

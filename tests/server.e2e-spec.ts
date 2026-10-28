@@ -1,6 +1,5 @@
 import { Test, TestingModule } from '@nestjs/testing';
 import { PubSub } from 'graphql-subscriptions';
-import { MongoClient, ObjectId } from 'mongodb';
 
 import {
   ComparisonOperatorEnum,
@@ -17,6 +16,7 @@ import { UserCreateInput } from '../src/server/modules/user/inputs/user-create.i
 import { User } from '../src/server/modules/user/user.model';
 import { UserService } from '../src/server/modules/user/user.service';
 import { ServerModule } from '../src/server/server.module';
+import { type IamTestDb, openIamTestDb } from './helpers/iam-test-db';
 
 describe('ServerModule (e2e)', () => {
   // To enable debugging, include these flags in the options of the request you want to debug
@@ -29,8 +29,7 @@ describe('ServerModule (e2e)', () => {
   let testHelper: TestHelper;
 
   // database
-  let connection;
-  let db;
+  let iamDb: IamTestDb;
 
   // Services
   let userService: UserService;
@@ -87,8 +86,7 @@ describe('ServerModule (e2e)', () => {
       oTempTokenPeriod = envConfig.jwt.sameTokenIdPeriod;
 
       // Connection to database
-      connection = await MongoClient.connect(envConfig.mongoose.uri);
-      db = await connection.db();
+      iamDb = await openIamTestDb(envConfig.mongoose.uri);
     } catch (e) {
       console.error('beforeAllError', e);
     }
@@ -98,7 +96,7 @@ describe('ServerModule (e2e)', () => {
    * After all tests are finished
    */
   afterAll(async () => {
-    await connection.close();
+    await iamDb?.close();
     if (httpServer) {
       await new Promise<void>((resolve) => httpServer.close(() => resolve()));
     }
@@ -196,7 +194,7 @@ describe('ServerModule (e2e)', () => {
    * Verify new user
    */
   it('verifyUser', async () => {
-    const user = await db.collection('users').findOne({ _id: new ObjectId(gId) });
+    const user = await iamDb.findUser({ id: gId });
     const res: any = await testHelper.graphQl({
       arguments: {
         token: user.verificationToken,
@@ -251,7 +249,7 @@ describe('ServerModule (e2e)', () => {
    * Request password reset mail
    */
   it('resetPassword', async () => {
-    const user = await db.collection('users').findOne({ _id: new ObjectId(gId) });
+    const user = await iamDb.findUser({ id: gId });
     const res: any = await testHelper.graphQl({
       arguments: {
         password: `new${gPassword}`,
@@ -516,7 +514,7 @@ describe('ServerModule (e2e)', () => {
    * Get config with token
    */
   it('get config with admin rights', async () => {
-    await db.collection('users').findOneAndUpdate({ _id: new ObjectId(gId) }, { $set: { roles: ['admin'] } });
+    await iamDb.updateUser({ id: gId }, { roles: ['admin'] });
     const res: any = await testHelper.rest('/config', { token: gToken });
     expect(res.env).toEqual(envConfig.env);
   });
@@ -569,17 +567,16 @@ describe('ServerModule (e2e)', () => {
     let targetId: string;
 
     beforeAll(async () => {
-      const { insertedId } = await db.collection('users').insertOne({
+      targetId = await iamDb.insertUser({
         email: `s-role-target-${Date.now()}@test.com`,
         firstName: 'SRole',
         lastName: 'Target',
         roles: ['admin'],
       });
-      targetId = insertedId.toString();
     });
 
     afterAll(async () => {
-      await db.collection('users').deleteOne({ _id: new ObjectId(targetId) });
+      await iamDb.deleteUsers({ id: targetId });
     });
 
     it.each([
@@ -615,7 +612,7 @@ describe('ServerModule (e2e)', () => {
 
       // Per payload, not once after the loop — otherwise a leak cannot be attributed, and under
       // failure the assertion would never run at all.
-      const dbUser = await db.collection('users').findOne({ _id: new ObjectId(targetId) });
+      const dbUser = await iamDb.findUser({ id: targetId });
       expect(dbUser.roles).toEqual(['admin']);
     });
 
@@ -641,7 +638,7 @@ describe('ServerModule (e2e)', () => {
       expect(res.roles).toEqual(['admin', 'gs_editor']);
 
       // Restore, so the rejection cases above keep their ['admin'] baseline if re-run.
-      await db.collection('users').findOneAndUpdate({ _id: new ObjectId(targetId) }, { $set: { roles: ['admin'] } });
+      await iamDb.updateUser({ id: targetId }, { roles: ['admin'] });
     });
 
     /**
@@ -652,26 +649,44 @@ describe('ServerModule (e2e)', () => {
     it('setRoles() refuses a system role', async () => {
       await expect(userService.setRoles(targetId, ['s_self'])).rejects.toThrow(/System roles/);
 
-      const dbUser = await db.collection('users').findOne({ _id: new ObjectId(targetId) });
+      const dbUser = await iamDb.findUser({ id: targetId });
       expect(dbUser.roles).toEqual(['admin']);
     });
 
     /**
-     * The mongoose plugin is the backstop under BOTH paths above: it also covers force:true,
-     * runWithBypassRoleGuard() and direct Model writes, and it is not configurable — unlike
+     * The store is the backstop under BOTH paths above — mongooseSystemRolePlugin on MongoDB, the
+     * system-role policy of the SQL store on PostgreSQL: it also covers force:true,
+     * runWithBypassRoleGuard() and direct writes, and it is not configurable — unlike
      * mongooseRoleGuardPlugin, which answers "who may change roles" and CAN be switched off.
      */
-    it('the mongoose plugin refuses a system role on a direct model write', async () => {
-      const userModel = userService['mainDbModel'];
-      await expect(userModel.findByIdAndUpdate(targetId, { roles: ['s_creator'] }).exec()).rejects.toThrow(
-        /System roles/,
-      );
-      await expect(userModel.updateOne({ _id: targetId }, { $addToSet: { roles: 's_user' } }).exec()).rejects.toThrow(
+    it('the store refuses a system role on a direct write', async () => {
+      const userStore = userService['dataStore'];
+      await expect(userStore.updateById(targetId, { roles: ['s_creator'] })).rejects.toThrow(/System roles/);
+      await expect(userStore.updateOne({ id: targetId }, { $addToSet: { roles: 's_user' } })).rejects.toThrow(
         /System roles/,
       );
 
-      const dbUser = await db.collection('users').findOne({ _id: new ObjectId(targetId) });
+      const dbUser = await iamDb.findUser({ id: targetId });
       expect(dbUser.roles).toEqual(['admin']);
+    });
+
+    /**
+     * @regression   DEV-3833 (db-agnostic phase 5) — porting this suite to the store left the plugin's `updateOne` hook
+     *   without a test: on MongoDB the store writes through findOneAndUpdate, while project code calling
+     *   `Model.updateOne()` reaches the plugin's own hook.
+     * @seen-failing Drop 'updateOne' from the hook list in src/core/common/plugins/mongoose-system-role.plugin.ts —
+     *   registered as mutation `system-role-plugin-skips-updateone` in tests/regression-mutations.json.
+     */
+    it('the mongoose plugin refuses a system role on a direct Model.updateOne (MongoDB)', async () => {
+      if (iamDb.driver !== 'mongodb') {
+        // On PostgreSQL the Mongoose model refuses every data method; the store case above is the whole path there
+        return;
+      }
+      const userModel = userService['mainDbModel'];
+      await expect(userModel.updateOne({ _id: targetId }, { $addToSet: { roles: 's_user' } }).exec()).rejects.toThrow(
+        /System roles/,
+      );
+      expect((await iamDb.findUser({ id: targetId })).roles).toEqual(['admin']);
     });
 
     /**
@@ -689,7 +704,7 @@ describe('ServerModule (e2e)', () => {
 
       expect(JSON.stringify(res)).toContain('System roles');
 
-      const dbUser = await db.collection('users').findOne({ _id: new ObjectId(targetId) });
+      const dbUser = await iamDb.findUser({ id: targetId });
       expect(dbUser.roles).toEqual(['admin']);
     });
 
@@ -711,7 +726,7 @@ describe('ServerModule (e2e)', () => {
       });
 
       expect(JSON.stringify(res)).toContain('System roles');
-      const created = await db.collection('users').findOne({ email: `${passwd}@s-role-create.com` });
+      const created = await iamDb.findUser({ email: `${passwd}@s-role-create.com` });
       expect(created).toBeNull();
     });
 
@@ -726,27 +741,29 @@ describe('ServerModule (e2e)', () => {
      * query, not an outage.
      */
     it('permits writing back a system role that is already stored (no lockout on upgrade)', async () => {
-      const { insertedId } = await db.collection('users').insertOne({
-        email: `s-role-legacy-${Date.now()}@test.com`,
-        roles: ['admin', 's_manager'],
-      });
-      const legacyId = insertedId.toString();
-      const userModel = userService['mainDbModel'];
+      const legacy = { email: `s-role-legacy-${Date.now()}@test.com`, roles: ['admin', 's_manager'] };
+      if (iamDb.driver === 'postgres') {
+        // Different by design: on PostgreSQL the table's CHECK constraint refuses a stored system role, so a
+        // contaminated account cannot exist there — not even planted past every policy.
+        await expect(iamDb.insertUser(legacy)).rejects.toThrow(/no_system_roles/);
+        return;
+      }
+      // Planted past every policy, as an account stored before 11.35.0 would be
+      const legacyId = await iamDb.insertUser(legacy);
+      const userStore = userService['dataStore'];
 
       // Same value back — the shape every full-object write produces.
-      await expect(
-        userModel.findByIdAndUpdate(legacyId, { roles: ['admin', 's_manager'] }).exec(),
-      ).resolves.toBeTruthy();
+      await expect(userStore.updateById(legacyId, { roles: ['admin', 's_manager'] })).resolves.toBeTruthy();
 
       // But ADDING a further system role on top is still refused.
-      await expect(
-        userModel.findByIdAndUpdate(legacyId, { roles: ['admin', 's_manager', 's_self'] }).exec(),
-      ).rejects.toThrow(/s_self/);
+      await expect(userStore.updateById(legacyId, { roles: ['admin', 's_manager', 's_self'] })).rejects.toThrow(
+        /s_self/,
+      );
 
       // And removing the legacy value stays possible — that is the documented cleanup path.
-      await expect(userModel.findByIdAndUpdate(legacyId, { roles: ['admin'] }).exec()).resolves.toBeTruthy();
+      await expect(userStore.updateById(legacyId, { roles: ['admin'] })).resolves.toBeTruthy();
 
-      await db.collection('users').deleteOne({ _id: insertedId });
+      await iamDb.deleteUsers({ id: legacyId });
     });
   });
 
@@ -1134,7 +1151,7 @@ describe('ServerModule (e2e)', () => {
     });
 
     // Get token from database
-    const user = await db.collection('users').findOne({ _id: new ObjectId(createRes.user.id) });
+    const user = await iamDb.findUser({ id: createRes.user.id });
 
     // Reset password
     const res: any = await testHelper.rest('/users/password/reset', {
@@ -1180,7 +1197,7 @@ describe('ServerModule (e2e)', () => {
     });
 
     // Get token from database
-    const user = await db.collection('users').findOne({ _id: new ObjectId(createRes.user.id) });
+    const user = await iamDb.findUser({ id: createRes.user.id });
 
     // Verify user
     const res: any = await testHelper.rest('/users/verify', {
@@ -1225,7 +1242,7 @@ describe('ServerModule (e2e)', () => {
     });
 
     // Get token from database
-    const user = await db.collection('users').findOne({ _id: new ObjectId(createRes.user.id) });
+    const user = await iamDb.findUser({ id: createRes.user.id });
 
     // Get verified state (should be null or false before verification)
     const resBefore: any = await testHelper.rest(`/users/verified-state?token=${user.verificationToken}`);

@@ -1,6 +1,7 @@
-import { type Connection, Types } from 'mongoose';
+import type { Connection } from 'mongoose';
 
 import type { IamUserMatch } from './core-better-auth-sql.store.js';
+import { isValidObjectId, newObjectId } from '../../common/persistence/mongo/mongoose-compat.js';
 
 /** One way to look the app user up on the per-request auth path — by one key at a time */
 export interface IamUserLookup {
@@ -23,8 +24,8 @@ export class BetterAuthMongoUsers implements IamUserLookup {
     if (match.iamId) {
       or.push({ iamId: match.iamId });
     }
-    if (match.id && Types.ObjectId.isValid(match.id)) {
-      or.push({ _id: new Types.ObjectId(match.id) });
+    if (match.id && isValidObjectId(match.id)) {
+      or.push({ _id: newObjectId(match.id) });
     }
     if (!or.length) {
       return null;

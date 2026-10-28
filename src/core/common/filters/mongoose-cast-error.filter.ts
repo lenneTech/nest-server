@@ -8,9 +8,10 @@ import {
   Logger,
   NotFoundException,
 } from '@nestjs/common';
-import { Error as MongooseError } from 'mongoose';
+import type { Error as MongooseError } from 'mongoose';
 
 import { ErrorCode } from '../../modules/error-code/error-codes.js';
+import { optionalMongoPackages } from '../persistence/mongo/mongo-packages.js';
 import { QueryCastError } from '../persistence/sql/sql-errors.js';
 
 import type { GqlContextType } from '@nestjs/graphql';
@@ -225,7 +226,8 @@ export function classifyGraphQlCastError(value: unknown, args: unknown): CastErr
 /** A cast failure from either store: Mongoose's `CastError`, or the SQL store's `QueryCastError` (same rules, same fields) */
 export type CastFailure = MongooseError.CastError | QueryCastError;
 
-@Catch(MongooseError.CastError, QueryCastError)
+// Mongoose's CastError only where Mongoose is installed: a project on PostgreSQL alone raises QueryCastError only
+@Catch(...[optionalMongoPackages()?.mongoose.Error.CastError, QueryCastError].filter((type) => !!type))
 export class MongooseCastErrorFilter implements ExceptionFilter {
   protected static readonly logger = new Logger('MongooseCastErrorFilter');
 

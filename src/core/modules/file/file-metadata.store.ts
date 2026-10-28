@@ -1,12 +1,14 @@
-import { type Connection, Types } from 'mongoose';
+import type { Connection } from 'mongoose';
 
 import { isObjectIdLike } from '../../common/helpers/id.helper.js';
 import type { DataStore, FindOptions } from '../../common/persistence/data-store.interface.js';
-import { getStoreForModel } from '../../common/persistence/persistence-runtime.registry.js';
+import { getRegisteredDataStore, getStoreForModel } from '../../common/persistence/persistence-runtime.registry.js';
+import { UnsupportedCapabilityError } from '../../common/persistence/unsupported-capability.error.js';
 import type { FileCollection } from './file-metadata.helper.js';
 import { FILESYSTEM_FILE_MODEL, S3_FILE_MODEL } from './file-metadata.models.js';
 import { FILESYSTEM_FILES_COLLECTION } from './filesystem-file.helper.js';
 import { S3_FILES_COLLECTION } from './s3-file.helper.js';
+import { newObjectId } from '../../common/persistence/mongo/mongoose-compat.js';
 
 /** The two stores that keep their metadata outside GridFS */
 export type FileMetadataStore = 'filesystem' | 's3';
@@ -24,11 +26,22 @@ const STORES: Record<FileMetadataStore, { collection: string; model: string }> =
  * Every reader and writer of `s3-files` / `filesystem-files` goes through here (`CoreFileService`, the TUS hand-off,
  * the Hub): one of them reading the collection while the others write the table would lose files from view.
  */
-export function fileMetadataCollection(connection: Connection, store: FileMetadataStore): FileCollection {
+export function fileMetadataCollection(connection: Connection | null, store: FileMetadataStore): FileCollection {
   const { collection, model } = STORES[store];
-  const dataStore = connection.models?.[model] ? getStoreForModel(connection.models[model]) : undefined;
+  const dataStore = connection
+    ? connection.models?.[model]
+      ? getStoreForModel(connection.models[model])
+      : undefined
+    : // No MongoDB connection (PostgreSQL alone, or `database: false`): the store registered for the model is the only
+      // one there is — this application's, since no other can have one without a connection either
+      getRegisteredDataStore(model);
   if (dataStore && !dataStore.capabilities.mongoosePopulate) {
     return sqlFileCollection(dataStore, collection);
+  }
+  if (!connection) {
+    throw new UnsupportedCapabilityError(
+      `The ${collection} file metadata has nowhere to go: no MongoDB is configured and no data source routes ${model}`,
+    );
   }
   return connection.db.collection(collection);
 }
@@ -90,7 +103,7 @@ function toFindOptions(options: Record<string, any>): FindOptions {
 function toDocument(record: Record<string, any>): Record<string, any> {
   const { id, ...fields } = record;
   return {
-    _id: new Types.ObjectId(id),
+    _id: newObjectId(id),
     ...Object.fromEntries(Object.entries(fields).filter(([, value]) => value !== null && value !== undefined)),
   };
 }

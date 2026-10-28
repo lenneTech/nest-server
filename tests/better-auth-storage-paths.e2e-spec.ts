@@ -1,7 +1,7 @@
 /**
  * The framework's own reads and writes of Better-Auth's data, on the database the users live in (DEV-3831).
  *
- * Better-Auth runs on MongoDB in the `e2e` project and on PostgreSQL in the `iam-sql-<engine>` projects. Next to
+ * Better-Auth runs on MongoDB in the `e2e` project and on PostgreSQL in the `postgres` and `iam-sql-<engine>` projects. Next to
  * Better-Auth's own handler, the framework reaches that data itself on four paths, and each of them used to read
  * MongoDB directly:
  *

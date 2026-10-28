@@ -1,8 +1,8 @@
-import { mongo, Types } from 'mongoose';
+import type { mongo, Types } from 'mongoose';
 import { Readable } from 'stream';
+import { newObjectId } from '../persistence/mongo/mongoose-compat.js';
 
 // Use Mongoose's MongoDB types to avoid BSON version conflicts
-const ObjectId = Types.ObjectId;
 
 /**
  * GridFS File Info interface matching the structure from GridFS
@@ -166,7 +166,7 @@ export class GridFSHelper {
       let downloadStream: GridFSBucketReadStream;
 
       if (options._id) {
-        const objectId = typeof options._id === 'string' ? new ObjectId(options._id) : options._id;
+        const objectId = typeof options._id === 'string' ? newObjectId(options._id) : options._id;
         downloadStream = bucket.openDownloadStream(objectId);
       } else if (options.filename) {
         downloadStream = bucket.openDownloadStreamByName(options.filename);
@@ -191,8 +191,15 @@ export class GridFSHelper {
   /**
    * Find file metadata by ID
    */
-  static async findFileById(bucket: GridFSBucket, id: string | Types.ObjectId): Promise<GridFSFileInfo | null> {
-    const objectId = typeof id === 'string' ? new ObjectId(id) : id;
+  static async findFileById(
+    bucket: GridFSBucket | undefined,
+    id: string | Types.ObjectId,
+  ): Promise<GridFSFileInfo | null> {
+    // No bucket without MongoDB: a GridFS read finds nothing there, as for an empty bucket
+    if (!bucket) {
+      return null;
+    }
+    const objectId = typeof id === 'string' ? newObjectId(id) : id;
     const files = await bucket.find({ _id: objectId }).toArray();
     return files.length > 0 ? GridFSHelper.normalizeFileInfo(files[0]) : null;
   }
@@ -213,7 +220,11 @@ export class GridFSHelper {
    * and only corrects the document describing them. `_id` breaks the tie, so two files written in
    * the same millisecond still order totally.
    */
-  static async findFileByName(bucket: GridFSBucket, filename: string): Promise<GridFSFileInfo | null> {
+  static async findFileByName(bucket: GridFSBucket | undefined, filename: string): Promise<GridFSFileInfo | null> {
+    // No bucket without MongoDB: a GridFS read finds nothing there, as for an empty bucket
+    if (!bucket) {
+      return null;
+    }
     // `uploadDate` FIRST: MongoDB applies sort keys in document order, so leading with `_id` would
     // make the tie-break the primary key and could disagree with the driver's own by-name revision
     // order (which sorts on `uploadDate` alone).
@@ -237,7 +248,15 @@ export class GridFSHelper {
    * pre-switch files on any other. That is exactly the "switching drivers is
    * forward-only, no migration" promise failing for one field.
    */
-  static async findFiles(bucket: GridFSBucket, filter: any = {}, options: any = {}): Promise<GridFSFileInfo[]> {
+  static async findFiles(
+    bucket: GridFSBucket | undefined,
+    filter: any = {},
+    options: any = {},
+  ): Promise<GridFSFileInfo[]> {
+    // No bucket without MongoDB: a GridFS read finds nothing there, as for an empty bucket
+    if (!bucket) {
+      return [];
+    }
     const query = GridFSHelper.mapContentTypeKeys(filter);
     const findOptions =
       options && options.sort ? { ...options, sort: GridFSHelper.mapContentTypeKeys(options.sort) } : options;
@@ -274,7 +293,7 @@ export class GridFSHelper {
    * Delete a file from GridFS
    */
   static async deleteFile(bucket: GridFSBucket, id: string | Types.ObjectId): Promise<void> {
-    const objectId = typeof id === 'string' ? new ObjectId(id) : id;
+    const objectId = typeof id === 'string' ? newObjectId(id) : id;
     await bucket.delete(objectId);
   }
 
@@ -282,7 +301,7 @@ export class GridFSHelper {
    * Open download stream by ID
    */
   static openDownloadStream(bucket: GridFSBucket, id: string | Types.ObjectId): GridFSBucketReadStream {
-    const objectId = typeof id === 'string' ? new ObjectId(id) : id;
+    const objectId = typeof id === 'string' ? newObjectId(id) : id;
     return bucket.openDownloadStream(objectId);
   }
 

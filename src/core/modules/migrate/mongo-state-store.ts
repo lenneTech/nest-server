@@ -1,5 +1,5 @@
 import { randomUUID } from 'crypto';
-import { Db, MongoClient } from 'mongodb';
+import type { Db, MongoClient } from 'mongodb';
 import { hostname } from 'os';
 import { promisify } from 'util';
 
@@ -9,6 +9,7 @@ import {
   MIGRATION_LOCK_STALE_AFTER_MS,
   migrationMongoLocks,
 } from '../../common/persistence/infrastructure-locks.js';
+import { requireMongoPackages } from '../../common/persistence/mongo/mongo-packages.js';
 
 /**
  * Migration options interface (compatible with migrate package)
@@ -301,7 +302,7 @@ function startLockHeartbeat(url: string, lockCollectionName: string, token: stri
       return;
     }
     if (!client) {
-      const connected = await MongoClient.connect(url);
+      const connected = await mongoDriver().MongoClient.connect(url);
       if (stopped) {
         // stop() ran while we were connecting — nothing would ever close this one.
         await connected.close();
@@ -420,7 +421,7 @@ function lockOwnerId(): string {
 async function dbRequest<T>(url: string, callback: (db: Db) => Promise<T> | T): Promise<T> {
   let client: MongoClient | undefined;
   try {
-    client = await MongoClient.connect(url);
+    client = await mongoDriver().MongoClient.connect(url);
     const db = client.db();
     return await callback(db);
   } finally {
@@ -441,4 +442,9 @@ async function releaseLock(url: string, lockCollectionName: string, token: strin
   await dbRequest(url, (db) =>
     migrationMongoLocks(db.collection(lockCollectionName)).release(MIGRATION_LOCK_KEY, token),
   );
+}
+
+/** The MongoDB driver — a MongoDB migration needs it, a project without MongoDB never reaches this */
+function mongoDriver() {
+  return requireMongoPackages('A MongoDB migration (store or helper)').mongodb;
 }

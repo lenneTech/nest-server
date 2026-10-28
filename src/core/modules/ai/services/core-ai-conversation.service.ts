@@ -1,10 +1,10 @@
 import { Inject, Injectable } from '@nestjs/common';
-import { InjectConnection, InjectModel } from '@nestjs/mongoose';
-import { type Connection, Model } from 'mongoose';
+import { InjectConnection, InjectModel } from '../../../common/persistence/mongo/mongoose-compat.js';
+import type { Connection, Model } from 'mongoose';
 
 import { RoleEnum } from '../../../common/enums/role.enum.js';
 import { isWellFormedId } from '../../../common/persistence/id-format.js';
-import { getStoreForModel } from '../../../common/persistence/persistence-runtime.registry.js';
+import { getModelStore } from '../../../common/persistence/persistence-runtime.registry.js';
 import { ServiceOptions } from '../../../common/interfaces/service-options.interface.js';
 import { CrudService } from '../../../common/services/crud.service.js';
 import type { CoreModelConstructor } from '../../../common/types/core-model-constructor.type.js';
@@ -120,22 +120,23 @@ export class CoreAiConversationService extends CrudService<
     if (!ids.length) {
       return;
     }
-    let userModel: Model<any>;
-    try {
-      userModel = this.connection.model('User');
-    } catch {
-      // No `User` model registered on this connection (exotic setup) — skip attribution.
+    // Through the users' store wherever the user model is routed (a SQL source, or MongoDB); a `User` model registered
+    // with MongooseModule alone has no store and is read directly
+    const userStore = getModelStore(this.connection, 'User');
+    const userModel = this.connection?.models?.User as Model<any> | undefined;
+    let users: unknown[];
+    if (userStore) {
+      users = await userStore.find({ id: { $in: ids } }, { select: ['email', 'firstName', 'lastName', 'username'] });
+    } else if (userModel) {
+      users = await userModel
+        .find({ _id: { $in: ids } })
+        .select('email firstName lastName username')
+        .lean()
+        .exec();
+    } else {
+      // No `User` model registered (exotic setup) — skip attribution.
       return;
     }
-    // Through the users' store wherever the user model is routed (a SQL source, or MongoDB)
-    const userStore = getStoreForModel(userModel);
-    const users = userStore
-      ? await userStore.find({ id: { $in: ids } }, { select: ['email', 'firstName', 'lastName', 'username'] })
-      : await userModel
-          .find({ _id: { $in: ids } })
-          .select('email firstName lastName username')
-          .lean()
-          .exec();
     const byId = new Map(
       (users as any[]).map((user) => [
         String(user.id ?? user._id),

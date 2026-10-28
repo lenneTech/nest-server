@@ -1,11 +1,12 @@
 import * as fs from 'fs';
-import { Db, GridFSBucket, MongoClient, ObjectId } from 'mongodb';
+import type { Db, MongoClient, ObjectId } from 'mongodb';
 import * as path from 'path';
 
 import { callerDirectory } from '../../common/helpers/module-location.helper.js';
 import type { MigrationStateStore } from './migration-state-store.interface.js';
 import { MongoStateStore } from './mongo-state-store.js';
 import { SqlStateStore } from './sql-state-store.js';
+import { requireMongoPackages } from '../../common/persistence/mongo/mongo-packages.js';
 
 /**
  * Migration helper functions for database operations
@@ -62,7 +63,7 @@ export const _endMigration = async () => {
  * ```
  */
 export const getDb = async (mongoUrl: string): Promise<Db> => {
-  const client: MongoClient = await MongoClient.connect(mongoUrl);
+  const client: MongoClient = await mongoDriver().MongoClient.connect(mongoUrl);
 
   // Track connection for auto-cleanup in migrations
   if (inMigrationContext) {
@@ -189,14 +190,14 @@ export const uploadFileToGridFS = async (
     ...options,
   };
 
-  const client = await MongoClient.connect(mongoUrl);
+  const client = await mongoDriver().MongoClient.connect(mongoUrl);
   // Registered unconditionally — unlike `getDb()`, which only registers inside a
   // migration context. This client is always ours to close, so `_endMigration()`
   // stays a backstop for the case where the upload throws before `settle()` runs.
   activeConnections.add(client);
 
   const db = client.db();
-  const bucket = new GridFSBucket(db, { bucketName });
+  const bucket = new (mongoDriver().GridFSBucket)(db, { bucketName });
   const writeStream = bucket.openUploadStream(filename);
 
   const readStream = fs.createReadStream(sourcePath);
@@ -327,3 +328,8 @@ export const createMigrationStore = (
     }
   };
 };
+
+/** The MongoDB driver — a MongoDB migration needs it, a project without MongoDB never reaches this */
+function mongoDriver() {
+  return requireMongoPackages('A MongoDB migration (store or helper)').mongodb;
+}

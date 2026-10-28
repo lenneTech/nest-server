@@ -240,7 +240,7 @@
       "id": "by-name-lookup-unsorted",
       "defect": "11.35.0 — GridFSHelper.findFileByName() read natural order (the OLDEST file of a reused name) while openDownloadStreamByName() defaults to revision -1 (the NEWEST). So getFileInfoByName()/getRawFileInfoByName() authorized against one document and getFileStreamByName()/getBufferByName()/duplicateByName() served another — an ownership rule approved the caller's own file and handed over somebody else's bytes.",
       "file": "src/core/common/helpers/gridfs.helper.ts",
-      "after": "static async findFileByName(bucket: GridFSBucket, filename: string)",
+      "after": "static async findFileByName(bucket: GridFSBucket | undefined, filename: string)",
       "find": "bucket.find({ filename }, { limit: 1, sort: { uploadDate: -1, _id: -1 } })",
       "replace": "bucket.find({ filename })",
       "specs": [
@@ -4127,6 +4127,171 @@
       "replace": "      verificationValues: 0,",
       "specs": [
         "tests/better-auth-storage-paths.e2e-spec.ts"
+      ]
+    },
+    {
+      "driverSpecific": false,
+      "id": "sql-store-ignores-sample",
+      "defect": "DEV-3833: findAndCount() with samples was refused on a SQL store, and the store port had no sample option",
+      "file": "src/core/common/persistence/sql/sql-data-store.ts",
+      "find": "    if (sample !== undefined) {\n      // The page first, then the draw",
+      "replace": "    if (false && sample !== undefined) {\n      // The page first, then the draw",
+      "specs": [
+        "tests/persistence-parity.e2e-spec.ts"
+      ]
+    },
+    {
+      "driverSpecific": false,
+      "id": "mongodb-connected-without-source",
+      "defect": "DEV-3833: CoreModule opened a MongoDB connection (the fallback URI) although no data source used MongoDB, so a project on PostgreSQL alone needed MongoDB's libraries and a reachable MongoDB",
+      "file": "src/core.module.ts",
+      "find": "    const mongoPackages = usesMongoDb(dataSources)",
+      "replace": "    const mongoPackages = true",
+      "specs": [
+        "tests/persistence-without-database.e2e-spec.ts"
+      ]
+    },
+    {
+      "driverSpecific": false,
+      "id": "no-database-store-on-mongoose",
+      "defect": "DEV-3833: with database: false a registered model got a Mongoose store over a stand-in instead of a store that names the reason",
+      "file": "src/core/common/persistence/core-persistence.module.ts",
+      "find": "          : isStandInModel(mongooseModel)",
+      "replace": "          : false && isStandInModel(mongooseModel)",
+      "specs": [
+        "tests/persistence-without-database.e2e-spec.ts"
+      ]
+    },
+    {
+      "driverSpecific": false,
+      "id": "stand-in-reason-overwritten",
+      "defect": "DEV-3833: the routing guard overwrote a stand-in model's refusal with 'is stored on none', hiding that no database is configured",
+      "file": "src/core/common/persistence/core-persistence.module.ts",
+      "find": "        if (!store.capabilities.mongoosePopulate && !isStandInModel(mongooseModel)) {",
+      "replace": "        if (!store.capabilities.mongoosePopulate) {",
+      "specs": [
+        "tests/persistence-without-database.e2e-spec.ts"
+      ]
+    },
+    {
+      "driverSpecific": false,
+      "id": "declared-view-ignores-expires",
+      "defect": "DEV-3833: the Mongoose-free model description lost a field's TTL (expires), so a SQL table of a project without Mongoose got no expiry sweep for it",
+      "file": "src/core/common/persistence/mongo/declared-schema.view.ts",
+      "find": "    } else if (key === 'expires' && instance === 'Date') {",
+      "replace": "    } else if (false) {",
+      "specs": [
+        "tests/unit/persistence-model-descriptor.spec.ts"
+      ]
+    },
+    {
+      "driverSpecific": false,
+      "id": "compat-prop-skips-mongoose",
+      "defect": "DEV-3833: the framework's @Prop recorded the declaration but did not apply @nestjs/mongoose's decorator, so a MongoDB schema lost every field declared through the core",
+      "file": "src/core/common/persistence/mongo/mongoose-compat.ts",
+      "find": "    optionalMongoPackages()?.nestMongoose.Prop(options as any)(target, propertyKey);",
+      "replace": "    void optionalMongoPackages;",
+      "specs": [
+        "tests/unit/mongoose-compat.spec.ts"
+      ]
+    },
+    {
+      "driverSpecific": false,
+      "id": "file-metadata-store-needs-connection",
+      "defect": "DEV-3833: fileMetadataCollection() looked the store up through connection.models only, so a project without MongoDB failed every upload",
+      "file": "src/core/modules/file/file-metadata.store.ts",
+      "find": "      getRegisteredDataStore(model);",
+      "replace": "      undefined;",
+      "specs": [
+        "tests/unit/file-metadata-without-connection.spec.ts"
+      ]
+    },
+    {
+      "driverSpecific": false,
+      "id": "sql-update-writes-undefined",
+      "defect": "DEV-3833: the SQL update compiler wrote NULL for a field given as undefined, where MongoDB leaves it unchanged — an update with an optional field erased it on PostgreSQL alone",
+      "file": "src/core/common/persistence/sql/postgres/postgres-update.compiler.ts",
+      "find": "        if (value === undefined) {\n          continue;\n        }",
+      "replace": "        if (false) {\n          continue;\n        }",
+      "specs": [
+        "tests/persistence-parity.e2e-spec.ts"
+      ]
+    },
+    {
+      "driverSpecific": false,
+      "id": "jwks-verify-needs-connection",
+      "defect": "DEV-3833 review: verifyJwtToken() reached the JWKS only with a MongoDB connection, so every Better-Auth JWT answered 401 on PostgreSQL alone",
+      "file": "src/core/modules/better-auth/core-better-auth.service.ts",
+      "find": "      if (kid) {",
+      "replace": "      if (kid && this.connection) {",
+      "specs": [
+        "tests/unit/sql-paths-without-connection.spec.ts"
+      ]
+    },
+    {
+      "driverSpecific": false,
+      "id": "passkey-challenge-needs-connection",
+      "defect": "DEV-3833 review: the challenge service switched itself off without a MongoDB connection, dropping the passkey challenge mapping on PostgreSQL alone",
+      "file": "src/core/modules/better-auth/core-better-auth-challenge.service.ts",
+      "find": "        // call through getBetterAuthSqlStore() — isEnabled() answers from it",
+      "replace": "        this.enabled = false;",
+      "specs": [
+        "tests/unit/sql-paths-without-connection.spec.ts"
+      ]
+    },
+    {
+      "driverSpecific": false,
+      "id": "model-store-needs-connection",
+      "defect": "DEV-3833 review: the AI budget, MCP OAuth and conversation services found their SQL store only through connection.models, so without MongoDB every AI usage and MCP OAuth step answered 500",
+      "file": "src/core/common/persistence/persistence-runtime.registry.ts",
+      "find": "    return getRegisteredDataStore(name);",
+      "replace": "    return undefined;",
+      "specs": [
+        "tests/unit/sql-paths-without-connection.spec.ts"
+      ]
+    },
+    {
+      "driverSpecific": false,
+      "id": "declared-default-not-computed",
+      "defect": "DEV-3833 review: without Mongoose a declared schema had no path().getDefault(), so every insert of a model with a computed default failed",
+      "file": "src/core/common/persistence/mongo/declared-schema.view.ts",
+      "find": "  return defaultValue === Date.now ? Date.now() : defaultValue.call(doc, doc);",
+      "replace": "  return undefined;",
+      "specs": [
+        "tests/unit/sql-paths-without-connection.spec.ts"
+      ]
+    },
+    {
+      "driverSpecific": false,
+      "id": "declared-view-drops-compound-indexes",
+      "defect": "DEV-3833 review: no test compared the compound indexes a module adds after createForClass(); a view that lost them left SQL tables without their unique constraints",
+      "file": "src/core/common/persistence/mongo/declared-schema.view.ts",
+      "find": "    ...compound.map(([fields, indexOptions]) => [{ ...fields }, { ...indexOptions }] as (typeof compound)[number]),",
+      "replace": "    // compound indexes dropped",
+      "specs": [
+        "tests/unit/persistence-model-descriptor.spec.ts"
+      ]
+    },
+    {
+      "driverSpecific": false,
+      "id": "system-role-plugin-skips-updateone",
+      "defect": "DEV-3833 review: porting server.e2e to the store left mongooseSystemRolePlugin's updateOne hook without a test",
+      "file": "src/core/common/plugins/mongoose-system-role.plugin.ts",
+      "find": "  for (const op of ['findOneAndUpdate', 'updateOne', 'replaceOne', 'findOneAndReplace']) {",
+      "replace": "  for (const op of ['findOneAndUpdate', 'replaceOne', 'findOneAndReplace']) {",
+      "specs": [
+        "tests/server.e2e-spec.ts"
+      ]
+    },
+    {
+      "driverSpecific": false,
+      "id": "role-guard-skips-updateone",
+      "defect": "DEV-3833 review: porting api-token-security to the store left mongooseRoleGuardPlugin's updateOne hook without a test",
+      "file": "src/core/common/plugins/mongoose-role-guard.plugin.ts",
+      "find": "  schema.pre('updateOne', function () {",
+      "replace": "  schema.pre('updateOneNever' as any, function () {",
+      "specs": [
+        "tests/api-token-security.e2e-spec.ts"
       ]
     }
   ]

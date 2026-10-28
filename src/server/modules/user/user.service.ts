@@ -1,7 +1,7 @@
 import { Inject, Injectable, Optional, UnauthorizedException, UnprocessableEntityException } from '@nestjs/common';
-import { InjectModel } from '@nestjs/mongoose';
+import { InjectModel } from '../../../core/common/persistence/mongo/mongoose-compat.js';
 import { PubSub } from 'graphql-subscriptions';
-import { Model } from 'mongoose';
+import type { Model } from 'mongoose';
 
 import { getTranslatablePropertyKeys, updateLanguage } from '../../../core/common/decorators/translatable.decorator.js';
 import { ServiceOptions } from '../../../core/common/interfaces/service-options.interface.js';

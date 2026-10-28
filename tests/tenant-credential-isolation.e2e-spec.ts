@@ -1,12 +1,12 @@
 import { Test, TestingModule } from '@nestjs/testing';
 import { PubSub } from 'graphql-subscriptions';
-import { MongoClient, ObjectId } from 'mongodb';
 import { afterAll, afterEach, beforeAll, describe, expect, it } from 'vitest';
 
 import { HttpExceptionLogFilter, RoleEnum, TestGraphQLType, TestHelper } from '../src';
 import envConfig from '../src/config.env';
 import { ConfigService } from '../src/core/common/services/config.service';
 import { ServerModule } from '../src/server/server.module';
+import { type IamTestDb, openIamTestDb } from './helpers/iam-test-db';
 
 /**
  * Credential changes across the tenant boundary, through the real `PATCH /users/:id`.
@@ -31,8 +31,7 @@ describe('Tenant credential isolation (e2e)', () => {
   let app;
   let httpServer;
   let testHelper: TestHelper;
-  let connection: MongoClient;
-  let db;
+  let iamDb: IamTestDb;
 
   const PREFIX = `crediso-${Date.now()}`;
   const users: Record<
@@ -74,7 +73,7 @@ describe('Tenant credential isolation (e2e)', () => {
     statusCode: number,
   ) => testHelper.rest(`/users/${users[target].id}`, { method: 'PATCH', payload, statusCode, token: users[as].token });
 
-  const stored = (key: keyof typeof users) => db.collection('users').findOne({ _id: new ObjectId(users[key].id) });
+  const stored = (key: keyof typeof users) => iamDb.findUser({ id: users[key].id });
 
   beforeAll(async () => {
     const moduleFixture: TestingModule = await Test.createTestingModule({
@@ -90,22 +89,14 @@ describe('Tenant credential isolation (e2e)', () => {
     await new Promise<void>((resolve) => httpServer.listen(0, '127.0.0.1', () => resolve()));
     testHelper = new TestHelper(app);
 
-    connection = await MongoClient.connect(envConfig.mongoose.uri);
-    db = connection.db();
+    iamDb = await openIamTestDb(envConfig.mongoose.uri);
 
     for (const key of ['admin', 'creator', 'member', 'otherAdmin', 'promoted'] as const) {
       await signUp(key);
     }
-    await db
-      .collection('users')
-      .updateMany(
-        { _id: { $in: [new ObjectId(users.admin.id), new ObjectId(users.otherAdmin.id)] } },
-        { $set: { roles: [RoleEnum.ADMIN] } },
-      );
+    await iamDb.updateUser({ ids: [users.admin.id, users.otherAdmin.id] }, { roles: [RoleEnum.ADMIN] });
     // The creator of the member's account — what an invitation flow records for the inviting user.
-    await db
-      .collection('users')
-      .updateOne({ _id: new ObjectId(users.member.id) }, { $set: { createdBy: users.creator.id } });
+    await iamDb.updateUser({ id: users.member.id }, { createdBy: users.creator.id });
     await signIn('admin');
     await signIn('otherAdmin');
   });
@@ -116,8 +107,8 @@ describe('Tenant credential isolation (e2e)', () => {
 
   afterAll(async () => {
     withTenancy(undefined);
-    await db?.collection('users').deleteMany({ email: { $regex: `^${PREFIX}` } });
-    await connection?.close();
+    await iamDb?.deleteUsers({ email: new RegExp(`^${PREFIX}`) });
+    await iamDb?.close();
     if (httpServer) {
       await new Promise<void>((resolve) => httpServer.close(() => resolve()));
     }
@@ -165,9 +156,7 @@ describe('Tenant credential isolation (e2e)', () => {
       await patch('member', 'member', { email: newEmail }, 200);
 
       expect((await stored('member'))?.email).toBe(newEmail);
-      await db
-        .collection('users')
-        .updateOne({ _id: new ObjectId(users.member.id) }, { $set: { email: users.member.email } });
+      await iamDb.updateUser({ id: users.member.id }, { email: users.member.email });
     });
 
     /**
@@ -203,9 +192,7 @@ describe('Tenant credential isolation (e2e)', () => {
       await patch('admin', 'member', { email: newEmail }, 200);
 
       expect((await stored('member'))?.email).toBe(newEmail);
-      await db
-        .collection('users')
-        .updateOne({ _id: new ObjectId(users.member.id) }, { $set: { email: users.member.email } });
+      await iamDb.updateUser({ id: users.member.id }, { email: users.member.email });
     });
 
     it('without multi-tenancy, an administrator may still set the address', async () => {
@@ -215,9 +202,7 @@ describe('Tenant credential isolation (e2e)', () => {
       await patch('admin', 'member', { email: newEmail }, 200);
 
       expect((await stored('member'))?.email).toBe(newEmail);
-      await db
-        .collection('users')
-        .updateOne({ _id: new ObjectId(users.member.id) }, { $set: { email: users.member.email } });
+      await iamDb.updateUser({ id: users.member.id }, { email: users.member.email });
     });
   });
 });

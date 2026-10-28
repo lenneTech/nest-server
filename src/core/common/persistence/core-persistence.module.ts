@@ -1,5 +1,6 @@
 import { DynamicModule, Module, Provider } from '@nestjs/common';
-import { getModelToken, ModelDefinition, MongooseModule } from '@nestjs/mongoose';
+import type { ModelDefinition } from '@nestjs/mongoose';
+import { getConnectionToken, getModelToken } from './mongo/mongoose-compat.js';
 import type { Model } from 'mongoose';
 
 import { registerModelSchema } from './model-metadata.registry.js';
@@ -12,7 +13,8 @@ import {
   registerPersistedModel,
 } from './persistence-runtime.registry.js';
 import { getStoreToken } from './persistence.tokens.js';
-import { guardRoutedModel } from './routed-model.guard.js';
+import { guardRoutedModel, isStandInModel, standInModel } from './routed-model.guard.js';
+import { unavailableStore } from './unavailable-store.js';
 
 /**
  * Database-neutral model registration — the counterpart of `MongooseModule.forFeature()`.
@@ -54,9 +56,25 @@ export class CorePersistenceModule {
         schema: model.schema,
       });
     }
-    const mongoose = MongooseModule.forFeature(
-      models.map(({ dataSource: _source, model: _model, ...definition }) => definition),
-    );
+    // The Mongoose models, as `MongooseModule.forFeature()` registers them (`createMongooseProviders()` of
+    // @nestjs/mongoose) — but without requiring a connection: where no MongoDB is configured (`NoMongoConnectionModule`,
+    // or none at all) the token gets a stand-in that refuses data access, and the model runs on its routed store.
+    const mongooseModels: Provider[] = models.flatMap((model) => [
+      {
+        inject: [{ optional: true, token: getConnectionToken() }],
+        provide: getModelToken(model.name),
+        useFactory: (connection?: null | { model: Function; models: Record<string, unknown> }) =>
+          connection
+            ? (connection.models[model.name] ?? connection.model(model.name, model.schema, model.collection))
+            : standInModel(model.name, model.schema),
+      },
+      ...(model.discriminators ?? []).map((discriminator) => ({
+        inject: [getModelToken(model.name)],
+        provide: getModelToken(discriminator.name),
+        useFactory: (parent: { discriminator: Function }) =>
+          parent.discriminator(discriminator.name, discriminator.schema, discriminator.value),
+      })),
+    ]);
     const stores: Provider[] = models.map((model) => ({
       inject: [getModelToken(model.name)],
       provide: getStoreToken(model.name),
@@ -66,20 +84,26 @@ export class CorePersistenceModule {
         const runtime = getPersistenceRuntime();
         const store = runtime
           ? await runtime.resolveStore(model.name, mongooseModel)
-          : new MongooseDataStore(mongooseModel);
+          : isStandInModel(mongooseModel)
+            ? // No SQL source and no MongoDB connection: the project runs without a database (`database: false`)
+              unavailableStore(model.name, 'the project runs without a database (`database: false`)')
+            : new MongooseDataStore(mongooseModel);
         registerDataStore(model.name, store);
         bindStoreToModel(mongooseModel, store);
-        if (!store.capabilities.mongoosePopulate) {
+        // A stand-in already refuses, naming the cause; a real Mongoose model of a model routed elsewhere is made to
+        if (!store.capabilities.mongoosePopulate && !isStandInModel(mongooseModel)) {
           guardRoutedModel(mongooseModel, store);
         }
         return store;
       },
     }));
     return {
-      exports: [mongoose, ...models.map((model) => getStoreToken(model.name))],
-      imports: [mongoose],
+      exports: [
+        ...mongooseModels.map((provider) => (provider as { provide: string }).provide),
+        ...stores.map((store) => (store as { provide: string }).provide),
+      ],
       module: CorePersistenceModule,
-      providers: stores,
+      providers: [...mongooseModels, ...stores],
     };
   }
 }

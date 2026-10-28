@@ -86,3 +86,22 @@ export async function createPostgresTestDatabase(suffix: string): Promise<Postgr
     ownerUrl: postgresUrl(PG_OWNER, name),
   };
 }
+
+/**
+ * In the projects that run on PostgreSQL (`postgres`, `iam-sql-<engine>`): a database of the caller's own, for an
+ * application whose tables must not be shared with the rest of its file — a different `multiTenancy` changes their
+ * row-level security, and the system setup needs an empty user base. `undefined` in a MongoDB run.
+ */
+export async function ownPostgresDatabase(suffix: string): Promise<PostgresTestDatabase | undefined> {
+  return process.env.NSC__DATABASE__OWNER_URL ? createPostgresTestDatabase(`${suffix}-${process.pid}`) : undefined;
+}
+
+/** The configuration on the caller's own PostgreSQL database, when it has one; unchanged otherwise */
+export function onOwnPostgresDatabase<T extends object>(config: T, sql: PostgresTestDatabase | undefined): T {
+  return sql
+    ? {
+        ...config,
+        database: { ownerUrl: sql.ownerUrl, sqlEngine: process.env.NSC__DATABASE__SQL_ENGINE, url: sql.appUrl },
+      }
+    : config;
+}

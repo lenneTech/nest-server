@@ -58,6 +58,9 @@ infrastructure test is how an untested driver ships:
 | `tests/core-module-parity.e2e-spec.ts` | PostgreSQL (and MongoDB) |
 | `tests/migrate/sql-state-store.e2e-spec.ts` | PostgreSQL |
 
+Beyond these seventeen, the `postgres` vitest project runs the whole e2e suite once more on PostgreSQL (see "Behaviour
+matrices" below), so without the PostgreSQL container that project fails as a whole while `e2e` runs.
+
 `tests/global-setup.ts` starts all three containers automatically, so `pnpm test` works from a clean
 machine with no manual docker command. It is idempotent (a running container is reused) and never
 fatal: without Docker every other suite still runs, and the seventeen above report their own actionable
@@ -248,8 +251,32 @@ the engines). `tests/unit/core-module-parity-matrix.spec.ts` is its structural g
 through the legacy endpoints with `betterAuth: false`, so it proves the legacy-auth path on SQL; IAM on SQL is the job of
 the projects below.
 
-The **IAM suites** run once per database through vitest projects in `vitest-e2e.config.mts`: `e2e` on MongoDB, and
-`iam-sql-typeorm`, `iam-sql-kysely`, `iam-sql-drizzle` on PostgreSQL, each over the files in `IAM_SQL_TEST_INCLUDE`
+The **whole e2e suite runs on both databases** (12.1.0+): the `e2e` project on MongoDB, the `postgres` project again
+with PostgreSQL as the default data source (`POSTGRES_E2E_ENGINE`, the default engine TypeORM). Each test file gets a
+PostgreSQL database of its own (`tests/postgres-file.setup.ts`, created before the file's first import and dropped in
+its `afterAll`): two suites with different `multiTenancy` sharing one database stop each other's boot, because a table
+that loses tenant isolation refuses to start. A `describe` whose configuration differs from the rest of its file — or
+that needs an empty user base, as the system setup does — takes one more of its own through
+`ownPostgresDatabase()` / `onOwnPostgresDatabase()` (`tests/helpers/postgres-test-db.ts`). The project runs every e2e
+file except those in `POSTGRES_E2E_EXCLUDED` (`vitest.include-globs.mts`), each with one of two reasons: `MONGODB-ONLY:`
+(the suite checks a MongoDB mechanism against MongoDB itself, and names where its PostgreSQL counterpart is proven) or
+`OWN-DATABASES:` (a parity matrix or a suite that creates its PostgreSQL databases itself). An entry is a claim about the
+suite, never a way to get a run green: a suite that fails on PostgreSQL because it reads MongoDB directly belongs on
+the neutral helpers. `tests/unit/postgres-e2e-coverage.spec.ts` keeps the list honest (existing suites, one of the two
+reasons, an upper bound on its size).
+
+A suite stays database-neutral through three rules. It reads and prepares users, sessions, accounts and reset tokens
+through `tests/helpers/iam-test-db.ts` — `openIamTestDb(uri, { users: 'mongodb' })` for an application built on
+`CoreModule.forRoot()` alone, which registers no user model and therefore keeps its users on MongoDB. It reads a model
+the application registered with `CorePersistenceModule.forFeature()` through that model's store
+(`app.get(getStoreToken(name), { strict: false })`, inside `RequestContext.runWithBypassTenantGuard()` for a
+tenant-scoped one) — never through a MongoDB client, which would read the wrong database on PostgreSQL. And it keeps
+what is genuinely MongoDB's on MongoDB (`iamDb.mongo`: GridFS, a model registered with `MongooseModule.forFeature()`
+alone). Where a behaviour differs by design — PostgreSQL's CHECK constraint refuses a stored system role that MongoDB
+lets a raw insert plant — the case asserts what happens instead, per `iamDb.driver`.
+
+The **IAM suites** run on the two other engines as well, through vitest projects in `vitest-e2e.config.mts`:
+`iam-sql-kysely` and `iam-sql-drizzle` (`IAM_SQL_ENGINES`), each over the files in `IAM_SQL_TEST_INCLUDE`
 (`vitest.include-globs.mts`: the Better-Auth stories, privilege escalation, sign-in CSRF, migration status, the storage
 paths, the bidirectional sync, and since phase 4 the AI suite and both MCP OAuth suites). A project's global setup (`tests/iam-sql.global-setup.ts`) creates its PostgreSQL
 database per run and drops it afterwards; its setup file (`tests/iam-sql.setup.ts`) points `NSC__DATABASE__URL`,
@@ -331,7 +358,7 @@ pnpm run check:mutations -- --id=<id>       # one mutation
 pnpm run check:mutations -- --list          # the registry, without running anything
 pnpm run check:mutations -- --allow-dirty   # when the fix and its evidence share a working tree
 pnpm run check:mutations -- --jobs=4        # N mutations at a time (default: 2, or 4 on >=12 cores)
-pnpm run check:mutations -- --no-infra      # only the 203 that need no MongoDB
+pnpm run check:mutations -- --no-infra      # only the 211 that need no MongoDB
 pnpm run check:mutations -- --since=<ref>   # only mutations touching files changed since <ref>
 ```
 
@@ -350,7 +377,7 @@ when the registry, a vitest config or a setup file changed, since those can move
 commit, and in CI alongside the publish without blocking it. The price of caching is a cache that
 has to model each spec's full dependency closure correctly, and getting that wrong produces a stale
 PASS for a test that has since gone vacuous — exactly what the gate is there to prevent. Bad trade
-at 361 mutations.
+at 376 mutations.
 
 **Decided 2026-10-03 (repo owner): keep the full run.** Measured at 128 mutations, the CI job for
 11.41.6 took **14 minutes**. The trigger to revisit is that wall time, not the mutation count —
@@ -395,9 +422,9 @@ exactly the environment where the answer matters.
 
 ### The cost is vitest's cold start, not the tests
 
-Worth knowing before optimising the wrong thing: the specs behind all 158 e2e mutations add up to
+Worth knowing before optimising the wrong thing: the specs behind all 165 e2e mutations add up to
 **~40 seconds**. The step takes ~740s. The remaining ~700s is paying vitest's startup — process
-spawn, transform, module graph, mongod connect, DB create and drop — once per mutation, 361 times.
+spawn, transform, module graph, mongod connect, DB create and drop — once per mutation, 376 times.
 That work is largely single-threaded I/O and barely scales with cores: the full registry measures
 **744s on a 12-core laptop and 777s on a 4-vCPU CI runner**.
 
@@ -798,6 +825,7 @@ catches the *failure*, never the *disarming* of the safety property.
 | The core is valid as CommonJS AND ESM (no `require()`, `__dirname`, `import x = require()`, `import.meta`, relative dynamic `import()`) | `tests/unit/module-format-invariants.spec.ts`; `pnpm run check:esm` proves the loading half |
 | The ESM package stays loadable by `require()` (no import from a CommonJS directory into the graph, no top-level `await`) and its CommonJS islands (`bin/`, `migrate/helpers/`) load in place | `tests/unit/module-format-invariants.spec.ts`, `tests/unit/package-format-contracts.spec.ts`; `pnpm run check:manifest` repeats it against the packed build |
 | Type-aware lint is armed (flag, `oxlint-tsgolint`, `no-floating-promises: error`) | `tests/unit/lint-type-aware.spec.ts` |
+| The core needs no MongoDB library (12.1.0+): no static value import of `mongoose` / `@nestjs/mongoose` / `mongodb`, both model-description sources agree | `pnpm run check:without-mongodb` (dist, packages unresolvable; `:package` installs the tarball without them); `tests/unit/persistence-model-descriptor.spec.ts`; `tests/unit/import-cycle-invariants.spec.ts` (the compat leaf) |
 
 `service-options-forwarding` is 11.33.1 generalised: inside `src/core/`, a method that HAS the
 caller's context must pass it to every internal call that accepts one. Passing a local derived from

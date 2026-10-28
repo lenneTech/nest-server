@@ -1,6 +1,5 @@
-import { Types } from 'mongoose';
-
 import { clone, plainToInstanceClean } from './input.helper.js';
+import { isObjectIdLike } from './id.helper.js';
 
 /**
  * Helper class for models
@@ -135,7 +134,7 @@ export function mapClasses<T = Record<string, any>>(
         for (const item of value) {
           if (item instanceof targetClass) {
             arr.push(item);
-          } else if (item instanceof Types.ObjectId) {
+          } else if (isObjectIdLike(item)) {
             config.objectIdsToString ? arr.push(item.toHexString()) : arr.push(item);
           } else if (typeof item === 'object') {
             if (targetClass.map) {
@@ -150,7 +149,7 @@ export function mapClasses<T = Record<string, any>>(
         target[prop] = arr as any;
 
         // Process ObjectId
-      } else if (value instanceof Types.ObjectId) {
+      } else if (isObjectIdLike(value)) {
         target[prop] = config.objectIdsToString ? value.toHexString() : value;
 
         // Process object
@@ -222,7 +221,7 @@ export async function mapClassesAsync<T = Record<string, any>>(
         for (const item of value) {
           if (item instanceof targetClass) {
             arr.push(item);
-          } else if (item instanceof Types.ObjectId) {
+          } else if (isObjectIdLike(item)) {
             config.objectIdsToString ? arr.push(item.toHexString()) : arr.push(item);
           } else if (typeof item === 'object') {
             if (targetClass.map) {
@@ -237,7 +236,7 @@ export async function mapClassesAsync<T = Record<string, any>>(
         target[prop] = arr as any;
 
         // Process ObjectId
-      } else if (value instanceof Types.ObjectId) {
+      } else if (isObjectIdLike(value)) {
         target[prop] = config.objectIdsToString ? value.toHexString() : value;
 
         // Process object

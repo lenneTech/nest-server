@@ -1,16 +1,7 @@
 import { Logger, NotFoundException } from '@nestjs/common';
-import {
-  AggregateOptions,
-  Collection,
-  Connection,
-  Document,
-  Model as MongooseModel,
-  PipelineStage,
-  Query,
-  QueryFilter,
-  QueryOptions,
-  Types,
-} from 'mongoose';
+import type { Collection, Document, Model as MongooseModel, PipelineStage, QueryFilter } from 'mongoose';
+import type { Query } from 'mongoose';
+import type { AggregateOptions, Connection, QueryOptions, Types } from 'mongoose';
 
 import { FilterArgs } from '../args/filter.args.js';
 import { getStringIds } from '../helpers/db.helper.js';
@@ -24,6 +15,7 @@ import { PaginationInfo } from '../models/pagination-info.model.js';
 import { PlainObject } from '../types/plain-object.type.js';
 import { ConfigService } from './config.service.js';
 import { ModuleService } from './module.service.js';
+import { isMongooseQuery } from '../persistence/mongo/mongoose-compat.js';
 
 export abstract class CrudService<
   Model extends CoreModel = any,
@@ -266,14 +258,9 @@ export abstract class CrudService<
         }
 
         if (this.usesNeutralStore) {
-          if (filter?.samples) {
-            throw new UnsupportedCapabilityError(
-              `findAndCount() with samples needs a MongoDB store; ${this.dataStore.modelName} is stored on ${this.dataStore.driver}`,
-            );
-          }
           const { options, where } = neutralQuery(filterQuery, serviceOptions);
           const [items, totalCount] = await Promise.all([
-            this.dataStore.find(where, options),
+            this.dataStore.find(where, filter?.samples ? { ...options, sample: filter.samples } : options),
             this.dataStore.count(where),
           ]);
           const queryOptions = filterQuery.queryOptions || {};
@@ -861,7 +848,7 @@ export abstract class CrudService<
   ): Promise<T> {
     return this.process(
       () => {
-        if (queryOrDocument instanceof Query) {
+        if (isMongooseQuery(queryOrDocument)) {
           this.assertMongooseStore('processQueryOrDocument (with a Mongoose query)');
           if (serviceOptions?.select && queryOrDocument.select && typeof queryOrDocument.select === 'function') {
             queryOrDocument.select(serviceOptions.select);

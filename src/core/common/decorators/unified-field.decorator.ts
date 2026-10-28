@@ -1,5 +1,6 @@
 import { Field, FieldOptions, HideField, TypeMetadataStorage } from '@nestjs/graphql';
-import { Prop, PropOptions } from '@nestjs/mongoose';
+import type { PropOptions } from '@nestjs/mongoose';
+import { Prop } from '../persistence/mongo/mongoose-compat.js';
 import { ApiHideProperty, ApiProperty, ApiPropertyOptions } from '@nestjs/swagger';
 import { Type } from 'class-transformer';
 import {

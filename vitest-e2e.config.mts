@@ -1,10 +1,16 @@
 import os from 'node:os';
 
 import swc from 'unplugin-swc';
-import { defineConfig } from 'vitest/config';
+import { configDefaults, defineConfig } from 'vitest/config';
 
 import { countOtherActiveRuns } from './tests/e2e-run-slots.mjs';
-import { E2E_TEST_INCLUDE, IAM_SQL_ENGINES, IAM_SQL_TEST_INCLUDE } from './vitest.include-globs.mjs';
+import {
+  E2E_TEST_INCLUDE,
+  IAM_SQL_ENGINES,
+  IAM_SQL_TEST_INCLUDE,
+  POSTGRES_E2E_ENGINE,
+  POSTGRES_E2E_EXCLUDED,
+} from './vitest.include-globs.mjs';
 
 // Low-resource mode — caps parallel forks and raises timeouts so many e2e suites can share one
 // machine's CPU and mongod without starving each other. The failure mode it prevents is real and
@@ -202,6 +208,19 @@ export default defineConfig({
       // silently drop a suite. The include lives in the projects only: one at the root would be
       // MERGED into every project's own (`extends: true`), and the IAM projects would run everything.
       { extends: true, test: { include: E2E_TEST_INCLUDE, name: 'e2e' } },
+      // The whole suite once more with PostgreSQL as the default data source (DEV-3833): one database per test file,
+      // because suites differ in `multiTenancy` and a table's tenant isolation is part of its schema. The suites in
+      // POSTGRES_E2E_EXCLUDED say why they do not run here.
+      {
+        extends: true as const,
+        test: {
+          env: { LT_LOG_AUTH_URLS: '0', LT_TEST_SQL_ENGINE: POSTGRES_E2E_ENGINE },
+          exclude: [...configDefaults.exclude, ...Object.keys(POSTGRES_E2E_EXCLUDED)],
+          include: E2E_TEST_INCLUDE,
+          name: 'postgres',
+          setupFiles: ['tests/postgres-file.setup.ts', 'tests/setup.ts'],
+        },
+      },
       // The IAM suites once more per SQL engine, with PostgreSQL as the default data source (DEV-3831). Each project
       // gets a database of its own; the root setup still runs once for the whole run.
       ...IAM_SQL_ENGINES.map((engine) => ({

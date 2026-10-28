@@ -1,4 +1,6 @@
-import { Schema } from 'mongoose';
+import type { Schema } from 'mongoose';
+
+import { createSchema } from '../../common/persistence/mongo/mongoose-compat.js';
 
 import { FILESYSTEM_FILES_COLLECTION } from './filesystem-file.helper.js';
 import { S3_FILES_COLLECTION } from './s3-file.helper.js';
@@ -22,12 +24,12 @@ export const FILESYSTEM_FILE_MODEL = 'CoreFilesystemFile';
 
 /** The shape both stores write — a GridFS `fs.files` document plus the `storage` marker (`FileMetadataInfo`) */
 function fileMetadataSchema(collection: string): Schema {
-  return new Schema(
+  return createSchema(
     {
       contentType: { type: String },
       filename: { index: true, type: String },
       length: { type: Number },
-      metadata: { type: Schema.Types.Mixed },
+      metadata: { type: Object },
       storage: { type: String },
       uploadDate: { type: Date },
     },

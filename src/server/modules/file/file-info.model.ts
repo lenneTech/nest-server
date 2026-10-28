@@ -1,5 +1,5 @@
 import { ObjectType } from '@nestjs/graphql';
-import { Schema as MongooseSchema, SchemaFactory } from '@nestjs/mongoose';
+import { Schema as MongooseSchema, SchemaFactory } from '../../../core/common/persistence/mongo/mongoose-compat.js';
 
 import { Restricted } from '../../../core/common/decorators/restricted.decorator.js';
 import { RoleEnum } from '../../../core/common/enums/role.enum.js';

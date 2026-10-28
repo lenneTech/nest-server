@@ -2,7 +2,13 @@ import { Logger } from '@nestjs/common';
 import type { Model } from 'mongoose';
 
 import { getStringIds } from '../helpers/id.helper.js';
-import { assertAccessReason, assertArrayField, assertProjection, assertSelectFields } from './store-guards.js';
+import {
+  assertAccessReason,
+  assertArrayField,
+  assertProjection,
+  assertSampleSize,
+  assertSelectFields,
+} from './store-guards.js';
 import type {
   DataStore,
   DataStoreUpdate,
@@ -81,6 +87,7 @@ export class MongooseDataStore<T = Record<string, any>> implements DataStore<T> 
   }
 
   async find(where?: Where<T>, options: FindOptions = {}): Promise<StoredRecord<T>[]> {
+    const sample = options.sample === undefined ? undefined : assertSampleSize(options.sample);
     let query = this.model.find(toMongoFilter(where));
     if (options.select || options.exclude) query = query.select(toProjection(options));
     if (options.sort) query = query.sort(options.sort);
@@ -88,7 +95,10 @@ export class MongooseDataStore<T = Record<string, any>> implements DataStore<T> 
     if (options.limit !== undefined) query = query.limit(options.limit);
     if (options.collation) query = query.collation(options.collation as any);
     const docs = await query.lean().exec();
-    return (docs as unknown[]).map((doc) => toRecord<T>(doc));
+    const records = (docs as unknown[]).map((doc) => toRecord<T>(doc));
+    // Drawn from the page this query returned, like `$sample` after `$limit`. CrudService.findAndCount() on MongoDB
+    // keeps its own aggregation; this path serves callers of the port.
+    return sample === undefined ? records : randomSample(records, sample);
   }
 
   async findById(id: string, options: Pick<FindOptions, 'exclude' | 'select'> = {}): Promise<null | StoredRecord<T>> {
@@ -208,4 +218,15 @@ function toProjection(options: Pick<FindOptions, 'exclude' | 'select'>): string 
     return options.exclude.map((field) => `-${field}`).join(' ');
   }
   return (options.select ?? []).map((field) => (field === 'id' ? '_id' : field)).join(' ');
+}
+
+/** `size` items of `items` in random order (a partial Fisher–Yates shuffle) */
+function randomSample<I>(items: I[], size: number): I[] {
+  const pool = [...items];
+  const count = Math.min(size, pool.length);
+  for (let index = 0; index < count; index++) {
+    const pick = index + Math.floor(Math.random() * (pool.length - index));
+    [pool[index], pool[pick]] = [pool[pick], pool[index]];
+  }
+  return pool.slice(0, count);
 }

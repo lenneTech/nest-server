@@ -31,19 +31,18 @@ import { Test, TestingModule } from '@nestjs/testing';
 import bcrypt = require('bcrypt');
 import { PubSub } from 'graphql-subscriptions';
 import { sha256 } from 'js-sha256';
-import { Db, MongoClient, ObjectId } from 'mongodb';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 
 import { HttpExceptionLogFilter, RoleEnum, TestGraphQLType, TestHelper } from '../../src';
 import envConfig from '../../src/config.env';
 import { ServerModule } from '../../src/server/server.module';
+import { type IamTestDb, openIamTestDb } from '../helpers/iam-test-db';
 
 describe('Story: Parallel Legacy/Better-Auth Operation', () => {
   // Test environment
   let app: NestExpressApplication;
   let testHelper: TestHelper;
-  let mongoClient: MongoClient;
-  let db: Db;
+  let iamDb: IamTestDb;
 
   // Test data tracking for cleanup
   const testEmails: string[] = [];
@@ -92,8 +91,7 @@ describe('Story: Parallel Legacy/Better-Auth Operation', () => {
       testHelper = new TestHelper(app);
 
       // Connection to database
-      mongoClient = await MongoClient.connect(envConfig.mongoose.uri);
-      db = mongoClient.db();
+      iamDb = await openIamTestDb(envConfig.mongoose.uri);
     } catch (e) {
       console.error('beforeAllError', e);
       throw e;
@@ -102,14 +100,14 @@ describe('Story: Parallel Legacy/Better-Auth Operation', () => {
 
   afterAll(async () => {
     // Clean up test users
-    if (db) {
+    if (iamDb) {
       for (const email of testEmails) {
-        await db.collection('users').deleteOne({ email });
+        await iamDb.deleteUsers({ email: email });
       }
     }
 
-    if (mongoClient) {
-      await mongoClient.close();
+    if (iamDb) {
+      await iamDb.close();
     }
 
     if (app) {
@@ -147,7 +145,7 @@ describe('Story: Parallel Legacy/Better-Auth Operation', () => {
         expect(res.refreshToken).toBeDefined();
 
         // Verify database state
-        const dbUser = await db.collection('users').findOne({ email });
+        const dbUser = await iamDb.findUser({ email: email });
         expect(dbUser).toBeDefined();
         expect(dbUser.password).toBeDefined(); // bcrypt hash
         expect(dbUser.iamId).toBeUndefined(); // Not yet linked to Better-Auth
@@ -195,18 +193,18 @@ describe('Story: Parallel Legacy/Better-Auth Operation', () => {
         const iamId = `ba-${Date.now()}`;
 
         // Simulate Better-Auth creating a user directly
-        await db.collection('users').insertOne({
+        await iamDb.insertUser({
           createdAt: new Date(),
           email,
           iamId,
           name: 'Better Auth User',
           password: hashedPassword,
-          roles: [RoleEnum.S_USER],
+          roles: [], // S_ roles are runtime checks, never stored (on PostgreSQL the database refuses them)
           updatedAt: new Date(),
         });
 
         // Verify database state
-        const dbUser = await db.collection('users').findOne({ email });
+        const dbUser = await iamDb.findUser({ email: email });
         expect(dbUser).toBeDefined();
         expect(dbUser.password).toBe(hashedPassword);
         expect(dbUser.iamId).toBe(iamId);
@@ -217,12 +215,12 @@ describe('Story: Parallel Legacy/Better-Auth Operation', () => {
         const iamId = `ba-${Date.now()}`;
 
         // Create user via "Better-Auth" (direct DB insert)
-        await db.collection('users').insertOne({
+        await iamDb.insertUser({
           createdAt: new Date(),
           email,
           iamId,
           password: await hashPassword('BetterAuthPassword!'),
-          roles: [RoleEnum.S_USER],
+          roles: [], // S_ roles are runtime checks, never stored (on PostgreSQL the database refuses them)
           updatedAt: new Date(),
         });
 
@@ -319,12 +317,12 @@ describe('Story: Parallel Legacy/Better-Auth Operation', () => {
         const iamId = `ba-${Date.now()}`;
 
         // Create user as if Better-Auth created them
-        await db.collection('users').insertOne({
+        await iamDb.insertUser({
           createdAt: new Date(),
           email,
           iamId,
           password: hashedPassword, // Both systems use bcrypt
-          roles: [RoleEnum.S_USER],
+          roles: [], // S_ roles are runtime checks, never stored (on PostgreSQL the database refuses them)
           updatedAt: new Date(),
         });
 
@@ -345,12 +343,12 @@ describe('Story: Parallel Legacy/Better-Auth Operation', () => {
         const iamId = `ba-social-${Date.now()}`;
 
         // Create user without password (e.g., social login only)
-        await db.collection('users').insertOne({
+        await iamDb.insertUser({
           createdAt: new Date(),
           email,
           iamId,
           // No password field - social login only
-          roles: [RoleEnum.S_USER],
+          roles: [], // S_ roles are runtime checks, never stored (on PostgreSQL the database refuses them)
           updatedAt: new Date(),
         });
 
@@ -381,25 +379,16 @@ describe('Story: Parallel Legacy/Better-Auth Operation', () => {
         });
 
         // Verify initial state
-        let dbUser = await db.collection('users').findOne({ email });
+        let dbUser = await iamDb.findUser({ email: email });
         expect(dbUser.password).toBeDefined();
         expect(dbUser.iamId).toBeUndefined();
 
         // Simulate Better-Auth sync (what happens when user logs in via Better-Auth)
         const iamId = `ba-${Date.now()}`;
-        await db.collection('users').updateOne(
-          { email },
-          {
-            $set: {
-              iamId,
-              updatedAt: new Date(),
-            },
-            // NOTE: password field is PRESERVED for parallel operation
-          },
-        );
+        await iamDb.updateUser({ email }, { iamId, updatedAt: new Date() });
 
         // Verify synced state
-        dbUser = await db.collection('users').findOne({ email });
+        dbUser = await iamDb.findUser({ email: email });
         expect(dbUser.password).toBeDefined(); // Still exists for Legacy
         expect(dbUser.iamId).toBe(iamId);
 
@@ -438,23 +427,15 @@ describe('Story: Parallel Legacy/Better-Auth Operation', () => {
         });
 
         // Verify no iamId initially
-        let dbUser = await db.collection('users').findOne({ email });
+        let dbUser = await iamDb.findUser({ email: email });
         expect(dbUser.iamId).toBeUndefined();
 
         // Simulate linkOrCreateUser
         const iamId = `ba-sync-${Date.now()}`;
-        await db.collection('users').updateOne(
-          { $or: [{ email }, { iamId }] },
-          {
-            $set: {
-              iamId,
-              updatedAt: new Date(),
-            },
-          },
-        );
+        await iamDb.updateUser({ email }, { iamId, updatedAt: new Date() });
 
         // Verify iamId is set
-        dbUser = await db.collection('users').findOne({ email });
+        dbUser = await iamDb.findUser({ email: email });
         expect(dbUser.iamId).toBe(iamId);
       });
 
@@ -471,25 +452,16 @@ describe('Story: Parallel Legacy/Better-Auth Operation', () => {
         });
 
         // Get the hashed password
-        let dbUser = await db.collection('users').findOne({ email });
+        let dbUser = await iamDb.findUser({ email: email });
         const originalPasswordHash = dbUser.password;
         expect(originalPasswordHash).toBeDefined();
 
         // Simulate linkOrCreateUser - only sets iamId, preserves password
         const iamId = `ba-preserve-${Date.now()}`;
-        await db.collection('users').updateOne(
-          { email },
-          {
-            $set: {
-              iamId,
-              updatedAt: new Date(),
-            },
-            // password field is preserved for parallel operation
-          },
-        );
+        await iamDb.updateUser({ email }, { iamId, updatedAt: new Date() });
 
         // Verify password is preserved
-        dbUser = await db.collection('users').findOne({ email });
+        dbUser = await iamDb.findUser({ email: email });
         expect(dbUser.password).toBe(originalPasswordHash); // PRESERVED
         expect(dbUser.iamId).toBe(iamId);
       });
@@ -499,28 +471,20 @@ describe('Story: Parallel Legacy/Better-Auth Operation', () => {
         const iamId = `ba-new-${Date.now()}`;
 
         // Verify user doesn't exist
-        let dbUser = await db.collection('users').findOne({ email });
+        let dbUser = await iamDb.findUser({ email: email });
         expect(dbUser).toBeNull();
 
-        // Simulate linkOrCreateUser upsert (new user from Better-Auth)
-        await db.collection('users').findOneAndUpdate(
-          { $or: [{ email }, { iamId }] },
-          {
-            $set: {
-              email,
-              iamId,
-              updatedAt: new Date(),
-            },
-            $setOnInsert: {
-              createdAt: new Date(),
-              roles: [], // S_ roles are system checks, not stored in user.roles
-            },
-          },
-          { upsert: true },
-        );
+        // Simulate linkOrCreateUser upsert (new user from Better-Auth) — the user does not exist, so it is an insert
+        await iamDb.insertUser({
+          createdAt: new Date(),
+          email,
+          iamId,
+          roles: [], // S_ roles are system checks, not stored in user.roles
+          updatedAt: new Date(),
+        });
 
         // Verify user was created with default role
-        dbUser = await db.collection('users').findOne({ email });
+        dbUser = await iamDb.findUser({ email: email });
         expect(dbUser).toBeDefined();
         expect(dbUser.roles).toEqual([]); // S_ roles are system checks, not stored in user.roles
         expect(dbUser.iamId).toBe(iamId);
@@ -532,19 +496,18 @@ describe('Story: Parallel Legacy/Better-Auth Operation', () => {
         const password = 'EmailChangePassword!';
 
         // Create user with original email and iamId
-        await db.collection('users').insertOne({
+        await iamDb.insertUser({
           createdAt: new Date(),
           email: originalEmail,
           iamId,
           password: await hashPassword(password),
-          roles: [RoleEnum.S_USER],
+          roles: [], // S_ roles are runtime checks, never stored (on PostgreSQL the database refuses them)
           updatedAt: new Date(),
         });
 
         // Simulate lookup by iamId (e.g., after email change in Better-Auth)
-        const dbUser = await db.collection('users').findOne({
-          $or: [{ email: 'different@email.com' }, { iamId }],
-        });
+        expect(await iamDb.findUser({ email: 'different@email.com' })).toBeNull();
+        const dbUser = await iamDb.findUser({ iamId });
 
         expect(dbUser).toBeDefined();
         expect(dbUser.email).toBe(originalEmail);
@@ -566,25 +529,17 @@ describe('Story: Parallel Legacy/Better-Auth Operation', () => {
         });
 
         // Check initial status - user exists but not synced with Better-Auth
-        let dbUser = await db.collection('users').findOne({ email });
+        let dbUser = await iamDb.findUser({ email: email });
         expect(dbUser).toBeDefined();
         expect(dbUser.iamId).toBeUndefined();
         expect(dbUser.password).toBeDefined();
 
         // Sync with Better-Auth (set iamId)
         const iamId = `ba-status-${Date.now()}`;
-        await db.collection('users').updateOne(
-          { email },
-          {
-            $set: {
-              iamId,
-              updatedAt: new Date(),
-            },
-          },
-        );
+        await iamDb.updateUser({ email }, { iamId, updatedAt: new Date() });
 
         // Check post-sync status - iamId is set, password preserved
-        dbUser = await db.collection('users').findOne({ email });
+        dbUser = await iamDb.findUser({ email: email });
         expect(dbUser.iamId).toBe(iamId);
         expect(dbUser.password).toBeDefined(); // Still preserved for parallel operation
       });
@@ -616,7 +571,7 @@ describe('Story: Parallel Legacy/Better-Auth Operation', () => {
         expect(findRes.errors[0].message).toMatch(/LTNS_0101/); // Access denied error code
 
         // Grant admin role
-        await db.collection('users').updateOne({ _id: new ObjectId(userId) }, { $set: { roles: [RoleEnum.ADMIN] } });
+        await iamDb.updateUser({ id: userId }, { roles: [RoleEnum.ADMIN] });
 
         // Re-login to get new token with updated roles
         const signInRes = await testHelper.graphQl({
@@ -645,7 +600,7 @@ describe('Story: Parallel Legacy/Better-Auth Operation', () => {
         const userId = signUpRes.user.id;
 
         // Get verification token and verify
-        const dbUser = await db.collection('users').findOne({ _id: new ObjectId(userId) });
+        const dbUser = await iamDb.findUser({ id: userId });
 
         await testHelper.graphQl({
           arguments: { token: dbUser.verificationToken },
@@ -654,7 +609,7 @@ describe('Story: Parallel Legacy/Better-Auth Operation', () => {
         });
 
         // Verify user is now verified
-        const verifiedUser = await db.collection('users').findOne({ _id: new ObjectId(userId) });
+        const verifiedUser = await iamDb.findUser({ id: userId });
         expect(verifiedUser.verified).toBe(true);
       });
     });
@@ -673,25 +628,14 @@ describe('Story: Parallel Legacy/Better-Auth Operation', () => {
         });
         const userId = signUpRes.user.id;
 
-        await db
-          .collection('users')
-          .updateOne({ _id: new ObjectId(userId) }, { $set: { roles: [RoleEnum.ADMIN, 'custom-role'] } });
+        await iamDb.updateUser({ id: userId }, { roles: [RoleEnum.ADMIN, 'custom-role'] });
 
         // Simulate Better-Auth sync - only sets iamId
         const iamId = `ba-role-${Date.now()}`;
-        await db.collection('users').updateOne(
-          { _id: new ObjectId(userId) },
-          {
-            $set: {
-              iamId,
-              updatedAt: new Date(),
-            },
-            // NOT modifying roles - they are preserved
-          },
-        );
+        await iamDb.updateUser({ id: userId }, { iamId, updatedAt: new Date() });
 
         // Verify roles are preserved
-        const syncedUser = await db.collection('users').findOne({ _id: new ObjectId(userId) });
+        const syncedUser = await iamDb.findUser({ id: userId });
         expect(syncedUser.roles).toContain(RoleEnum.ADMIN);
         expect(syncedUser.roles).toContain('custom-role');
         expect(syncedUser.iamId).toBe(iamId);
@@ -709,7 +653,7 @@ describe('Story: Parallel Legacy/Better-Auth Operation', () => {
       const email = generateTestEmail('empty-roles');
       const iamId = `ba-empty-roles-${Date.now()}`;
 
-      await db.collection('users').insertOne({
+      await iamDb.insertUser({
         createdAt: new Date(),
         email,
         iamId,
@@ -718,7 +662,7 @@ describe('Story: Parallel Legacy/Better-Auth Operation', () => {
         updatedAt: new Date(),
       });
 
-      const dbUser = await db.collection('users').findOne({ email });
+      const dbUser = await iamDb.findUser({ email: email });
       expect(dbUser.roles).toEqual([]);
     });
 

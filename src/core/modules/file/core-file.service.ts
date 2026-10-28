@@ -1,5 +1,6 @@
 import { Logger, NotFoundException } from '@nestjs/common';
-import { type Connection, mongo, Types } from 'mongoose';
+import type { Connection } from 'mongoose';
+import type { mongo, Types } from 'mongoose';
 import { Readable } from 'stream';
 
 import { FilterArgs } from '../../common/args/filter.args.js';
@@ -30,6 +31,7 @@ import type { FileCollection } from './file-metadata.helper.js';
 import { fileMetadataCollection } from './file-metadata.store.js';
 import { DEFAULT_FILESYSTEM_DIR, FilesystemFileHelper, FilesystemFileInfo } from './filesystem-file.helper.js';
 import { S3FileHelper, S3FileInfo } from './s3-file.helper.js';
+import { createGridFsBucket } from '../../common/persistence/mongo/mongoose-compat.js';
 
 /**
  * Type for checking input
@@ -80,8 +82,9 @@ export abstract class CoreFileService {
     bucketName = 'fs',
     protected readonly options?: CoreFileServiceOptions,
   ) {
-    // Use the native MongoDB driver's GridFSBucket via Mongoose's mongo export to avoid BSON version conflicts
-    this.files = new mongo.GridFSBucket(connection.db, { bucketName });
+    // GridFS needs MongoDB: without a connection (a project on PostgreSQL alone) there is no bucket, the GridFS reads
+    // find nothing, and `file.storage: 'gridfs'` fails the boot below as unavailable
+    this.files = connection?.db ? createGridFsBucket(connection.db, { bucketName }) : undefined;
 
     // Resolve from the global config rather than the optional injected
     // ConfigService: a project on the pre-11.33 constructor (`super(connection)`)
@@ -126,6 +129,9 @@ export abstract class CoreFileService {
    * library and the service wired through `super()`.
    */
   protected isStorageAvailable(driver: FileStorageDriver): boolean {
+    if (driver === 'gridfs') {
+      return !!this.files;
+    }
     return driver === 's3' ? !!this.options?.s3Service?.enabled : true;
   }
 
@@ -147,7 +153,7 @@ export abstract class CoreFileService {
    *
    * Every store keys files by an ObjectId, so a string that is not 24 hex characters — a TUS upload
    * id (which clients took for the file id), a filename, a typo in a URL — names no file. It is
-   * answered exactly like an unknown id. Handed to `new ObjectId()` it threw a BSONError instead,
+   * answered exactly like an unknown id. Handed to `new Types.ObjectId()` it threw a BSONError instead,
    * and `GET /files/id/<tus-upload-id>` answered 500 where an unknown id gets 404.
    *
    * Only strings are judged: anything else keeps its previous path, so an ObjectId from a second

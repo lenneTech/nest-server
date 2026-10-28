@@ -105,6 +105,12 @@ jobs:
       - name: Build
         run: pnpm run build
 
+      # A project on PostgreSQL alone installs none of MongoDB's libraries (12.1.0+): the build must load, boot and run
+      # with mongoose, @nestjs/mongoose and mongodb unresolvable. The publish workflow repeats it against the packed
+      # tarball installed without them.
+      - name: Runs without MongoDB's libraries (dist, PostgreSQL only)
+        run: pnpm run check:without-mongodb
+
       - name: Save build
         uses: actions/upload-artifact@v7
         with:

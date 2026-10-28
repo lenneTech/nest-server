@@ -9,6 +9,14 @@ export function assertAccessReason(reason: string, method: string): void {
   }
 }
 
+/** find({ sample }): a positive integer — MongoDB refuses anything else in `$sample`, so every store does */
+export function assertSampleSize(sample: unknown): number {
+  if (typeof sample !== 'number' || !Number.isInteger(sample) || sample < 1) {
+    throw new Error(`sample must be a positive integer, got ${String(sample)}`);
+  }
+  return sample;
+}
+
 /** pushToArray() / pullFromArray(): a field name, never an operator */
 export function assertArrayField(field: string, method: string): void {
   if (typeof field !== 'string' || !field || field.startsWith('$') || field.includes('\0')) {

@@ -113,6 +113,22 @@ export function getRegisteredDataStore(name: string): DataStore<any> | undefined
 }
 
 /**
+ * The store serving a model, for a service that holds the MongoDB connection: through the connection's Mongoose model
+ * while MongoDB is connected, by name without one (PostgreSQL alone, or `database: false`) — the store registered for
+ * the model is then the only one there is
+ */
+export function getModelStore(
+  connection: { models?: Record<string, unknown> } | null | undefined,
+  name: string,
+): DataStore<any> | undefined {
+  if (!connection) {
+    return getRegisteredDataStore(name);
+  }
+  const model = connection.models?.[name];
+  return model ? getStoreForModel(model) : undefined;
+}
+
+/**
  * Remember which store serves the model behind a Mongoose model instance, so a service written against
  * `@InjectModel()` runs on the store its model was routed to
  */

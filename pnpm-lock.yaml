@@ -39,9 +39,6 @@ importers:
       '@nestjs/jwt':
         specifier: 12.0.3
         version: 12.0.3(@nestjs/common@12.2.0(class-transformer@0.5.1)(class-validator@0.15.1)(reflect-metadata@0.2.2)(rxjs@7.8.2)(supports-color@5.5.0))
-      '@nestjs/mongoose':
-        specifier: 12.0.0
-        version: 12.0.0(@nestjs/common@12.2.0(class-transformer@0.5.1)(class-validator@0.15.1)(reflect-metadata@0.2.2)(rxjs@7.8.2)(supports-color@5.5.0))(@nestjs/core@12.2.0)(mongoose@9.11.4)(rxjs@7.8.2)
       '@nestjs/passport':
         specifier: 12.0.0
         version: 12.0.0(@nestjs/common@12.2.0(class-transformer@0.5.1)(class-validator@0.15.1)(reflect-metadata@0.2.2)(rxjs@7.8.2)(supports-color@5.5.0))(passport@0.7.0)
@@ -120,12 +117,6 @@ importers:
       lodash:
         specifier: 4.18.1
         version: 4.18.1
-      mongodb:
-        specifier: 7.7.0
-        version: 7.7.0
-      mongoose:
-        specifier: 9.11.4
-        version: 9.11.4
       multer:
         specifier: 2.5.0
         version: 2.5.0
@@ -187,6 +178,9 @@ importers:
       '@nestjs/cli':
         specifier: 12.0.10
         version: 12.0.10(@swc/cli@0.8.1(@swc/core@1.16.20)(chokidar@5.0.0)(supports-color@5.5.0))(@swc/core@1.16.20)(@types/node@26.6.5)
+      '@nestjs/mongoose':
+        specifier: 12.0.0
+        version: 12.0.0(@nestjs/common@12.2.0(class-transformer@0.5.1)(class-validator@0.15.1)(reflect-metadata@0.2.2)(rxjs@7.8.2)(supports-color@5.5.0))(@nestjs/core@12.2.0)(mongoose@9.11.4)(rxjs@7.8.2)
       '@nestjs/schematics':
         specifier: 12.0.10
         version: 12.0.10(chokidar@5.0.0)(typescript@6.0.3)
@@ -250,6 +244,12 @@ importers:
       kysely:
         specifier: 0.29.7
         version: 0.29.7
+      mongodb:
+        specifier: 7.7.0
+        version: 7.7.0
+      mongoose:
+        specifier: 9.11.4
+        version: 9.11.4
       nodemon:
         specifier: 3.1.14
         version: 3.1.14

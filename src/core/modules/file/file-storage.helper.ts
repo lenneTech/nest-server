@@ -123,6 +123,14 @@ export function resolveFileStorage(config?: Partial<IServerOptions>): FileStorag
     return { driver: 's3', explicit: false, reason: 's3.bucket is configured' };
   }
 
+  if (config?.database === false) {
+    return {
+      driver: 'filesystem',
+      explicit: false,
+      reason: 'the project runs without a database (`database: false`) — file metadata has nowhere to go',
+    };
+  }
+
   const sqlSource = fileMetadataSqlSource(config);
   if (sqlSource) {
     // GridFS keeps bytes AND metadata in MongoDB; a project that routes the file metadata to SQL does not get its

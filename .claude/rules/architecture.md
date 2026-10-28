@@ -52,6 +52,11 @@ config is present, and keep their previous single-process behaviour when it is n
 `@Optional()` and always keep the non-configured fallback path — that is the pattern every core
 consumer follows. See `.claude/rules/configurable-features.md` for the full option reference.
 
+**MongoDB itself is optional since 12.1.0** — the same pattern one level down: `mongoose`, `@nestjs/mongoose` and
+`mongodb` are optional peers, reached only through `common/persistence/mongo/` (never a static value import in
+`src/core/`), and `CoreModule` connects MongoDB only when a data source uses it. `pnpm run check:without-mongodb`
+proves the build loads and runs with them unresolvable. Rules: `.claude/rules/persistence.md`.
+
 ## Core Modules (`src/core/modules/`)
 
 | Module | Purpose |

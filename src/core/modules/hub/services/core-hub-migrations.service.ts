@@ -1,5 +1,5 @@
 import { Inject, Injectable, Logger, Optional } from '@nestjs/common';
-import { InjectConnection } from '@nestjs/mongoose';
+import { InjectConnection } from '../../../common/persistence/mongo/mongoose-compat.js';
 import { readdir } from 'fs/promises';
 import type { Connection } from 'mongoose';
 import { resolve } from 'path';

@@ -1,10 +1,10 @@
 import { ObjectType } from '@nestjs/graphql';
-import { Types } from 'mongoose';
 
 import { Restricted } from '../../common/decorators/restricted.decorator.js';
 import { UnifiedField } from '../../common/decorators/unified-field.decorator.js';
 import { RoleEnum } from '../../common/enums/role.enum.js';
 import { CoreModel } from '../../common/models/core-model.model.js';
+import { newObjectId } from '../../common/persistence/mongo/mongoose-compat.js';
 
 /**
  * File info
@@ -18,7 +18,7 @@ export class CoreFileInfo extends CoreModel {
 
   @Restricted(RoleEnum.S_EVERYONE)
   get _id() {
-    return new Types.ObjectId(this.id);
+    return newObjectId(this.id);
   }
 
   // ===========================================================================

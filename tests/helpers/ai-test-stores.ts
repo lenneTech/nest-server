@@ -6,7 +6,7 @@ import { RequestContext } from '../../src/core/common/services/request-context.s
 
 /**
  * The AI module's data as the application stores it — on MongoDB, or on the SQL source `database` routes the AI models
- * to (the `iam-sql-<engine>` projects). A suite reads, plants and removes records through these stores instead of a
+ * to (the `postgres` and `iam-sql-<engine>` projects). A suite reads, plants and removes records through these stores instead of a
  * MongoDB client of its own, so the same suite proves both databases.
  *
  * `system()` runs a callback as system work, outside every tenant scope: test fixtures span tenants, and the

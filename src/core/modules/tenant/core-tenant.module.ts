@@ -1,7 +1,7 @@
 import { CanActivate, DynamicModule, Global, Module, OnModuleDestroy, OnModuleInit, Type } from '@nestjs/common';
 import { APP_GUARD } from '@nestjs/core';
-import { SchemaFactory, getModelToken } from '@nestjs/mongoose';
-import { Model } from 'mongoose';
+import { getModelToken, SchemaFactory } from '../../common/persistence/mongo/mongoose-compat.js';
+import type { Model } from 'mongoose';
 
 import { CorePersistenceModule } from '../../common/persistence/core-persistence.module.js';
 import { roleScopeRegistry } from './core-role-scope.registry.js';

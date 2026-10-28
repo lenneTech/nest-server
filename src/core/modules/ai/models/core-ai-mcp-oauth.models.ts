@@ -1,4 +1,4 @@
-import { Schema } from 'mongoose';
+import { createSchema } from '../../../common/persistence/mongo/mongoose-compat.js';
 
 import { AI_MCP_OAUTH_CODE_TTL_SECONDS } from '../core-ai.constants.js';
 
@@ -12,9 +12,9 @@ import { AI_MCP_OAUTH_CODE_TTL_SECONDS } from '../core-ai.constants.js';
  */
 
 /** A registered client: the client object the MCP SDK hands over, kept whole, plus its id for the lookup */
-export const AiMcpOAuthClientSchema = new Schema(
+export const AiMcpOAuthClientSchema = createSchema(
   {
-    client: { type: Schema.Types.Mixed },
+    client: { type: Object },
     client_id: { index: { unique: true }, type: String },
     createdAt: { type: Date },
   },
@@ -22,7 +22,7 @@ export const AiMcpOAuthClientSchema = new Schema(
 );
 
 /** An authorization code with its PKCE challenge; valid for `AI_MCP_OAUTH_CODE_TTL_SECONDS` after `createdAt` */
-export const AiMcpOAuthCodeSchema = new Schema(
+export const AiMcpOAuthCodeSchema = createSchema(
   {
     clientId: { type: String },
     code: { index: { unique: true }, type: String },
@@ -35,7 +35,7 @@ export const AiMcpOAuthCodeSchema = new Schema(
 );
 
 /** A refresh token, bound to the client it was issued to */
-export const AiMcpOAuthRefreshTokenSchema = new Schema(
+export const AiMcpOAuthRefreshTokenSchema = createSchema(
   {
     clientId: { type: String },
     createdAt: { type: Date },
