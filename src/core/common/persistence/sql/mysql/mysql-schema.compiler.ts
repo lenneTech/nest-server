@@ -247,10 +247,15 @@ function desiredIndexes(
     return `${String(special[1])} indexes have no counterpart`;
   }
   const unique = index.options.unique === true;
-  const sparse = index.options.sparse === true;
   const partial = index.options.partialFilterExpression as Record<string, unknown> | undefined;
-  if (unique && partial) {
-    return 'a partial unique index has no counterpart — uniqueness is checked nowhere, enforce it in the service';
+  // A partial unique index whose filter only says "every indexed field exists" is a sparse one — MySQL's own NULL
+  // handling. Any other filter has no counterpart, and a uniqueness checked nowhere must not pass for one that holds
+  const sparse = index.options.sparse === true || (unique && !!partial && requiresIndexedFields(partial, entries));
+  if (unique && partial && !sparse) {
+    throw new UnsupportedQueryError(
+      `${model.name}: the partial unique index ${JSON.stringify(index.fields)} has no MySQL / MariaDB counterpart — ` +
+        'uniqueness would be checked nowhere. Use a sparse unique index, or enforce it in the service',
+    );
   }
 
   const parts: { base: string; bytes: number; column: string; order: string; text: boolean }[] = [];
@@ -324,6 +329,23 @@ function desiredIndexes(
     });
   }
   return result;
+}
+
+/** Whether a partial filter says exactly "every indexed field exists" (`{ field: { $exists: true } }` each) */
+function requiresIndexedFields(partial: Record<string, unknown>, entries: [string, unknown][]): boolean {
+  const keys = Object.keys(partial);
+  return (
+    keys.length === entries.length &&
+    entries.every(([path]) => {
+      const condition = partial[path] as Record<string, unknown> | undefined;
+      return (
+        !!condition &&
+        typeof condition === 'object' &&
+        Object.keys(condition).length === 1 &&
+        condition.$exists === true
+      );
+    })
+  );
 }
 
 /** The virtual column carrying `column`'s null sentinel, added to `columns` once */

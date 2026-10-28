@@ -628,8 +628,9 @@ IMPOSSIBLE with its reason).
   column when it is a lookup index and is refused when unique (mutation `mysql-long-index-not-prefixed`).
 * *Unique treats a missing value as a value* for string kinds through a virtual column `IFNULL(col, CHAR(0))` carrying
   the index (mutation `mysql-unique-null-distinct`); sparse unique keeps MySQL's own NULL handling, which is MongoDB's
-  sparse behaviour. A non-string unique field admits several records without a value; a partial unique index is not
-  created (notice) — neither occurs in the framework's models.
+  sparse behaviour, and so is a partial unique index on "every indexed field exists". A non-string unique field admits
+  several records without a value (neither occurs in the framework's models); any other partial unique index stops
+  the boot — a uniqueness checked nowhere must not pass for one that holds.
 * *No row-level security, and no trigger guard either:* prototype 19 measured a BEFORE INSERT/UPDATE/DELETE guard on
   session variables against the store's path (4000 writes, 8 concurrent): −17 to −28 % write throughput on MySQL 8.4,
   −47 to −49 % on MariaDB 11.8, p50 up to doubled (the scope has to be set and reset around every write on a pinned

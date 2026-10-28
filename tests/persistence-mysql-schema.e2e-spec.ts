@@ -323,6 +323,24 @@ for (const variant of ['mysql', 'mariadb'] as MysqlVariant[]) {
       expect(plan.rows[0].key).toMatch(/^ix_schema_slugs__slug_/);
     });
 
+    it('treats a partial unique index on "field exists" as sparse, and refuses any other partial unique index', async () => {
+      const exists = new Schema({ code: String }, { collection: 'schemaPartial' });
+      exists.index({ code: 1 }, { partialFilterExpression: { code: { $exists: true } }, unique: true });
+      const model = describeSchema('SchemaPartial', exists);
+      await applyMysqlSchema(owner, [model], options);
+      const store = new MysqlDataStore<any>(app as MysqlExecutor, model);
+      await store.insert({});
+      await store.insert({});
+      await store.insert({ code: 'a' });
+      await expect(store.insert({ code: 'a' })).rejects.toBeInstanceOf(DuplicateKeyError);
+
+      const other = new Schema({ code: String, kind: String }, { collection: 'schemaPartialOther' });
+      other.index({ code: 1 }, { partialFilterExpression: { kind: 'active' }, unique: true });
+      await expect(applyMysqlSchema(owner, [describeSchema('SchemaPartialOther', other)], options)).rejects.toThrow(
+        /partial unique index .* has no MySQL \/ MariaDB counterpart/,
+      );
+    });
+
     it('refuses a value longer than an indexed text column takes (400), and keeps a long unindexed text', async () => {
       const model = describeSchema(
         'SchemaLong',
