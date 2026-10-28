@@ -9,7 +9,7 @@
 - [API Token Module Test Coverage](api-token-module-test-coverage.md) — layer that really produces each 403; route-level AuthGuard refusals provable only in unit (APP_GUARDs run first); cacheTtlMs:0 everywhere.
 - [S3 RustFS Multipart Facts](s3-rustfs-multipart-facts.md) — RustFS lists pending multipart uploads without Prefix (abort assertions are real); lib-storage abort deterministic; empty stream OK.
 - [TUS + compression end-callback facts](tus-compression-end-callback-facts.md) — only null-body (204) TUS responses hit srvx res.end(cb); needs Accept-Encoding; defect = hang not 500; mutation run ~5 min.
-- [Scratch-Copy Mutation Check](scratch-copy-mutation-check.md) — rsync copy + symlinked node_modules (nuxt needs .nuxt/); vitest 5 json reporter litters .vitest/; any `--reporter=` skips the DB drop; bare `@regression` fails the gate.
+- [Scratch-Copy Mutation Check](scratch-copy-mutation-check.md) — rsync copy or git clone + symlinked node_modules; the real gate runs with --id in a clone; a red e2e mutation takes ~5 min; --reporter= skips the DB drop.
 - [Lockfile Graph Guard Facts](lockfile-graph-guard-facts.md) — v9 direct/workspace deps sit under importers: (not snapshots:), edge lines end at the colon; probe root + workspace importer shapes.
 - [Cross-Repo Probe Gotchas](cross-repo-probe-gotchas.md) — zsh MULTIOS leak; zsh never word-splits $VAR (vitest "no files" exit 1 fakes a red mutation); node:24 docker = CI mawk; hook stdin.
 - [multiTenancy OFF Is the Default Path](multitenancy-off-is-the-default-path.md) — base repos set no multiTenancy; specs asserting only the ON fixture leave the consumer path open (swagger isPublic mutation survived).
@@ -23,4 +23,4 @@
 - [Better-Auth 2FA Test Facts](better-auth-2fa-test-facts.md) — enable alone never activates TOTP (verify-totp does, and swaps the session); no replay guard; how 12.0.0 password normalization is pinned.
 - [FRAMEWORK-API Generator Probe](framework-api-generator-probe.md) — generator has no spec; scratch-copy probe (sed ROOT/OUTPUT + NODE_PATH tsx) for its date-only skip; why the gap is not High.
 - [ESM Package Consumer-Path Facts](esm-package-consumer-path-facts.md) — 12.0.0 "type": "module": require(esm) barrel, bin/+helpers package.json, forwarder, callerDirectory file: branch — were run by no gate, pinned since 2026-10-26 (package-format-contracts, check:manifest); probes.
-- [DB-Agnostic Persistence Test Facts](db-agnostic-persistence-test-facts.md) — phase-0 mutations seen red; `database` option guarded but never wired (connection = mongoose.uri), guard tests blind to it.
+- [DB-Agnostic Persistence Test Facts](db-agnostic-persistence-test-facts.md) — phases 0+1: mutations seen red; BYPASSRLS branch pinned 2026-10-28; the 3 SQL engine columns share one run() path.
