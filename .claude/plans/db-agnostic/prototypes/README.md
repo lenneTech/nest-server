@@ -38,3 +38,4 @@ docker rm -f nest-server-proto-pg nest-server-proto-mariadb nest-server-proto-my
 | `16-engine-switch.mjs` | A9 | one store scenario, four adapters, switched by a config string: identical results, native handle on the store's transaction |
 | `17-pool-fault.mjs` | A10 | timed-out transactions: TypeORM leaks, Kysely poisons the pool (tenant setting visible); the framework pool guard fixes all four |
 | `18-tx-granularity.mjs` | A13 | per-operation (naive, combined, pipelined) against per-request transactions on a FORCE-RLS table as a non-owner role |
+| `19-mysql-tenant-trigger.mjs` | phase 6 | a trigger write guard on MySQL / MariaDB: −17 to −49 % write throughput, stops scope-less native writes only; native reads, a scope left on a pooled connection and self-set variables pass — not built |

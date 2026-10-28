@@ -22,6 +22,10 @@ import { mongooseSystemRolePlugin } from '../src/core/common/plugins/mongoose-sy
 import { mongooseTenantPlugin } from '../src/core/common/plugins/mongoose-tenant.plugin';
 import { describeSchema, registerModelSchema } from '../src/core/common/persistence/model-metadata.registry';
 import { registerDataStore } from '../src/core/common/persistence/persistence-runtime.registry';
+import { MysqlDataStore } from '../src/core/common/persistence/sql/mysql/mysql-data-store';
+import type { MysqlExecutor } from '../src/core/common/persistence/sql/mysql/mysql-executor';
+import { applyMysqlSchema, mysqlAccount } from '../src/core/common/persistence/sql/mysql/mysql-schema.migrator';
+import type { MysqlVariant } from '../src/core/common/persistence/sql/mysql/mysql-session';
 import { tableName } from '../src/core/common/persistence/sql/postgres/postgres-schema.compiler';
 import { applyPostgresSchema } from '../src/core/common/persistence/sql/postgres/postgres-schema.migrator';
 import { SqlDataStore } from '../src/core/common/persistence/sql/sql-data-store';
@@ -31,11 +35,14 @@ import { ConfigService } from '../src/core/common/services/config.service';
 import { CrudService } from '../src/core/common/services/crud.service';
 import { IRequestContext, RequestContext } from '../src/core/common/services/request-context.service';
 import { deriveTestDbUri } from './db-lifecycle.reporter';
+import { createMysqlTestDatabase } from './helpers/mysql-test-db';
 import {
+  MYSQL_DRIVERS,
   PERSISTENCE_DRIVERS,
   persistenceComplement,
   persistenceIt,
   PersistenceDriver,
+  type PersistenceEngine,
 } from './helpers/persistence-matrix';
 import { createPostgresTestDatabase, PG_APP, type PostgresTestDatabase } from './helpers/postgres-test-db';
 
@@ -44,7 +51,9 @@ import { createPostgresTestDatabase, PG_APP, type PostgresTestDatabase } from '.
  * column. MongoDB: a data store obtained exactly as a project obtains it — `CorePersistenceModule.forFeature()` +
  * `@InjectStore()` — with every security plugin registered on the connection, as `CoreModule` does. PostgreSQL, once
  * per engine: a `SqlDataStore` over the schema the migrator created from the same models, connected as the
- * application role, so row-level security binds every statement.
+ * application role, so row-level security binds every statement. MySQL and MariaDB, once per engine: a
+ * `MysqlDataStore` over the schema their migrator created, connected as the application account (row reads and writes
+ * only).
  */
 const ItemSchema = new mongoose.Schema(
   {
@@ -66,7 +75,7 @@ const ItemSchema = new mongoose.Schema(
   },
   { timestamps: true },
 );
-const ScopedSchema = new mongoose.Schema({ name: String, tenantId: String });
+const ScopedSchema = new mongoose.Schema({ amount: Number, labels: [String], name: String, tenantId: String });
 const SCOPED_TABLE = tableName(describeSchema('ParityScoped', ScopedSchema));
 
 /**
@@ -95,11 +104,14 @@ class ParityCrudService extends CrudService<ParityCrudItem> {
 }
 
 /** A query sent through each engine's OWN API, on the handle `native()` returns — outside every framework layer */
-const NATIVE_QUERY: Record<'drizzle' | 'kysely' | 'typeorm', (handle: any, text: string) => Promise<unknown>> = {
+const NATIVE_QUERY: Record<PersistenceEngine, (handle: any, text: string) => Promise<unknown>> = {
   drizzle: (db, text) => db.execute(drizzleSql.raw(text)),
   kysely: (db, text) => db.executeQuery(CompiledQuery.raw(text)),
   typeorm: (dataSource, text) => dataSource.query(text),
 };
+/** The rows of a native query's result, whichever shape the engine answers with */
+const nativeRows = (result: any): any[] =>
+  Array.isArray(result) ? (Array.isArray(result[0]) ? result[0] : result) : (result?.rows ?? []);
 /** The Postgres error code, wherever an engine's error wrapper put it */
 const pgCode = (error: any): unknown => error?.code ?? error?.driverError?.code ?? error?.cause?.code;
 
@@ -200,8 +212,48 @@ async function postgresHarness(engine: 'drizzle' | 'kysely' | 'typeorm'): Promis
   };
 }
 
+async function mysqlHarness(variant: MysqlVariant, engine: PersistenceEngine): Promise<Harness> {
+  const database = await createMysqlTestDatabase(variant, `persistence-parity-${engine}`);
+  const models = [describeSchema('ParityItem', ItemSchema), describeSchema('ParityScoped', ScopedSchema)];
+  const app = (await createSqlExecutor({ engine, maxConnections: 4, url: database.appUrl })) as MysqlExecutor;
+  const owner = await createSqlExecutor({ engine, maxConnections: 1, url: database.ownerUrl });
+  try {
+    await applyMysqlSchema(owner, models, { appAccount: await mysqlAccount(app), variant });
+  } finally {
+    await owner.close();
+  }
+  const schemas = { ParityItem: ItemSchema, ParityScoped: ScopedSchema };
+  const [items, scoped] = models.map((model) => new MysqlDataStore<any>(app, model, { schema: schemas[model.name] }));
+  for (const [name, store] of [
+    ['ParityItem', items],
+    ['ParityScoped', scoped],
+  ] as const) {
+    registerModelSchema(name, schemas[name]);
+    registerDataStore(name, store);
+  }
+  return {
+    items,
+    reset: async () => {
+      for (const model of models) {
+        await app.run({ params: [], text: `DELETE FROM \`${tableName(model)}\`` }, { kind: 'system' });
+      }
+    },
+    scoped,
+    teardown: async () => {
+      await app.close();
+      await database.drop();
+    },
+  };
+}
+
 const HARNESS: Record<PersistenceDriver, () => Promise<Harness>> = {
+  'mariadb-drizzle': () => mysqlHarness('mariadb', 'drizzle'),
+  'mariadb-kysely': () => mysqlHarness('mariadb', 'kysely'),
+  'mariadb-typeorm': () => mysqlHarness('mariadb', 'typeorm'),
   mongodb: mongoHarness,
+  'mysql-drizzle': () => mysqlHarness('mysql', 'drizzle'),
+  'mysql-kysely': () => mysqlHarness('mysql', 'kysely'),
+  'mysql-typeorm': () => mysqlHarness('mysql', 'typeorm'),
   'postgres-drizzle': () => postgresHarness('drizzle'),
   'postgres-kysely': () => postgresHarness('kysely'),
   'postgres-typeorm': () => postgresHarness('typeorm'),
@@ -489,7 +541,13 @@ for (const driver of PERSISTENCE_DRIVERS) {
       // Random, not the first of the page: 24 draws of one in two all landing on the same record has a chance of 2⁻²³
       expect([...seen].sort()).toEqual(page);
       // A sample larger than the matches returns every match, once
-      expect((await items.find({}, { sample: 10 })).map((record) => record.name).sort()).toEqual(['a', 'b', 'c', 'd', 'e']);
+      expect((await items.find({}, { sample: 10 })).map((record) => record.name).sort()).toEqual([
+        'a',
+        'b',
+        'c',
+        'd',
+        'e',
+      ]);
       await expect(items.find({}, { sample: 0 })).rejects.toThrow(/sample/);
       await expect(items.find({}, { sample: 1.5 })).rejects.toThrow(/sample/);
     });
@@ -514,12 +572,22 @@ for (const driver of PERSISTENCE_DRIVERS) {
       expect(await items.updateMany({ status: 'open' }, { $set: { status: 'closed' } })).toBe(0);
     });
 
+    /**
+     * @regression   DEV-3848 (db-agnostic phase 6) — Drizzle's mysql2 session reads DATETIME as text: a record read
+     *   inside a store transaction carried its timestamps as strings, which JavaScript parses as local time.
+     * @seen-failing Skip the string branch for date fields in fromColumn() of
+     *   src/core/common/persistence/sql/mysql/mysql-data-store.ts — registered as mutation
+     *   `mysql-drizzle-datetime-local` in tests/regression-mutations.json.
+     */
     persistenceIt('update-without-timestamps', driver, async () => {
       const record = await items.insert({ name: 'a' });
       const before = (await items.findById(record.id)).updatedAt;
       await new Promise((resolve) => setTimeout(resolve, 20));
       const stamped = await items.updateById(record.id, { $set: { age: 1 } }, { timestamps: false });
       expect(stamped.age).toBe(1);
+      // An instant, whatever the engine's driver hands over — text would be read in the process's time zone
+      expect(record.createdAt).toBeInstanceOf(Date);
+      expect(stamped.updatedAt).toBeInstanceOf(Date);
       expect(new Date(stamped.updatedAt).getTime()).toBe(new Date(before).getTime());
       const touched = await items.updateById(record.id, { $set: { age: 2 } });
       expect(new Date(touched.updatedAt).getTime()).toBeGreaterThan(new Date(before).getTime());
@@ -543,6 +611,37 @@ for (const driver of PERSISTENCE_DRIVERS) {
         'C',
         'D',
       ]);
+    });
+
+    /**
+     * @regression   DEV-3848 (db-agnostic phase 6, review) — on MySQL 8.4 every stage after the first nested the previous
+     *   one into a JSON_TABLE argument, which MySQL refuses when it reads the row being updated: any pushToArray()
+     *   with two or three of position, sort and slice failed (ER_BAD_FIELD_ERROR, a 500), the usual "keep the top N"
+     *   included.
+     * @seen-failing Run every stage of pushToArray() as one nested expression in
+     *   src/core/common/persistence/sql/mysql/mysql-data-store.ts — registered as mutation
+     *   `mysql-push-stages-nested` in tests/regression-mutations.json.
+     */
+    persistenceIt('push-combined-modifiers', driver, async () => {
+      const levels = async (id: string) => (await items.findById(id)).logs.map((log: { level: string }) => log.level);
+      const top = await items.insert({ logs: [{ level: 'B' }, { level: 'E' }] });
+      await items.pushToArray(top.id, 'logs', [{ level: 'A' }, { level: 'D' }, { level: 'C' }], {
+        slice: 3,
+        sort: { level: -1 },
+      });
+      expect(await levels(top.id)).toEqual(['E', 'D', 'C']);
+
+      const placed = await items.insert({ tags: ['b', 'd'] });
+      await items.pushToArray(placed.id, 'tags', ['a', 'c'], { position: 1, slice: -3 });
+      expect((await items.findById(placed.id)).tags).toEqual(['a', 'c', 'd']);
+
+      const all = await items.insert({ logs: [{ level: 'M' }] });
+      await items.pushToArray(all.id, 'logs', [{ level: 'Z' }, { level: 'A' }], {
+        position: 0,
+        slice: 2,
+        sort: { level: 1 },
+      });
+      expect(await levels(all.id)).toEqual(['A', 'M']);
     });
 
     persistenceIt('push-concurrent', driver, async () => {
@@ -667,7 +766,7 @@ for (const driver of PERSISTENCE_DRIVERS) {
      *   src/core/common/persistence/sql/postgres/postgres-schema.compiler.ts — registered as mutation
      *   `sql-rls-guard-allows-missing-scope` in tests/regression-mutations.json.
      */
-    if (driver !== 'mongodb') {
+    if (driver.startsWith('postgres-')) {
       persistenceIt('native-api-tenant-refused', driver, async () => {
         await scoped.insert({ name: 'a', tenantId: 'A' });
         const engine = driver.replace('postgres-', '') as keyof typeof NATIVE_QUERY;
@@ -682,6 +781,21 @@ for (const driver of PERSISTENCE_DRIVERS) {
           expect(pgCode(error)).toBe('42501');
         }
       });
+    } else if (MYSQL_DRIVERS.includes(driver)) {
+      persistenceComplement('native-api-tenant-refused', driver, async () => {
+        await run({ tenantId: 'A' }, () => scoped.insert({ name: 'a' }));
+        await run({ tenantId: 'B' }, () => scoped.insert({ name: 'b' }));
+        const engine = driver.replace(/^(mysql|mariadb)-/, '') as PersistenceEngine;
+        const handle = scoped.native('parity test: query the tenant table outside the framework');
+        const query = async () =>
+          Number(nativeRows(await NATIVE_QUERY[engine](handle, `SELECT COUNT(*) AS n FROM \`${SCOPED_TABLE}\``))[0]?.n);
+        // Nothing in the database stops it: both tenants' rows, with or without a request of tenant A
+        expect(await query()).toBe(2);
+        expect(await run({ tenantId: 'A' }, query)).toBe(2);
+        // The store itself still isolates
+        expect((await run({ tenantId: 'A' }, () => scoped.find())).map((record) => record.name)).toEqual(['a']);
+        await expect(run({ currentUser: user('u1') }, () => scoped.find())).rejects.toBeInstanceOf(ForbiddenException);
+      });
     } else {
       persistenceComplement('native-api-tenant-refused', driver, async () => {
         await scoped.insert({ name: 'a', tenantId: 'A' });
@@ -693,6 +807,41 @@ for (const driver of PERSISTENCE_DRIVERS) {
         expect(await model.countDocuments().exec()).toBe(1);
       });
     }
+
+    /**
+     * @regression   DEV-3848 (db-agnostic phase 6, review) — aggregates never pass the row check after a read, and MySQL
+     *   has no row-level security: the store's tenant filter is all that keeps count(), sum() and distinct() inside the
+     *   caller's tenant there. Losing it went unnoticed by every suite.
+     * @seen-failing Compile the caller's filter without the tenant filter in count() / distinct() of
+     *   src/core/common/persistence/sql/mysql/mysql-data-store.ts — registered as mutations
+     *   `mysql-count-without-tenant-filter` and `mysql-distinct-without-tenant-filter` in
+     *   tests/regression-mutations.json.
+     */
+    persistenceIt('tenant-filters-aggregates', driver, async () => {
+      await run({ tenantId: 'A' }, () => scoped.insert({ amount: 1, labels: ['own'], name: 'own' }));
+      await run({ tenantId: 'B' }, () => scoped.insert({ amount: 100, labels: ['secret'], name: 'secret-of-b' }));
+      await run({ tenantId: 'A' }, async () => {
+        expect(await scoped.count({ amount: { $gte: 0 } })).toBe(1);
+        expect(await scoped.sum('amount', {})).toEqual({ count: 1, sum: 1 });
+        expect(await scoped.distinct('name')).toEqual(['own']);
+        expect(await scoped.distinct('labels')).toEqual(['own']);
+      });
+    });
+
+    /**
+     * @regression   DEV-3848 (db-agnostic phase 6, review) — pushToArray()/pullFromArray() write without reading the row
+     *   back, so nothing checks it afterwards; on MySQL the tenant filter of the statement is the only guard.
+     * @seen-failing Compile the id filter without the tenant filter in SqlDataStore.updateColumn() of
+     *   src/core/common/persistence/sql/sql-data-store.ts — registered as mutation
+     *   `sql-array-update-without-tenant-filter` in tests/regression-mutations.json.
+     */
+    persistenceIt('tenant-push-pull-misses', driver, async () => {
+      const foreign = await run({ tenantId: 'B' }, () => scoped.insert({ labels: ['b1', 'b2'], name: 'b' }));
+      await run({ tenantId: 'A' }, () => scoped.pushToArray(foreign.id, 'labels', ['a']));
+      await run({ tenantId: 'A' }, () => scoped.pushToArray(foreign.id, 'labels', ['a'], { position: 0, slice: 5 }));
+      await run({ tenantId: 'A' }, () => scoped.pullFromArray(foreign.id, 'labels', 'b1'));
+      expect((await run({ tenantId: 'B' }, () => scoped.findById(foreign.id))).labels).toEqual(['b1', 'b2']);
+    });
 
     persistenceIt('audit-stamps-actor', driver, async () => {
       const record = await run({ currentUser: user('651f00010203040506070809') }, () => items.insert({ name: 'a' }));
@@ -711,6 +860,21 @@ for (const driver of PERSISTENCE_DRIVERS) {
     persistenceIt('role-change-stripped', driver, async () => {
       const record = await run({ currentUser: user('u1', ['staff']) }, () => items.insert({ roles: ['admin'] }));
       expect(record.roles).toEqual([]);
+    });
+
+    /**
+     * @regression   DEV-3848 (db-agnostic phase 6, review) — the role guard of pushToArray()/pullFromArray() had no case:
+     *   a caller without the right to change roles could push `admin` into its own roles array.
+     * @seen-failing Drop the role-guard return from MysqlDataStore.pushToArray() in
+     *   src/core/common/persistence/sql/mysql/mysql-data-store.ts — registered as mutation
+     *   `mysql-push-roles-unguarded` in tests/regression-mutations.json.
+     */
+    persistenceIt('role-push-pull-stripped', driver, async () => {
+      const record = await items.insert({ roles: ['editor'] });
+      const staff = user('u1', ['staff']);
+      await run({ currentUser: staff }, () => items.pushToArray(record.id, 'roles', ['admin']));
+      await run({ currentUser: staff }, () => items.pullFromArray(record.id, 'roles', 'editor'));
+      expect((await items.findById(record.id)).roles).toEqual(['editor']);
     });
   });
 }

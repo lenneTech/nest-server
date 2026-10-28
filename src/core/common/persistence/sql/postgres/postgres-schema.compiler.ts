@@ -1,8 +1,10 @@
-import { defaultCollectionName } from '../../mongo/collection-name.js';
 import type { FieldDescriptor, IndexDescriptor, ModelDescriptor } from '../../model-descriptor.interface.js';
 import { UnsupportedQueryError } from '../sql-errors.js';
 import { columnName, quoteIdentifier, SqlLiterals, sqlLiteral } from '../sql-naming.js';
+import { schemaHash, shortName, tableName } from '../sql-schema.shared.js';
 import { compilePostgresWhere } from './postgres-where.compiler.js';
+
+export { LOCK_MODEL, shortName, tableName } from '../sql-schema.shared.js';
 
 /**
  * The PostgreSQL schema a model descriptor asks for (plan §3.3, §3.4, §3.12) — pure, no database. The migrator
@@ -25,35 +27,6 @@ const SYSTEM_ROLE_PATH = '$[*] ? (@.type() == "string" && @ like_regex "^\\\\s*s
 export const RLS_VERSION = 'lt:tenant:v1';
 export const TENANT_FILTER_FUNCTION = 'lt_tenant_filter';
 export const TENANT_POLICY = 'lt_tenant_isolation';
-
-const lockField = (name: string, kind: 'date' | 'id' | 'string'): FieldDescriptor => ({
-  hasDefault: false,
-  index: false,
-  isArray: false,
-  kind,
-  lowercase: false,
-  name,
-  required: false,
-  select: true,
-  sparse: false,
-  trim: false,
-  unique: false,
-});
-
-/** The framework's lease table (`PostgresLockStore`), created with every SQL schema */
-export const LOCK_MODEL: ModelDescriptor = Object.freeze({
-  collection: 'lt_locks',
-  fields: {
-    _id: lockField('_id', 'id'),
-    acquiredAt: lockField('acquiredAt', 'date'),
-    expiresAt: lockField('expiresAt', 'date'),
-    owner: lockField('owner', 'string'),
-  },
-  indexes: [],
-  name: 'LtLock',
-  tenantScoped: false,
-  timestamps: false,
-});
 
 export interface DesiredColumn {
   /** SQL default expression */
@@ -97,15 +70,6 @@ export interface PostgresSchemaOptions {
   appRole: string;
   /** Whether a model's table is tenant-isolated (tenant-scoped, multi-tenancy on, not in `excludeSchemas`) */
   isTenantIsolated: (model: ModelDescriptor) => boolean;
-}
-
-/**
- * The table of a model: the collection MongoDB would use, in snake_case. A hyphen becomes an underscore (`s3-files` →
- * `s3_files`): MongoDB allows it in a collection name, SQL not in an unquoted identifier
- */
-export function tableName(model: ModelDescriptor): string {
-  const collection = model.collection ?? defaultCollectionName(model.name);
-  return columnName(collection.replace(/-/g, '_'));
 }
 
 export function desiredTable(model: ModelDescriptor, options: PostgresSchemaOptions): DesiredTable {
@@ -247,7 +211,7 @@ function desiredIndex(model: ModelDescriptor, table: string, index: IndexDescrip
 
   const name = shortName(unique ? 'ux' : 'ix', table, [
     ...entries.map(([path]) => path.replace(/\./g, '_')),
-    hash(JSON.stringify({ fields: index.fields, partial, sparse, unique })),
+    schemaHash(JSON.stringify({ fields: index.fields, partial, sparse, unique })),
   ]);
   const conditions: string[] = [];
   if (sparse) {
@@ -287,22 +251,6 @@ function indexPart(
   }
   const json = columnType(field).type === 'jsonb';
   return { expression: column, gin: json, sql: `${column}${order}` };
-}
-
-/** `prefix_table__parts`, shortened with a hash when it would exceed Postgres' 63-character identifier limit */
-export function shortName(prefix: string, table: string, parts: string[]): string {
-  const full = `${prefix}_${table}__${parts.join('_')}`;
-  return full.length <= 63 ? full : `${full.slice(0, 54)}_${hash(full)}`;
-}
-
-/** FNV-1a, 8 hex characters: a stable short name for a definition */
-function hash(text: string): string {
-  let value = 0x811c9dc5;
-  for (let i = 0; i < text.length; i++) {
-    value ^= text.charCodeAt(i);
-    value = Math.imul(value, 0x01000193) >>> 0;
-  }
-  return value.toString(16).padStart(8, '0');
 }
 
 // -- statements ---------------------------------------------------------------------------------------------

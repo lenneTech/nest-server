@@ -27,13 +27,15 @@ import {
 import {
   assertAccessReason,
   assertArrayField,
+  assertInteger,
+  assertNonNegativeInteger,
   assertProjection,
   assertSampleSize,
   assertSelectFields,
 } from '../store-guards.js';
 import { computedDefault } from '../mongo/declared-schema.view.js';
 import type { DeclaredSchema } from '../mongo/model-declarations.js';
-import { tableName } from './postgres/postgres-schema.compiler.js';
+import { tableName } from './sql-schema.shared.js';
 import { compilePostgresUpdate, pullExpression } from './postgres/postgres-update.compiler.js';
 import { compilePostgresPath, compilePostgresWhere } from './postgres/postgres-where.compiler.js';
 import { castFilterValue } from './sql-cast.js';
@@ -96,20 +98,20 @@ const UPDATE_ONE_ATTEMPTS = 3;
  * table is absent from the record — SQL cannot tell a stored null from an absent value.
  */
 export class SqlDataStore<T = Record<string, any>> implements DataStore<T> {
-  readonly capabilities = POSTGRES_STORE_CAPABILITIES;
-  readonly driver = 'postgres';
+  readonly capabilities: Readonly<StoreCapabilities> = POSTGRES_STORE_CAPABILITIES;
+  readonly driver: string = 'postgres';
   protected readonly logger = new Logger(SqlDataStore.name);
   protected readonly table: string;
   /** column → field */
   protected readonly fields = new Map<string, FieldDescriptor>();
-  private collationWarned = false;
+  protected collationWarned = false;
 
   constructor(
     protected readonly executor: SqlExecutor,
     protected readonly model: ModelDescriptor,
     protected readonly options: SqlDataStoreOptions = {},
   ) {
-    this.table = quoteIdentifier(tableName(model));
+    this.table = this.quote(tableName(model));
     for (const field of Object.values(model.fields)) {
       this.fields.set(columnName(field.name), field);
     }
@@ -167,10 +169,10 @@ export class SqlDataStore<T = Record<string, any>> implements DataStore<T> {
     let text = `SELECT ${this.selectList(options.select, options.exclude)} FROM ${this.table} WHERE ${this.where(where, params)}`;
     text += this.orderBy(options, params);
     if (options.limit !== undefined) {
-      text += ` LIMIT ${params.add(nonNegativeInteger(options.limit, 'limit'))}`;
+      text += ` LIMIT ${params.add(assertNonNegativeInteger(options.limit, 'limit'))}`;
     }
     if (options.skip !== undefined) {
-      text += ` OFFSET ${params.add(nonNegativeInteger(options.skip, 'skip'))}`;
+      text += ` OFFSET ${params.add(assertNonNegativeInteger(options.skip, 'skip'))}`;
     }
     if (sample !== undefined) {
       // The page first, then the draw — MongoDB's `$sample` after `$sort`, `$skip` and `$limit`
@@ -191,27 +193,32 @@ export class SqlDataStore<T = Record<string, any>> implements DataStore<T> {
 
   // -- writes ---------------------------------------------------------------------------------------------
 
-  async insert(record: Partial<T>): Promise<StoredRecord<T>> {
-    const doc = await this.beforeInsert({ ...(record as Record<string, any>) });
-    const params = new SqlParams();
-    const columns: string[] = [];
-    const values: string[] = [];
+  /** The columns and bound values of a prepared document, the id first (a well-formed supplied one, else a new one) */
+  protected insertValues(
+    doc: Record<string, any>,
+    params: SqlParams,
+  ): { columns: string[]; id: string; values: string[] } {
     const supplied = doc.id ?? doc._id;
-    columns.push('"id"');
-    values.push(
-      params.add(
-        supplied !== undefined && isWellFormedId(String(supplied)) ? String(supplied).toLowerCase() : generateId(),
-      ),
-    );
+    const id =
+      supplied !== undefined && isWellFormedId(String(supplied)) ? String(supplied).toLowerCase() : generateId();
+    const columns = [this.quote('id')];
+    const values = [params.add(id)];
     for (const [key, value] of Object.entries(doc)) {
       const field = key === 'id' || key === '_id' ? undefined : this.model.fields[key];
       if (!field || value === undefined) {
         // Like Mongoose in strict mode: a key the model does not declare is not stored
         continue;
       }
-      columns.push(quoteIdentifier(columnName(key)));
+      columns.push(this.quote(columnName(key)));
       values.push(this.toColumn(field, key, value, params));
     }
+    return { columns, id, values };
+  }
+
+  async insert(record: Partial<T>): Promise<StoredRecord<T>> {
+    const doc = await this.beforeInsert({ ...(record as Record<string, any>) });
+    const params = new SqlParams();
+    const { columns, values } = this.insertValues(doc, params);
     const { rows } = await this.run({
       params: params.values,
       text: `INSERT INTO ${this.table} (${columns.join(', ')}) VALUES (${values.join(', ')}) RETURNING ${this.selectList()}`,
@@ -226,7 +233,7 @@ export class SqlDataStore<T = Record<string, any>> implements DataStore<T> {
   ): Promise<null | StoredRecord<T>> {
     const patch = await this.preparePatch(update, options);
     const params = new SqlParams();
-    const assignments = compilePostgresUpdate(this.model, patch, params);
+    const assignments = this.compileUpdate(patch, params);
     if (!assignments.length) {
       return this.findById(id);
     }
@@ -241,7 +248,7 @@ export class SqlDataStore<T = Record<string, any>> implements DataStore<T> {
     const patch = await this.preparePatch(update);
     for (let attempt = 1; ; attempt++) {
       const params = new SqlParams();
-      const assignments = compilePostgresUpdate(this.model, patch, params);
+      const assignments = this.compileUpdate(patch, params);
       if (!assignments.length) {
         return this.findOne(where);
       }
@@ -298,7 +305,7 @@ export class SqlDataStore<T = Record<string, any>> implements DataStore<T> {
   async updateMany(where: Where<T>, update: DataStoreUpdate<T>): Promise<number> {
     const patch = await this.preparePatch(update);
     const params = new SqlParams();
-    const assignments = compilePostgresUpdate(this.model, patch, params);
+    const assignments = this.compileUpdate(patch, params);
     if (!assignments.length) {
       return this.count(where);
     }
@@ -329,7 +336,7 @@ export class SqlDataStore<T = Record<string, any>> implements DataStore<T> {
     // MongoDB order: insert at the position, then sort, then slice
     let value = `(${existing} || ${added})`;
     if (options.position !== undefined) {
-      const position = integer(options.position, 'position');
+      const position = assertInteger(options.position, 'position');
       const at = `(CASE WHEN ${params.add(position)}::int < 0 THEN GREATEST(jsonb_array_length(${existing}) + ${params.add(position)}::int, 0) ELSE ${params.add(position)}::int END)`;
       value = `(SELECT COALESCE(jsonb_agg(x.v ORDER BY x.g, x.n), '[]'::jsonb) FROM (SELECT o.v, o.n, CASE WHEN o.n <= ${at} THEN 0 ELSE 2 END AS g FROM jsonb_array_elements(${existing}) WITH ORDINALITY AS o(v, n) UNION ALL SELECT a.v, a.n, 1 FROM jsonb_array_elements(${added}) WITH ORDINALITY AS a(v, n)) AS x)`;
     }
@@ -337,7 +344,7 @@ export class SqlDataStore<T = Record<string, any>> implements DataStore<T> {
       value = `(SELECT COALESCE(jsonb_agg(s.v ORDER BY ${this.itemOrder(options.sort, params)}), '[]'::jsonb) FROM jsonb_array_elements(${value}) WITH ORDINALITY AS s(v, n))`;
     }
     if (options.slice !== undefined) {
-      const slice = integer(options.slice, 'slice');
+      const slice = assertInteger(options.slice, 'slice');
       const keep =
         slice < 0
           ? `l.n > jsonb_array_length(${value}) - ${params.add(-slice)}::int`
@@ -444,7 +451,7 @@ export class SqlDataStore<T = Record<string, any>> implements DataStore<T> {
   }
 
   /** The update as the store writes it: the caller's object untouched, the policies applied, undeclared paths dropped */
-  private async preparePatch(update: DataStoreUpdate<T>, options: UpdateOptions = {}): Promise<Record<string, any>> {
+  protected async preparePatch(update: DataStoreUpdate<T>, options: UpdateOptions = {}): Promise<Record<string, any>> {
     return this.dropUndeclared(await this.beforeUpdate(clone(update), options));
   }
 
@@ -482,10 +489,15 @@ export class SqlDataStore<T = Record<string, any>> implements DataStore<T> {
     const tenantFilter = this.model.tenantScoped ? resolveTenantFilter(this.modelName) : undefined;
     const combined =
       tenantFilter && Object.keys(tenantFilter).length ? { $and: [where ?? {}, tenantFilter] } : (where ?? {});
-    return compilePostgresWhere(this.model, combined as Where, params);
+    return this.compileWhere(combined as Where, params);
   }
 
-  private async exists(where: undefined | Where<T>): Promise<boolean> {
+  /** The condition of a neutral filter in this database's SQL */
+  protected compileWhere(where: Where, params: SqlParams): string {
+    return compilePostgresWhere(this.model, where, params);
+  }
+
+  protected async exists(where: undefined | Where<T>): Promise<boolean> {
     const params = new SqlParams();
     const { rows } = await this.run<{ found: boolean }>({
       params: params.values,
@@ -502,10 +514,10 @@ export class SqlDataStore<T = Record<string, any>> implements DataStore<T> {
     }
   }
 
-  private async updateColumn(id: string, column: string, value: string, params: SqlParams): Promise<void> {
+  protected async updateColumn(id: string, column: string, value: string, params: SqlParams): Promise<void> {
     // The audit and timestamp fields the update hooks stamp, flat or under `$set` — the compiler reads both
     const { $setOnInsert: _insertOnly, ...stamped } = await this.beforeUpdate({});
-    const assignments = [`${column} = ${value}`, ...compilePostgresUpdate(this.model, stamped, params)];
+    const assignments = [`${column} = ${value}`, ...this.compileUpdate(stamped, params)];
     await this.run({
       params: params.values,
       text: `UPDATE ${this.table} SET ${assignments.join(', ')} WHERE ${this.where({ id } as Where<T>, params)}`,
@@ -539,11 +551,21 @@ export class SqlDataStore<T = Record<string, any>> implements DataStore<T> {
     if (this.model.tenantScoped) {
       columns.add('tenant_id');
     }
-    return [...columns].map(quoteIdentifier).join(', ');
+    return [...columns].map((column) => this.quote(column)).join(', ');
+  }
+
+  /** An identifier as this database quotes it */
+  protected quote(name: string): string {
+    return quoteIdentifier(name);
+  }
+
+  /** The assignments of an `UPDATE … SET` for the neutral update */
+  protected compileUpdate(update: DataStoreUpdate, params: SqlParams): string[] {
+    return compilePostgresUpdate(this.model, update, params);
   }
 
   /** MongoDB sorts a missing value first ascending and last descending; the id breaks ties so paging is stable */
-  private orderBy(options: FindOptions, params: SqlParams): string {
+  protected orderBy(options: FindOptions, params: SqlParams): string {
     if (options.collation && !this.collationWarned) {
       this.collationWarned = true;
       this.logger.warn(`${this.modelName}: a collation is not applied on PostgreSQL; strings compare byte-wise`);
@@ -568,7 +590,7 @@ export class SqlDataStore<T = Record<string, any>> implements DataStore<T> {
     return ` ORDER BY ${parts.join(', ')}`;
   }
 
-  private itemOrder(sort: Record<string, -1 | 1> | number, params: SqlParams): string {
+  protected itemOrder(sort: Record<string, -1 | 1> | number, params: SqlParams): string {
     if (typeof sort === 'number') {
       return `s.v ${sort === -1 ? 'DESC' : 'ASC'}, s.n`;
     }
@@ -584,7 +606,7 @@ export class SqlDataStore<T = Record<string, any>> implements DataStore<T> {
   // -- values ---------------------------------------------------------------------------------------------
 
   /** A value bound for a column: typed, or jsonb for arrays, objects and undeclared content */
-  private toColumn(field: FieldDescriptor, path: string, value: unknown, params: SqlParams): string {
+  protected toColumn(field: FieldDescriptor, path: string, value: unknown, params: SqlParams): string {
     if (value === null || value === undefined) {
       return 'NULL';
     }
@@ -598,12 +620,12 @@ export class SqlDataStore<T = Record<string, any>> implements DataStore<T> {
     return `${params.add(JSON.stringify(value))}::jsonb`;
   }
 
-  private castItem(field: FieldDescriptor, path: string, item: unknown): unknown {
+  protected castItem(field: FieldDescriptor, path: string, item: unknown): unknown {
     const element = { ...field, isArray: false };
     return SCALAR_KINDS.has(element.kind) ? castFilterValue(element, path, item) : item;
   }
 
-  private fromColumn(field: FieldDescriptor, value: unknown): unknown {
+  protected fromColumn(field: FieldDescriptor, value: unknown): unknown {
     if (value === null || value === undefined) {
       return undefined;
     }
@@ -613,7 +635,7 @@ export class SqlDataStore<T = Record<string, any>> implements DataStore<T> {
     return value;
   }
 
-  private toRecords(rows: Record<string, any>[], select?: readonly string[]): StoredRecord<T>[] {
+  protected toRecords(rows: Record<string, any>[], select?: readonly string[]): StoredRecord<T>[] {
     if (this.model.tenantScoped) {
       assertRowsInTenantScope(
         this.modelName,
@@ -639,7 +661,7 @@ export class SqlDataStore<T = Record<string, any>> implements DataStore<T> {
 
   // -- helpers --------------------------------------------------------------------------------------------
 
-  private arrayField(field: string, method: string): FieldDescriptor {
+  protected arrayField(field: string, method: string): FieldDescriptor {
     const descriptor = this.model.fields[field];
     if (!descriptor?.isArray) {
       throw new UnsupportedQueryError(`${method}: "${field}" is not an array field of ${this.modelName}`);
@@ -691,7 +713,7 @@ export class SqlDataStore<T = Record<string, any>> implements DataStore<T> {
     return ConfigService.configFastButReadOnly?.security?.mongoosePasswordPlugin !== false;
   }
 
-  private roleGuardEnabled(): boolean {
+  protected roleGuardEnabled(): boolean {
     return ConfigService.configFastButReadOnly?.security?.mongooseRoleGuardPlugin !== false;
   }
 
@@ -737,19 +759,4 @@ function clone<V>(value: V): V {
 
 function hasOperator(update: Record<string, any>, field: string): boolean {
   return Object.values(update).some((part) => part && typeof part === 'object' && field in part) || field in update;
-}
-
-function integer(value: unknown, name: string): number {
-  if (typeof value !== 'number' || !Number.isInteger(value)) {
-    throw new UnsupportedQueryError(`${name} must be an integer`);
-  }
-  return value;
-}
-
-function nonNegativeInteger(value: unknown, name: string): number {
-  const result = integer(value, name);
-  if (result < 0) {
-    throw new UnsupportedQueryError(`${name} must not be negative`);
-  }
-  return result;
 }

@@ -8,17 +8,18 @@
  * (case, driver) cell is EXECUTED, IMPOSSIBLE or DIFFERENT-BY-DESIGN, and `tests/unit/core-module-parity-matrix.spec.ts`
  * fails the build on anything else.
  *
- * One PostgreSQL column, on the default engine (TypeORM): the store is the only place an engine is visible, and the
- * persistence matrix runs every engine against it. Sign-in in the PostgreSQL column goes through the legacy endpoints —
- * Better-Auth moves to SQL in phase 3 (DEV-3831), and suites signing in through IAM get their PostgreSQL column then.
+ * One column per SQL database, on the default engine (TypeORM): the store is the only place an engine is visible, and
+ * the persistence matrix runs every engine against it. Sign-in in the SQL columns goes through the legacy endpoints —
+ * the IAM suites run on PostgreSQL in their own vitest projects, and Better-Auth is refused on MySQL / MariaDB (phase 6),
+ * so their columns prove the legacy-auth path there.
  *
  * Executor: `tests/core-module-parity.e2e-spec.ts`.
  */
 import { it } from 'vitest';
 
-export type CoreModuleDriver = 'mongodb' | 'postgres';
+export type CoreModuleDriver = 'mariadb' | 'mongodb' | 'mysql' | 'postgres';
 
-export const CORE_MODULE_DRIVERS: readonly CoreModuleDriver[] = ['mongodb', 'postgres'] as const;
+export const CORE_MODULE_DRIVERS: readonly CoreModuleDriver[] = ['mongodb', 'postgres', 'mysql', 'mariadb'] as const;
 
 export interface CoreModuleCase {
   /** Drivers this case is EXECUTED for. Every driver not listed needs an exclusion entry. */

@@ -20,23 +20,12 @@ import {
   type PersistenceOverview,
   type PersistenceRuntime,
 } from './persistence-runtime.registry.js';
-import { PostgresLockStore } from './sql/postgres/postgres-lock-store.js';
-import {
-  grantStatement,
-  LOCK_MODEL,
-  type PostgresSchemaOptions,
-  tableName,
-} from './sql/postgres/postgres-schema.compiler.js';
-import {
-  applyPostgresSchema,
-  assertSafeApplicationRole,
-  SCHEMA_LOCK_SQL,
-  type SchemaChange,
-  verifyPostgresSchema,
-} from './sql/postgres/postgres-schema.migrator.js';
-import { SqlDataStore } from './sql/sql-data-store.js';
+import { grantStatement } from './sql/postgres/postgres-schema.compiler.js';
+import { assertSafeApplicationRole, SCHEMA_LOCK_SQL } from './sql/postgres/postgres-schema.migrator.js';
+import { type SqlDialect, sqlDialect } from './sql/sql-dialect.js';
 import { createSqlExecutor } from './sql/sql-executor.factory.js';
 import type { SqlExecutor } from './sql/sql-executor.interface.js';
+import { LOCK_MODEL, type SchemaChange, tableName } from './sql/sql-schema.shared.js';
 
 /**
  * Routes every model registered with `CorePersistenceModule.forFeature()` to its data source (plan §3.9: the
@@ -44,12 +33,16 @@ import type { SqlExecutor } from './sql/sql-executor.interface.js';
  * each model's table is brought up to date when its store is created — as the owner, or only verified without
  * `ownerUrl` — and the application role is checked against it: a role row-level security cannot bind stops the boot.
  * Per model, not per registry: the registry is process-wide, the stores Nest creates belong to THIS application.
+ * What differs between PostgreSQL and MySQL / MariaDB is the source's `SqlDialect`.
  * Installed by `CoreModule.forRoot()` only when a SQL source is configured.
  */
 export class DataSourceRuntime implements PersistenceRuntime {
   protected readonly logger = new Logger('DataSources');
   private bootReleased = false;
+  private readonly dialects = new Map<string, SqlDialect>();
   private readonly executors = new Map<string, Promise<SqlExecutor>>();
+  /** Sources whose application-only tenant isolation was reported */
+  private readonly isolationReported = new Set<string>();
   private lockStore?: Promise<LockStore | undefined>;
   private readonly owners = new Map<string, Promise<SqlExecutor>>();
   private readonly stores = new Map<string, Promise<DataStore<any>>>();
@@ -127,6 +120,12 @@ export class DataSourceRuntime implements PersistenceRuntime {
     if (!registration || !source || source.driver === 'mongodb') {
       return undefined;
     }
+    if (source.driver !== 'postgres') {
+      throw new Error(
+        `Better-Auth cannot run on ${this.dialect(source).label} yet: the user model (table ${USERS_TABLE}) is routed to ` +
+          `the source "${source.name}". Keep the user model on PostgreSQL or MongoDB (database.models), or switch Better-Auth off.`,
+      );
+    }
     // Opening the store brings `users` up to date first: Better-Auth only adds its columns to the table the user model
     // defines, never the other way round
     const users = await this.resolveStore(registration.name, undefined);
@@ -175,7 +174,10 @@ export class DataSourceRuntime implements PersistenceRuntime {
       }));
   }
 
-  /** Whether a model's table carries row-level security: tenant-scoped, multi-tenancy on, not excluded */
+  /**
+   * Whether a model's rows are tenant-isolated: tenant-scoped, multi-tenancy on, not excluded. On PostgreSQL the table
+   * carries row-level security; MySQL / MariaDB have none, and the store alone isolates
+   */
   isTenantIsolated(model: ModelDescriptor): boolean {
     const multiTenancy = ConfigService.configFastButReadOnly?.multiTenancy;
     return (
@@ -198,15 +200,12 @@ export class DataSourceRuntime implements PersistenceRuntime {
       throw new Error(`No descriptor for model "${name}" — register it with CorePersistenceModule.forFeature()`);
     }
     const app = await this.executor(source);
-    const options: PostgresSchemaOptions = {
-      appRole: decodeURIComponent(new URL(source.url).username),
-      isTenantIsolated: (candidate) => this.isTenantIsolated(candidate),
-    };
+    const dialect = this.dialect(source);
     let changes: SchemaChange[];
     if (source.ownerUrl) {
-      changes = await applyPostgresSchema(await this.owner(source), [model], options);
+      changes = await dialect.applySchema(await this.owner(source), app, [model]);
     } else {
-      changes = await verifyPostgresSchema(app, [model], options);
+      changes = await dialect.verifySchema(app, [model]);
     }
     for (const change of changes) {
       if (change.kind === 'automatic') {
@@ -215,12 +214,21 @@ export class DataSourceRuntime implements PersistenceRuntime {
         this.logger.warn(`[${source.name}] ${change.description}`);
       }
     }
-    await assertSafeApplicationRole(app, [tableName(model), tableName(LOCK_MODEL)]);
+    await dialect.assertSafeApplication(app, [tableName(model), tableName(LOCK_MODEL)]);
+    const isolated = this.isTenantIsolated(model);
+    if (isolated && source.driver !== 'postgres' && !this.isolationReported.has(source.name)) {
+      this.isolationReported.add(source.name);
+      this.logger.warn(
+        `[${source.name}] ${dialect.label} has no row-level security: tenant isolation of ${source.name} is enforced by ` +
+          'the application only. A query on a tenant table through store.native(), store.raw() or a connection of your ' +
+          'own must filter by tenantId itself — nothing in the database stops it.',
+      );
+    }
     this.logger.log(
-      `${name} → ${source.name} → ${source.driver} ${redactUrl(source.url)} → ${source.sqlEngine}${this.isTenantIsolated(model) ? ' (row-level security)' : ''}`,
+      `${name} → ${source.name} → ${source.driver} ${redactUrl(source.url)} → ${source.sqlEngine}${dialect.isolation(isolated)}`,
     );
     const registration = getPersistedModels().find((entry) => entry.name === name);
-    return new SqlDataStore<any>(app, model, { schema: registration?.schema as any });
+    return dialect.createStore(app, model, { schema: registration?.schema as any });
   }
 
   private async openLockStore(): Promise<LockStore | undefined> {
@@ -230,12 +238,9 @@ export class DataSourceRuntime implements PersistenceRuntime {
       return undefined;
     }
     const app = await this.executor(source);
-    const options: PostgresSchemaOptions = {
-      appRole: decodeURIComponent(new URL(source.url).username),
-      isTenantIsolated: (candidate) => this.isTenantIsolated(candidate),
-    };
+    const dialect = this.dialect(source);
     if (!source.ownerUrl) {
-      await verifyPostgresSchema(app, [], options);
+      await dialect.verifySchema(app, []);
     } else if (this.bootReleased) {
       // First asked after the boot released its owner connections: a connection of its own, closed at once
       const owner = await createSqlExecutor({
@@ -245,15 +250,15 @@ export class DataSourceRuntime implements PersistenceRuntime {
         url: source.ownerUrl,
       });
       try {
-        await applyPostgresSchema(owner, [], options);
+        await dialect.applySchema(owner, app, []);
       } finally {
         await owner.close();
       }
     } else {
-      await applyPostgresSchema(await this.owner(source), [], options);
+      await dialect.applySchema(await this.owner(source), app, []);
     }
-    await assertSafeApplicationRole(app, [tableName(LOCK_MODEL)]);
-    return new PostgresLockStore(app);
+    await dialect.assertSafeApplication(app, [tableName(LOCK_MODEL)]);
+    return dialect.createLockStore(app);
   }
 
   /**
@@ -293,6 +298,19 @@ export class DataSourceRuntime implements PersistenceRuntime {
       }
     }
     await assertSafeApplicationRole(app, tables);
+  }
+
+  private dialect(source: ResolvedDataSource): SqlDialect {
+    let dialect = this.dialects.get(source.name);
+    if (!dialect) {
+      dialect = sqlDialect({
+        appRole: decodeURIComponent(new URL(source.url).username),
+        driver: source.driver as 'mariadb' | 'mysql' | 'postgres',
+        isTenantIsolated: (candidate) => this.isTenantIsolated(candidate),
+      });
+      this.dialects.set(source.name, dialect);
+    }
+    return dialect;
   }
 
   /**

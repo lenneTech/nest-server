@@ -15,19 +15,31 @@
  *                  bug nobody noticed.
  *
  * Phase 0 of the database-agnostic work filled the MongoDB column; phase 1 added PostgreSQL once per engine
- * (TypeORM, Kysely, Drizzle). Every case is executed in every column, or declared with a reason.
+ * (TypeORM, Kysely, Drizzle), phase 6 MySQL 8.4 and MariaDB 11.8 once per engine. Every case is executed in every
+ * column, or declared with a reason.
  *
  * Executor: `tests/persistence-parity.e2e-spec.ts`.
  */
 import { it } from 'vitest';
 
-export type PersistenceDriver = 'mongodb' | 'postgres-drizzle' | 'postgres-kysely' | 'postgres-typeorm';
+export type PersistenceEngine = 'drizzle' | 'kysely' | 'typeorm';
+export type PersistenceDriver =
+  | 'mongodb'
+  | `mariadb-${PersistenceEngine}`
+  | `mysql-${PersistenceEngine}`
+  | `postgres-${PersistenceEngine}`;
 
 export const PERSISTENCE_DRIVERS: readonly PersistenceDriver[] = [
   'mongodb',
   'postgres-typeorm',
   'postgres-kysely',
   'postgres-drizzle',
+  'mysql-typeorm',
+  'mysql-kysely',
+  'mysql-drizzle',
+  'mariadb-typeorm',
+  'mariadb-kysely',
+  'mariadb-drizzle',
 ] as const;
 
 export interface PersistenceCase {
@@ -47,7 +59,11 @@ export interface PersistenceExclusion {
 }
 
 const ALL = PERSISTENCE_DRIVERS;
-const SQL = PERSISTENCE_DRIVERS.filter((driver) => driver !== 'mongodb');
+const POSTGRES = PERSISTENCE_DRIVERS.filter((driver) => driver.startsWith('postgres-'));
+/** MySQL and MariaDB: the columns without row-level security */
+export const MYSQL_DRIVERS = PERSISTENCE_DRIVERS.filter(
+  (driver) => driver.startsWith('mysql-') || driver.startsWith('mariadb-'),
+);
 
 export const PERSISTENCE_CASES: readonly PersistenceCase[] = [
   // --- CRUD contract --------------------------------------------------------------------------------------------
@@ -124,6 +140,11 @@ export const PERSISTENCE_CASES: readonly PersistenceCase[] = [
   { drivers: ALL, id: 'push-position-and-sort', title: 'pushToArray inserts at a position and sorts the array' },
   {
     drivers: ALL,
+    id: 'push-combined-modifiers',
+    title: 'pushToArray applies position, sort and slice of one call together, in MongoDB’s order',
+  },
+  {
+    drivers: ALL,
     id: 'push-concurrent',
     title: '20 concurrent pushToArray calls on one record all land (atomic, no lost update)',
   },
@@ -156,12 +177,27 @@ export const PERSISTENCE_CASES: readonly PersistenceCase[] = [
     id: 'tenant-filters-update-one-and-delete-many',
     title: 'updateOne, updateMany, deleteOne and deleteMany reach only the rows of the current tenant',
   },
+  {
+    drivers: ALL,
+    id: 'tenant-filters-aggregates',
+    title: 'count, sum and distinct (also over array items) see only the rows of the current tenant',
+  },
+  {
+    drivers: ALL,
+    id: 'tenant-push-pull-misses',
+    title: 'pushToArray and pullFromArray on another tenant’s record leave it unchanged',
+  },
   { drivers: ALL, id: 'audit-stamps-actor', title: 'createdBy and updatedBy carry the acting user' },
   { drivers: ALL, id: 'password-hashed', title: 'a password is stored hashed, never in plaintext' },
   { drivers: ALL, id: 'system-role-refused', title: 'a system role is never stored' },
   { drivers: ALL, id: 'role-change-stripped', title: 'a role change by a non-admin is stripped' },
   {
-    drivers: SQL,
+    drivers: ALL,
+    id: 'role-push-pull-stripped',
+    title: 'pushToArray and pullFromArray on roles by a non-admin change nothing',
+  },
+  {
+    drivers: POSTGRES,
     id: 'native-api-tenant-refused',
     title: 'a query on a tenant table through the native engine API is refused by the database without a tenant scope',
   },
@@ -176,6 +212,15 @@ export const PERSISTENCE_EXCLUSIONS: readonly PersistenceExclusion[] = [
       'DIFFERENT-BY-DESIGN: MongoDB has no database-level isolation; the native Mongoose model keeps the tenant ' +
       'plugin, which filters by the tenant, refuses a request without one, and lets system work through',
   },
+  ...MYSQL_DRIVERS.map((driver): PersistenceExclusion => ({
+    case: 'native-api-tenant-refused',
+    driver,
+    provenBy: 'tenant-safety-net',
+    reason:
+      'DIFFERENT-BY-DESIGN: MySQL and MariaDB have no row-level security; tenant isolation is the store’s, so a ' +
+      'query through the native engine API reaches every tenant’s rows — the boot log says so, and native access ' +
+      'on a tenant table must filter by tenantId itself',
+  })),
 ];
 
 export function getPersistenceCase(id: string): PersistenceCase {

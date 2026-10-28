@@ -58,24 +58,41 @@ export const POSTGRES_E2E_ENGINE = 'typeorm';
  * reads MongoDB directly belongs on the neutral helpers (`tests/helpers/iam-test-db.ts`, `ai-test-stores.ts`), not here.
  */
 export const POSTGRES_E2E_EXCLUDED: Readonly<Record<string, string>> = {
-  'tests/core-module-parity.e2e-spec.ts': 'OWN-DATABASES: assembles the core modules once with MongoDB and once with PostgreSQL itself',
-  'tests/file-storage-http-parity.e2e-spec.ts': 'OWN-DATABASES: the file parity matrix routes the metadata to MongoDB and to PostgreSQL itself',
-  'tests/file-storage-parity.e2e-spec.ts': 'OWN-DATABASES: the file parity matrix routes the metadata to MongoDB and to PostgreSQL itself',
-  'tests/filesystem-storage.e2e-spec.ts': 'MONGODB-ONLY: FilesystemFileHelper against the native `filesystem-files` collection (index, layout); on PostgreSQL the file parity matrix covers the filesystem driver',
-  'tests/migrate/mongo-state-store.e2e-spec.ts': 'MONGODB-ONLY: the MongoDB migration state store; tests/migrate/sql-state-store.e2e-spec.ts is its PostgreSQL counterpart',
-  'tests/migrate/sql-state-store.e2e-spec.ts': 'OWN-DATABASES: creates the PostgreSQL databases it migrates',
-  'tests/migrate/upload-file-to-gridfs.e2e-spec.ts': 'MONGODB-ONLY: the GridFS upload helper of the migration utilities',
-  'tests/mongoose-cast-error.e2e-spec.ts': 'MONGODB-ONLY: the Mongoose CastError filter; a SQL store answers a malformed id itself (persistence matrix)',
-  'tests/mongoose-plugins.e2e-spec.ts': 'MONGODB-ONLY: the Mongoose plugins; their policies run in the SQL store (persistence matrix)',
-  'tests/persistence-lock-formats.e2e-spec.ts': 'MONGODB-ONLY: the 12.0.0 lock documents an older replica reads in a rolling deploy',
-  'tests/persistence-lock-store.e2e-spec.ts': 'OWN-DATABASES: runs the lock store contract on MongoDB and PostgreSQL itself',
-  'tests/persistence-parity.e2e-spec.ts': 'OWN-DATABASES: the persistence matrix runs MongoDB and every PostgreSQL engine itself',
+  'tests/core-module-parity.e2e-spec.ts':
+    'OWN-DATABASES: assembles the core modules on MongoDB, PostgreSQL, MySQL and MariaDB itself',
+  'tests/file-storage-http-parity.e2e-spec.ts':
+    'OWN-DATABASES: the file parity matrix routes the metadata to MongoDB and to PostgreSQL itself',
+  'tests/file-storage-parity.e2e-spec.ts':
+    'OWN-DATABASES: the file parity matrix routes the metadata to MongoDB and to PostgreSQL itself',
+  'tests/filesystem-storage.e2e-spec.ts':
+    'MONGODB-ONLY: FilesystemFileHelper against the native `filesystem-files` collection (index, layout); on PostgreSQL the file parity matrix covers the filesystem driver',
+  'tests/migrate/mongo-state-store.e2e-spec.ts':
+    'MONGODB-ONLY: the MongoDB migration state store; tests/migrate/sql-state-store.e2e-spec.ts is its PostgreSQL counterpart',
+  'tests/migrate/sql-state-store.e2e-spec.ts':
+    'OWN-DATABASES: creates the PostgreSQL, MySQL and MariaDB databases it migrates',
+  'tests/migrate/upload-file-to-gridfs.e2e-spec.ts':
+    'MONGODB-ONLY: the GridFS upload helper of the migration utilities',
+  'tests/mongoose-cast-error.e2e-spec.ts':
+    'MONGODB-ONLY: the Mongoose CastError filter; a SQL store answers a malformed id itself (persistence matrix)',
+  'tests/mongoose-plugins.e2e-spec.ts':
+    'MONGODB-ONLY: the Mongoose plugins; their policies run in the SQL store (persistence matrix)',
+  'tests/persistence-lock-formats.e2e-spec.ts':
+    'MONGODB-ONLY: the 12.0.0 lock documents an older replica reads in a rolling deploy',
+  'tests/persistence-lock-store.e2e-spec.ts':
+    'OWN-DATABASES: runs the lock store contract on MongoDB, PostgreSQL, MySQL and MariaDB itself',
+  'tests/persistence-mysql-executor.e2e-spec.ts': 'OWN-DATABASES: creates the MySQL and MariaDB databases it tests',
+  'tests/persistence-mysql-schema.e2e-spec.ts': 'OWN-DATABASES: creates the MySQL and MariaDB databases it tests',
+  'tests/persistence-mysql-wiring.e2e-spec.ts': 'OWN-DATABASES: creates the MySQL and MariaDB databases it boots on',
+  'tests/persistence-parity.e2e-spec.ts':
+    'OWN-DATABASES: the persistence matrix runs MongoDB and every PostgreSQL, MySQL and MariaDB engine itself',
   'tests/persistence-sql-executor.e2e-spec.ts': 'OWN-DATABASES: creates the PostgreSQL databases it tests',
   'tests/persistence-sql-schema.e2e-spec.ts': 'OWN-DATABASES: creates the PostgreSQL databases it tests',
   'tests/persistence-sql-store.e2e-spec.ts': 'OWN-DATABASES: creates the PostgreSQL databases it tests',
-  'tests/persistence-sql-where.e2e-spec.ts': 'OWN-DATABASES: creates the PostgreSQL databases it tests',
+  'tests/persistence-sql-where.e2e-spec.ts':
+    'OWN-DATABASES: creates the PostgreSQL, MySQL and MariaDB databases it tests',
   'tests/persistence-sql-wiring.e2e-spec.ts': 'OWN-DATABASES: creates the PostgreSQL databases it boots on',
-  'tests/persistence-tenant-row-check.e2e-spec.ts': 'MONGODB-ONLY: the tenant row check of the Mongoose plugin hooks; the SQL store has its own (persistence matrix)',
+  'tests/persistence-tenant-row-check.e2e-spec.ts':
+    'MONGODB-ONLY: the tenant row check of the Mongoose plugin hooks; the SQL store has its own (persistence matrix)',
 };
 
 /**

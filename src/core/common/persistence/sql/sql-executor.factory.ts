@@ -6,6 +6,7 @@ import type {
   SqlTenantScope,
   SqlTransaction,
 } from './sql-executor.interface.js';
+import { createMysqlExecutor } from './mysql/mysql-executor.js';
 import { APPLY_SCOPE_SQL, guardPool, runInOwnTransaction, scopeParams } from './sql-session.js';
 
 /**
@@ -30,6 +31,16 @@ export interface SqlExecutorOptions {
 }
 
 export async function createSqlExecutor(options: SqlExecutorOptions): Promise<SqlExecutor> {
+  // The URL's scheme picks the dialect: MySQL and MariaDB have adapters of their own (phase 6)
+  const scheme = /^([a-z][a-z0-9+.-]*):/i.exec(options.url)?.[1]?.toLowerCase();
+  if (scheme === 'mysql' || scheme === 'mariadb') {
+    return createMysqlExecutor({
+      engine: options.engine,
+      maxConnections: options.maxConnections,
+      url: options.url,
+      variant: scheme,
+    });
+  }
   switch (options.engine) {
     case 'drizzle':
       return createDrizzleExecutor(options);
@@ -62,7 +73,8 @@ export async function installedSqlEngine(): Promise<DatabaseSqlEngine> {
     }
   }
   throw new Error(
-    'A PostgreSQL connection needs one of the optional SQL engines, none is installed. Run: pnpm add typeorm pg',
+    'A SQL connection needs one of the optional SQL engines, none is installed. Run: pnpm add typeorm pg ' +
+      '(PostgreSQL) or pnpm add typeorm mysql2 (MySQL / MariaDB)',
   );
 }
 

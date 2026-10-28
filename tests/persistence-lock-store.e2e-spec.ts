@@ -4,10 +4,13 @@ import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest';
 import { migrationMongoLocks, systemSetupMongoLocks } from '../src/core/common/persistence/infrastructure-locks';
 import type { LockStore } from '../src/core/common/persistence/lock-store.interface';
 import { MongoLockStore } from '../src/core/common/persistence/mongo-lock-store';
+import { MysqlLockStore } from '../src/core/common/persistence/sql/mysql/mysql-lock-store';
+import { applyMysqlSchema, mysqlAccount } from '../src/core/common/persistence/sql/mysql/mysql-schema.migrator';
 import { PostgresLockStore } from '../src/core/common/persistence/sql/postgres/postgres-lock-store';
 import { applyPostgresSchema } from '../src/core/common/persistence/sql/postgres/postgres-schema.migrator';
 import { createSqlExecutor } from '../src/core/common/persistence/sql/sql-executor.factory';
 import { deriveTestDbUri } from './db-lifecycle.reporter';
+import { createMysqlTestDatabase } from './helpers/mysql-test-db';
 import { createPostgresTestDatabase, PG_APP } from './helpers/postgres-test-db';
 
 /**
@@ -66,6 +69,30 @@ async function postgresLocks(): Promise<LockHarness> {
   };
 }
 
+async function mysqlLocks(variant: 'mariadb' | 'mysql'): Promise<LockHarness> {
+  const database = await createMysqlTestDatabase(variant, 'lock-store');
+  const app = await createSqlExecutor({ engine: 'kysely', maxConnections: 16, url: database.appUrl });
+  const owner = await createSqlExecutor({ engine: 'typeorm', maxConnections: 1, url: database.ownerUrl });
+  try {
+    await applyMysqlSchema(owner, [], { appAccount: await mysqlAccount(app), variant });
+  } finally {
+    await owner.close();
+  }
+  return {
+    locks: new MysqlLockStore(app),
+    reset: async () => {
+      await app.run({ params: [], text: 'DELETE FROM lt_locks' }, { kind: 'system' });
+    },
+    stored: async (key) =>
+      (await app.run({ params: [key], text: 'SELECT 1 FROM lt_locks WHERE id = $1' }, { kind: 'system' })).rowCount ===
+      1,
+    teardown: async () => {
+      await app.close();
+      await database.drop();
+    },
+  };
+}
+
 /**
  * The two MongoDB lock formats of 12.0.0 that the framework's own locks keep (`infrastructure-locks.ts`) must be leases
  * like any other — the contract runs against them too
@@ -74,6 +101,8 @@ const HARNESSES: Record<string, () => Promise<LockHarness>> = {
   mongodb: () => mongoLocks(),
   'mongodb (migration-lock format)': () => mongoLocks('parity-migration-locks', migrationMongoLocks, 'lock'),
   'mongodb (system-setup format)': () => mongoLocks('parity-setup-locks', systemSetupMongoLocks),
+  mariadb: () => mysqlLocks('mariadb'),
+  mysql: () => mysqlLocks('mysql'),
   postgres: postgresLocks,
 };
 

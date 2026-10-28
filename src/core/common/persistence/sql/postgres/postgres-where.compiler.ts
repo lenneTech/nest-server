@@ -1,8 +1,22 @@
 import type { Where } from '../../data-store.interface.js';
-import type { FieldDescriptor, FieldKind, ModelDescriptor } from '../../model-descriptor.interface.js';
+import type { FieldDescriptor, ModelDescriptor } from '../../model-descriptor.interface.js';
 import { castFilterValue } from '../sql-cast.js';
 import { QueryCastError, UnsupportedQueryError } from '../sql-errors.js';
-import { columnName, isPathSegment, quoteIdentifier, type SqlParamSink } from '../sql-naming.js';
+import { columnName, quoteIdentifier, type SqlParamSink } from '../sql-naming.js';
+import {
+  type BsonType,
+  bsonType,
+  COLUMN_TYPES,
+  COMPARISON,
+  type ComparisonOperator,
+  isOperatorObject,
+  isPlainObject,
+  itemOf,
+  REGEX_KINDS,
+  SCALAR_KINDS,
+  splitPath,
+  toJson,
+} from '../where-shared.js';
 
 /**
  * Compiles the neutral filter (the Mongo-operator subset of plan §3.2) into a PostgreSQL condition.
@@ -37,23 +51,6 @@ type Target =
   | { element?: FieldDescriptor; expr: string; kind: 'array'; path: string }
   /** A path inside the items of a JSON array of objects: matches when any item matches */
   | { arrayExpr: string; inner: (item: string) => Target; kind: 'elements'; path: string };
-
-const SCALAR_KINDS = new Set<FieldKind>([
-  'bigint',
-  'boolean',
-  'buffer',
-  'date',
-  'decimal',
-  'enum',
-  'id',
-  'number',
-  'ref',
-  'string',
-  'uuid',
-]);
-const REGEX_KINDS = new Set<FieldKind>(['enum', 'ref', 'string']);
-const COMPARISON = { $gt: '>', $gte: '>=', $lt: '<', $lte: '<=' } as const;
-type ComparisonOperator = keyof typeof COMPARISON;
 
 export function compilePostgresWhere(
   model: ModelDescriptor,
@@ -595,44 +592,6 @@ class WhereCompiler {
   }
 }
 
-type BsonType = 'array' | 'bool' | 'date' | 'null' | 'number' | 'object' | 'objectId' | 'string';
-
-const BSON_TYPE_ALIASES: Record<number | string, BsonType> = {
-  1: 'number',
-  10: 'null',
-  16: 'number',
-  18: 'number',
-  19: 'number',
-  2: 'string',
-  3: 'object',
-  4: 'array',
-  7: 'objectId',
-  8: 'bool',
-  9: 'date',
-  array: 'array',
-  bool: 'bool',
-  date: 'date',
-  decimal: 'number',
-  double: 'number',
-  int: 'number',
-  long: 'number',
-  null: 'null',
-  number: 'number',
-  object: 'object',
-  objectId: 'objectId',
-  string: 'string',
-};
-
-/** Which column kinds hold a value of a BSON type */
-const COLUMN_TYPES: Partial<Record<BsonType, (field: FieldDescriptor) => boolean>> = {
-  bool: (field) => field.kind === 'boolean',
-  date: (field) => field.kind === 'date',
-  number: (field) =>
-    ['bigint', 'decimal', 'number'].includes(field.kind) || (field.kind === 'enum' && field.enumBase === 'number'),
-  objectId: (field) => field.kind === 'id' || field.kind === 'ref',
-  string: (field) => ['string', 'uuid'].includes(field.kind) || (field.kind === 'enum' && field.enumBase !== 'number'),
-};
-
 /** The JSON type a BSON type is stored as (dates and ids are strings in JSON, so they cannot be told apart there) */
 const JSON_TYPES: Partial<Record<BsonType, string>> = {
   array: 'array',
@@ -642,60 +601,6 @@ const JSON_TYPES: Partial<Record<BsonType, string>> = {
   object: 'object',
   string: 'string',
 };
-
-function bsonType(path: string, value: unknown): BsonType {
-  const type =
-    (typeof value === 'string' || typeof value === 'number') &&
-    Object.prototype.hasOwnProperty.call(BSON_TYPE_ALIASES, value)
-      ? BSON_TYPE_ALIASES[value]
-      : undefined;
-  if (!type) {
-    throw new UnsupportedQueryError(`$type ${JSON.stringify(value)} at "${path}"`);
-  }
-  return type;
-}
-
-function splitPath(path: string): string[] {
-  const segments = path.split('.');
-  for (const segment of segments) {
-    if (!isPathSegment(segment)) {
-      throw new UnsupportedQueryError(`Invalid path "${path}"`);
-    }
-  }
-  return segments;
-}
-
-function itemOf(field: FieldDescriptor): FieldDescriptor {
-  return { ...field, isArray: false };
-}
-
-function isPlainObject(value: unknown): value is Record<string, unknown> {
-  if (value === null || typeof value !== 'object') {
-    return false;
-  }
-  const prototype = Object.getPrototypeOf(value);
-  return prototype === Object.prototype || prototype === null;
-}
-
-/** An object of operators. Mixing operators and fields is refused, as MongoDB refuses it. */
-function isOperatorObject(value: unknown): boolean {
-  if (!isPlainObject(value)) {
-    return false;
-  }
-  const keys = Object.keys(value);
-  const operators = keys.filter((key) => key.startsWith('$')).length;
-  if (operators && operators !== keys.length) {
-    throw new UnsupportedQueryError('An object may not mix operators and fields');
-  }
-  return operators > 0;
-}
-
-/** JSON for a jsonb parameter: dates as ISO strings and ids as hex (their `toJSON`), bigints as numbers or strings */
-function toJson(value: unknown): string {
-  return JSON.stringify(value, (_key, item) =>
-    typeof item === 'bigint' ? (Number.isSafeInteger(Number(item)) ? Number(item) : item.toString()) : item,
-  );
-}
 
 /**
  * Regular-expression flags as embedded ARE options. MongoDB (PCRE) and JavaScript keep `.` from matching a newline

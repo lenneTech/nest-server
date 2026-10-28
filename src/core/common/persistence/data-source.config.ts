@@ -199,18 +199,13 @@ export function resolveModelSource(
 /**
  * Refuse what the running version cannot wire, with a message naming the setting.
  *
- * PostgreSQL sources (default or additional) are wired next to the MongoDB connection, and since 12.1.0 a project runs
- * without any database (`database: false`); MySQL / MariaDB (phase 6) and a second MongoDB connection are refused.
- * Refusing at boot is the point: a configuration that is accepted and then silently served by the wrong database is
- * the outcome to avoid.
+ * PostgreSQL, MySQL and MariaDB sources (default or additional) are wired next to the MongoDB connection, and since
+ * 12.1.0 a project runs without any database (`database: false`); a second MongoDB connection is refused. Refusing at
+ * boot is the point: a configuration that is accepted and then silently served by the wrong database is the outcome to
+ * avoid.
  */
 export function assertDataSourcesSupported(resolved: ResolvedDataSources): void {
   for (const source of Object.values(resolved.sources)) {
-    if (source.driver === 'mysql' || source.driver === 'mariadb') {
-      throw new DataSourceConfigError(
-        `The ${source.driver} source "${source.name}" (${redactUrl(source.url)}) is not supported by this version yet — PostgreSQL and MongoDB only`,
-      );
-    }
     if (source.driver === 'mongodb' && source.name !== DEFAULT_SOURCE && source.name !== MONGOOSE_SOURCE) {
       throw new DataSourceConfigError(
         `The additional MongoDB source "${source.name}" (${redactUrl(source.url)}) is not supported by this version yet — one MongoDB connection only`,

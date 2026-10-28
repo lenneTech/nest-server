@@ -138,6 +138,24 @@ const INVENTORY: StateEntry[] = [
   },
   {
     because:
+      'The SQL dialect per source (PostgreSQL or MySQL / MariaDB), chosen from the URL scheme of the configuration. '
+      + 'Every replica derives the same dialect from the same configuration; the only thing it caches is the '
+      + "application account's name as the server reports it, which is the same for every replica.",
+    classification: 'derived',
+    file: 'common/persistence/data-source.runtime.ts',
+    name: 'dialects',
+  },
+  {
+    because:
+      'Which MySQL / MariaDB sources this process has already warned about (no row-level security). A boot log '
+      + 'line, once per process: every replica warns once for itself, which is what a log reader of that replica '
+      + 'needs. Nothing decides on it.',
+    classification: 'bounded',
+    file: 'common/persistence/data-source.runtime.ts',
+    name: 'isolationReported',
+  },
+  {
+    because:
       'The data store per SQL-routed model, created once per process from the configuration and the model '
       + 'descriptor. Two replicas build the identical store over the identical table; the store itself keeps no '
       + 'data — every read and write goes to the database.',
@@ -162,6 +180,29 @@ const INVENTORY: StateEntry[] = [
     classification: 'bounded',
     file: 'common/persistence/sql/postgres/postgres-update.compiler.ts',
     name: 'assignments',
+  },
+  {
+    because:
+      'The SET assignments of ONE MySQL update being compiled. Created per compilation and discarded with it; it never '
+      + 'outlives the statement it builds.',
+    classification: 'bounded',
+    file: 'common/persistence/sql/mysql/mysql-update.compiler.ts',
+    name: 'assignments',
+  },
+  {
+    because:
+      'The nested JSON writes per column of ONE MySQL update being compiled, folded into one JSON_SET at the end of '
+      + 'the compilation and discarded with it.',
+    classification: 'bounded',
+    file: 'common/persistence/sql/mysql/mysql-update.compiler.ts',
+    name: 'nested',
+  },
+  {
+    because:
+      'The paths ONE MySQL update writes, to refuse two operators on one path. Lives for one compilation only.',
+    classification: 'bounded',
+    file: 'common/persistence/sql/mysql/mysql-update.compiler.ts',
+    name: 'touched',
   },
   {
     because:

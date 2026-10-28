@@ -1,4 +1,4 @@
-# Persistence Rules (MongoDB and PostgreSQL)
+# Persistence Rules (MongoDB, PostgreSQL, MySQL and MariaDB)
 
 These rules apply to every model, service and query — in `src/core/` and in projects. The design is in
 `.claude/plans/db-agnostic/PLAN.md` while the plan is active; which database a project uses is decided by
@@ -9,7 +9,9 @@ These rules apply to every model, service and query — in `src/core/` and in pr
 
 `CrudService` runs every call through the same security pipeline (`process()`) and hands the database work to the
 model's **data store** (`DataStore<T>`, `common/persistence/data-store.interface.ts`): `MongooseDataStore` on MongoDB,
-`SqlDataStore` on PostgreSQL. A model reaches its store by being registered with
+`SqlDataStore` on PostgreSQL, `MysqlDataStore` (the same policies, MySQL's statements) on MySQL and MariaDB. What else
+differs per SQL database — schema, role check, leases — is the source's `SqlDialect` (`sql/sql-dialect.ts`). A model
+reaches its store by being registered with
 `CorePersistenceModule.forFeature([{ name, schema, model }])`; `database` routes it to a source.
 
 | Do | Never |
@@ -49,12 +51,15 @@ on its MongoDB path checks it.
 | Tier | API | What still protects the data |
 |---|---|---|
 | 1 | `CrudService` / `DataStore` | everything: before-layer policies, database layer (RLS on PostgreSQL), tenant row check, output pipeline |
-| 2 | `store.native(reason)` — the engine's own API, bound to the store's transaction | MongoDB: the Mongoose plugins. PostgreSQL: row-level security (same connection). HTTP interceptors |
+| 2 | `store.native(reason)` — the engine's own API, bound to the store's transaction | MongoDB: the Mongoose plugins. PostgreSQL: row-level security (same connection). MySQL / MariaDB: **nothing in the database**. HTTP interceptors |
 | 3 | `store.raw(reason)` / `getNativeConnection(reason)` | PostgreSQL: row-level security. HTTP interceptors. Nothing else |
 
-`reason` is mandatory and logged. Parameters only — an identifier (table, column) never comes from user input. On
-MySQL / MariaDB (phase 6) tiers 2 and 3 have no database floor: a native query on a tenant-scoped table filters by
-tenant itself.
+`reason` is mandatory and logged. Parameters only — an identifier (table, column) never comes from user input.
+
+**MySQL and MariaDB: tenant isolation is the application's.** Neither database has row-level security, and a trigger
+guard was measured and rejected (plan, phase 6). On these sources a tier-2/3 query on a tenant-scoped table MUST filter
+by `tenantId` (and a write MUST set it) itself — a review treats a missing filter there as a cross-tenant leak, not a
+style issue. The boot warns once per source.
 
 ## High-frequency paths
 
@@ -64,7 +69,7 @@ data store: `this.dataStore.insert()`, `updateById()`, `findById()`, `pushToArra
 output pipeline) and keep every policy — on MongoDB through the plugins, on PostgreSQL in the store. Prefer the store in
 new code; it is the fast path on both databases.
 
-## Schema on PostgreSQL
+## Schema on SQL
 
 The framework creates and evolves tables from the model descriptors when a store is created, as the **owner** role:
 new tables, columns, indexes and grants are applied; anything that could lose or reject data (type change, new unique
@@ -72,9 +77,24 @@ index, a rename collision, a table losing tenant isolation) stops the boot with 
 migration (`migrate create <name> --sql`, `runSqlMigration()`). Declare a renamed field with
 `@UnifiedField({ renamedFrom: 'oldName' })`. Never enable an engine's own `synchronize` or migration generator.
 
+On MySQL / MariaDB a text field that is part of an index is `varchar(255)` (a longer value: 400), every other text
+`longtext` — so adding an index to an existing text field is a type change. An index over more than 3072 bytes indexes a
+prefix when it is a lookup index and is refused when unique. DDL commits on its own there: a run is serialized by
+`GET_LOCK`, not a transaction, and a failed change leaves the statements before it applied.
+
+## Updates on MySQL / MariaDB
+
+Two operators on one path, or on a path and a path inside it, are refused (`Updating the path … would create a
+conflict`) — MongoDB's own rule; PostgreSQL chains them. Write such an update as one operator per path.
+
+On every SQL database a path segment `__proto__`, `constructor` or `prototype` is refused: a compiler that builds an
+object from path segments would otherwise reach `Object.prototype` — on MySQL that switched tenant isolation off for the
+whole process. Never build an update path from request data without validating it against the model.
+
 ## Tests
 
 A suite proves a behaviour on both databases: the `e2e` vitest project runs it on MongoDB, the `postgres` project on
-PostgreSQL (`.claude/rules/testing.md`). Read and prepare data through `tests/helpers/iam-test-db.ts` or the
+PostgreSQL (`.claude/rules/testing.md`). MySQL and MariaDB are proven through the matrices (persistence, core modules,
+where parity) and their own suites, not by a third run of the whole e2e suite. Read and prepare data through `tests/helpers/iam-test-db.ts` or the
 application's stores — never through a MongoDB client of the suite's own, which reads the wrong database on
 PostgreSQL. A contract with several implementations is a matrix (`tests/helpers/persistence-matrix.ts`).

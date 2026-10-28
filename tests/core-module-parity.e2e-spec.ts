@@ -43,6 +43,7 @@ import { ServerController } from '../src/server/server.controller';
 import { deriveTestDbUri } from './db-lifecycle.reporter';
 import { API_TOKEN_TEST_ENCRYPTION_KEY } from './helpers/api-token-e2e.helpers';
 import { CORE_MODULE_DRIVERS, CoreModuleDriver, moduleIt } from './helpers/core-module-matrix';
+import { createMysqlTestDatabase, type MysqlTestDatabase } from './helpers/mysql-test-db';
 import { createPostgresTestDatabase, type PostgresTestDatabase } from './helpers/postgres-test-db';
 
 /**
@@ -144,7 +145,7 @@ class ParityTenantController {
 
 interface Harness {
   app: any;
-  database?: PostgresTestDatabase;
+  database?: MysqlTestDatabase | PostgresTestDatabase;
   moduleRef: TestingModule;
   apiTokens: DataStore<any>;
   tenantGuard: CoreTenantGuard;
@@ -155,7 +156,12 @@ interface Harness {
 }
 
 async function boot(driver: CoreModuleDriver): Promise<Harness> {
-  const database = driver === 'postgres' ? await createPostgresTestDatabase('module-parity') : undefined;
+  const database =
+    driver === 'postgres'
+      ? await createPostgresTestDatabase('module-parity')
+      : driver === 'mongodb'
+        ? undefined
+        : await createMysqlTestDatabase(driver, 'module-parity');
   const config = {
     ...envConfig,
     auth: {
@@ -164,8 +170,8 @@ async function boot(driver: CoreModuleDriver): Promise<Harness> {
       // Every case signs in several times; the limit is a separate concern with its own suites
       rateLimit: { enabled: false },
     },
-    // Users on PostgreSQL: Better-Auth keeps its users in MongoDB until it has a SQL data source, and the boot refuses
-    // the combination — the column signs in through the legacy endpoints only
+    // Users on SQL: the column signs in through the legacy endpoints only — Better-Auth runs on PostgreSQL in the IAM
+    // projects, and is refused on MySQL / MariaDB
     ...(database ? { betterAuth: false, database: { ownerUrl: database.ownerUrl, url: database.appUrl } } : {}),
     mongoose: { ...envConfig.mongoose, uri: deriveTestDbUri(`module-parity-${driver}`) },
     apiTokens: { encryptionKey: API_TOKEN_TEST_ENCRYPTION_KEY, scopes: ['read', 'export'] },
@@ -713,20 +719,22 @@ describe.each(CORE_MODULE_DRIVERS)('core module parity — %s (e2e)', (driver) =
     expect(result.status).toBe('ok');
     expect(result.info.database.status).toBe('up');
     const sqlKeys = Object.keys(result.info).filter((key) => key.startsWith('database:'));
-    expect(sqlKeys).toEqual(driver === 'postgres' ? ['database:default'] : []);
+    expect(sqlKeys).toEqual(driver === 'mongodb' ? [] : ['database:default']);
     for (const key of sqlKeys) {
       expect(result.info[key].status).toBe('up');
     }
   });
   moduleIt('hub-persistence-panel', driver, async () => {
     const panel = await testHelper.rest('/hub/persistence.json', { token: adminToken });
-    const database = driver === 'postgres' ? 'postgres' : 'mongodb';
+    const database = driver;
     const defaultSource = panel.sources.find((source: any) => source.name === panel.defaultSource);
     expect(defaultSource).toMatchObject({ driver: database, name: 'default' });
     expect(JSON.stringify(panel.sources)).not.toMatch(/@/);
     const user = panel.models.find((model: any) => model.name === 'User');
     expect(user).toMatchObject({ driver: database, source: 'default' });
-    expect(user.capabilities).toContain(driver === 'postgres' ? 'rls' : 'mongoosePopulate');
+    expect(user.capabilities).toContain(driver === 'mongodb' ? 'mongoosePopulate' : 'transactions');
+    // Row-level security is PostgreSQL's alone; on MySQL / MariaDB the panel must not claim it
+    expect(user.capabilities.includes('rls')).toBe(driver === 'postgres');
     await testHelper.rest('/hub/persistence.json', { statusCode: 403, token: (await member('hub-member')).token });
   });
 
@@ -742,7 +750,7 @@ describe.each(CORE_MODULE_DRIVERS)('core module parity — %s (e2e)', (driver) =
    */
   moduleIt('hub-migrations-panel', driver, async () => {
     const title = `1699000000099-parity-${driver}.js`;
-    if (driver === 'postgres') {
+    if (driver !== 'mongodb') {
       const table = new SqlStateStore(harness.database.ownerUrl);
       // A project that kept the starter's migrate.js: its runs land in MongoDB, the table stays empty
       await table.saveAsync({ migrations: [] } as any);
@@ -776,7 +784,7 @@ describe.each(CORE_MODULE_DRIVERS)('core module parity — %s (e2e)', (driver) =
     expect(panel).toMatchObject({
       completed: [title],
       lastRun: title,
-      source: driver === 'postgres' ? 'table' : 'collection',
+      source: driver === 'mongodb' ? 'collection' : 'table',
     });
   });
   moduleIt('error-codes-and-permissions', driver, async () => {

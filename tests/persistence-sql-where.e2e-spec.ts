@@ -4,22 +4,25 @@ import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import type { Where } from '../src/core/common/persistence/data-store.interface';
 import { describeSchema } from '../src/core/common/persistence/model-metadata.registry';
 import { MongooseDataStore } from '../src/core/common/persistence/mongoose-data-store';
+import { compileMysqlWhere } from '../src/core/common/persistence/sql/mysql/mysql-where.compiler';
+import type { MysqlVariant } from '../src/core/common/persistence/sql/mysql/mysql-session';
 import { compilePostgresWhere } from '../src/core/common/persistence/sql/postgres/postgres-where.compiler';
 import { QueryCastError, UnsupportedQueryError } from '../src/core/common/persistence/sql/sql-errors';
 import { createSqlExecutor } from '../src/core/common/persistence/sql/sql-executor.factory';
 import type { SqlExecutor } from '../src/core/common/persistence/sql/sql-executor.interface';
 import { columnName, SqlParams } from '../src/core/common/persistence/sql/sql-naming';
 import { deriveTestDbUri } from './db-lifecycle.reporter';
+import { createMysqlTestDatabase, type MysqlTestDatabase } from './helpers/mysql-test-db';
 import { createPostgresTestDatabase, type PostgresTestDatabase } from './helpers/postgres-test-db';
 
 /**
  * Filter parity (plan §3.2, A2): the same neutral filter against the same records answers with the same ids on
  * MongoDB — through `MongooseDataStore`, so Mongoose casts the values as it does for every CrudService call — and on
- * PostgreSQL through the Where compiler. The Postgres rows are written FROM the stored MongoDB documents, so both
- * sides hold identical data, schema defaults included.
+ * PostgreSQL, MySQL 8.4 and MariaDB 11.8 through their Where compilers (phase 6). The SQL rows are written FROM the
+ * stored MongoDB documents, so every side holds identical data, schema defaults included.
  *
- * The table is written by hand until the schema compiler exists (phase 1, step 5); its string columns use
- * `COLLATE "C"` because MongoDB compares strings byte-wise — the schema compiler has to do the same.
+ * The tables are written by hand, so the compilers are proven apart from the schema compilers; their string columns
+ * compare byte-wise (`COLLATE "C"`, `utf8mb4_bin`) because MongoDB does — the schema compilers do the same.
  */
 const Address = new Schema({ city: String, floor: Number, zip: String }, { _id: false });
 const Contact = new Schema({ kind: String, primary: Boolean, value: String }, { _id: false });
@@ -128,8 +131,8 @@ const PEOPLE = [
 ];
 
 interface ParityCase {
-  /** Asserted difference, with the reason */
-  differentByDesign?: { postgres: number[]; reason: string };
+  /** Asserted difference on every SQL database, with the reason */
+  differentByDesign?: { reason: string; sql: number[] };
   name: string;
   where: Where;
 }
@@ -207,17 +210,30 @@ const CASES: ParityCase[] = [
   { name: '$not with operators', where: { age: { $not: { $gt: 30 } } } },
   { name: 'empty filter', where: {} },
   {
-    differentByDesign: { postgres: [1, 2, 3, 6], reason: 'a column cannot tell a stored null from an absent value' },
+    differentByDesign: { reason: 'a column cannot tell a stored null from an absent value', sql: [1, 2, 3, 6] },
     name: '$exists on a column',
     where: { age: { $exists: true } },
   },
 ];
 
-describe('Where parity — MongoDB vs PostgreSQL (e2e)', () => {
+const MYSQL_VARIANTS: MysqlVariant[] = ['mysql', 'mariadb'];
+
+/** The value of a stored document's field as a SQL column receives it */
+function columnValue(key: string, value: unknown): unknown {
+  if (value === null || value === undefined) return null;
+  if (key === '_id' || key === 'ownerId') return String(value);
+  return descriptor.fields[key].isArray || ['json', 'object'].includes(descriptor.fields[key].kind)
+    ? JSON.stringify(value)
+    : value;
+}
+
+describe('Where parity — MongoDB vs PostgreSQL, MySQL and MariaDB (e2e)', () => {
   let connection: mongoose.Connection;
   let store: MongooseDataStore;
   let database: PostgresTestDatabase;
   let executor: SqlExecutor;
+  const mysqlDatabases = new Map<MysqlVariant, MysqlTestDatabase>();
+  const mysqlExecutors = new Map<MysqlVariant, SqlExecutor>();
 
   beforeAll(async () => {
     connection = await mongoose.createConnection(deriveTestDbUri('sql-where')).asPromise();
@@ -225,6 +241,8 @@ describe('Where parity — MongoDB vs PostgreSQL (e2e)', () => {
     await model.deleteMany({});
     await model.insertMany(PEOPLE);
     store = new MongooseDataStore(model);
+    // The rows are what MongoDB stored, so defaults and casts are identical on every side
+    const docs = (await model.find().lean()).map((doc) => Object.entries(doc).filter(([key]) => key !== '__v'));
 
     database = await createPostgresTestDatabase('sql-where');
     const owner = await createSqlExecutor({ engine: 'typeorm', maxConnections: 1, url: database.ownerUrl });
@@ -243,17 +261,9 @@ describe('Where parity — MongoDB vs PostgreSQL (e2e)', () => {
         { params: [], text: `GRANT SELECT ON where_person TO "${new URL(database.appUrl).username}"` },
         { kind: 'system' },
       );
-      // The rows are what MongoDB stored, so defaults and casts are identical on both sides
-      for (const doc of await model.find().lean()) {
-        const entries = Object.entries(doc).filter(([key]) => key !== '__v');
+      for (const entries of docs) {
         const columns = entries.map(([key]) => `"${columnName(key)}"`);
-        const values = entries.map(([key, value]) => {
-          if (value === null || value === undefined) return null;
-          if (key === '_id' || key === 'ownerId') return String(value);
-          return descriptor.fields[key].isArray || ['json', 'object'].includes(descriptor.fields[key].kind)
-            ? JSON.stringify(value)
-            : value;
-        });
+        const values = entries.map(([key, value]) => columnValue(key, value));
         await owner.run(
           {
             params: values,
@@ -266,6 +276,41 @@ describe('Where parity — MongoDB vs PostgreSQL (e2e)', () => {
       await owner.close();
     }
     executor = await createSqlExecutor({ engine: 'typeorm', maxConnections: 2, url: database.appUrl });
+
+    for (const variant of MYSQL_VARIANTS) {
+      const mysqlDatabase = await createMysqlTestDatabase(variant, 'sql-where');
+      mysqlDatabases.set(variant, mysqlDatabase);
+      const mysqlOwner = await createSqlExecutor({ engine: 'typeorm', maxConnections: 1, url: mysqlDatabase.ownerUrl });
+      try {
+        await mysqlOwner.run(
+          {
+            params: [],
+            text: `CREATE TABLE where_person (
+              id varchar(24) PRIMARY KEY, active tinyint(1), address json, age double, contacts json,
+              created_at datetime(3), email varchar(255), meta json, name varchar(255), owner_id varchar(24),
+              roles json, score double, status varchar(255), tags json) CHARACTER SET utf8mb4 COLLATE utf8mb4_bin`,
+          },
+          { kind: 'system' },
+        );
+        for (const entries of docs) {
+          const columns = entries.map(([key]) => `\`${columnName(key)}\``);
+          const values = entries.map(([key, value]) => columnValue(key, value));
+          await mysqlOwner.run(
+            {
+              params: values,
+              text: `INSERT INTO where_person (${columns.join(', ')}) VALUES (${values.map((_v, i) => `$${i + 1}`).join(', ')})`,
+            },
+            { kind: 'system' },
+          );
+        }
+      } finally {
+        await mysqlOwner.close();
+      }
+      mysqlExecutors.set(
+        variant,
+        await createSqlExecutor({ engine: 'typeorm', maxConnections: 2, url: mysqlDatabase.appUrl }),
+      );
+    }
   });
 
   afterAll(async () => {
@@ -273,6 +318,10 @@ describe('Where parity — MongoDB vs PostgreSQL (e2e)', () => {
     await connection?.close();
     await executor?.close();
     await database?.drop();
+    for (const variant of MYSQL_VARIANTS) {
+      await mysqlExecutors.get(variant)?.close();
+      await mysqlDatabases.get(variant)?.drop();
+    }
   });
 
   async function postgresIds(where: Where): Promise<string[]> {
@@ -285,21 +334,47 @@ describe('Where parity — MongoDB vs PostgreSQL (e2e)', () => {
     return rows.map((row) => row.id).sort();
   }
 
+  async function mysqlIds(variant: MysqlVariant, where: Where): Promise<string[]> {
+    const params = new SqlParams();
+    const condition = compileMysqlWhere(variant, descriptor, where, params, { alias: 't' });
+    const { rows } = await mysqlExecutors
+      .get(variant)!
+      .run<{ id: string }>(
+        { params: params.values, text: `SELECT t.id FROM where_person t WHERE ${condition}` },
+        { kind: 'none' },
+      );
+    return rows.map((row) => row.id).sort();
+  }
+
+  /** Every SQL database's answer, keyed by database */
+  async function sqlIds(where: Where): Promise<Record<string, string[]>> {
+    return {
+      mariadb: await mysqlIds('mariadb', where),
+      mysql: await mysqlIds('mysql', where),
+      postgres: await postgresIds(where),
+    };
+  }
+
   /**
    * @regression   DEV-3829 (db-agnostic phase 1) — `$ne` compiled as `NOT (a = $1)` is NULL for a missing value, so
    *   a record without the field disappears from a `$ne` read that MongoDB returns.
    * @seen-failing Drop the COALESCE around the `$ne` equality in
    *   src/core/common/persistence/sql/postgres/postgres-where.compiler.ts — registered as mutation
    *   `sql-where-ne-excludes-missing` in tests/regression-mutations.json.
+   *
+   * @regression   DEV-3848 (db-agnostic phase 6) — MySQL 8.4 rewrites `EXISTS` over a `JSON_TABLE` that reads the outer
+   *   row into a semi-join and then finds nothing: every "any array item matches" filter answered with no rows.
+   * @seen-failing Compile `anyItem()` as `EXISTS (SELECT 1 …)` in
+   *   src/core/common/persistence/sql/mysql/mysql-where.compiler.ts — registered as mutation
+   *   `mysql-where-exists-semijoin` in tests/regression-mutations.json.
    */
   it.each(CASES)('$name', async ({ differentByDesign, where }) => {
     const mongo = (await store.find(where)).map((record) => record.id).sort();
-    const postgres = await postgresIds(where);
+    const sql = await sqlIds(where);
+    const expected = differentByDesign ? differentByDesign.sql.map(id) : mongo;
+    expect(sql).toEqual({ mariadb: expected, mysql: expected, postgres: expected });
     if (differentByDesign) {
-      expect(postgres).toEqual(differentByDesign.postgres.map(id));
-      expect(mongo).not.toEqual(postgres);
-    } else {
-      expect(postgres).toEqual(mongo);
+      expect(mongo).not.toEqual(expected);
     }
   });
 
@@ -307,6 +382,9 @@ describe('Where parity — MongoDB vs PostgreSQL (e2e)', () => {
     for (const where of [{ age: 'abc' }, { id: 'not-an-id' }, { createdAt: 'yesterday' }, { active: 'maybe' }]) {
       await expect(store.find(where)).rejects.toMatchObject({ name: 'CastError' });
       await expect(postgresIds(where)).rejects.toBeInstanceOf(QueryCastError);
+      for (const variant of MYSQL_VARIANTS) {
+        await expect(mysqlIds(variant, where)).rejects.toBeInstanceOf(QueryCastError);
+      }
     }
   });
 
@@ -325,6 +403,9 @@ describe('Where parity — MongoDB vs PostgreSQL (e2e)', () => {
       { age: { $regex: '1' } },
     ] as Where[]) {
       await expect(postgresIds(where), JSON.stringify(where)).rejects.toBeInstanceOf(UnsupportedQueryError);
+      for (const variant of MYSQL_VARIANTS) {
+        await expect(mysqlIds(variant, where), JSON.stringify(where)).rejects.toBeInstanceOf(UnsupportedQueryError);
+      }
     }
   });
 });

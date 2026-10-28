@@ -1,7 +1,7 @@
 import type { LockStore } from '../../lock-store.interface.js';
 import type { SqlExecutor, SqlTenantScope } from '../sql-executor.interface.js';
 import { quoteIdentifier } from '../sql-naming.js';
-import { LOCK_MODEL, tableName } from './postgres-schema.compiler.js';
+import { LOCK_MODEL, tableName } from '../sql-schema.shared.js';
 
 const SYSTEM: SqlTenantScope = { kind: 'system' };
 const TABLE = quoteIdentifier(tableName(LOCK_MODEL));

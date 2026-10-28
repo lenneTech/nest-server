@@ -158,6 +158,7 @@
     "kysely": ">=0.29.0 <0.30.0",
     "mongodb": ">=7.7.0 <8",
     "mongoose": ">=9.11.4 <10",
+    "mysql2": ">=3.24.6 <4",
     "pg": ">=8.23.0 <9",
     "typeorm": ">=1.1.0 <2"
   },
@@ -207,6 +208,9 @@
     "mongoose": {
       "optional": true
     },
+    "mysql2": {
+      "optional": true
+    },
     "pg": {
       "optional": true
     },
@@ -246,6 +250,7 @@
     "kysely": "0.29.7",
     "mongodb": "7.7.0",
     "mongoose": "9.11.4",
+    "mysql2": "3.24.6",
     "nodemon": "3.1.14",
     "otpauth": "9.5.2",
     "oxfmt": "0.74.0",

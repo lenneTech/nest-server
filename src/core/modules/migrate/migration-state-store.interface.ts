@@ -1,6 +1,6 @@
 /**
  * Where `MigrationRunner` and the `migrate` CLI keep the applied migrations: `MongoStateStore` on MongoDB,
- * `SqlStateStore` on PostgreSQL. Types only.
+ * `SqlStateStore` on PostgreSQL, MySQL and MariaDB. Types only.
  */
 export interface MigrationSet {
   down?: (done?: (err?: Error) => void) => void;

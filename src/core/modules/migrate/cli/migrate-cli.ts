@@ -111,8 +111,9 @@ export function sqlMigrationTemplate(name: string, specifier?: string): string {
  * Created: ${new Date().toISOString()}
  *
  * Paste the statements the boot suggested (SchemaMigrationRequiredError) and REVIEW them: a narrowed type, a new
- * unique index or a rename collision can reject or rewrite stored rows. They run as the table owner, in one
- * transaction, under the lock the boot's schema migration takes.
+ * unique index or a rename collision can reject or rewrite stored rows. They run as the table owner, under the lock
+ * the boot's schema migration takes — on PostgreSQL in one transaction; on MySQL / MariaDB every DDL statement commits
+ * on its own, so write the migration so it can run again.
  */
 import { runSqlMigration } from '@lenne.tech/nest-server';
 
@@ -120,7 +121,7 @@ const ownerUrl = process.env.NSC__DATABASE__OWNER_URL ?? '';
 
 export const up = async () => {
   await runSqlMigration(ownerUrl, [
-    // 'ALTER TABLE "projects" ALTER COLUMN "budget" TYPE text COLLATE "C" USING "budget"::text',
+    // PostgreSQL: 'ALTER TABLE "projects" ALTER COLUMN "budget" TYPE text COLLATE "C" USING "budget"::text',
   ]);
 };
 

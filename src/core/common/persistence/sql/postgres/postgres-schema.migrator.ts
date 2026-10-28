@@ -3,13 +3,19 @@ import { isForeignColumn } from '../../persistence-runtime.registry.js';
 import type { SqlExecutor, SqlQueryResult, SqlStatement, SqlTenantScope } from '../sql-executor.interface.js';
 import { quoteIdentifier } from '../sql-naming.js';
 import {
+  LOCK_MODEL,
+  type SchemaChange,
+  SchemaMigrationRequiredError,
+  SchemaOutOfDateError,
+  UnsafeDatabaseRoleError,
+} from '../sql-schema.shared.js';
+import {
   addCheckStatement,
   columnDefinition,
   createTableStatement,
   type DesiredTable,
   desiredTable,
   grantStatement,
-  LOCK_MODEL,
   type PostgresSchemaOptions,
   RLS_VERSION,
   TENANT_FILTER_FUNCTION,
@@ -32,47 +38,13 @@ import {
  * replicas booting together apply it once and the others find nothing left to do.
  */
 
-export type SchemaChangeKind = 'automatic' | 'migration' | 'notice';
-
-export interface SchemaChange {
-  description: string;
-  kind: SchemaChangeKind;
-  /** What would apply it (for `migration`: the suggestion `migrate:create --sql` writes) */
-  statements: string[];
-  table?: string;
-}
-
-export class SchemaMigrationRequiredError extends Error {
-  override readonly name = 'SchemaMigrationRequiredError';
-
-  constructor(readonly changes: SchemaChange[]) {
-    super(
-      `The database schema needs changes that are never applied automatically:\n${changes
-        .map(
-          (change) =>
-            `  - ${change.description}${change.statements.map((statement) => `\n      suggested: ${statement}`).join('')}`,
-        )
-        .join('\n')}\n` +
-        'Write a migration for them (`migrate create <name> --sql`), review the suggested statements — they may ' +
-        'rewrite or reject stored rows — and run it before this version starts.',
-    );
-  }
-}
-
-export class SchemaOutOfDateError extends Error {
-  override readonly name = 'SchemaOutOfDateError';
-
-  constructor(readonly changes: SchemaChange[]) {
-    super(
-      `The database schema is not up to date and no owner connection is configured to update it:\n${changes.map((change) => `  - ${change.description}`).join('\n')}\n` +
-        'Configure `database.ownerUrl` (the role that owns the tables) or apply the changes with the migration runner.',
-    );
-  }
-}
-
-export class UnsafeDatabaseRoleError extends Error {
-  override readonly name = 'UnsafeDatabaseRoleError';
-}
+export {
+  type SchemaChange,
+  type SchemaChangeKind,
+  SchemaMigrationRequiredError,
+  SchemaOutOfDateError,
+  UnsafeDatabaseRoleError,
+} from '../sql-schema.shared.js';
 
 /** Lowest supported server: `NULLS NOT DISTINCT` (15) */
 export const MIN_POSTGRES_VERSION = 150000;

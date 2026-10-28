@@ -1,3 +1,5 @@
+import { UnsupportedQueryError } from './sql/sql-errors.js';
+
 /**
  * Argument checks every data store applies the same way, so a call refused on one database is refused on all.
  */
@@ -15,6 +17,22 @@ export function assertSampleSize(sample: unknown): number {
     throw new Error(`sample must be a positive integer, got ${String(sample)}`);
   }
   return sample;
+}
+
+/** A whole number for a SQL clause (`limit`, `skip`, a push `position` or `slice`) */
+export function assertInteger(value: unknown, name: string): number {
+  if (typeof value !== 'number' || !Number.isInteger(value)) {
+    throw new UnsupportedQueryError(`${name} must be an integer`);
+  }
+  return value;
+}
+
+export function assertNonNegativeInteger(value: unknown, name: string): number {
+  const result = assertInteger(value, name);
+  if (result < 0) {
+    throw new UnsupportedQueryError(`${name} must not be negative`);
+  }
+  return result;
 }
 
 /** pushToArray() / pullFromArray(): a field name, never an operator */

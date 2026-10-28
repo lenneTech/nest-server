@@ -99,6 +99,8 @@ export * from './core/common/persistence/persisted-model.decorator.js';
 export * from './core/common/persistence/persistence.tokens.js';
 export * from './core/common/persistence/persistence-runtime.registry.js';
 export * from './core/common/persistence/unsupported-capability.error.js';
+export * from './core/common/persistence/sql/mysql/mysql-data-store.js';
+export * from './core/common/persistence/sql/mysql/mysql-lock-store.js';
 export * from './core/common/persistence/sql/postgres/postgres-lock-store.js';
 export * from './core/common/persistence/sql/sql-data-store.js';
 export * from './core/common/persistence/sql/sql-errors.js';

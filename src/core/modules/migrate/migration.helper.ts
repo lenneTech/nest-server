@@ -279,8 +279,8 @@ export const uploadFileToGridFS = async (
  * the same time serializes instead of applying the same migration twice (the container
  * entrypoint runs migrations on every boot). Pass an empty string to opt out.
  *
- * @param databaseUrl - MongoDB connection URI, or the PostgreSQL URL of the table owner (`database.ownerUrl`)
- * @param collectionName - Optional collection name (default: 'migrations'; on PostgreSQL the table `lt_migrations`)
+ * @param databaseUrl - MongoDB connection URI, or the PostgreSQL / MySQL / MariaDB URL of the table owner (`database.ownerUrl`)
+ * @param collectionName - Optional collection name (default: 'migrations'; on SQL the table `lt_migrations`)
  * @param lockCollectionName - Lock collection name (default: 'migrations_lock'); `''` disables locking
  * @returns A state store class (MongoStateStore or SqlStateStore) that can be used with the migrate CLI
  *
@@ -304,10 +304,10 @@ export const createMigrationStore = (
   // (TS4094).
   // MongoStateStore's own fields stay in the type (optional: a SQL store has none), so code reading them keeps compiling
 ): new () => MigrationStateStore & Partial<Pick<MongoStateStore, 'lockCollectionName' | 'mongodbHost'>> => {
-  // A PostgreSQL URL (the OWNER's, `database.ownerUrl`) keeps the state in a table and serialises runs with an advisory
-  // lock; `lockCollectionName` set to '' disables that lock there too. The names default to the framework's own
+  // A SQL URL (the OWNER's, `database.ownerUrl`) keeps the state in a table and serialises runs with a database lock;
+  // `lockCollectionName` set to '' disables that lock there too. The names default to the framework's own
   // `lt_migrations` table, a custom `collectionName` is used as the table name
-  if (/^postgres(ql)?:/i.test(databaseUrl ?? '')) {
+  if (/^(postgres(ql)?|mysql|mariadb):/i.test(databaseUrl ?? '')) {
     return class SqlMigrationStateStore extends SqlStateStore {
       constructor() {
         super({

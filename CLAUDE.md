@@ -110,7 +110,10 @@ compatible with either downstream layout:
   **Since 12.1.0 `mongoose`, `@nestjs/mongoose` and `mongodb` are OPTIONAL peers** (an npm-mode project on
   PostgreSQL alone installs none of them): a vendor-mode project that keeps data in MongoDB must declare them
   itself — the CLI's vendoring step has to add them for a MongoDB project (lt CLI ticket of the db-agnostic
-  epic). A PostgreSQL vendor project needs `pg` plus its engine, AND keeps the three as `devDependencies`: the
+  epic). **Every vendor project — on whatever database — declares the SQL packages the core names in a literal
+  `import()`: `pg` (with `@types/pg`), `mysql2`, `typeorm`, `kysely`, `drizzle-orm`** (at least as `devDependencies`): the vendored core
+  is the project's own source, and `tsc` fails with TS2307 on a dynamic `import()` of a missing package. A SQL vendor
+  project also keeps the three MongoDB packages as `devDependencies`: the
   vendored core is the project's own source and imports their TYPES (`import type { Connection } from
   'mongoose'`), so its `tsc` fails with TS2307 without them; at runtime it loads none of them.
   **A peer listed there must ALSO stay in `devDependencies`**: the CLI reads

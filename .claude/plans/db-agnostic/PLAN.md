@@ -595,11 +595,76 @@ REQUEST-LIFECYCLE, configurable-features, native-driver-security, CLAUDE.md, `do
   unresolvable by module hooks) and `--package` (publish path: the tarball installed with npm into a project that does
   not declare them; the step fails if any reaches `node_modules`).
 
-### Phase 6 — MySQL / MariaDB (own ticket)
+### Phase 6 — MySQL / MariaDB (DEV-3848)
 MySQL dialect for compiler, DDL and introspection; claim via `INSERT IGNORE` + conditional `UPDATE`; JSON value
 mapping; before- and after-layer only, documented as such; write guard via triggers on session variables evaluated as
 a database floor; parity matrix columns MySQL and MariaDB per engine (an engine that cannot serve a dialect is declared
 IMPOSSIBLE with its reason).
+
+**Decided while implementing phase 6 (2026-10-28, autopilot — every point is an assumption recorded on DEV-3848):**
+* *One store, two dialects:* `MysqlDataStore extends SqlDataStore` and overrides only how statements are written; the
+  policies, the record mapping and the row check stay one implementation. What differs per source at runtime (schema,
+  role check, store, leases) is a `SqlDialect` (`sql/sql-dialect.ts`); the runtime never asks for the driver name.
+  Shared schema pieces (`tableName`, `shortName`, `LOCK_MODEL`, the change types) moved to `sql/sql-schema.shared.ts`,
+  re-exported from the PostgreSQL modules.
+* *All three engines on one `mysql2` pool* the framework creates (TypeORM through its `driver` option, Kysely's
+  `MysqlDialect`, Drizzle's `mysql2` client), so every connection gets the session before its first statement: the full
+  `sql_mode` (strict, never `NO_BACKSLASH_ESCAPES` — the driver escapes with backslashes), UTC, an unbounded
+  `group_concat_max_len`. `$n` placeholders become `?` outside quoted text; an array or object parameter is refused
+  (the driver would expand it). No engine is IMPOSSIBLE: 6 columns, 480 cells with MongoDB and PostgreSQL.
+* *"Any array item matches" is `(SELECT COUNT(*) FROM JSON_TABLE(…)) > 0`, never `EXISTS`:* MySQL 8.4 turns an
+  `EXISTS` over a `JSON_TABLE` that reads the outer row into a semi-join that finds nothing (mutation
+  `mysql-where-exists-semijoin`, 10 parity cases). JSON equality is `= CAST(? AS JSON)` on MySQL, `JSON_EQUALS()` on
+  MariaDB; comparisons cast inside a `CASE` on `JSON_TYPE()` (strict mode turns a failed cast in a write into an error).
+* *No `RETURNING`:* a write that answers with the record runs in a transaction — the write, then the read of the row
+  it locked. `updateOne()` / `deleteOne()` pick their row with `SELECT … FOR UPDATE LIMIT 1` in that transaction, which
+  is findOneAndUpdate's guarantee without PostgreSQL's retry.
+* *Conflicting update paths are refused* (MongoDB's own rule): one expression per column — a top-level operator, or one
+  `JSON_SET` / `JSON_REMOVE` over all nested paths with a merge-patch skeleton for missing parents. PostgreSQL chains
+  them; MySQL would need the running value twice per operator.
+* *Strings:* `varchar(255)` when the field is part of an index that is CREATED, otherwise `longtext`; `utf8mb4_bin`
+  everywhere. A longer value is refused with 400, never cut. Making an existing field indexed is a type change, i.e. a
+  migration. An index over more than InnoDB's 3072 bytes (four text fields — `ai_slots`) indexes a prefix of each text
+  column when it is a lookup index and is refused when unique (mutation `mysql-long-index-not-prefixed`).
+* *Unique treats a missing value as a value* for string kinds through a virtual column `IFNULL(col, CHAR(0))` carrying
+  the index (mutation `mysql-unique-null-distinct`); sparse unique keeps MySQL's own NULL handling, which is MongoDB's
+  sparse behaviour. A non-string unique field admits several records without a value; a partial unique index is not
+  created (notice) — neither occurs in the framework's models.
+* *No row-level security, and no trigger guard either:* prototype 19 measured a BEFORE INSERT/UPDATE/DELETE guard on
+  session variables against the store's path (4000 writes, 8 concurrent): −17 to −28 % write throughput on MySQL 8.4,
+  −47 to −49 % on MariaDB 11.8, p50 up to doubled (the scope has to be set and reset around every write on a pinned
+  connection). It stops a scope-less native write and a write into a foreign tenant — and not a native READ of every
+  tenant, not a scope a previous caller left on a pooled connection, not native code that sets the variable itself. A
+  floor that leaves the larger leak open and that the code it targets can step over is not worth halving MariaDB's
+  writes. Isolation is the store's on these databases; the boot says so once per source (mutation
+  `mysql-isolation-warning-missing`), the persistence matrix declares `native-api-tenant-refused` DIFFERENT-BY-DESIGN
+  for the six columns and asserts the complement.
+* *Two accounts:* the application account gets `SELECT, INSERT, UPDATE, DELETE` on the database once (covers every
+  later table); the boot refuses one that may alter, drop, index, trigger or grant (mutation
+  `mysql-app-account-ddl-accepted`), a server older than the tested MySQL 8.4 / MariaDB 11.8, and a URL scheme naming
+  the other server.
+* *Schema runs under `GET_LOCK`, not in one transaction:* DDL commits on its own in MySQL. A failing statement is named
+  in the error; the statements before it stay, and the next boot plans and completes the rest. `runSqlMigration()` is
+  not atomic there for the same reason (documented).
+* *Better-Auth is refused at boot* while the user model lives on MySQL / MariaDB (mutation `mysql-iam-not-refused`):
+  its adapter is not wired for the dialect. The legacy auth path runs there (core-module matrix, 2 columns).
+* *No full e2e suite on MySQL:* the parity matrices carry the contract (persistence 6 columns, core modules 2 columns,
+  where parity 2 columns), plus schema, lease, migration-state and wiring suites per server. Revisit if a MySQL project
+  hits a gap the matrices did not.
+* *Driver details that cost a run each:* Drizzle's session reads DATETIME as text (the store parses it as UTC —
+  mutation `mysql-drizzle-datetime-local`); `mysql2` parses MariaDB's JSON columns through the extended type metadata
+  but not `JSON_TABLE` items; it names error numbers from MySQL's list, where MariaDB's 4025 (failed CHECK) is another
+  error, so errors are mapped by number and server; MariaDB refuses an outer reference in a derived table, so
+  `pushToArray({ position })` merges three arrays instead of ordering a union.
+* *Found in review, fixed:* a unique index on null sentinels cannot serve a filter on the column, so every lookup by
+  such a field (API token per request, MCP OAuth code, sign-in by e-mail) scanned the table and `updateOne()` locked all
+  of it — such an index now comes with a lookup index over the plain columns. A new unique index on an existing table
+  carries its sentinel column in its own migration (separately, the refused boot never added it). `pushToArray()` with
+  two or three modifiers runs one statement per stage in a transaction (nested, MySQL 8.4 refuses the outer reference
+  in a `JSON_TABLE` argument). The update compiler built its merge-patch skeleton from path segments on plain objects:
+  `meta.__proto__.bypassTenantGuard.x` reached `Object.prototype` and switched tenant isolation off for the process —
+  `__proto__`, `constructor` and `prototype` are refused as path segments on every SQL database, and the skeleton has
+  no prototype. Vendor projects declare every SQL package the core names in an `import()` (TS2307 otherwise).
 
 ## 7. Effort (rough, new + touched LOC)
 

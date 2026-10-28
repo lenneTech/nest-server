@@ -1,7 +1,7 @@
 import type { DatabaseSqlEngine } from '../../common/interfaces/server-options.interface.js';
 import { createSqlExecutor, installedSqlEngine } from '../../common/persistence/sql/sql-executor.factory.js';
 import type { SqlExecutor, SqlTenantScope } from '../../common/persistence/sql/sql-executor.interface.js';
-import { quoteIdentifier } from '../../common/persistence/sql/sql-naming.js';
+import { quoteIdentifier, quoteMysqlIdentifier } from '../../common/persistence/sql/sql-naming.js';
 import type { MigrationSet, MigrationStateStore } from './migration-state-store.interface.js';
 
 const SYSTEM: SqlTenantScope = { kind: 'system' };
@@ -13,6 +13,14 @@ const SYSTEM: SqlTenantScope = { kind: 'system' };
  * that). A key of its own: the boot's schema evolution (`SCHEMA_LOCK_SQL`) must stay possible while a run waits.
  */
 const MIGRATION_RUN_LOCK_SQL = "SELECT pg_advisory_xact_lock(hashtext('lenne.tech:migrations'))";
+
+/**
+ * MySQL / MariaDB: a named lock per database, held by the session of the locking connection. It ends with that
+ * connection too, so a killed replica leaves nothing behind; released explicitly at the end of a run. The wait is
+ * bounded at a day — a run that takes longer is not waited for
+ */
+const MYSQL_RUN_LOCK_NAME = "CONCAT('lenne.tech:migrations:', SHA1(DATABASE()))";
+const MYSQL_RUN_LOCK_TIMEOUT_SECONDS = 86_400;
 
 export interface SqlStateStoreOptions {
   /**
@@ -33,8 +41,9 @@ export interface SqlStateStoreOptions {
 }
 
 /**
- * Migration state on PostgreSQL — the counterpart of `MongoStateStore`: one row with the last run and the applied
- * migrations, read and written by `MigrationRunner` and the `migrate` CLI, with every run serialised across replicas.
+ * Migration state on PostgreSQL, MySQL and MariaDB (the URL's scheme decides) — the counterpart of `MongoStateStore`:
+ * one row with the last run and the applied migrations, read and written by `MigrationRunner` and the `migrate` CLI,
+ * with every run serialised across replicas.
  *
  * Each call opens and closes its own connection, as `MongoStateStore` does: the CLI and the container entrypoint run it
  * once per boot, and a pool kept open would hold the process.
@@ -43,6 +52,8 @@ export class SqlStateStore implements MigrationStateStore {
   readonly url: string;
   protected readonly engine: DatabaseSqlEngine | undefined;
   protected readonly locked: boolean;
+  /** MySQL and MariaDB share one dialect here */
+  protected readonly mysql: boolean;
   protected readonly table: string;
 
   constructor(options: SqlStateStoreOptions | string) {
@@ -53,7 +64,8 @@ export class SqlStateStore implements MigrationStateStore {
     this.url = resolved.url;
     this.engine = resolved.engine;
     this.locked = resolved.lock !== false;
-    this.table = quoteIdentifier(resolved.tableName ?? 'lt_migrations');
+    this.mysql = /^(mysql|mariadb):/i.test(resolved.url);
+    this.table = (this.mysql ? quoteMysqlIdentifier : quoteIdentifier)(resolved.tableName ?? 'lt_migrations');
   }
 
   load(fn: (err?: Error, set?: MigrationSet) => void): void {
@@ -64,8 +76,13 @@ export class SqlStateStore implements MigrationStateStore {
 
   async loadAsync(): Promise<MigrationSet> {
     return this.request(async (executor) => {
-      const { rows } = await executor.run<{ last_run: null | string; migrations: MigrationSet['migrations'] }>(
-        { params: [], text: `SELECT "last_run", "migrations" FROM ${this.table} WHERE "id" = 'state'` },
+      const { rows } = await executor.run<{ last_run: null | string; migrations: MigrationSet['migrations'] | string }>(
+        {
+          params: [],
+          text: this.mysql
+            ? `SELECT \`last_run\`, \`migrations\` FROM ${this.table} WHERE \`id\` = 'state'`
+            : `SELECT "last_run", "migrations" FROM ${this.table} WHERE "id" = 'state'`,
+        },
         SYSTEM,
       );
       if (!rows.length) {
@@ -73,7 +90,12 @@ export class SqlStateStore implements MigrationStateStore {
         // An empty object, as MongoStateStore returns for a first run
         return {} as MigrationSet;
       }
-      return { lastRun: rows[0].last_run ?? undefined, migrations: rows[0].migrations } as MigrationSet;
+      const migrations = rows[0].migrations;
+      return {
+        lastRun: rows[0].last_run ?? undefined,
+        // MariaDB's JSON is text where the driver does not recognise it
+        migrations: typeof migrations === 'string' ? JSON.parse(migrations) : migrations,
+      } as MigrationSet;
     });
   }
 
@@ -89,8 +111,11 @@ export class SqlStateStore implements MigrationStateStore {
       executor.run(
         {
           params: [lastRun ?? null, JSON.stringify(migrations ?? [])],
-          text: `INSERT INTO ${this.table} ("id", "last_run", "migrations", "updated_at") VALUES ('state', $1, $2::jsonb, now())
-            ON CONFLICT ("id") DO UPDATE SET "last_run" = EXCLUDED."last_run", "migrations" = EXCLUDED."migrations", "updated_at" = now()`,
+          text: this.mysql
+            ? `INSERT INTO ${this.table} (\`id\`, \`last_run\`, \`migrations\`, \`updated_at\`) VALUES ('state', $1, $2, UTC_TIMESTAMP(3))
+              ON DUPLICATE KEY UPDATE \`last_run\` = $1, \`migrations\` = $2, \`updated_at\` = UTC_TIMESTAMP(3)`
+            : `INSERT INTO ${this.table} ("id", "last_run", "migrations", "updated_at") VALUES ('state', $1, $2::jsonb, now())
+              ON CONFLICT ("id") DO UPDATE SET "last_run" = EXCLUDED."last_run", "migrations" = EXCLUDED."migrations", "updated_at" = now()`,
         },
         SYSTEM,
       ),
@@ -106,8 +131,27 @@ export class SqlStateStore implements MigrationStateStore {
       // The work itself runs on other connections (the runner reads and saves the state, migrations open their own);
       // this transaction only holds the lock for as long as the work takes
       return await executor.transaction(async (tx) => {
-        await tx.run({ params: [], text: MIGRATION_RUN_LOCK_SQL }, SYSTEM);
-        return fn();
+        if (!this.mysql) {
+          await tx.run({ params: [], text: MIGRATION_RUN_LOCK_SQL }, SYSTEM);
+          return fn();
+        }
+        const { rows } = await tx.run<{ locked: number | string }>(
+          {
+            params: [MYSQL_RUN_LOCK_TIMEOUT_SECONDS],
+            text: `SELECT GET_LOCK(${MYSQL_RUN_LOCK_NAME}, $1) AS locked`,
+          },
+          SYSTEM,
+        );
+        if (Number(rows[0]?.locked) !== 1) {
+          throw new Error('Timed out waiting for the migration run of another process');
+        }
+        try {
+          return await fn();
+        } finally {
+          await tx
+            .run({ params: [], text: `SELECT RELEASE_LOCK(${MYSQL_RUN_LOCK_NAME})` }, SYSTEM)
+            .catch(() => undefined);
+        }
       });
     } finally {
       await executor.close();
@@ -135,7 +179,9 @@ export class SqlStateStore implements MigrationStateStore {
       await executor.run(
         {
           params: [],
-          text: `CREATE TABLE IF NOT EXISTS ${this.table} ("id" text PRIMARY KEY, "last_run" text, "migrations" jsonb NOT NULL DEFAULT '[]'::jsonb, "updated_at" timestamptz NOT NULL DEFAULT now())`,
+          text: this.mysql
+            ? `CREATE TABLE IF NOT EXISTS ${this.table} (\`id\` varchar(255) NOT NULL PRIMARY KEY, \`last_run\` longtext, \`migrations\` json NOT NULL, \`updated_at\` datetime(3) NOT NULL) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_bin`
+            : `CREATE TABLE IF NOT EXISTS ${this.table} ("id" text PRIMARY KEY, "last_run" text, "migrations" jsonb NOT NULL DEFAULT '[]'::jsonb, "updated_at" timestamptz NOT NULL DEFAULT now())`,
         },
         SYSTEM,
       );

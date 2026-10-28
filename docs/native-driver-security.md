@@ -149,8 +149,12 @@ store has the two native tiers instead, with the same mandatory, logged reason:
 The framework's before-layer policies (tenant stamping, audit fields, password hashing, role guard, system roles) do
 **not** run on tiers 2 and 3 — exactly as the Mongoose plugins do not run on the native MongoDB driver. Row-level
 security does: a query without a tenant scope on a tenant-scoped table fails (42501 → 403) instead of reading every
-tenant. Parameters only; a table or column name never comes from user input. On MySQL / MariaDB (phase 6) there is no
-row-level security, so a native query on a tenant-scoped table filters by tenant itself.
+tenant. Parameters only; a table or column name never comes from user input.
+
+**On MySQL and MariaDB there is no row-level security** — tiers 2 and 3 have nothing below them but the HTTP
+interceptors. A native or raw query on a tenant-scoped table reaches every tenant's rows unless it filters by
+`tenantId` itself, and a native write is not stamped with a tenant. The boot warns once per source; the persistence
+matrix asserts the difference (`native-api-tenant-refused`, DIFFERENT-BY-DESIGN for those columns).
 
 Rules for all of it: `.claude/rules/persistence.md` → "Native access in three tiers".
 
@@ -171,4 +175,8 @@ When reviewing code (manual or AI), check for `.collection.` and `.db.collection
    → Are data being written?
      YES → Verify tenantId/audit is set manually.
      NO  → Allowed (read-only).
+
+3. Is it store.native() / store.raw() on a MySQL or MariaDB source, on a tenant-scoped table?
+   → Every statement filters by tenantId (read) or sets it (write) itself — the database does not.
+     MISSING → Security violation: the query reaches every tenant. Use the store (tier 1).
 ```

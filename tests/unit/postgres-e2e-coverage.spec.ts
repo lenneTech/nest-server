@@ -39,12 +39,13 @@ describe('PostgreSQL e2e coverage', () => {
   });
 
   it('runs the large majority of the e2e suites on PostgreSQL', () => {
-    // A ratchet in one direction: an exclusion added to get a run green has to justify itself here as well
+    // A ratchet in one direction: an exclusion added to get a run green has to justify itself here as well.
+    // 21 since phase 6: three MySQL / MariaDB suites that never touch the default source — no PostgreSQL coverage lost
     const excluded = Object.keys(POSTGRES_E2E_EXCLUDED).length;
     expect(
       excluded,
       `${excluded} of ${e2eFiles.size} suites are excluded from the postgres project`,
-    ).toBeLessThanOrEqual(18);
+    ).toBeLessThanOrEqual(21);
     expect(e2eFiles.size - excluded).toBeGreaterThan(90);
   });
 });

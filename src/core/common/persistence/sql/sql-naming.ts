@@ -12,9 +12,15 @@ const IDENTIFIER = /^[A-Za-z_]\w*$/;
 /** Postgres truncates longer identifiers silently, which would let two names address one column */
 const MAX_IDENTIFIER_LENGTH = 63;
 
-/** A field-name or path segment as the query language accepts it: no dots, no `$`, no leading digit. */
+/**
+ * Names that address JavaScript's object machinery rather than data. Mongoose ignores them in a path; a compiler that
+ * builds an object from path segments would otherwise reach `Object.prototype` through them
+ */
+const RESERVED_SEGMENTS = new Set(['__proto__', 'constructor', 'prototype']);
+
+/** A field-name or path segment as the query language accepts it: no dots, no `$`, no leading digit, no prototype name. */
 export function isPathSegment(segment: string): boolean {
-  return IDENTIFIER.test(segment);
+  return IDENTIFIER.test(segment) && !RESERVED_SEGMENTS.has(segment);
 }
 
 /** The column of a field: `_id` / `id` → `id`, camelCase → snake_case (`createdAt` → `created_at`, `userID` → `user_id`). */
@@ -37,6 +43,17 @@ export function quoteIdentifier(name: string): string {
     throw new UnsupportedQueryError(`"${name}" is not a valid SQL identifier`);
   }
   return `"${name}"`;
+}
+
+/**
+ * Backtick-quote an identifier for MySQL / MariaDB after checking it is one — with the same limit as PostgreSQL's
+ * (MySQL allows 64), so a model's names are valid on every SQL database alike.
+ */
+export function quoteMysqlIdentifier(name: string): string {
+  if (!IDENTIFIER.test(name) || name.length > MAX_IDENTIFIER_LENGTH) {
+    throw new UnsupportedQueryError(`"${name}" is not a valid SQL identifier`);
+  }
+  return `\`${name}\``;
 }
 
 /** Where a compiler puts a value: a bound parameter, or — for DDL, which has none — a literal. */

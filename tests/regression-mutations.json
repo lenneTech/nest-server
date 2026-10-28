@@ -3470,7 +3470,7 @@
       "id": "sql-runtime-skips-role-check",
       "defect": "DEV-3829 (db-agnostic phase 1) — booting with an application connection that owns the tables or is a superuser leaves tenant isolation to the application: row-level security does not bind it.",
       "file": "src/core/common/persistence/data-source.runtime.ts",
-      "find": "    await assertSafeApplicationRole(app, [tableName(model), tableName(LOCK_MODEL)]);\n",
+      "find": "    await dialect.assertSafeApplication(app, [tableName(model), tableName(LOCK_MODEL)]);\n",
       "replace": "",
       "specs": [
         "tests/persistence-sql-wiring.e2e-spec.ts"
@@ -4292,6 +4292,270 @@
       "replace": "  schema.pre('updateOneNever' as any, function () {",
       "specs": [
         "tests/api-token-security.e2e-spec.ts"
+      ]
+    },
+    {
+      "driverSpecific": false,
+      "id": "mysql-where-exists-semijoin",
+      "defect": "DEV-3848 (db-agnostic phase 6): MySQL 8.4 turns EXISTS over a JSON_TABLE reading the outer row into a semi-join that finds nothing, so every 'any array item matches' filter silently returned no rows",
+      "file": "src/core/common/persistence/sql/mysql/mysql-where.compiler.ts",
+      "find": "return `((SELECT COUNT(*) FROM ${mysqlArrayItems(arrayExpr, alias)} WHERE ${condition(`${alias}.v`)}) > 0)`;",
+      "replace": "return `EXISTS (SELECT 1 FROM ${mysqlArrayItems(arrayExpr, alias)} WHERE ${condition(`${alias}.v`)})`;",
+      "specs": [
+        "tests/persistence-sql-where.e2e-spec.ts"
+      ]
+    },
+    {
+      "driverSpecific": false,
+      "id": "mysql-drizzle-datetime-local",
+      "defect": "DEV-3848 (db-agnostic phase 6): Drizzle's mysql2 session reads DATETIME as text, which JavaScript parses as local time — a record read inside a store transaction (updateById, insert) carried its timestamps shifted by the process's UTC offset",
+      "file": "src/core/common/persistence/sql/mysql/mysql-data-store.ts",
+      "find": "    if (!field.isArray && field.kind === 'date' && typeof value === 'string') {",
+      "replace": "    if (!field.isArray && field.kind === 'date' && typeof value === 'string' && false) {",
+      "specs": [
+        "tests/persistence-parity.e2e-spec.ts"
+      ]
+    },
+    {
+      "driverSpecific": false,
+      "id": "mysql-migrations-without-run-lock",
+      "defect": "DEV-3848 (db-agnostic phase 6): without the named run lock on MySQL / MariaDB, replicas booting together each read the empty migration state and apply the same migration",
+      "file": "src/core/modules/migrate/sql-state-store.ts",
+      "find": "            text: `SELECT GET_LOCK(${MYSQL_RUN_LOCK_NAME}, $1) AS locked`,",
+      "replace": "            text: 'SELECT 1 AS locked',",
+      "specs": [
+        "tests/migrate/sql-state-store.e2e-spec.ts"
+      ]
+    },
+    {
+      "driverSpecific": false,
+      "id": "mysql-unique-index-automatic",
+      "defect": "DEV-3848 (db-agnostic phase 6): a new unique index on an existing MySQL / MariaDB table can fail on the stored rows and changes what may be written; applied at boot it would skip the reviewed migration",
+      "file": "src/core/common/persistence/sql/mysql/mysql-schema.migrator.ts",
+      "find": "      kind: index.unique ? 'migration' : 'automatic',",
+      "replace": "      kind: 'automatic',",
+      "specs": [
+        "tests/persistence-mysql-schema.e2e-spec.ts"
+      ]
+    },
+    {
+      "driverSpecific": false,
+      "id": "mysql-unique-null-distinct",
+      "defect": "DEV-3848 (db-agnostic phase 6): MySQL and MariaDB admit any number of NULLs under a unique index, so a non-sparse unique field stored several records without a value where MongoDB and PostgreSQL admit one",
+      "file": "src/core/common/persistence/sql/mysql/mysql-schema.compiler.ts",
+      "find": "    if (unique && !sparse && !column.primaryKey && STRING_KINDS.has(field.kind) && !field.isArray) {",
+      "replace": "    if (false) {",
+      "specs": [
+        "tests/persistence-mysql-schema.e2e-spec.ts"
+      ]
+    },
+    {
+      "driverSpecific": false,
+      "id": "mysql-roles-check-missing",
+      "defect": "DEV-3848 (db-agnostic phase 6): without the roles CHECK a write that leaves the store (native, raw, a connection of its own) could store a system role on MySQL / MariaDB",
+      "file": "src/core/common/persistence/sql/mysql/mysql-schema.compiler.ts",
+      "find": "  if (roles?.isArray && (roles.kind === 'string' || roles.kind === 'enum')) {",
+      "replace": "  if (false) {",
+      "specs": [
+        "tests/persistence-mysql-schema.e2e-spec.ts"
+      ]
+    },
+    {
+      "driverSpecific": false,
+      "id": "mysql-app-account-ddl-accepted",
+      "defect": "DEV-3848 (db-agnostic phase 6): an application account that may alter or drop the framework's tables and constraints would boot, although without row-level security they are what the store's policies rely on",
+      "file": "src/core/common/persistence/sql/mysql/mysql-schema.migrator.ts",
+      "find": "  if (problems.size) {",
+      "replace": "  if (false) {",
+      "specs": [
+        "tests/persistence-mysql-schema.e2e-spec.ts"
+      ]
+    },
+    {
+      "driverSpecific": false,
+      "id": "mysql-text-index-bounds-string",
+      "defect": "DEV-3848 (db-agnostic phase 6): a declared text index (never created on MySQL) made its field varchar(255), refusing values over 255 characters for an index that does not exist",
+      "file": "src/core/common/persistence/sql/mysql/mysql-schema.compiler.ts",
+      "find": "    if (entries.every(([path, direction]) => typeof direction === 'number' && !path.includes('.'))) {",
+      "replace": "    if (true) {",
+      "specs": [
+        "tests/persistence-mysql-schema.e2e-spec.ts"
+      ]
+    },
+    {
+      "driverSpecific": false,
+      "id": "mysql-isolation-warning-missing",
+      "defect": "DEV-3848 (db-agnostic phase 6): MySQL and MariaDB have no row-level security; without the boot warning a project would not learn that native access to a tenant table is not stopped by the database",
+      "file": "src/core/common/persistence/data-source.runtime.ts",
+      "find": "    if (isolated && source.driver !== 'postgres' && !this.isolationReported.has(source.name)) {",
+      "replace": "    if (false) {",
+      "specs": [
+        "tests/persistence-mysql-wiring.e2e-spec.ts"
+      ]
+    },
+    {
+      "driverSpecific": false,
+      "id": "mysql-iam-not-refused",
+      "defect": "DEV-3848 (db-agnostic phase 6): Better-Auth is not wired for MySQL / MariaDB; with the user model routed there the boot must refuse instead of running Better-Auth against a database it cannot serve",
+      "file": "src/core/common/persistence/data-source.runtime.ts",
+      "find": "    if (source.driver !== 'postgres') {",
+      "replace": "    if (false) {",
+      "specs": [
+        "tests/persistence-mysql-wiring.e2e-spec.ts"
+      ]
+    },
+    {
+      "driverSpecific": false,
+      "id": "mysql-long-index-not-prefixed",
+      "defect": "DEV-3848 (db-agnostic phase 6): a lookup index over four text fields exceeds InnoDB's 3072-byte key limit; created over the full columns it stopped the boot of every application with the AI module (ai_slots)",
+      "file": "src/core/common/persistence/sql/mysql/mysql-schema.compiler.ts",
+      "find": "    prefix = `(${Math.floor((MAX_INDEX_BYTES - fixed) / (4 * textParts.length))})`;",
+      "replace": "    prefix = '';",
+      "specs": [
+        "tests/persistence-mysql-schema.e2e-spec.ts"
+      ]
+    },
+    {
+      "driverSpecific": false,
+      "id": "mysql-placeholders-inside-literals",
+      "defect": "DEV-3848 (db-agnostic phase 6): a $n inside a quoted literal (a JSON path, quoted text of a native caller) would be bound as a value where the statement says a constant",
+      "file": "src/core/common/persistence/sql/mysql/mysql-session.ts",
+      "find": "    if (char === \"'\" || char === '\"' || char === '`') {",
+      "replace": "    if (false) {",
+      "specs": [
+        "tests/unit/mysql-statement.spec.ts"
+      ]
+    },
+    {
+      "driverSpecific": false,
+      "id": "mysql-session-backslash-escapes",
+      "defect": "DEV-3848 (db-agnostic phase 6): with NO_BACKSLASH_ESCAPES in the session the server reads the driver's escaping backslash literally, a quote ends the string and the rest of a value becomes SQL",
+      "file": "src/core/common/persistence/sql/mysql/mysql-session.ts",
+      "find": "  \"SET SESSION sql_mode = 'STRICT_ALL_TABLES,",
+      "replace": "  \"SET SESSION sql_mode = 'NO_BACKSLASH_ESCAPES,STRICT_ALL_TABLES,",
+      "specs": [
+        "tests/persistence-mysql-executor.e2e-spec.ts"
+      ]
+    },
+    {
+      "driverSpecific": false,
+      "id": "mysql-engine-error-wrapped",
+      "defect": "DEV-3848 (db-agnostic phase 6): TypeORM and Drizzle wrap the driver's error; the store maps duplicate keys, too-long values and failed checks by the error number the wrapper hides",
+      "file": "src/core/common/persistence/sql/mysql/mysql-executor.ts",
+      "find": "      return inner;",
+      "replace": "      return error;",
+      "specs": [
+        "tests/persistence-mysql-executor.e2e-spec.ts"
+      ]
+    },
+    {
+      "driverSpecific": false,
+      "id": "sql-path-accepts-prototype-names",
+      "defect": "DEV-3848 (db-agnostic phase 6, review): a path segment __proto__ / constructor / prototype reached the MySQL update compiler, which built its parent skeleton from the segments and wrote into Object.prototype — bypassTenantGuard inherited by every request context, tenant isolation off process-wide",
+      "file": "src/core/common/persistence/sql/sql-naming.ts",
+      "find": "  return IDENTIFIER.test(segment) && !RESERVED_SEGMENTS.has(segment);",
+      "replace": "  return IDENTIFIER.test(segment);",
+      "specs": [
+        "tests/unit/mysql-update-compiler.spec.ts"
+      ]
+    },
+    {
+      "driverSpecific": false,
+      "id": "mysql-unknown-update-operator-dropped",
+      "defect": "DEV-3848 (db-agnostic phase 6, review): an update operator the MySQL compiler cannot express would be dropped: $max answered success and changed nothing",
+      "file": "src/core/common/persistence/sql/mysql/mysql-update.compiler.ts",
+      "find": "            throw new UnsupportedQueryError(`${operator} is not supported on SQL`);",
+      "replace": "            break;",
+      "specs": [
+        "tests/unit/mysql-update-compiler.spec.ts"
+      ]
+    },
+    {
+      "driverSpecific": false,
+      "id": "mysql-update-conflict-accepted",
+      "defect": "DEV-3848 (db-agnostic phase 6, review): two operators on one path would compile to one expression reading the stored value, so the second silently wins ($inc lost to $set) where MongoDB refuses",
+      "file": "src/core/common/persistence/sql/mysql/mysql-update.compiler.ts",
+      "find": "        throw new UnsupportedQueryError(`Updating the path \"${path}\" would create a conflict at \"${other}\"`);",
+      "replace": "        break;",
+      "specs": [
+        "tests/unit/mysql-update-compiler.spec.ts"
+      ]
+    },
+    {
+      "driverSpecific": false,
+      "id": "mysql-unique-migration-without-sentinel",
+      "defect": "DEV-3848 (db-agnostic phase 6, review): the null sentinel of a new unique index was left out of its migration, so the suggested CREATE UNIQUE INDEX named a missing column and every boot stayed refused",
+      "file": "src/core/common/persistence/sql/mysql/mysql-schema.migrator.ts",
+      "find": "        ...sentinels.map(",
+      "replace": "        ...[].map(",
+      "specs": [
+        "tests/persistence-mysql-schema.e2e-spec.ts"
+      ]
+    },
+    {
+      "driverSpecific": false,
+      "id": "mysql-unique-lookup-scans",
+      "defect": "DEV-3848 (db-agnostic phase 6, review): a unique index on null sentinels cannot serve a filter on the column: every lookup by such a field scanned the table and updateOne/deleteOne locked all of it",
+      "file": "src/core/common/persistence/sql/mysql/mysql-schema.compiler.ts",
+      "find": "    result.push({",
+      "replace": "    void ({",
+      "specs": [
+        "tests/persistence-mysql-schema.e2e-spec.ts"
+      ]
+    },
+    {
+      "driverSpecific": false,
+      "id": "mysql-push-stages-nested",
+      "defect": "DEV-3848 (db-agnostic phase 6, review): pushToArray() with two or three of position, sort and slice nested every stage into a JSON_TABLE argument that reads the row being updated, which MySQL 8.4 refuses (ER_BAD_FIELD_ERROR)",
+      "file": "src/core/common/persistence/sql/mysql/mysql-data-store.ts",
+      "find": "    if (stages.length === 1) {",
+      "replace": "    if (stages.length >= 1) {",
+      "specs": [
+        "tests/persistence-parity.e2e-spec.ts"
+      ]
+    },
+    {
+      "driverSpecific": false,
+      "id": "mysql-count-without-tenant-filter",
+      "defect": "DEV-3848 (db-agnostic phase 6, review): count() on MySQL with the caller's filter alone counted every tenant's rows — aggregates pass no row check and MySQL has no row-level security",
+      "file": "src/core/common/persistence/sql/mysql/mysql-data-store.ts",
+      "find": "      text: `SELECT COUNT(*) AS n FROM ${this.table} WHERE ${this.where(where, params)}`,",
+      "replace": "      text: `SELECT COUNT(*) AS n FROM ${this.table} WHERE ${this.compileWhere((where ?? {}) as Where, params)}`,",
+      "specs": [
+        "tests/persistence-parity.e2e-spec.ts"
+      ]
+    },
+    {
+      "driverSpecific": false,
+      "id": "mysql-distinct-without-tenant-filter",
+      "defect": "DEV-3848 (db-agnostic phase 6, review): distinct() on MySQL with the caller's filter alone returned every tenant's values",
+      "file": "src/core/common/persistence/sql/mysql/mysql-data-store.ts",
+      "find": "    const condition = this.where(where, params);",
+      "replace": "    const condition = this.compileWhere((where ?? {}) as Where, params);",
+      "specs": [
+        "tests/persistence-parity.e2e-spec.ts"
+      ]
+    },
+    {
+      "driverSpecific": false,
+      "id": "sql-array-update-without-tenant-filter",
+      "defect": "DEV-3848 (db-agnostic phase 6, review): pushToArray()/pullFromArray() write without reading the row back; with the id filter alone a tenant could change another tenant's array on MySQL",
+      "file": "src/core/common/persistence/sql/sql-data-store.ts",
+      "find": "      text: `UPDATE ${this.table} SET ${assignments.join(', ')} WHERE ${this.where({ id } as Where<T>, params)}`,\n    });\n  }",
+      "replace": "      text: `UPDATE ${this.table} SET ${assignments.join(', ')} WHERE ${this.compileWhere({ id } as Where, params)}`,\n    });\n  }",
+      "specs": [
+        "tests/persistence-parity.e2e-spec.ts"
+      ]
+    },
+    {
+      "driverSpecific": false,
+      "id": "mysql-push-roles-unguarded",
+      "defect": "DEV-3848 (db-agnostic phase 6, review): without the role guard in pushToArray() a caller without the right to change roles could push admin into a roles array on MySQL",
+      "file": "src/core/common/persistence/sql/mysql/mysql-data-store.ts",
+      "find": "      if (this.roleGuardEnabled() && !isRoleChangeAllowed()) {",
+      "replace": "      if (false) {",
+      "specs": [
+        "tests/persistence-parity.e2e-spec.ts"
       ]
     }
   ]

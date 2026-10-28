@@ -217,21 +217,23 @@ describe('data source configuration', () => {
       ['an additional PostgreSQL source', { sources: { reports: 'postgresql://app@db/reports' } }],
       // Refused until phase 5 (12.1.0), which runs a project without a database
       ['no database at all', false],
+      // Refused until phase 6, which adds the MySQL dialect
+      ['a MySQL source', 'mysql://app@db/app'],
+      ['a MariaDB source', { sources: { legacy: 'mariadb://app@db/app' } }],
     ])('accepts %s', (_label, database) => {
       expect(() =>
         assertDataSourcesSupported(resolveDataSources({ database: database as any, mongooseUri: MONGO })),
       ).not.toThrow();
     });
 
-    it.each([
-      ['a MySQL source', 'mysql://app@db/app', /mysql/],
-      ['a MariaDB source', { sources: { legacy: 'mariadb://app@db/app' } }, /mariadb/],
-      ['a second MongoDB source', { sources: { logs: 'mongodb://logs/app' } }, /logs/],
-    ])('refuses %s with a named error', (_label, database, message) => {
-      const resolved = resolveDataSources({ database: database as any, mongooseUri: MONGO });
-      expect(() => assertDataSourcesSupported(resolved)).toThrow(DataSourceConfigError);
-      expect(() => assertDataSourcesSupported(resolved)).toThrow(message);
-    });
+    it.each([['a second MongoDB source', { sources: { logs: 'mongodb://logs/app' } }, /logs/]])(
+      'refuses %s with a named error',
+      (_label, database, message) => {
+        const resolved = resolveDataSources({ database: database as any, mongooseUri: MONGO });
+        expect(() => assertDataSourcesSupported(resolved)).toThrow(DataSourceConfigError);
+        expect(() => assertDataSourcesSupported(resolved)).toThrow(message);
+      },
+    );
   });
 
   describe('CoreModule.forRoot wiring', () => {
@@ -254,7 +256,9 @@ describe('data source configuration', () => {
     });
 
     it('refuses a database this version cannot wire, before anything connects', () => {
-      expect(() => CoreModule.forRoot({ ...base, database: 'mysql://app@db/app' })).toThrow(DataSourceConfigError);
+      expect(() =>
+        CoreModule.forRoot({ ...base, database: { sources: { logs: 'mongodb://logs/app' }, url: MONGO } }),
+      ).toThrow(DataSourceConfigError);
     });
 
     /**

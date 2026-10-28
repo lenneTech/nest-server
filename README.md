@@ -58,7 +58,7 @@ This generates a complete module with model, inputs, resolver, controller, and s
 | **API-First** | GraphQL (Apollo Server) + REST with Swagger/OpenAPI, dual API surface from single codebase |
 | **Authentication** | BetterAuth (IAM) with JWT, sessions, 2FA/TOTP, Passkey/WebAuthn, social login; Legacy JWT auth |
 | **Authorization** | Extensible role-based access control, field-level restrictions, system roles, hierarchy roles |
-| **Database** | MongoDB (Mongoose) or PostgreSQL (TypeORM, Kysely or Drizzle) — per project or per model — behind one CrudService and security pipeline; tenant isolation enforced by row-level security on PostgreSQL; advanced filtering & pagination |
+| **Database** | MongoDB (Mongoose), PostgreSQL, MySQL or MariaDB (TypeORM, Kysely or Drizzle) — per project or per model — behind one CrudService and security pipeline; tenant isolation enforced by row-level security on PostgreSQL; advanced filtering & pagination |
 | **Multi-Tenancy** | Header-based tenant isolation, membership management, hierarchy roles, auto-filtering |
 | **File Handling** | GridFS, S3 or filesystem storage, resumable uploads via TUS protocol (up to 50 GB) |
 | **Security** | Defense-in-depth: input validation, password hashing, role guard, audit fields, response filtering |
@@ -103,7 +103,7 @@ Every core module supports both **auto-registration** (zero-config) and **manual
 - [NestJS](https://nestjs.com/) — Server framework
 - [Apollo Server](https://www.apollographql.com/docs/apollo-server/) — GraphQL API (optional, disable via `graphQl: false`)
 - [Mongoose](https://mongoosejs.com/) — MongoDB ODM (optional peer since 12.1.0)
-- [PostgreSQL](https://www.postgresql.org/) via TypeORM, Kysely or Drizzle — optional, see [Databases](#databases)
+- [PostgreSQL](https://www.postgresql.org/), [MySQL](https://www.mysql.com/) or [MariaDB](https://mariadb.org/) via TypeORM, Kysely or Drizzle — optional, see [Databases](#databases)
 - [Swagger/OpenAPI](https://swagger.io/) — REST API documentation
 
 ## API-First Design
@@ -321,8 +321,9 @@ async updateProject(@CurrentTenant() tenantId: string) { ... }
 
 ## Databases
 
-A project keeps its data in **MongoDB** (the default), in **PostgreSQL**, or in both, model by model — the framework's
-own modules (users, Better-Auth, tenants, API tokens, AI, file metadata, locks, migrations) run on either:
+A project keeps its data in **MongoDB** (the default), in **PostgreSQL**, in **MySQL 8.4 / MariaDB 11.8**, or in several
+of them, model by model — the framework's own modules (users, tenants, API tokens, AI, file metadata, locks,
+migrations) run on each; Better-Auth on MongoDB and PostgreSQL:
 
 ```typescript
 // config.env.ts — PostgreSQL as the default source
@@ -336,7 +337,9 @@ database: {
 Models are registered with `CorePersistenceModule.forFeature()` and declared with the framework's `Schema`, `Prop` and
 `SchemaFactory` (same names as `@nestjs/mongoose`). `mongoose`, `@nestjs/mongoose` and `mongodb` are optional peers: a
 project on PostgreSQL alone installs none of them (in vendor mode it keeps them as `devDependencies` for the types the
-vendored core imports). Which database to choose: [docs/choosing-a-database.md](docs/choosing-a-database.md);
+vendored core imports). On MySQL and MariaDB (`mysql2` plus the engine) there is no row-level security: tenant isolation
+is the store's, and native access to a tenant table must filter by tenant itself. Which database to choose:
+[docs/choosing-a-database.md](docs/choosing-a-database.md);
 the rules for code: [.claude/rules/persistence.md](.claude/rules/persistence.md).
 
 ## Scalability
