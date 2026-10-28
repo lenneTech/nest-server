@@ -90,6 +90,24 @@ export const PERSISTENCE_CASES: readonly PersistenceCase[] = [
     title: 'a duplicate unique value fails with code 11000 and an E11000 message',
   },
   { drivers: ALL, id: 'delete-by-id', title: 'deleteById removes the record and returns it' },
+  {
+    drivers: ALL,
+    id: 'update-one-first-match',
+    title: 'updateOne changes the first record matching the filter and returns it, null without a match',
+  },
+  {
+    drivers: ALL,
+    id: 'update-one-concurrent',
+    title: 'concurrent updateOne calls on one filter each take a different record, none is lost',
+  },
+  { drivers: ALL, id: 'delete-many', title: 'deleteMany removes every match and returns the count' },
+  { drivers: ALL, id: 'delete-one', title: 'deleteOne removes the first match and returns it, null without one' },
+  { drivers: ALL, id: 'update-many', title: 'updateMany applies the update to every match and returns the count' },
+  {
+    drivers: ALL,
+    id: 'update-without-timestamps',
+    title: 'an update with timestamps: false leaves the update time as it is',
+  },
   { drivers: ALL, id: 'push-with-slice', title: 'pushToArray appends atomically and keeps the last n with slice' },
   { drivers: ALL, id: 'push-position-and-sort', title: 'pushToArray inserts at a position and sorts the array' },
   {
@@ -121,6 +139,11 @@ export const PERSISTENCE_CASES: readonly PersistenceCase[] = [
   { drivers: ALL, id: 'tenant-refuses-foreign-write', title: 'a write naming another tenant is refused' },
   { drivers: ALL, id: 'tenant-safety-net', title: 'tenant-scoped data without a tenant context is refused' },
   { drivers: ALL, id: 'tenant-foreign-update-misses', title: 'an update of another tenant’s record finds nothing' },
+  {
+    drivers: ALL,
+    id: 'tenant-filters-update-one-and-delete-many',
+    title: 'updateOne, updateMany, deleteOne and deleteMany reach only the rows of the current tenant',
+  },
   { drivers: ALL, id: 'audit-stamps-actor', title: 'createdBy and updatedBy carry the acting user' },
   { drivers: ALL, id: 'password-hashed', title: 'a password is stored hashed, never in plaintext' },
   { drivers: ALL, id: 'system-role-refused', title: 'a system role is never stored' },

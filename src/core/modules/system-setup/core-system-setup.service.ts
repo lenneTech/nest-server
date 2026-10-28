@@ -1,8 +1,20 @@
+import { randomUUID } from 'node:crypto';
+import { hostname } from 'node:os';
+
 import { ForbiddenException, Injectable, Logger, OnApplicationBootstrap } from '@nestjs/common';
 import { InjectConnection } from '@nestjs/mongoose';
 import { isEmail } from 'class-validator';
+import type { Collection } from 'mongodb';
 import type { Connection } from 'mongoose';
 
+import {
+  defaultSqlLockStore,
+  SYSTEM_SETUP_CLAIM_STALE_AFTER_MS,
+  SYSTEM_SETUP_LOCK_COLLECTION,
+  SYSTEM_SETUP_LOCK_KEY,
+  systemSetupMongoLocks,
+} from '../../common/persistence/infrastructure-locks.js';
+import type { LockStore } from '../../common/persistence/lock-store.interface.js';
 import { ConfigService } from '../../common/services/config.service.js';
 import { legacyCredentialAccountIssuer } from '../better-auth/core-better-auth-account-issuer.helper.js';
 import { CoreBetterAuthUserMapper } from '../better-auth/core-better-auth-user.mapper.js';
@@ -10,12 +22,13 @@ import { CoreBetterAuthService } from '../better-auth/core-better-auth.service.j
 import { ErrorCode } from '../error-code/error-codes.js';
 
 /**
- * Collection holding the bootstrap claim markers.
+ * Collection holding the bootstrap claim marker on MongoDB — the 12.0.0 document (`{ _id, claimedAt }`), kept so
+ * an older replica in a rolling deploy claims the same marker (see `infrastructure-locks.ts`).
  *
  * Native collection access is intentional here: no Mongoose schema exists for it
  * (see docs/native-driver-security.md).
  */
-const SETUP_LOCK_COLLECTION = 'system-setup-locks';
+const SETUP_LOCK_COLLECTION = SYSTEM_SETUP_LOCK_COLLECTION;
 
 /**
  * How long an initial-admin claim may stand before another replica takes it over.
@@ -23,10 +36,7 @@ const SETUP_LOCK_COLLECTION = 'system-setup-locks';
  * Long enough that a slow but live creation is never stolen, short enough that a crashed
  * claimer does not lock the deployment out for good.
  */
-const INITIAL_ADMIN_CLAIM_STALE_AFTER_MS = 5 * 60_000;
-
-/** `_id` of the marker claiming the initial-admin creation */
-const INITIAL_ADMIN_LOCK_ID = 'initial-admin';
+const INITIAL_ADMIN_CLAIM_STALE_AFTER_MS = SYSTEM_SETUP_CLAIM_STALE_AFTER_MS;
 
 /**
  * Input for creating the initial admin user
@@ -69,6 +79,9 @@ export interface SystemSetupStatus {
 @Injectable()
 export class CoreSystemSetupService implements OnApplicationBootstrap {
   private readonly logger = new Logger(CoreSystemSetupService.name);
+
+  /** Who holds the claim: one owner per instance, so a second concurrent claim of the same process is refused too */
+  private readonly claimOwner = `${hostname()}:${process.pid}:${randomUUID()}`;
 
   constructor(
     @InjectConnection() private readonly connection: Connection,
@@ -149,39 +162,19 @@ export class CoreSystemSetupService implements OnApplicationBootstrap {
   /**
    * Try to claim the initial-admin creation for this instance
    *
-   * The upsert on a fixed `_id` is atomic, so exactly one of N concurrently booting
-   * replicas sees no previous document and wins the claim.
+   * A lease (`LockStore`), so exactly one of N concurrently booting replicas — or of N anonymous
+   * `POST /system-setup/init` callers — wins the claim.
    *
    * @returns true when this instance may create the initial admin
    */
   protected async claimInitialAdminSetup(): Promise<boolean> {
-    try {
-      const collection = this.connection.collection(SETUP_LOCK_COLLECTION);
-
-      // The marker is a CLAIM, not a permanent record: a replica SIGKILLed between claiming and
-      // creating (OOM, node drain, a failed first rollout — all ordinary) never reaches the
-      // release in the catch below. Without an expiry that leaves a deployment with zero users
-      // and no way in, recoverable only by deleting a document from an undocumented collection.
-      // A stale claim is therefore taken over rather than obeyed.
-      const staleBefore = new Date(Date.now() - INITIAL_ADMIN_CLAIM_STALE_AFTER_MS);
-      await collection.deleteOne({ _id: INITIAL_ADMIN_LOCK_ID as any, claimedAt: { $lt: staleBefore } });
-
-      const previous = await collection.findOneAndUpdate(
-        { _id: INITIAL_ADMIN_LOCK_ID as any },
-        { $setOnInsert: { claimedAt: new Date() } },
-        { returnDocument: 'before', upsert: true },
-      );
-
-      // No previous document → this instance inserted the marker and owns the setup
-      return !previous;
-    } catch (error) {
-      // Two replicas upserting the same `_id` at the very same moment: one insert wins,
-      // the other gets a duplicate key error — which means the claim is taken.
-      if (error instanceof Error && (error.message?.includes('duplicate key') || error.message?.includes('E11000'))) {
-        return false;
-      }
-      throw error;
-    }
+    // The marker is a CLAIM, not a permanent record: a replica SIGKILLed between claiming and
+    // creating (OOM, node drain, a failed first rollout — all ordinary) never reaches the
+    // release in createInitialAdmin(). Without an expiry that leaves a deployment with zero users
+    // and no way in, recoverable only by deleting a document from an undocumented collection.
+    // A stale claim is therefore taken over rather than obeyed.
+    const locks = await this.setupLocks();
+    return locks.tryAcquire(SYSTEM_SETUP_LOCK_KEY, this.claimOwner, INITIAL_ADMIN_CLAIM_STALE_AFTER_MS / 1000);
   }
 
   /**
@@ -189,13 +182,23 @@ export class CoreSystemSetupService implements OnApplicationBootstrap {
    */
   protected async releaseInitialAdminSetupClaim(): Promise<void> {
     try {
-      await this.connection.collection(SETUP_LOCK_COLLECTION).deleteOne({ _id: INITIAL_ADMIN_LOCK_ID as any });
+      await (await this.setupLocks()).release(SYSTEM_SETUP_LOCK_KEY, this.claimOwner);
     } catch (error) {
       // Never mask the failure that triggered the release
       this.logger.warn(
         `Failed to release initial admin setup claim: ${error instanceof Error ? error.message : 'Unknown error'}`,
       );
     }
+  }
+
+  /**
+   * Where the claim lives: the lease table when the default data source is a SQL database, else the MongoDB marker
+   */
+  protected async setupLocks(): Promise<LockStore> {
+    return (
+      (await defaultSqlLockStore('system-setup')) ??
+      systemSetupMongoLocks(this.connection.collection(SETUP_LOCK_COLLECTION) as unknown as Collection<any>)
+    );
   }
 
   /**

@@ -38,5 +38,7 @@
 export * from './cli/migrate-cli.js';
 export * from './migration.helper.js';
 export * from './migration-runner.js';
+export * from './migration-state-store.interface.js';
 export * from './mongo-state-store.js';
 export * from './sql-migration.helper.js';
+export * from './sql-state-store.js';

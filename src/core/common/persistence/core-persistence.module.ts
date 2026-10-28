@@ -5,8 +5,14 @@ import type { Model } from 'mongoose';
 import { registerModelSchema } from './model-metadata.registry.js';
 import { MongooseDataStore } from './mongoose-data-store.js';
 import { getPersistedModelOptions, getPersistedModelOptionsByName } from './persisted-model.decorator.js';
-import { getPersistenceRuntime, registerDataStore, registerPersistedModel } from './persistence-runtime.registry.js';
+import {
+  bindStoreToModel,
+  getPersistenceRuntime,
+  registerDataStore,
+  registerPersistedModel,
+} from './persistence-runtime.registry.js';
 import { getStoreToken } from './persistence.tokens.js';
+import { guardRoutedModel } from './routed-model.guard.js';
 
 /**
  * Database-neutral model registration — the counterpart of `MongooseModule.forFeature()`.
@@ -62,6 +68,10 @@ export class CorePersistenceModule {
           ? await runtime.resolveStore(model.name, mongooseModel)
           : new MongooseDataStore(mongooseModel);
         registerDataStore(model.name, store);
+        bindStoreToModel(mongooseModel, store);
+        if (!store.capabilities.mongoosePopulate) {
+          guardRoutedModel(mongooseModel, store);
+        }
         return store;
       },
     }));

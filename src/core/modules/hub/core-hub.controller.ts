@@ -156,6 +156,11 @@ export class CoreHubController {
     this.sendJson(res, this.dbService.getModels());
   }
 
+  @Get('persistence.json')
+  persistenceJson(@Res() res: Response): void {
+    this.sendJson(res, this.sourcesService.getPersistence());
+  }
+
   /**
    * ADMIN-gated auth probe AND cockpit-chrome payload: 200 returns the navigation, environment badge,
    * version and external links the client uses to build the layout; 401/403 keeps the shell showing

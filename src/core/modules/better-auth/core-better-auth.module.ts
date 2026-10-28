@@ -18,6 +18,7 @@ import { IBetterAuth, ICorsConfig } from '../../common/interfaces/server-options
 import { BrevoService } from '../../common/services/brevo.service.js';
 import { ConfigService } from '../../common/services/config.service.js';
 import { RolesGuardRegistry } from '../auth/guards/roles-guard-registry.js';
+import { ROLE_GUARD } from '../auth/guards/role-guard.token.js';
 import { isLegacyEndpointEnabled } from '../auth/helpers/legacy-endpoints.helper.js';
 import { BetterAuthRolesGuard } from './better-auth-roles.guard.js';
 import { BetterAuthTokenService } from './better-auth-token.service.js';
@@ -1163,7 +1164,12 @@ export class CoreBetterAuthModule implements NestModule, OnModuleInit {
         ...(this.shouldRegisterRolesGuardGlobally && !RolesGuardRegistry.isRegistered()
           ? (() => {
               RolesGuardRegistry.markRegistered('CoreBetterAuthModule');
-              return [BetterAuthRolesGuard, { provide: APP_GUARD, useExisting: BetterAuthRolesGuard }];
+              return [
+                BetterAuthRolesGuard,
+                { provide: APP_GUARD, useExisting: BetterAuthRolesGuard },
+                // How CoreTenantGuard reaches it
+                { provide: ROLE_GUARD, useExisting: BetterAuthRolesGuard },
+              ];
             })()
           : []),
       ],

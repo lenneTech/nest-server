@@ -734,7 +734,9 @@ describe('ServerModule (e2e)', () => {
       const userModel = userService['mainDbModel'];
 
       // Same value back — the shape every full-object write produces.
-      await expect(userModel.findByIdAndUpdate(legacyId, { roles: ['admin', 's_manager'] }).exec()).resolves.toBeTruthy();
+      await expect(
+        userModel.findByIdAndUpdate(legacyId, { roles: ['admin', 's_manager'] }).exec(),
+      ).resolves.toBeTruthy();
 
       // But ADDING a further system role on top is still refused.
       await expect(
@@ -1285,14 +1287,36 @@ describe('ServerModule (e2e)', () => {
   it('logout as user on one device', async () => {
     const res: any = await testHelper.rest('/auth/logout', { token: gToken });
     expect(res).toBe(true);
+    // The logged-out device's token is refused from here on. Until DEV-3830 it kept working — the logout wrote the
+    // device map through update(), which merged the deleted entry back — and the steps below reused it.
+    await testHelper.rest('/auth/logout', { statusCode: 401, token: gToken });
   });
 
   /**
    * Logout as user on all devices
+   *
+   * @regression   DEV-3830 (db-agnostic phase 2) — `allDevices` wrote `refreshTokens: {}` through update(), which
+   *   merges into the stored map: every device stayed signed in.
+   * @seen-failing Write `{ refreshTokens: {}, tempTokens: {} }` again in the allDevices branch of
+   *   CoreAuthService.logout() in src/core/modules/auth/services/core-auth.service.ts — registered as mutation
+   *   `legacy-logout-all-keeps-devices` in tests/regression-mutations.json.
    */
   it('logout as user on all devices', async () => {
-    const res: any = await testHelper.rest('/auth/logout?allDevices=true', { token: gToken });
+    const signIn = async () =>
+      (
+        (await testHelper.graphQl({
+          arguments: { input: { email: gEmail, password: gPassword } },
+          fields: ['token'],
+          name: 'signIn',
+          type: TestGraphQLType.MUTATION,
+        })) as any
+      ).token as string;
+    const [first, second] = [await signIn(), await signIn()];
+    const res: any = await testHelper.rest('/auth/logout?allDevices=true', { token: first });
     expect(res).toBe(true);
+    await testHelper.rest('/auth/logout', { statusCode: 401, token: second });
+    // A fresh session for the steps below
+    gToken = await signIn();
   });
 
   /**

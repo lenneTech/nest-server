@@ -50,6 +50,14 @@ export interface FindOptions {
   sort?: Record<string, -1 | 1>;
 }
 
+export interface UpdateOptions {
+  /**
+   * `false` leaves the update time (`updatedAt`) as it is — for bookkeeping writes such as a last-used stamp, which
+   * must not read as a change of the record (Mongoose's `timestamps: false`). @default true
+   */
+  timestamps?: boolean;
+}
+
 export interface PushOptions {
   /** Insert position (MongoDB `$position`) */
   position?: number;
@@ -92,6 +100,13 @@ export interface DataStore<T = Record<string, any>> {
 
   count(where?: Where<T>): Promise<number>;
   deleteById(id: string): Promise<null | StoredRecord<T>>;
+  /** Remove every record matching `where`; returns how many were removed. */
+  deleteMany(where: Where<T>): Promise<number>;
+  /**
+   * Remove the first record matching `where`, atomically (MongoDB's `findOneAndDelete`), and return it; `null` when
+   * nothing matches.
+   */
+  deleteOne(where: Where<T>): Promise<null | StoredRecord<T>>;
   distinct(field: string, where?: Where<T>): Promise<unknown[]>;
   find(where?: Where<T>, options?: FindOptions): Promise<StoredRecord<T>[]>;
   findById(id: string, options?: Pick<FindOptions, 'select'>): Promise<null | StoredRecord<T>>;
@@ -112,5 +127,13 @@ export interface DataStore<T = Record<string, any>> {
    */
   raw<N = unknown>(reason: string): N;
   /** Apply `update` to the record and return it as stored afterwards; `null` when there is none. */
-  updateById(id: string, update: DataStoreUpdate<T>): Promise<null | StoredRecord<T>>;
+  updateById(id: string, update: DataStoreUpdate<T>, options?: UpdateOptions): Promise<null | StoredRecord<T>>;
+  /** Apply `update` to every record matching `where`; returns how many records matched. */
+  updateMany(where: Where<T>, update: DataStoreUpdate<T>): Promise<number>;
+  /**
+   * Apply `update` to the first record matching `where`, atomically: the record still matches when it is changed, and
+   * concurrent callers never change the same record on the strength of one match (MongoDB's `findOneAndUpdate`).
+   * Returns the record as stored afterwards; `null` when nothing matches.
+   */
+  updateOne(where: Where<T>, update: DataStoreUpdate<T>): Promise<null | StoredRecord<T>>;
 }

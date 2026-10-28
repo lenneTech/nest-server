@@ -34,7 +34,7 @@ mis-named suite fails the build instead of silently passing. Type-only tests
 
 ## Infrastructure containers (Redis + S3 + PostgreSQL)
 
-**Fifteen** e2e suites talk to a **real** Redis, a **real** S3-compatible store and/or a **real**
+**Seventeen** e2e suites talk to a **real** Redis, a **real** S3-compatible store and/or a **real**
 PostgreSQL rather than a mock, and they **fail loudly** when it is missing — a silently skipped
 infrastructure test is how an untested driver ships:
 
@@ -55,10 +55,12 @@ infrastructure test is how an untested driver ships:
 | `tests/persistence-parity.e2e-spec.ts` | PostgreSQL (and MongoDB) |
 | `tests/persistence-lock-store.e2e-spec.ts` | PostgreSQL (and MongoDB) |
 | `tests/persistence-sql-wiring.e2e-spec.ts` | PostgreSQL (and MongoDB) |
+| `tests/core-module-parity.e2e-spec.ts` | PostgreSQL (and MongoDB) |
+| `tests/migrate/sql-state-store.e2e-spec.ts` | PostgreSQL |
 
 `tests/global-setup.ts` starts all three containers automatically, so `pnpm test` works from a clean
 machine with no manual docker command. It is idempotent (a running container is reused) and never
-fatal: without Docker every other suite still runs, and the fifteen above report their own actionable
+fatal: without Docker every other suite still runs, and the seventeen above report their own actionable
 error.
 
 ```bash
@@ -228,6 +230,14 @@ exactly that (`getRawFileInfoByName()` consulted two of the three stores), and e
 | Route-contract executor (boots the real `ServerModule` per driver) | `tests/file-storage-http-parity.e2e-spec.ts` |
 | Structural guard | `tests/unit/file-storage-parity-matrix.spec.ts` |
 
+The **core modules** follow it one level up: `tests/helpers/core-module-matrix.ts` declares what the framework's own
+modules answer through REST and GraphQL — users and legacy sign-in, tenant memberships and the tenant guard, API
+tokens, health check, Hub panels — and `tests/core-module-parity.e2e-spec.ts` assembles them like the reference server
+once with MongoDB alone and once with PostgreSQL as the default source (default engine; the persistence matrix covers
+the engines). `tests/unit/core-module-parity-matrix.spec.ts` is its structural guard. The PostgreSQL column signs in
+through the legacy endpoints with `betterAuth: false`: Better-Auth keeps its users in MongoDB until it gets a SQL data
+source, and the boot refuses a user model on SQL beside it.
+
 The **data store** contract follows the same discipline: `tests/helpers/persistence-matrix.ts` declares the cases (CRUD contract plus the security policies), `tests/persistence-parity.e2e-spec.ts` executes them against a store obtained via `CorePersistenceModule.forFeature()` + `@InjectStore()` with every security plugin registered, and `tests/unit/persistence-parity-matrix.spec.ts` guards that every (case, database) cell is declared. It has four columns: `mongodb`, and PostgreSQL once per engine (`postgres-typeorm`, `postgres-kysely`, `postgres-drizzle`) — the PostgreSQL columns run a `SqlDataStore` over the schema the migrator created, connected as the application role, so row-level security binds every case. A further database (MySQL / MariaDB, plan `.claude/plans/db-agnostic/PLAN.md` §6) becomes a column of its own. Each tenant layer of the SQL store is additionally proven ALONE in `tests/persistence-sql-store.e2e-spec.ts` — the matrix runs them together, where one layer hides the loss of another.
 
 ### A cell is EXECUTED, IMPOSSIBLE, or DIFFERENT-BY-DESIGN — never merely absent
@@ -291,7 +301,7 @@ pnpm run check:mutations -- --id=<id>       # one mutation
 pnpm run check:mutations -- --list          # the registry, without running anything
 pnpm run check:mutations -- --allow-dirty   # when the fix and its evidence share a working tree
 pnpm run check:mutations -- --jobs=4        # N mutations at a time (default: 2, or 4 on >=12 cores)
-pnpm run check:mutations -- --no-infra      # only the 194 that need no MongoDB
+pnpm run check:mutations -- --no-infra      # only the 197 that need no MongoDB
 pnpm run check:mutations -- --since=<ref>   # only mutations touching files changed since <ref>
 ```
 
@@ -310,7 +320,7 @@ when the registry, a vitest config or a setup file changed, since those can move
 commit, and in CI alongside the publish without blocking it. The price of caching is a cache that
 has to model each spec's full dependency closure correctly, and getting that wrong produces a stale
 PASS for a test that has since gone vacuous — exactly what the gate is there to prevent. Bad trade
-at 312 mutations.
+at 337 mutations.
 
 **Decided 2026-10-03 (repo owner): keep the full run.** Measured at 128 mutations, the CI job for
 11.41.6 took **14 minutes**. The trigger to revisit is that wall time, not the mutation count —
@@ -355,9 +365,9 @@ exactly the environment where the answer matters.
 
 ### The cost is vitest's cold start, not the tests
 
-Worth knowing before optimising the wrong thing: the specs behind all 118 e2e mutations add up to
+Worth knowing before optimising the wrong thing: the specs behind all 140 e2e mutations add up to
 **~40 seconds**. The step takes ~740s. The remaining ~700s is paying vitest's startup — process
-spawn, transform, module graph, mongod connect, DB create and drop — once per mutation, 312 times.
+spawn, transform, module graph, mongod connect, DB create and drop — once per mutation, 337 times.
 That work is largely single-threaded I/O and barely scales with cores: the full registry measures
 **744s on a 12-core laptop and 777s on a 4-vCPU CI runner**.
 
@@ -753,7 +763,7 @@ catches the *failure*, never the *disarming* of the safety property.
 |-----------|-------|
 | DI tokens live in import-free leaves (SWC/TDZ) | `tests/unit/import-cycle-invariants.spec.ts` |
 | Internal calls forward the caller's `ServiceOptions` | `tests/unit/service-options-forwarding.spec.ts` |
-| The parity matrix is complete and honest | `tests/unit/file-storage-parity-matrix.spec.ts`, `tests/unit/persistence-parity-matrix.spec.ts` |
+| The parity matrix is complete and honest | `tests/unit/file-storage-parity-matrix.spec.ts`, `tests/unit/persistence-parity-matrix.spec.ts`, `tests/unit/core-module-parity-matrix.spec.ts` |
 | Regression tests carry re-runnable evidence | `tests/unit/regression-evidence.spec.ts` |
 | The core is valid as CommonJS AND ESM (no `require()`, `__dirname`, `import x = require()`, `import.meta`, relative dynamic `import()`) | `tests/unit/module-format-invariants.spec.ts`; `pnpm run check:esm` proves the loading half |
 | The ESM package stays loadable by `require()` (no import from a CommonJS directory into the graph, no top-level `await`) and its CommonJS islands (`bin/`, `migrate/helpers/`) load in place | `tests/unit/module-format-invariants.spec.ts`, `tests/unit/package-format-contracts.spec.ts`; `pnpm run check:manifest` repeats it against the packed build |

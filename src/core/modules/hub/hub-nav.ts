@@ -32,6 +32,7 @@ export const HUB_PANELS: readonly HubPanel[] = [
   { group: 'Runtime', id: 'cron', json: 'cron.json', optional: true, path: 'cron', title: 'Cron Jobs' },
   { group: 'Data', id: 'db', json: 'db.json', path: 'db', title: 'Database' },
   { group: 'Data', id: 'models', json: 'models.json', path: 'models', title: 'Models / ERD' },
+  { group: 'Data', id: 'persistence', json: 'persistence.json', path: 'persistence', title: 'Persistence' },
   { group: 'Data', id: 'migrations', json: 'migrations.json', path: 'migrations', title: 'Migrations' },
   { group: 'Data', id: 'files', json: 'files.json', path: 'files', title: 'Files' },
   { group: 'Data', id: 'config', json: 'config.json', path: 'config', title: 'Config' },

@@ -11,6 +11,7 @@ import { revalidateWsConnectionsOf } from '../../common/helpers/graphql-ws-conne
 import { maskEmail } from '../../common/helpers/logging.helper.js';
 import { assignPlain, isQueryableString, prepareServiceOptionsForCreate } from '../../common/helpers/input.helper.js';
 import { ServiceOptions } from '../../common/interfaces/service-options.interface.js';
+import { isWellFormedId } from '../../common/persistence/id-format.js';
 import { ConfigService } from '../../common/services/config.service.js';
 import { CrudService } from '../../common/services/crud.service.js';
 import { ErrorCode } from '../error-code/error-codes.js';
@@ -125,7 +126,9 @@ export abstract class CoreUserService<
         // window exists on a freshly deployed production database. The index
         // remains the backstop for truly concurrent duplicate requests.
         if (data.input?.email) {
-          const existing = await this.mainDbModel.findOne({ email: data.input.email }).lean().exec();
+          const existing = this.usesNeutralStore
+            ? await this.dataStore.findOne({ email: data.input.email })
+            : await this.mainDbModel.findOne({ email: data.input.email }).lean().exec();
           if (existing) {
             throw new BadRequestException('Email address already in use');
           }
@@ -133,15 +136,19 @@ export abstract class CoreUserService<
 
         // Create user with verification token
         const currentUserId = serviceOptions?.currentUser?._id;
-        const createdUser = new this.mainDbModel({
+        const fields = {
           ...data.input,
           createdBy: currentUserId,
           updatedBy: currentUserId,
           verificationToken: crypto.randomBytes(32).toString('hex'),
-        });
+        };
+        const createdUser = this.usesNeutralStore ? undefined : new this.mainDbModel(fields);
 
         // Distinguish between different error messages when saving
         try {
+          if (!createdUser) {
+            return await this.dataStore.insert(fields);
+          }
           await createdUser.save();
         } catch (error) {
           if (error?.errors?.email?.kind === 'unique' || error?.code === 11000) {
@@ -159,10 +166,26 @@ export abstract class CoreUserService<
   }
 
   /**
+   * The stored user matching `where`: the Mongoose document on MongoDB — what this service always worked with — and
+   * the plain record when the user model is routed to a SQL store
+   */
+  protected async findStoredUser(where: Record<string, unknown>): Promise<any> {
+    return this.usesNeutralStore ? this.dataStore.findOne(where) : this.mainDbModel.findOne(where).exec();
+  }
+
+  /** Write `changes` to a stored user (as `findStoredUser()` returned it) and return it as stored afterwards */
+  protected async saveStoredUser(stored: any, changes: Record<string, unknown>): Promise<any> {
+    if (this.usesNeutralStore) {
+      return this.dataStore.updateById(stored.id, changes as any);
+    }
+    return assignPlain(stored, changes).save();
+  }
+
+  /**
    * Get user via email
    */
   async getViaEmail(email: string, serviceOptions?: ServiceOptions): Promise<TUser> {
-    const dbObject = await this.mainDbModel.findOne({ email }).exec();
+    const dbObject = await this.findStoredUser({ email });
     if (!dbObject) {
       throw new NotFoundException(`No user found with email: ${email}`);
     }
@@ -181,6 +204,10 @@ export abstract class CoreUserService<
    * @returns User object or null if not found
    */
   async getByIdOrIamId(idOrIamId: string): Promise<null | TUser> {
+    if (this.usesNeutralStore) {
+      const byId = isWellFormedId(String(idOrIamId)) ? await this.dataStore.findById(String(idOrIamId)) : null;
+      return (byId ?? (await this.dataStore.findOne({ iamId: idOrIamId }))) as null | TUser;
+    }
     try {
       // First, try to find by MongoDB _id
       const byId = await this.mainDbModel.findById(idOrIamId).exec();
@@ -204,7 +231,7 @@ export abstract class CoreUserService<
       return false;
     }
 
-    const user = await this.mainDbModel.findOne({ verificationToken: token }).exec();
+    const user = await this.findStoredUser({ verificationToken: token });
 
     if (!user) {
       throw new NotFoundException(`No user found with verify token: ${token}`);
@@ -222,7 +249,7 @@ export abstract class CoreUserService<
       throw new NotFoundException(ErrorCode.INVALID_TOKEN);
     }
 
-    const dbObject = await this.mainDbModel.findOne({ verificationToken: token }).exec();
+    const dbObject = await this.findStoredUser({ verificationToken: token });
     if (!dbObject) {
       throw new NotFoundException(`No user found with verify token: ${token}`);
     }
@@ -238,6 +265,9 @@ export abstract class CoreUserService<
     return this.process(
       async () => {
         // Update and return user
+        if (this.usesNeutralStore) {
+          return this.dataStore.updateById(dbObject.id, { verified: true, verifiedAt: new Date() } as any);
+        }
         await this.mainDbModel.updateOne({ _id: dbObject.id }, { verified: true, verifiedAt: new Date() }).exec();
         // Return the updated user
         return await this.mainDbModel.findById(dbObject.id).exec();
@@ -262,7 +292,7 @@ export abstract class CoreUserService<
       throw new NotFoundException(ErrorCode.LINK_INVALID_OR_EXPIRED);
     }
 
-    const dbObject = await this.mainDbModel.findOne({ passwordResetToken: token }).exec();
+    const dbObject = await this.findStoredUser({ passwordResetToken: token });
 
     // An EXPIRED token is answered exactly like an unknown one — same exception, same 404. The
     // distinction would tell a caller holding a stale token that it was once real and belongs to a
@@ -270,12 +300,15 @@ export abstract class CoreUserService<
     if (dbObject && this.isPasswordResetTokenExpired(dbObject.passwordResetTokenExpiresAt)) {
       // Burn it on sight rather than leaving it to be retried. It is worthless now, and a value
       // that stays in the row is one a later change could start honouring again.
-      await this.mainDbModel
-        // `$unset`, not `$set: null` — a null still counts as present, so it would keep an entry
-        // in the partial index the token field carries and grow it by one per user who ever
-        // requested a reset.
-        .updateOne({ _id: dbObject._id }, { $unset: { passwordResetToken: 1, passwordResetTokenExpiresAt: 1 } })
-        .exec();
+      // `$unset`, not `$set: null` — a null still counts as present, so it would keep an entry
+      // in the partial index the token field carries and grow it by one per user who ever
+      // requested a reset.
+      const burn = { $unset: { passwordResetToken: 1 as const, passwordResetTokenExpiresAt: 1 as const } };
+      if (this.usesNeutralStore) {
+        await this.dataStore.updateById(dbObject.id, burn);
+      } else {
+        await this.mainDbModel.updateOne({ _id: dbObject._id }, burn).exec();
+      }
       this.userServiceLogger.debug(`Rejected an expired password-reset token for ${maskEmail(dbObject.email)}`);
     }
 
@@ -325,7 +358,7 @@ export abstract class CoreUserService<
         }
 
         // Update Legacy Auth password
-        const updatedUser = await assignPlain(dbObject, {
+        const updatedUser = await this.saveStoredUser(dbObject, {
           password: await bcrypt.hash(newPassword, 10),
           passwordResetToken: null,
           passwordResetTokenExpiresAt: null,
@@ -338,7 +371,7 @@ export abstract class CoreUserService<
           // Without this, "the reset now lands in both stores" would still leave the account
           // reachable with the credential the reset was meant to retire.
           refreshTokens: {},
-        }).save();
+        });
 
         // Sync password to Better-Auth (IAM) if mapper is available
         // This ensures users can sign in via IAM after password reset
@@ -455,7 +488,7 @@ export abstract class CoreUserService<
     }
 
     // Get user
-    const dbObject = await this.mainDbModel.findOne({ email }).exec();
+    const dbObject = await this.findStoredUser({ email });
     if (!dbObject) {
       const preventEnumeration =
         this.configService.getFastButReadOnly('auth')?.passwordReset?.preventUserEnumeration !== false;
@@ -478,6 +511,12 @@ export abstract class CoreUserService<
     const user = await this.process(
       async () => {
         // Set reset token and return
+        if (this.usesNeutralStore) {
+          return this.dataStore.updateById(dbObject.id, {
+            passwordResetToken: token,
+            passwordResetTokenExpiresAt: expiresAt,
+          } as any);
+        }
         dbObject.passwordResetToken = token;
         dbObject.passwordResetTokenExpiresAt = expiresAt;
 
@@ -646,7 +685,9 @@ export abstract class CoreUserService<
     // Update and return user
     return this.process(
       async () => {
-        const user = await this.mainDbModel.findByIdAndUpdate(userId, { roles }).exec();
+        const user = this.usesNeutralStore
+          ? await this.dataStore.updateById(String(userId), { roles } as any)
+          : await this.mainDbModel.findByIdAndUpdate(userId, { roles }).exec();
 
         // Invalidate BetterAuth user cache so changed roles take effect immediately
         if (this.options?.betterAuthUserMapper && (user as any)?.iamId) {
@@ -680,7 +721,9 @@ export abstract class CoreUserService<
    */
   override async update(id: string, input: TUserInput, serviceOptions?: ServiceOptions): Promise<TUser> {
     // Get the current user before update to detect email changes
-    const oldUser = (await this.mainDbModel.findById(id).lean().exec()) as null | TUser;
+    const oldUser = (
+      this.usesNeutralStore ? await this.dataStore.findById(id) : await this.mainDbModel.findById(id).lean().exec()
+    ) as null | TUser;
     const oldEmail = oldUser?.email;
 
     this.assertCredentialChangeAllowed(oldUser, input, serviceOptions);
@@ -717,11 +760,11 @@ export abstract class CoreUserService<
       // The names come from the STORED record, not from `updatedUser`: that one went through the
       // output pipeline, which strips every field the caller may not read. A caller allowed to
       // edit one name field but not to read the other would otherwise sync a truncated name.
-      const stored = (await this.mainDbModel
-        .findById(id)
-        .select('email firstName lastName')
-        .lean()
-        .exec()) as null | TUser;
+      const stored = (
+        this.usesNeutralStore
+          ? await this.dataStore.findById(id, { select: ['email', 'firstName', 'lastName'] })
+          : await this.mainDbModel.findById(id).select('email firstName lastName').lean().exec()
+      ) as null | TUser;
       // An emptied name is synced as well. Skipping it left the old Better-Auth `name` in place,
       // and the next IAM sign-in wrote it back into the fields the user had just cleared.
       const fullName = [stored?.firstName, stored?.lastName].filter(Boolean).join(' ');
@@ -846,7 +889,11 @@ export abstract class CoreUserService<
    */
   override async delete(id: string, serviceOptions?: ServiceOptions): Promise<TUser> {
     // Get the user before deletion to cleanup IAM data
-    const user = (await this.mainDbModel.findById(id).lean().exec()) as null | (TUser & { _id: any });
+    const user = (
+      this.usesNeutralStore
+        ? await this.dataStore.findById(id).then((record) => record && { ...record, _id: record.id })
+        : await this.mainDbModel.findById(id).lean().exec()
+    ) as null | (TUser & { _id: any });
 
     // Perform the deletion
     const deletedUser = await super.delete(id, serviceOptions);

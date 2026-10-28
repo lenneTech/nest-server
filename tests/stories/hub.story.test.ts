@@ -29,6 +29,7 @@ const SIDECAR_PATHS = [
   '/hub/config.json',
   '/hub/db.json',
   '/hub/models.json',
+  '/hub/persistence.json',
   '/hub/migrations.json',
   '/hub/files.json',
   '/hub/error-codes.json',
@@ -89,10 +90,12 @@ describe('Story: Hub admin area', () => {
     await wait();
 
     // Verify (and optionally grant ADMIN) before sign-in so the session reflects the correct status.
-    await db.collection('users').updateOne(
-      { email },
-      { $set: { emailVerified: true, roles: makeAdmin ? [RoleEnum.ADMIN] : [], verified: true } },
-    );
+    await db
+      .collection('users')
+      .updateOne(
+        { email },
+        { $set: { emailVerified: true, roles: makeAdmin ? [RoleEnum.ADMIN] : [], verified: true } },
+      );
     await db.collection('iam_user').updateOne({ email }, { $set: { emailVerified: true } });
     await wait();
 
@@ -101,7 +104,11 @@ describe('Story: Hub admin area', () => {
 
     const dbUser = await db.collection('users').findOne({ email });
     const session = await db.collection('session').findOne({
-      $or: [{ userId: dbUser?._id }, { userId: dbUser?._id?.toString() }, ...(dbUser?.iamId ? [{ userId: dbUser.iamId }] : [])],
+      $or: [
+        { userId: dbUser?._id },
+        { userId: dbUser?._id?.toString() },
+        ...(dbUser?.iamId ? [{ userId: dbUser.iamId }] : []),
+      ],
     });
     return session?.token || '';
   };
@@ -128,7 +135,10 @@ describe('Story: Hub admin area', () => {
 
   afterAll(async () => {
     if (db && testEmails.length > 0) {
-      const users = await db.collection('users').find({ email: { $in: testEmails } }).toArray();
+      const users = await db
+        .collection('users')
+        .find({ email: { $in: testEmails } })
+        .toArray();
       const iamIds = users.map((u) => u.iamId).filter(Boolean);
       await db.collection('users').deleteMany({ email: { $in: testEmails } });
       await db.collection('iam_user').deleteMany({ email: { $in: testEmails } });
@@ -192,7 +202,12 @@ describe('Story: Hub admin area', () => {
 
   describe('Shell + client runtime', () => {
     it('serves the minimal app shell, client script and a matching CSP nonce', async () => {
-      const res = await testHelper.rest('/hub', { method: 'GET', returnResponse: true, statusCode: 200, cookies: adminToken });
+      const res = await testHelper.rest('/hub', {
+        method: 'GET',
+        returnResponse: true,
+        statusCode: 200,
+        cookies: adminToken,
+      });
       const html: string = res.text;
       expect(res.headers['content-type']).toContain('text/html');
       expect(res.headers['content-security-policy']).toContain("default-src 'none'");
@@ -284,7 +299,11 @@ describe('Story: Hub admin area', () => {
 
   describe('Sidecar shapes', () => {
     it('dashboard.json exposes build, features, memory and mongo state', async () => {
-      const data = await testHelper.rest('/hub/dashboard.json', { method: 'GET', statusCode: 200, cookies: adminToken });
+      const data = await testHelper.rest('/hub/dashboard.json', {
+        method: 'GET',
+        statusCode: 200,
+        cookies: adminToken,
+      });
       expect(data.build.env).toBeDefined();
       expect(typeof data.memory.heapUsed).toBe('number');
       expect(data.features).toBeDefined();
@@ -293,7 +312,11 @@ describe('Story: Hub admin area', () => {
     });
 
     it('diagnostics.json exposes process/runtime info', async () => {
-      const data = await testHelper.rest('/hub/diagnostics.json', { method: 'GET', statusCode: 200, cookies: adminToken });
+      const data = await testHelper.rest('/hub/diagnostics.json', {
+        method: 'GET',
+        statusCode: 200,
+        cookies: adminToken,
+      });
       expect(data.nodeVersion).toBe(process.version);
       expect(typeof data.memory.rss).toBe('number');
       expect(data.platform).toBe(process.platform);
@@ -314,7 +337,11 @@ describe('Story: Hub admin area', () => {
     });
 
     it('migrations.json exposes completed/pending arrays', async () => {
-      const data = await testHelper.rest('/hub/migrations.json', { method: 'GET', statusCode: 200, cookies: adminToken });
+      const data = await testHelper.rest('/hub/migrations.json', {
+        method: 'GET',
+        statusCode: 200,
+        cookies: adminToken,
+      });
       expect(Array.isArray(data.completed)).toBe(true);
       expect(Array.isArray(data.pending)).toBe(true);
       expect(data.source).toBe('collection');
@@ -331,7 +358,11 @@ describe('Story: Hub admin area', () => {
       // The e2e ServerModule sets errorCode.autoRegister:false, so the error-code module is not
       // registered here — the panel must report `available:false` (never 500). The populated-catalog
       // case is covered in hub-config.e2e-spec.ts where error-code is enabled.
-      const data = await testHelper.rest('/hub/error-codes.json', { method: 'GET', statusCode: 200, cookies: adminToken });
+      const data = await testHelper.rest('/hub/error-codes.json', {
+        method: 'GET',
+        statusCode: 200,
+        cookies: adminToken,
+      });
       if (data.available === false) {
         expect(typeof data.hint).toBe('string');
       } else {
@@ -340,7 +371,11 @@ describe('Story: Hub admin area', () => {
     });
 
     it('auth-migration.json exposes migration progress (BetterAuth enabled)', async () => {
-      const data = await testHelper.rest('/hub/auth-migration.json', { method: 'GET', statusCode: 200, cookies: adminToken });
+      const data = await testHelper.rest('/hub/auth-migration.json', {
+        method: 'GET',
+        statusCode: 200,
+        cookies: adminToken,
+      });
       expect(data.available).toBe(true);
       expect(typeof data.migrationPercentage).toBe('number');
       expect(typeof data.totalUsers).toBe('number');
@@ -377,7 +412,8 @@ describe('Story: Hub admin area', () => {
       new Logger('HubStoryCanary').warn('hub-log-canary token=abcdef1234567890secret');
       const data = await poll(
         () => testHelper.rest('/hub/logs.json', { method: 'GET', statusCode: 200, cookies: adminToken }),
-        (d) => Array.isArray(d.records) && d.records.some((r: { message: string }) => r.message.includes('hub-log-canary')),
+        (d) =>
+          Array.isArray(d.records) && d.records.some((r: { message: string }) => r.message.includes('hub-log-canary')),
       );
       expect(Array.isArray(data.records)).toBe(true);
       const canary = data.records.find((r: { message: string }) => r.message.includes('hub-log-canary'));
@@ -396,7 +432,8 @@ describe('Story: Hub admin area', () => {
       await testHelper.rest('/permissions/json', { method: 'GET', statusCode: 200, cookies: adminToken });
 
       const data = await poll(
-        () => testHelper.rest(`/hub/traces.json?since=${cursor}`, { method: 'GET', statusCode: 200, cookies: adminToken }),
+        () =>
+          testHelper.rest(`/hub/traces.json?since=${cursor}`, { method: 'GET', statusCode: 200, cookies: adminToken }),
         (d) => Array.isArray(d.traces) && d.traces.some((t: { path: string }) => t.path.startsWith('/permissions')),
       );
       expect(Array.isArray(data.traces)).toBe(true);
@@ -428,7 +465,11 @@ describe('Story: Hub admin area', () => {
 
   describe('Mailbox (Mailpit-style capture)', () => {
     it('runs in capture mode and captures a triggered mail without sending it', async () => {
-      const before = await testHelper.rest('/hub/mailbox.json', { method: 'GET', statusCode: 200, cookies: adminToken });
+      const before = await testHelper.rest('/hub/mailbox.json', {
+        method: 'GET',
+        statusCode: 200,
+        cookies: adminToken,
+      });
       expect(before.mode).toBe('capture');
       expect(Array.isArray(before.mails)).toBe(true);
 
@@ -454,7 +495,12 @@ describe('Story: Hub admin area', () => {
       if (!withBody) {
         return; // no mail captured in this run — the shape test above already proved the wiring
       }
-      const res = await testHelper.rest(`/hub/mailbox/${withBody.seq}/html`, { method: 'GET', returnResponse: true, statusCode: 200, cookies: adminToken });
+      const res = await testHelper.rest(`/hub/mailbox/${withBody.seq}/html`, {
+        method: 'GET',
+        returnResponse: true,
+        statusCode: 200,
+        cookies: adminToken,
+      });
       expect(res.headers['content-type']).toContain('text/html');
       expect(res.headers['content-security-policy']).toContain("default-src 'none'");
     });
@@ -509,7 +555,9 @@ describe('Story: Hub admin area', () => {
             (r: { message: string }) => r.message.includes('[HUB-ACTION]') && r.message.includes('clear queries'),
           ),
       );
-      const audit = logs.records.find((r: { message: string }) => r.message.includes('[HUB-ACTION]') && r.message.includes('clear queries'));
+      const audit = logs.records.find(
+        (r: { message: string }) => r.message.includes('[HUB-ACTION]') && r.message.includes('clear queries'),
+      );
       expect(audit).toBeDefined();
       expect(audit.message).toMatch(/by user \w+/);
     });
@@ -659,7 +707,12 @@ describe('Story: Hub admin area', () => {
 
   describe('Config secret masking', () => {
     it('masks jwt/betterAuth/mongoose secrets in config.json', async () => {
-      const res = await testHelper.rest('/hub/config.json', { method: 'GET', returnResponse: true, statusCode: 200, cookies: adminToken });
+      const res = await testHelper.rest('/hub/config.json', {
+        method: 'GET',
+        returnResponse: true,
+        statusCode: 200,
+        cookies: adminToken,
+      });
       const raw: string = res.text;
       // Known sentinel secrets from the e2e config must never appear in the response.
       expect(raw).not.toContain('SECRET_OR_PRIVATE_KEY_LOCAL');

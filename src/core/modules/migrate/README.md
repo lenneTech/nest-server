@@ -158,6 +158,39 @@ core automatically.
 is REPLACED by the variable (the environment merge turns it into `{ ownerUrl }`), so the boot refuses that
 combination. Write `database: { url: … }` in the configuration, or set `NSC__DATABASE__URL` as well.
 
+### Migration state on PostgreSQL (`SqlStateStore`)
+
+A project whose default source is PostgreSQL keeps its migration state there instead of in MongoDB. Pass the OWNER's
+URL to `createMigrationStore()` — it picks the store by the URL's scheme:
+
+```javascript
+// migrations-utils/migrate.js
+const { createMigrationStore } = require('@lenne.tech/nest-server');
+
+module.exports = createMigrationStore(process.env.NSC__DATABASE__OWNER_URL);
+```
+
+|                     | MongoDB (`MongoStateStore`)                                                            | PostgreSQL (`SqlStateStore`)                                                                                                                 |
+| ------------------- | -------------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------- |
+| State               | one document in `migrations`                                                           | one row in `lt_migrations` (created on first use)                                                                                            |
+| Run lock            | a document in `migrations_lock`, renewed every 15 s, broken after 60 s without renewal | a transaction-scoped advisory lock held for the whole run — it ends with the connection, so a replica killed mid-run leaves nothing to break |
+| Opt out of the lock | `lockCollectionName: ''`                                                               | `lockCollectionName: ''` (or `new SqlStateStore({ url, lock: false })`)                                                                      |
+| Connection          | the MongoDB URI                                                                        | the table owner (`database.ownerUrl`): migrations change the schema and every tenant's data                                                  |
+
+The connection uses the first SQL engine the project has installed (`typeorm`, `kysely`, `drizzle`): the CLI runs
+outside the application and cannot read `database.sqlEngine`. To pin one, export your own class:
+`class Store extends SqlStateStore { constructor() { super({ engine: 'kysely', url: process.env.NSC__DATABASE__OWNER_URL }) } }`.
+
+**Move the state when you switch.** A project that had MongoDB as its default source has its applied migrations in the
+`migrations` collection. Pointed at the owner URL, `createMigrationStore()` starts from an empty `lt_migrations`, and the
+next `migrate up` applies every migration again. Copy the state document's `lastRun` and `migrations` into the table
+first (`await new SqlStateStore(ownerUrl).saveAsync(state)` with the document `MongoStateStore.loadAsync()` returns).
+The Hub's Migrations panel refuses to run while the table is empty and the collection is not.
+
+`MigrationRunner`, `synchronizedMigration()` and the `migrate` CLI accept either store. The advisory lock is held by an
+open transaction for the length of the run: a server-side `idle_in_transaction_session_timeout` shorter than your
+longest migration would end it early — leave that setting off (the default) for the owner role.
+
 ## API Reference
 
 ### MongoStateStore

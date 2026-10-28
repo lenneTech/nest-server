@@ -1,6 +1,7 @@
 import { MongoClient } from 'mongodb';
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest';
 
+import { migrationMongoLocks, systemSetupMongoLocks } from '../src/core/common/persistence/infrastructure-locks';
 import type { LockStore } from '../src/core/common/persistence/lock-store.interface';
 import { MongoLockStore } from '../src/core/common/persistence/mongo-lock-store';
 import { PostgresLockStore } from '../src/core/common/persistence/sql/postgres/postgres-lock-store';
@@ -21,17 +22,21 @@ interface LockHarness {
   teardown(): Promise<void>;
 }
 
-async function mongoLocks(): Promise<LockHarness> {
+async function mongoLocks(
+  collectionName = 'parity-locks',
+  create: (collection: any) => LockStore = (collection) => new MongoLockStore(collection),
+  keyField = '_id',
+): Promise<LockHarness> {
   const client = await MongoClient.connect(deriveTestDbUri('lock-store'));
-  const collection = client.db().collection('parity-locks');
+  const collection = client.db().collection(collectionName);
   return {
-    locks: new MongoLockStore(collection),
+    locks: create(collection),
     reset: async () => {
       await collection.deleteMany({});
     },
-    stored: async (key) => (await collection.countDocuments({ _id: key as any })) === 1,
+    stored: async (key) => (await collection.countDocuments({ [keyField]: key as any })) === 1,
     teardown: async () => {
-      await client.db().dropDatabase();
+      await collection.drop().catch(() => undefined);
       await client.close();
     },
   };
@@ -61,7 +66,16 @@ async function postgresLocks(): Promise<LockHarness> {
   };
 }
 
-const HARNESSES: Record<string, () => Promise<LockHarness>> = { mongodb: mongoLocks, postgres: postgresLocks };
+/**
+ * The two MongoDB lock formats of 12.0.0 that the framework's own locks keep (`infrastructure-locks.ts`) must be leases
+ * like any other — the contract runs against them too
+ */
+const HARNESSES: Record<string, () => Promise<LockHarness>> = {
+  mongodb: () => mongoLocks(),
+  'mongodb (migration-lock format)': () => mongoLocks('parity-migration-locks', migrationMongoLocks, 'lock'),
+  'mongodb (system-setup format)': () => mongoLocks('parity-setup-locks', systemSetupMongoLocks),
+  postgres: postgresLocks,
+};
 
 describe.each(Object.keys(HARNESSES))('LockStore contract — %s (e2e)', (driver) => {
   let harness: LockHarness;
@@ -141,5 +155,29 @@ describe.each(Object.keys(HARNESSES))('LockStore contract — %s (e2e)', (driver
     expect(await locks.tryAcquire('release', 'b', 30)).toBe(false);
     expect(await locks.release('release', 'a')).toBe(true);
     expect(await locks.tryAcquire('release', 'b', 30)).toBe(true);
+  });
+});
+
+describe('PostgresLockStore housekeeping (e2e)', () => {
+  /**
+   * @regression   DEV-3830 (db-agnostic phase 2) — a cron lease is written per tick and only its owner releases it, so
+   *   without a sweep the lease table on PostgreSQL grew by one row per job and tick forever (MongoDB has a TTL index).
+   * @seen-failing Make PostgresLockStore.sweep() return at once in
+   *   src/core/common/persistence/sql/postgres/postgres-lock-store.ts — registered as mutation
+   *   `sql-lock-store-never-sweeps` in tests/regression-mutations.json.
+   */
+  it('deletes leases that expired over an hour ago, and keeps the others', async () => {
+    const harness = await postgresLocks();
+    try {
+      const run = (text: string) => (harness.locks as any).executor.run({ params: [], text }, { kind: 'system' });
+      await run(
+        `INSERT INTO lt_locks (id, owner, acquired_at, expires_at) VALUES ('old', 'gone', now() - interval '3 hours', now() - interval '2 hours'), ('recent', 'gone', now() - interval '20 minutes', now() - interval '10 minutes')`,
+      );
+      expect(await harness.locks.tryAcquire('fresh', 'a', 30)).toBe(true);
+      expect(await harness.stored('old')).toBe(false);
+      expect(await harness.stored('recent')).toBe(true);
+    } finally {
+      await harness.teardown();
+    }
   });
 });

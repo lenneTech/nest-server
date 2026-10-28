@@ -457,6 +457,34 @@ handle), API tokens, system setup (`LockStore`), cron leases (`LockStore` + expl
 (SQL ping indicator), permissions (nothing to do), Hub (driver-aware panels incl. a persistence panel: model → source →
 database → engine → capabilities; Mongo-only panels report `available: false`), migrate module on SQL.
 
+**Decided while implementing phase 2 (2026-10-28, autopilot — every point is an assumption recorded on DEV-3830):**
+* *Proof:* a core module parity matrix (`tests/helpers/core-module-matrix.ts`) runs the modules through REST and
+  GraphQL on MongoDB and on PostgreSQL (default engine). Its PostgreSQL column signs in through the legacy endpoints:
+  Better-Auth keeps its users in MongoDB until phase 3, and **the boot refuses a user model (table `users`) on SQL while
+  Better-Auth is enabled** — the split let the system setup count Better-Auth's empty `users` and create an admin
+  anonymously. Phase 3 lifts that refusal and gives the IAM suites their PostgreSQL column; phase 5 runs the whole suite.
+* *Routing of existing services:* a service that only received `@InjectModel()` follows its model's routed store
+  (`bindStoreToModel`, keyed by the model INSTANCE, so per application); the Mongoose model of a model routed to SQL
+  refuses every data method with a named error. The core's MongoDB branches stay unchanged; SQL branches sit beside them.
+* *Port:* `updateOne` and `deleteOne` (atomic first match: locking sub-select plus re-check), `updateMany`, `deleteMany`,
+  `updateById(…, { timestamps: false })`.
+* *Locks:* on MongoDB the three framework locks keep their 12.0.0 documents (`MongoLockStore` options `keyField` and
+  `legacyTimestamp`), so an old and a new replica contend for one document — proven both ways per lock against the
+  quoted 12.0.0 code. On SQL they share `lt_locks`, namespaced, swept an hour after expiry. **The migration run lock on
+  PostgreSQL is a transaction-scoped advisory lock, not the `LockStore`**: it ends with its connection, so a replica
+  killed mid-run leaves nothing to break, and it needs no table before the first migration.
+* *Found and fixed (pre-existing, also on MongoDB):* a legacy logout never ended the device's refresh token
+  (`update()` merges, so a deleted map key survived — ended devices are written as `null` now); with legacy JWTs the
+  tenant guard ran before the role guard and answered every tenant route with 401 (it now lets the role guard identify
+  the caller first).
+* *Not changed:* `getSetupStatus()` / `createInitialAdmin()` still count and write `users` through the MongoDB
+  connection — they create the admin through Better-Auth, which phase 3 moves.
+* *From the phase 2 review:* the routed-model guard also covers `$save` (Mongoose's separate reference that
+  `insertOne()` writes through), `where`, `$where` and `findAndCount`; `store()` in `isTenantActive` throws for a model
+  not registered through `CorePersistenceModule.forFeature()` instead of answering `undefined` (fail closed);
+  `SqlStateStore` without an engine uses the first installed one, because the CLI cannot read `database.sqlEngine`; the
+  Hub refuses to show or run migrations while `lt_migrations` is empty and the MongoDB collection is not.
+
 ### Phase 3 — Better-Auth on SQL (DEV-3831)
 Better-Auth's Kysely adapter on the configured engine's driver pool, `user` → `users` mapping (snake_case), ObjectId-hex
 ids, Better-Auth migrations inside the framework's migration flow; user mapper, token service, challenge service and

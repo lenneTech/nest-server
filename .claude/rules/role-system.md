@@ -417,6 +417,15 @@ otherwise lets the role guard check `user.roles` — fail-closed, warned once. P
 **Configured is not registered.** When you add a guard that delegates to another one, ask whether
 the other one RUNS, not whether it is configured.
 
+**Registered is not ordered (DEV-3830).** Global guards run in registration order, and `CoreModule` registers
+`CoreTenantModule` ahead of a project's `AuthModule` — so with legacy JWTs (no middleware identifies them) the tenant
+guard ran before the role guard, found nobody on the request and answered every tenant route with 401. Never noticed
+because every multi-tenant suite signed in through IAM, where the middleware sets the user first. The tenant guard now
+lets the application's role guard identify the caller when nobody is on the request yet (`ROLE_GUARD` token, provided by
+the module that registers the role guard, resolved through `ModuleRef` so it is always THIS application's guard). The
+role guard then runs twice on such a request; it is stateless, and its 401/403 is the answer either way. Pinned by
+`tests/core-module-parity.e2e-spec.ts` (mutation `tenant-guard-before-identification`).
+
 ## Every entry point, not just the route (11.42.0)
 
 A `@Roles()` decides who may call a ROUTE. An operation is also reached from MCP tools, AI tools,

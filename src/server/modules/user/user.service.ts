@@ -51,7 +51,8 @@ export class UserService extends CoreUserService<User, UserInput, UserCreateInpu
     // Add the createdBy information in an extra step if it was not set by the system because the user created himself
     // and could not exist as currentUser before
     if (!user.createdBy) {
-      await this.mainDbModel.findByIdAndUpdate(user.id, { createdBy: user.id });
+      // Through the data store, not the Mongoose model: it serves the user on whichever database the model is routed to
+      await this.dataStore.updateById(user.id, { createdBy: user.id });
       user = await this.get(user.id, { ...serviceOptions, currentUser: serviceOptions?.currentUser || user });
     }
 
@@ -149,11 +150,10 @@ export class UserService extends CoreUserService<User, UserInput, UserCreateInpu
    * @returns the PREVIOUS avatar id, so the caller can delete the orphaned file
    */
   async setAvatar(avatarId: string, user: User): Promise<string> {
-    // `findById`, not `findOne({ id })`: `id` is a Mongoose virtual, so it exists on the
-    // document but not in MongoDB — a filter on it matches nothing and every call ended in
-    // "session user no longer exists". Broken since the Mongoose migration and never noticed,
-    // because no test covers the avatar endpoint.
-    const dbUser = await this.mainDbModel.findById(user.id).exec();
+    // Through the data store, which serves the user on whichever database the model is routed to and addresses
+    // the id the same way on each. (A Mongoose `findOne({ id })` matched nothing — `id` is a virtual there — and
+    // every call ended in "session user no longer exists" until this used `findById`.)
+    const dbUser = await this.dataStore.findById(user.id);
     // Check user: the token is valid but the account no longer exists, so the session really is
     // invalid — 401 is right here. (A permission error would have to be 403, see accessDeniedException.)
     if (!dbUser) {
@@ -168,9 +168,7 @@ export class UserService extends CoreUserService<User, UserInput, UserCreateInpu
     const previousAvatar = dbUser.avatar;
 
     // The avatar is referenced by file id and served via GET /files/id/:id
-    dbUser.avatar = avatarId;
-
-    await dbUser.save();
+    await this.dataStore.updateById(user.id, { avatar: avatarId });
 
     return previousAvatar;
   }

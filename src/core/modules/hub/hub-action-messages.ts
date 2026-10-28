@@ -39,6 +39,12 @@ export const HubActionMessage = {
   missingHubRequestHeader: 'Missing X-Hub-Request header.',
   /** Any action that needs the Mongo connection while it is unavailable. */
   mongoUnavailable: 'No MongoDB connection is available.',
+  /** Migrations on a SQL default source run as the table owner. */
+  sqlOwnerMissing:
+    'The migration state of a SQL default source is read and written as the table owner — configure database.ownerUrl.',
+  /** SQL default source with an empty `lt_migrations` while the MongoDB collection lists applied migrations. */
+  migrationStateInMongo: (collection: string) =>
+    `The default source is a SQL database, but its lt_migrations table is empty while the MongoDB collection "${collection}" lists applied migrations — migrations-utils/migrate.js still keeps the state in MongoDB. Pass database.ownerUrl to createMigrationStore() and move the state to the table; until then the Hub neither shows nor runs migrations, which would apply them again.`,
   /** Migrations action while no Mongo URI is configured. */
   mongoUriMissing: 'No MongoDB URI is configured.',
   /** Test mail: no recipient supplied. */

@@ -3238,8 +3238,8 @@
       "id": "lock-store-takes-held-lease",
       "defect": "DEV-3828 (db-agnostic phase 0) — a lease claim that does not compare expiresAt takes over a held, unexpired lease, so two replicas run what exactly one of them may run.",
       "file": "src/core/common/persistence/mongo-lock-store.ts",
-      "find": "        { _id: key, expiresAt: { $lte: now } },",
-      "replace": "        { _id: key },",
+      "find": "        { [this.keyField]: key, ...expired },",
+      "replace": "        { [this.keyField]: key },",
       "specs": [
         "tests/persistence-lock-store.e2e-spec.ts"
       ],
@@ -3514,8 +3514,8 @@
       "id": "sql-update-keeps-undeclared",
       "defect": "DEV-3829 (db-agnostic phase 1, review) — CrudService.update() merges `updatedBy` into every update with a current user; on a model without that field the SQL store refused the path and answered 500, where MongoDB strict mode drops it.",
       "file": "src/core/common/persistence/sql/sql-data-store.ts",
-      "find": "    const patch = this.dropUndeclared(await this.beforeUpdate(clone(update)));",
-      "replace": "    const patch = await this.beforeUpdate(clone(update));",
+      "find": "    return this.dropUndeclared(await this.beforeUpdate(clone(update), options));",
+      "replace": "    return this.beforeUpdate(clone(update), options);",
       "specs": [
         "tests/persistence-sql-wiring.e2e-spec.ts"
       ],
@@ -3586,6 +3586,283 @@
         "tests/persistence-sql-schema.e2e-spec.ts"
       ],
       "driverSpecific": false
+    },
+    {
+      "driverSpecific": false,
+      "id": "module-service-ignores-routed-store",
+      "defect": "DEV-3830 (db-agnostic phase 2) — a service written against @InjectModel() kept writing to MongoDB although its model was routed to PostgreSQL.",
+      "file": "src/core/common/services/module.service.ts",
+      "find": "    const routed = getStoreForModel(this.mainDbModel);",
+      "replace": "    const routed = undefined as DataStore<T> | undefined;",
+      "specs": [
+        "tests/persistence-sql-wiring.e2e-spec.ts"
+      ]
+    },
+    {
+      "driverSpecific": false,
+      "id": "lock-store-ignores-legacy-timestamp",
+      "defect": "DEV-3830 (db-agnostic phase 2) — the LockStore read only expiresAt, so a claim an old replica left behind (only claimedAt) was obeyed forever.",
+      "file": "src/core/common/persistence/mongo-lock-store.ts",
+      "find": "    const expired = legacy\n",
+      "replace": "    const expired = false && legacy\n",
+      "specs": [
+        "tests/persistence-lock-formats.e2e-spec.ts"
+      ]
+    },
+    {
+      "driverSpecific": false,
+      "id": "lock-store-skips-legacy-stamp",
+      "defect": "DEV-3830 (db-agnostic phase 2) — a lock without the old timestamp is invisible to the stale rule of an old replica, so it never took over after a new replica died.",
+      "file": "src/core/common/persistence/mongo-lock-store.ts",
+      "find": "    return this.options.legacyTimestamp ? { [this.options.legacyTimestamp.field]: now } : {};",
+      "replace": "    return {};",
+      "specs": [
+        "tests/persistence-lock-formats.e2e-spec.ts"
+      ]
+    },
+    {
+      "driverSpecific": false,
+      "id": "migration-lock-own-document",
+      "defect": "DEV-3830 (db-agnostic phase 2) — keyed on _id, the migration LockStore wrote a second lock document beside the old { lock: 'lock' } one, and an old and a new replica migrated at once.",
+      "file": "src/core/common/persistence/infrastructure-locks.ts",
+      "find": "    keyField: 'lock',\n",
+      "replace": "",
+      "specs": [
+        "tests/persistence-lock-formats.e2e-spec.ts"
+      ]
+    },
+    {
+      "driverSpecific": false,
+      "id": "sql-lock-store-never-sweeps",
+      "defect": "DEV-3830 (db-agnostic phase 2) — cron leases are written per tick and only released by their owner; without a sweep the PostgreSQL lease table grew forever.",
+      "file": "src/core/common/persistence/sql/postgres/postgres-lock-store.ts",
+      "find": "    if (now - this.lastSweep < SWEEP_INTERVAL_MS) {\n",
+      "replace": "    if (now) {\n",
+      "specs": [
+        "tests/persistence-lock-store.e2e-spec.ts"
+      ]
+    },
+    {
+      "driverSpecific": false,
+      "id": "cron-lease-ignores-sql-source",
+      "defect": "DEV-3830 (db-agnostic phase 2) — with a SQL default source the cron lease still went to MongoDB, so replicas sharing only the SQL database ran every tick each.",
+      "file": "src/core/common/services/core-cron-jobs.service.ts",
+      "find": "    const sqlLocks = await defaultSqlLockStore('cron').catch((e) => {",
+      "replace": "    const sqlLocks = await Promise.resolve(undefined).catch((e) => {",
+      "specs": [
+        "tests/persistence-sql-wiring.e2e-spec.ts"
+      ]
+    },
+    {
+      "driverSpecific": false,
+      "id": "system-setup-claim-ignores-sql-source",
+      "defect": "DEV-3830 (db-agnostic phase 2) — with a SQL default source the anonymous setup claim must hold in its lease table; read from MongoDB it decides nothing for a SQL deployment.",
+      "file": "src/core/modules/system-setup/core-system-setup.service.ts",
+      "find": "      (await defaultSqlLockStore('system-setup')) ??",
+      "replace": "      undefined ??",
+      "specs": [
+        "tests/persistence-sql-wiring.e2e-spec.ts"
+      ]
+    },
+    {
+      "driverSpecific": false,
+      "id": "routed-model-not-guarded",
+      "defect": "DEV-3830 (db-agnostic phase 2) — project code calling the Mongoose model of a model routed to PostgreSQL read and wrote MongoDB, splitting the model's data across two databases without an error.",
+      "file": "src/core/common/persistence/core-persistence.module.ts",
+      "find": "          guardRoutedModel(mongooseModel, store);",
+      "replace": "          void guardRoutedModel;",
+      "specs": [
+        "tests/persistence-sql-wiring.e2e-spec.ts"
+      ]
+    },
+    {
+      "driverSpecific": false,
+      "id": "legacy-logout-keeps-refresh-token",
+      "defect": "DEV-3830 (db-agnostic phase 2) — a legacy logout deleted the device key from refreshTokens and wrote the map through update(), which merges into the stored record: the key survived and the logged-out refresh token kept working.",
+      "file": "src/core/modules/auth/services/core-auth.service.ts",
+      "find": "      { refreshTokens: ended([deviceId]), tempTokens: ended([deviceId]) },",
+      "replace": "      { refreshTokens: user.refreshTokens, tempTokens: ended([deviceId]) },",
+      "specs": [
+        "tests/core-module-parity.e2e-spec.ts"
+      ]
+    },
+    {
+      "driverSpecific": false,
+      "id": "user-service-reads-mongo-on-sql",
+      "defect": "DEV-3830 (db-agnostic phase 2) — with the user model routed to PostgreSQL, CoreUserService looked users up through the Mongoose model, i.e. in the wrong database.",
+      "file": "src/core/modules/user/core-user.service.ts",
+      "find": "    return this.usesNeutralStore ? this.dataStore.findOne(where) : this.mainDbModel.findOne(where).exec();",
+      "replace": "    return this.mainDbModel.findOne(where).exec();",
+      "specs": [
+        "tests/core-module-parity.e2e-spec.ts"
+      ]
+    },
+    {
+      "driverSpecific": false,
+      "id": "tenant-guard-before-identification",
+      "defect": "DEV-3830 (db-agnostic phase 2) — with legacy JWTs the tenant guard ran before the role guard had identified anybody (CoreModule registers it first) and answered every tenant route with 401.",
+      "file": "src/core/modules/tenant/core-tenant.guard.ts",
+      "find": "      await this.identifyThroughRoleGuard(context);",
+      "replace": "      void this.identifyThroughRoleGuard;",
+      "specs": [
+        "tests/core-module-parity.e2e-spec.ts"
+      ]
+    },
+    {
+      "driverSpecific": false,
+      "id": "tenant-membership-on-mongo-on-sql",
+      "defect": "DEV-3830 (db-agnostic phase 2) — with the membership model routed to PostgreSQL, the tenant guard and service read and wrote memberships through the Mongoose model.",
+      "file": "src/core/modules/tenant/core-tenant-member.store.ts",
+      "find": "  return store && !store.capabilities.mongoosePopulate ? store : undefined;",
+      "replace": "  return store && false ? store : undefined;",
+      "specs": [
+        "tests/core-module-parity.e2e-spec.ts"
+      ]
+    },
+    {
+      "driverSpecific": false,
+      "id": "tenant-active-hook-without-store",
+      "defect": "DEV-3830 (db-agnostic phase 2) — isTenantActive received only the MongoDB connection, which cannot reach a tenant model stored in PostgreSQL.",
+      "file": "src/core/modules/tenant/core-tenant.guard.ts",
+      "find": "{ connection: this.memberModel.db, store: this.storeOf }",
+      "replace": "{ connection: this.memberModel.db, store: () => undefined }",
+      "specs": [
+        "tests/core-module-parity.e2e-spec.ts"
+      ]
+    },
+    {
+      "driverSpecific": false,
+      "id": "api-token-owner-from-mongo-on-sql",
+      "defect": "DEV-3830 (db-agnostic phase 2) — with the users in PostgreSQL, a user token's owner was loaded from the MongoDB users collection, found nobody, and every user token answered 401.",
+      "file": "src/core/modules/api-token/core-api-token.service.ts",
+      "find": "      store = this.moduleRef?.get(getStoreToken(API_TOKEN_USER_MODEL), { strict: false });",
+      "replace": "      store = undefined;",
+      "specs": [
+        "tests/core-module-parity.e2e-spec.ts"
+      ]
+    },
+    {
+      "driverSpecific": false,
+      "id": "api-token-store-on-mongo-on-sql",
+      "defect": "DEV-3830 (db-agnostic phase 2) — with the token model routed to PostgreSQL, the service kept issuing and looking up tokens through the Mongoose model.",
+      "file": "src/core/modules/api-token/core-api-token.service.ts",
+      "find": "    const store = getStoreForModel(this.apiTokenModel);\n    return store && !store.capabilities.mongoosePopulate ? store : undefined;",
+      "replace": "    const store = getStoreForModel(this.apiTokenModel);\n    return store && false ? store : undefined;",
+      "specs": [
+        "tests/core-module-parity.e2e-spec.ts"
+      ]
+    },
+    {
+      "driverSpecific": false,
+      "id": "sql-update-ignores-timestamps-false",
+      "defect": "DEV-3830 (db-agnostic phase 2) — the SQL store stamped updatedAt on every update, so a token's update time moved with every use, where MongoDB writes the stamp with timestamps: false.",
+      "file": "src/core/common/persistence/sql/sql-data-store.ts",
+      "find": "    if (updatedAt && options.timestamps !== false && !hasOperator(update, updatedAt)) {",
+      "replace": "    if (updatedAt && !hasOperator(update, updatedAt)) {",
+      "specs": [
+        "tests/core-module-parity.e2e-spec.ts",
+        "tests/persistence-parity.e2e-spec.ts"
+      ]
+    },
+    {
+      "driverSpecific": false,
+      "id": "health-check-skips-sql-sources",
+      "defect": "DEV-3830 (db-agnostic phase 2) — the health check pinged MongoDB only, so a replica whose SQL database was unreachable still answered ok.",
+      "file": "src/core/modules/health-check/core-health-check.service.ts",
+      "find": "      for (const source of getPersistenceRuntime()?.sqlSources() ?? []) {",
+      "replace": "      for (const source of [] as { name: string; ping: () => Promise<void> }[]) {",
+      "specs": [
+        "tests/unit/health-check-sql-source.spec.ts"
+      ]
+    },
+    {
+      "driverSpecific": false,
+      "id": "sql-migration-run-unlocked",
+      "defect": "DEV-3830 (db-agnostic phase 2) — without a run lock, two replicas booting together both read the empty migration state on PostgreSQL and both apply the same migration.",
+      "file": "src/core/modules/migrate/sql-state-store.ts",
+      "find": "        await tx.run({ params: [], text: MIGRATION_RUN_LOCK_SQL }, SYSTEM);",
+      "replace": "        void MIGRATION_RUN_LOCK_SQL;",
+      "specs": [
+        "tests/migrate/sql-state-store.e2e-spec.ts"
+      ]
+    },
+    {
+      "driverSpecific": false,
+      "id": "hub-migrations-read-mongo-on-sql",
+      "defect": "DEV-3830 (db-agnostic phase 2) — with the migration state on PostgreSQL, the Hub read the MongoDB migrations collection and showed a project that had run every migration as one that never ran any.",
+      "file": "src/core/modules/hub/services/core-hub-migrations.service.ts",
+      "find": "    const source = getPersistenceRuntime()?.defaultSqlSource();",
+      "replace": "    const source = undefined as undefined | { engine?: string; ownerUrl?: string };",
+      "specs": [
+        "tests/core-module-parity.e2e-spec.ts"
+      ]
+    },
+    {
+      "driverSpecific": false,
+      "id": "sql-users-beside-better-auth",
+      "defect": "DEV-3830 (db-agnostic phase 2) — with the user model on PostgreSQL and Better-Auth on MongoDB, the users were split across two databases and the system setup counted Better-Auth's empty users collection.",
+      "file": "src/core/common/persistence/data-source.runtime.ts",
+      "find": "    if (this.options.betterAuthEnabled && tableName(model) === BETTER_AUTH_USERS_TABLE) {",
+      "replace": "    if (false && this.options.betterAuthEnabled && tableName(model) === BETTER_AUTH_USERS_TABLE) {",
+      "specs": [
+        "tests/persistence-sql-wiring.e2e-spec.ts"
+      ]
+    },
+    {
+      "driverSpecific": false,
+      "id": "legacy-logout-all-keeps-devices",
+      "defect": "DEV-3830 (db-agnostic phase 2) — a legacy logout with allDevices wrote refreshTokens: {} through update(), which merges into the stored map: every device stayed signed in.",
+      "file": "src/core/modules/auth/services/core-auth.service.ts",
+      "find": "        { refreshTokens: ended(deviceIds), tempTokens: ended(Object.keys(user.tempTokens ?? {})) },",
+      "replace": "        { refreshTokens: {}, tempTokens: {} },",
+      "specs": [
+        "tests/server.e2e-spec.ts",
+        "tests/core-module-parity.e2e-spec.ts"
+      ]
+    },
+    {
+      "driverSpecific": false,
+      "id": "routed-model-misses-save-alias",
+      "defect": "DEV-3830 (db-agnostic phase 2) — the routed-model guard replaced save() but not $save(), Mongoose's separate reference to it, so insertOne() and doc.$save() still wrote a SQL-routed model's documents to MongoDB.",
+      "file": "src/core/common/persistence/routed-model.guard.ts",
+      "find": "const DOCUMENT_DATA_METHODS = ['$save', 'deleteOne', 'replaceOne', 'save', 'updateOne'] as const;",
+      "replace": "const DOCUMENT_DATA_METHODS = ['deleteOne', 'replaceOne', 'save', 'updateOne'] as const;",
+      "specs": [
+        "tests/persistence-sql-wiring.e2e-spec.ts"
+      ]
+    },
+    {
+      "driverSpecific": false,
+      "id": "tenant-store-accessor-answers-undefined",
+      "defect": "DEV-3830 (db-agnostic phase 2) — store() in the isTenantActive hook answered undefined for a model not registered with CorePersistenceModule.forFeature(), and the documented hook written with ?. read every deactivated tenant as active.",
+      "file": "src/core/modules/tenant/core-tenant.guard.ts",
+      "find": "    if (!store) {\n      throw new DataSourceConfigError(",
+      "replace": "    if (!store && false) {\n      throw new DataSourceConfigError(",
+      "specs": [
+        "tests/unit/tenant-active-store-accessor.spec.ts"
+      ]
+    },
+    {
+      "driverSpecific": false,
+      "id": "sql-state-store-assumes-typeorm",
+      "defect": "DEV-3830 (db-agnostic phase 2) — SqlStateStore fell back to typeorm when no engine was given, so createMigrationStore(ownerUrl) failed every migrate run of a project on Kysely or Drizzle.",
+      "file": "src/core/modules/migrate/sql-state-store.ts",
+      "find": "      engine: this.engine ?? (await installedSqlEngine()),",
+      "replace": "      engine: this.engine ?? 'typeorm',",
+      "specs": [
+        "tests/unit/sql-state-store-engine.spec.ts"
+      ]
+    },
+    {
+      "driverSpecific": false,
+      "id": "hub-migrations-ignore-state-left-in-mongo",
+      "defect": "DEV-3830 (db-agnostic phase 2) — on a SQL default source the Hub read the empty lt_migrations table while the project's migrate.js still recorded runs in MongoDB: every applied migration showed as pending, and Run would have applied them again.",
+      "file": "src/core/modules/hub/services/core-hub-migrations.service.ts",
+      "find": "    if (sqlCompleted.length || this.config.migrations === false) {\n      return false;\n    }",
+      "replace": "    if (sqlCompleted.length || this.config.migrations === false || true) {\n      return false;\n    }",
+      "specs": [
+        "tests/core-module-parity.e2e-spec.ts"
+      ]
     }
   ]
 }

@@ -2,7 +2,8 @@ import * as fs from 'fs';
 import * as path from 'path';
 
 import { _endMigration, _startMigration } from './migration.helper.js';
-import { MongoStateStore, withMigrationLock } from './mongo-state-store.js';
+import type { MigrationStateStore } from './migration-state-store.interface.js';
+import { withMigrationLock } from './mongo-state-store.js';
 import { createRequire } from 'node:module';
 
 /**
@@ -98,7 +99,7 @@ export interface MigrationRunnerOptions {
   /** Pattern to match migration files (default: {@link DEFAULT_MIGRATION_FILE_PATTERN}) */
   pattern?: RegExp;
   /** State store for tracking migrations */
-  stateStore: MongoStateStore;
+  stateStore: MigrationStateStore;
   /**
    * Fail hard when a migration recorded in the state has no file on disk.
    *

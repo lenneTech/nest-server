@@ -62,7 +62,7 @@ consumer follows. See `.claude/rules/configurable-features.md` for the full opti
 | **ErrorCode** | Centralized error codes with unique identifiers |
 | **File** | File upload/download with GridFS storage |
 | **HealthCheck** | Application health monitoring |
-| **Hub** | Build-free ADMIN-gated operator cockpit at `/hub` (config-gated per environment; 16 panels, runtime collectors, mailbox, admin actions) |
+| **Hub** | Build-free ADMIN-gated operator cockpit at `/hub` (config-gated per environment; 17 panels, runtime collectors, mailbox, admin actions) |
 | **Migrate** | Database migration utilities |
 | **Permissions** | ADMIN-gated security-map report (routes + roles + `@Restricted` fields); also surfaced in the Hub's "Routes / Permissions" panel |
 | **SystemSetup** | Initial admin creation for fresh deployments |

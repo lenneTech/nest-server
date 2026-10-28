@@ -9,6 +9,7 @@ import { CoreRedisService } from '../../common/services/core-redis.service.js';
 import { AuthGuardStrategy } from './auth-guard-strategy.enum.js';
 import { LegacyAuthRateLimitGuard } from './guards/legacy-auth-rate-limit.guard.js';
 import { RolesGuardRegistry } from './guards/roles-guard-registry.js';
+import { ROLE_GUARD } from './guards/role-guard.token.js';
 import { RolesGuard } from './guards/roles.guard.js';
 import { CoreAuthUserService } from './services/core-auth-user.service.js';
 import { CoreAuthService } from './services/core-auth.service.js';
@@ -59,6 +60,7 @@ export class CoreAuthModule {
           return [
             RolesGuard, // Register as regular provider first
             { provide: APP_GUARD, useExisting: RolesGuard }, // Reference the registered provider
+            { provide: ROLE_GUARD, useExisting: RolesGuard }, // How CoreTenantGuard reaches it
           ];
         })();
 

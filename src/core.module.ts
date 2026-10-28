@@ -292,7 +292,13 @@ export class CoreModule implements NestModule {
     // A SQL source routes the models registered with CorePersistenceModule.forFeature() to it; without one, nothing
     // is installed and every model keeps its Mongoose store
     const sqlSources = hasSqlSource(dataSources);
-    setPersistenceRuntime(sqlSources ? new DataSourceRuntime(dataSources) : undefined);
+    // Better-Auth keeps its users in MongoDB — a user model on SQL next to it would split the users across two
+    // databases, so the runtime refuses that (same enablement rule as the registration further down)
+    const betterAuthOption = config.betterAuth;
+    const betterAuthEnabled = isIamOnlyMode
+      ? !(betterAuthOption === false || (typeof betterAuthOption === 'object' && betterAuthOption?.enabled === false))
+      : betterAuthOption === true || (typeof betterAuthOption === 'object' && betterAuthOption?.enabled !== false);
+    setPersistenceRuntime(sqlSources ? new DataSourceRuntime(dataSources, { betterAuthEnabled }) : undefined);
 
     // Wrap connectionFactory to add security plugins (password hashing, role guard)
     const originalConnectionFactory = config.mongoose?.options?.connectionFactory;

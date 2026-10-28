@@ -11,6 +11,7 @@ import { CoreModel } from '../models/core-model.model.js';
 import type { DataStore } from '../persistence/data-store.interface.js';
 import { MongooseDataStore } from '../persistence/mongoose-data-store.js';
 import { populateNeutral } from '../persistence/neutral-populate.js';
+import { getStoreForModel } from '../persistence/persistence-runtime.registry.js';
 import { FieldSelection } from '../types/field-selection.type.js';
 import { ConfigService } from './config.service.js';
 import { ModelRegistry } from './model-registry.service.js';
@@ -74,6 +75,12 @@ export abstract class ModuleService<T extends CoreModel = any> {
     }
     if (!this.mainDbModel) {
       return undefined;
+    }
+    // A model registered with `CorePersistenceModule.forFeature()` is served by the store of its data source — also for
+    // a service that only received the Mongoose model, which is how every existing service is written
+    const routed = getStoreForModel(this.mainDbModel);
+    if (routed) {
+      return routed as DataStore<T>;
     }
     if (this.derivedDataStore?.model !== this.mainDbModel) {
       this.derivedDataStore = {

@@ -8,6 +8,7 @@ import type {
   PushOptions,
   StoreCapabilities,
   StoredRecord,
+  UpdateOptions,
   Where,
 } from '../data-store.interface.js';
 import { generateId, isWellFormedId } from '../id-format.js';
@@ -66,6 +67,13 @@ const SCALAR_KINDS = new Set([
   'string',
   'uuid',
 ]);
+
+/**
+ * How often `updateOne` tries again when its chosen row stopped matching before the write while another one still
+ * matches. The locking sub-select already skips such rows, so a retry is the rare case; the bound keeps a filter that
+ * concurrent writers keep invalidating from looping forever.
+ */
+const UPDATE_ONE_ATTEMPTS = 3;
 
 /**
  * The SQL data store: the neutral port over one table (plan §3.1).
@@ -179,8 +187,12 @@ export class SqlDataStore<T = Record<string, any>> implements DataStore<T> {
     return this.toRecords(rows)[0];
   }
 
-  async updateById(id: string, update: DataStoreUpdate<T>): Promise<null | StoredRecord<T>> {
-    const patch = this.dropUndeclared(await this.beforeUpdate(clone(update)));
+  async updateById(
+    id: string,
+    update: DataStoreUpdate<T>,
+    options: UpdateOptions = {},
+  ): Promise<null | StoredRecord<T>> {
+    const patch = await this.preparePatch(update, options);
     const params = new SqlParams();
     const assignments = compilePostgresUpdate(this.model, patch, params);
     if (!assignments.length) {
@@ -193,6 +205,34 @@ export class SqlDataStore<T = Record<string, any>> implements DataStore<T> {
     return this.toRecords(rows)[0] ?? null;
   }
 
+  async updateOne(where: Where<T>, update: DataStoreUpdate<T>): Promise<null | StoredRecord<T>> {
+    const patch = await this.preparePatch(update);
+    for (let attempt = 1; ; attempt++) {
+      const params = new SqlParams();
+      const assignments = compilePostgresUpdate(this.model, patch, params);
+      if (!assignments.length) {
+        return this.findOne(where);
+      }
+      // The sub-select locks the row it picks, and a row a concurrent caller changed meanwhile is re-checked and
+      // skipped for the next match; the condition is repeated outside so the row provably still matches when it is
+      // written — the guarantee of MongoDB's findOneAndUpdate
+      const match = this.where(where, params);
+      const recheck = this.where(where, params);
+      const { rows } = await this.run({
+        params: params.values,
+        text: `UPDATE ${this.table} SET ${assignments.join(', ')} WHERE "id" = (SELECT "id" FROM ${this.table} WHERE ${match} LIMIT 1 FOR UPDATE) AND ${recheck} RETURNING ${this.selectList()}`,
+      });
+      if (rows.length) {
+        return this.toRecords(rows)[0];
+      }
+      // Nothing written: nothing matches any more — or the chosen row stopped matching between the pick and the write
+      // while another one still does. Only the second is retried
+      if (attempt >= UPDATE_ONE_ATTEMPTS || !(await this.exists(where))) {
+        return null;
+      }
+    }
+  }
+
   async deleteById(id: string): Promise<null | StoredRecord<T>> {
     const params = new SqlParams();
     const { rows } = await this.run({
@@ -200,6 +240,41 @@ export class SqlDataStore<T = Record<string, any>> implements DataStore<T> {
       text: `DELETE FROM ${this.table} WHERE ${this.where({ id } as Where<T>, params)} RETURNING ${this.selectList()}`,
     });
     return this.toRecords(rows)[0] ?? null;
+  }
+
+  async deleteMany(where: Where<T>): Promise<number> {
+    const params = new SqlParams();
+    const { rowCount } = await this.run({
+      params: params.values,
+      text: `DELETE FROM ${this.table} WHERE ${this.where(where, params)}`,
+    });
+    return rowCount;
+  }
+
+  async deleteOne(where: Where<T>): Promise<null | StoredRecord<T>> {
+    // Picks and locks one match, and re-checks it at the write — the same guarantee as updateOne()
+    const params = new SqlParams();
+    const match = this.where(where, params);
+    const recheck = this.where(where, params);
+    const { rows } = await this.run({
+      params: params.values,
+      text: `DELETE FROM ${this.table} WHERE "id" = (SELECT "id" FROM ${this.table} WHERE ${match} LIMIT 1 FOR UPDATE) AND ${recheck} RETURNING ${this.selectList()}`,
+    });
+    return this.toRecords(rows)[0] ?? null;
+  }
+
+  async updateMany(where: Where<T>, update: DataStoreUpdate<T>): Promise<number> {
+    const patch = await this.preparePatch(update);
+    const params = new SqlParams();
+    const assignments = compilePostgresUpdate(this.model, patch, params);
+    if (!assignments.length) {
+      return this.count(where);
+    }
+    const { rowCount } = await this.run({
+      params: params.values,
+      text: `UPDATE ${this.table} SET ${assignments.join(', ')} WHERE ${this.where(where, params)}`,
+    });
+    return rowCount;
   }
 
   async pushToArray(id: string, field: string, items: readonly unknown[], options: PushOptions = {}): Promise<void> {
@@ -305,7 +380,7 @@ export class SqlDataStore<T = Record<string, any>> implements DataStore<T> {
   }
 
   /** The policies the Mongoose plugins apply to `findOneAndUpdate()` */
-  protected async beforeUpdate(update: Record<string, any>): Promise<Record<string, any>> {
+  protected async beforeUpdate(update: Record<string, any>, options: UpdateOptions = {}): Promise<Record<string, any>> {
     if (this.model.tenantScoped) {
       const single = resolveSingleTenantId(this.modelName);
       if (single) {
@@ -330,16 +405,22 @@ export class SqlDataStore<T = Record<string, any>> implements DataStore<T> {
       stampAuditOnUpdate(update, actor, this.auditFields());
     }
     const { updatedAt } = this.timestampFields();
-    if (updatedAt && !hasOperator(update, updatedAt)) {
+    if (updatedAt && options.timestamps !== false && !hasOperator(update, updatedAt)) {
       update.$set = { ...update.$set, [updatedAt]: new Date() };
     }
     return update;
+  }
+
+  /** The update as the store writes it: the caller's object untouched, the policies applied, undeclared paths dropped */
+  private async preparePatch(update: DataStoreUpdate<T>, options: UpdateOptions = {}): Promise<Record<string, any>> {
+    return this.dropUndeclared(await this.beforeUpdate(clone(update), options));
   }
 
   /**
    * Like Mongoose in strict mode: an update path whose field the model does not declare is not written. CrudService
    * merges `updatedBy` into every update with a current user, also for a model without that field
    */
+
   private dropUndeclared(update: Record<string, any>): Record<string, any> {
     const declared = (path: string) => {
       const head = path.split('.', 1)[0];
@@ -370,6 +451,15 @@ export class SqlDataStore<T = Record<string, any>> implements DataStore<T> {
     const combined =
       tenantFilter && Object.keys(tenantFilter).length ? { $and: [where ?? {}, tenantFilter] } : (where ?? {});
     return compilePostgresWhere(this.model, combined as Where, params);
+  }
+
+  private async exists(where: undefined | Where<T>): Promise<boolean> {
+    const params = new SqlParams();
+    const { rows } = await this.run<{ found: boolean }>({
+      params: params.values,
+      text: `SELECT EXISTS (SELECT 1 FROM ${this.table} WHERE ${this.where(where, params)}) AS found`,
+    });
+    return rows[0].found;
   }
 
   protected async run<R = Record<string, any>>(statement: SqlStatement): Promise<{ rowCount: number; rows: R[] }> {

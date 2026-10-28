@@ -479,6 +479,29 @@ export function getHubClientJs(): string {
     }, function (e) { clear(content); content.appendChild(unavailable('Failed to load: ' + e.message)); });
   };
 
+  Hub.panels.persistence = function (content) {
+    // Routing is fixed at boot; load once instead of polling.
+    hubFetch('/persistence.json').then(function (d) {
+      clear(content);
+      if (d && d.available === false) { content.appendChild(unavailable(d.hint)); return; }
+      content.appendChild(el('h3', { text: 'Data sources' }));
+      content.appendChild(table([
+        { key: 'name', label: 'Source', render: function (r) { return r.name + (r.name === d.defaultSource ? ' (default)' : ''); } },
+        { key: 'driver', label: 'Database' },
+        { key: 'engine', label: 'Engine', render: function (r) { return r.engine || '–'; } },
+        { key: 'host', label: 'Host' },
+        { key: 'ownerConfigured', label: 'Owner role', render: function (r) { return r.driver === 'mongodb' ? '–' : (r.ownerConfigured ? 'configured' : 'verify only'); } },
+      ], d.sources || []));
+      content.appendChild(el('h3', { text: 'Models (' + (d.models || []).length + ')' }));
+      content.appendChild(table([
+        { key: 'name', label: 'Model' },
+        { key: 'source', label: 'Source', render: function (r) { return r.source || '–'; } },
+        { key: 'driver', label: 'Store', render: function (r) { return r.driver || 'not created yet'; } },
+        { key: 'capabilities', label: 'Capabilities', render: function (r) { return (r.capabilities || []).join(', ') || '–'; } },
+      ], d.models || []));
+    }, function (e) { clear(content); content.appendChild(unavailable('Failed to load: ' + e.message)); });
+  };
+
   Hub.panels.config = function (content) {
     hubFetch('/config.json').then(function (d) { clear(content); content.appendChild(el('p', { class: 'hub-hint', text: 'Secrets are masked.' })); content.appendChild(jsonView(d)); },
       function (e) { clear(content); content.appendChild(unavailable('Failed to load: ' + e.message)); });

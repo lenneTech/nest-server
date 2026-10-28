@@ -394,6 +394,68 @@ for (const driver of PERSISTENCE_DRIVERS) {
       expect(await items.findById(record.id)).toBeNull();
     });
 
+    persistenceIt('update-one-first-match', driver, async () => {
+      await items.insert({ name: 'a', status: 'done' });
+      const open = await items.insert({ name: 'b', status: 'open' });
+      const updated = await items.updateOne({ status: 'open' }, { $set: { status: 'taken' } });
+      expect(updated).toMatchObject({ id: open.id, name: 'b', status: 'taken' });
+      expect((await items.findById(open.id)).status).toBe('taken');
+      expect(await items.updateOne({ status: 'open' }, { $set: { status: 'taken' } })).toBeNull();
+    });
+
+    persistenceIt('update-one-concurrent', driver, async () => {
+      for (let i = 0; i < 8; i++) {
+        await items.insert({ age: i, status: 'open' });
+      }
+      const taken = await Promise.all(
+        Array.from({ length: 8 }, () => items.updateOne({ status: 'open' }, { $set: { status: 'taken' } })),
+      );
+      // Every contender took a record, and no record was taken twice — the queue-claim pattern
+      expect(taken.every(Boolean)).toBe(true);
+      expect(new Set(taken.map((record) => record.id)).size).toBe(8);
+      expect(await items.count({ status: 'open' })).toBe(0);
+    });
+
+    persistenceIt('delete-many', driver, async () => {
+      await items.insert({ name: 'a', status: 'old' });
+      await items.insert({ name: 'b', status: 'old' });
+      await items.insert({ name: 'c', status: 'new' });
+      expect(await items.deleteMany({ status: 'old' })).toBe(2);
+      expect((await items.find()).map((record) => record.name)).toEqual(['c']);
+      expect(await items.deleteMany({ status: 'old' })).toBe(0);
+    });
+
+    persistenceIt('delete-one', driver, async () => {
+      await items.insert({ name: 'a', status: 'keep' });
+      const doomed = await items.insert({ name: 'b', status: 'old' });
+      expect(await items.deleteOne({ status: 'old' })).toMatchObject({ id: doomed.id, name: 'b' });
+      expect(await items.findById(doomed.id)).toBeNull();
+      expect(await items.deleteOne({ status: 'old' })).toBeNull();
+      expect(await items.count()).toBe(1);
+    });
+
+    persistenceIt('update-many', driver, async () => {
+      await items.insert({ age: 1, status: 'open' });
+      await items.insert({ age: 2, status: 'open' });
+      await items.insert({ age: 3, status: 'done' });
+      expect(await items.updateMany({ status: 'open' }, { $inc: { age: 10 }, $set: { status: 'closed' } })).toBe(2);
+      expect((await items.find({ status: 'closed' }, { sort: { age: 1 } })).map((record) => record.age)).toEqual([
+        11, 12,
+      ]);
+      expect(await items.updateMany({ status: 'open' }, { $set: { status: 'closed' } })).toBe(0);
+    });
+
+    persistenceIt('update-without-timestamps', driver, async () => {
+      const record = await items.insert({ name: 'a' });
+      const before = (await items.findById(record.id)).updatedAt;
+      await new Promise((resolve) => setTimeout(resolve, 20));
+      const stamped = await items.updateById(record.id, { $set: { age: 1 } }, { timestamps: false });
+      expect(stamped.age).toBe(1);
+      expect(new Date(stamped.updatedAt).getTime()).toBe(new Date(before).getTime());
+      const touched = await items.updateById(record.id, { $set: { age: 2 } });
+      expect(new Date(touched.updatedAt).getTime()).toBeGreaterThan(new Date(before).getTime());
+    });
+
     persistenceIt('push-with-slice', driver, async () => {
       const record = await items.insert({ tags: ['t1'] });
       await items.pushToArray(record.id, 'tags', ['t2', 't3', 't4'], { slice: -3 });
@@ -512,6 +574,20 @@ for (const driver of PERSISTENCE_DRIVERS) {
       const foreign = await scoped.insert({ name: 'b', tenantId: 'B' });
       expect(await run({ tenantId: 'A' }, () => scoped.updateById(foreign.id, { name: 'hijacked' }))).toBeNull();
       expect((await scoped.findById(foreign.id)).name).toBe('b');
+    });
+
+    persistenceIt('tenant-filters-update-one-and-delete-many', driver, async () => {
+      const foreign = await scoped.insert({ name: 'shared', tenantId: 'B' });
+      const own = await scoped.insert({ name: 'shared', tenantId: 'A' });
+      // The filter matches both rows; only the current tenant's row may be reached
+      const updated = await run({ tenantId: 'A' }, () => scoped.updateOne({ name: 'shared' }, { name: 'mine' }));
+      expect(updated?.id).toBe(own.id);
+      expect(await run({ tenantId: 'A' }, () => scoped.updateOne({ id: foreign.id }, { name: 'hijacked' }))).toBeNull();
+      expect(await run({ tenantId: 'A' }, () => scoped.updateMany({}, { name: 'all-mine' }))).toBe(1);
+      expect(await run({ tenantId: 'A' }, () => scoped.deleteOne({ id: foreign.id }))).toBeNull();
+      expect(await run({ tenantId: 'A' }, () => scoped.deleteMany({}))).toBe(1);
+      expect((await scoped.findById(foreign.id)).name).toBe('shared');
+      expect(await scoped.findById(own.id)).toBeNull();
     });
 
     /**

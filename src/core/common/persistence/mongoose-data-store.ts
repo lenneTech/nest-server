@@ -10,6 +10,7 @@ import type {
   PushOptions,
   StoreCapabilities,
   StoredRecord,
+  UpdateOptions,
   Where,
 } from './data-store.interface.js';
 
@@ -51,6 +52,15 @@ export class MongooseDataStore<T = Record<string, any>> implements DataStore<T> 
 
   async deleteById(id: string): Promise<null | StoredRecord<T>> {
     return toRecord<T>(await this.model.findByIdAndDelete(id).lean().exec());
+  }
+
+  async deleteMany(where: Where<T>): Promise<number> {
+    const result = await this.model.deleteMany(toMongoFilter(where)).exec();
+    return result.deletedCount;
+  }
+
+  async deleteOne(where: Where<T>): Promise<null | StoredRecord<T>> {
+    return toRecord<T>(await this.model.findOneAndDelete(toMongoFilter(where)).lean().exec());
   }
 
   async distinct(field: string, where?: Where<T>): Promise<unknown[]> {
@@ -123,9 +133,29 @@ export class MongooseDataStore<T = Record<string, any>> implements DataStore<T> 
     return this.model.collection as unknown as N;
   }
 
-  async updateById(id: string, update: DataStoreUpdate<T>): Promise<null | StoredRecord<T>> {
+  async updateById(
+    id: string,
+    update: DataStoreUpdate<T>,
+    options: UpdateOptions = {},
+  ): Promise<null | StoredRecord<T>> {
     const updated = await this.model
-      .findByIdAndUpdate(id, update as any, { returnDocument: 'after' })
+      .findByIdAndUpdate(id, update as any, {
+        returnDocument: 'after',
+        ...(options.timestamps === false ? { timestamps: false } : {}),
+      })
+      .lean()
+      .exec();
+    return toRecord<T>(updated);
+  }
+
+  async updateMany(where: Where<T>, update: DataStoreUpdate<T>): Promise<number> {
+    const result = await this.model.updateMany(toMongoFilter(where), update as any).exec();
+    return result.matchedCount;
+  }
+
+  async updateOne(where: Where<T>, update: DataStoreUpdate<T>): Promise<null | StoredRecord<T>> {
+    const updated = await this.model
+      .findOneAndUpdate(toMongoFilter(where), update as any, { returnDocument: 'after' })
       .lean()
       .exec();
     return toRecord<T>(updated);

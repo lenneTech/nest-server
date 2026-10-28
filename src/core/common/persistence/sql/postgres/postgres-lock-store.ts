@@ -7,6 +7,13 @@ const SYSTEM: SqlTenantScope = { kind: 'system' };
 const TABLE = quoteIdentifier(tableName(LOCK_MODEL));
 
 /**
+ * Expired leases are deleted at most this often per process. A lease is only deleted by its owner's release — a cron
+ * lease per tick, of a replica that died, is never released — and nothing else collects them (MongoDB has a TTL index
+ * for that); the claim never needs the row gone, an expired one is taken over in place.
+ */
+const SWEEP_INTERVAL_MS = 10 * 60_000;
+
+/**
  * Leases on PostgreSQL (plan §3.7) — the contract of `MongoLockStore`, decided by the database's clock in one
  * statement each.
  *
@@ -15,6 +22,8 @@ const TABLE = quoteIdentifier(tableName(LOCK_MODEL));
  * wrote, so exactly one of N gets the row back.
  */
 export class PostgresLockStore implements LockStore {
+  private lastSweep = 0;
+
   constructor(protected readonly executor: SqlExecutor) {}
 
   async release(key: string, owner: string): Promise<boolean> {
@@ -37,6 +46,7 @@ export class PostgresLockStore implements LockStore {
   }
 
   async tryAcquire(key: string, owner: string, ttlSeconds: number): Promise<boolean> {
+    await this.sweep();
     const { rowCount } = await this.executor.run(
       {
         params: [key, owner, ttlSeconds],
@@ -49,5 +59,18 @@ export class PostgresLockStore implements LockStore {
       SYSTEM,
     );
     return rowCount === 1;
+  }
+
+  /** Delete leases that expired over an hour ago — the hour keeps a just-expired holder visible for diagnosis */
+  protected async sweep(): Promise<void> {
+    const now = Date.now();
+    if (now - this.lastSweep < SWEEP_INTERVAL_MS) {
+      return;
+    }
+    this.lastSweep = now;
+    await this.executor.run(
+      { params: [], text: `DELETE FROM ${TABLE} WHERE "expires_at" < now() - interval '1 hour'` },
+      SYSTEM,
+    );
   }
 }

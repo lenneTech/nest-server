@@ -2,7 +2,9 @@ import { Logger } from '@nestjs/common';
 
 import { ConfigService } from '../services/config.service.js';
 import type { DataStore } from './data-store.interface.js';
+import type { LockStore } from './lock-store.interface.js';
 import {
+  DataSourceConfigError,
   redactUrl,
   type ResolvedDataSource,
   type ResolvedDataSources,
@@ -11,7 +13,12 @@ import {
 import type { ModelDescriptor } from './model-descriptor.interface.js';
 import { getModelDescriptor } from './model-metadata.registry.js';
 import { MongooseDataStore } from './mongoose-data-store.js';
-import { getPersistedModels, type PersistenceRuntime } from './persistence-runtime.registry.js';
+import {
+  getPersistedModels,
+  type PersistenceOverview,
+  type PersistenceRuntime,
+} from './persistence-runtime.registry.js';
+import { PostgresLockStore } from './sql/postgres/postgres-lock-store.js';
 import { LOCK_MODEL, type PostgresSchemaOptions, tableName } from './sql/postgres/postgres-schema.compiler.js';
 import {
   applyPostgresSchema,
@@ -33,20 +40,36 @@ import type { SqlExecutor } from './sql/sql-executor.interface.js';
  */
 export class DataSourceRuntime implements PersistenceRuntime {
   protected readonly logger = new Logger('DataSources');
+  private bootReleased = false;
   private readonly executors = new Map<string, Promise<SqlExecutor>>();
+  private lockStore?: Promise<LockStore | undefined>;
   private readonly owners = new Map<string, Promise<SqlExecutor>>();
   private readonly stores = new Map<string, Promise<DataStore<any>>>();
 
-  constructor(protected readonly resolved: ResolvedDataSources) {}
+  constructor(
+    protected readonly resolved: ResolvedDataSources,
+    protected readonly options: { betterAuthEnabled?: boolean } = {},
+  ) {}
 
   async close(): Promise<void> {
     const executors = [...this.executors.values()];
     this.executors.clear();
+    this.lockStore = undefined;
     this.stores.clear();
     await Promise.all([this.releaseBootConnections(), ...executors.map(closeExecutor)]);
   }
 
+  /**
+   * The framework's own leases (system-setup claim, cron, migrations) live in the default source. Opened once — as the
+   * owner it brings the lease table up to date, which a model of the default source would otherwise have done
+   */
+  defaultLockStore(): Promise<LockStore | undefined> {
+    this.lockStore ??= this.openLockStore();
+    return this.lockStore;
+  }
+
   async releaseBootConnections(): Promise<void> {
+    this.bootReleased = true;
     const owners = [...this.owners.values()];
     this.owners.clear();
     await Promise.all(owners.map(closeExecutor));
@@ -63,6 +86,42 @@ export class DataSourceRuntime implements PersistenceRuntime {
       this.stores.set(name, store);
     }
     return store;
+  }
+
+  defaultSqlSource(): undefined | { engine?: string; ownerUrl?: string; url: string } {
+    const name = this.resolved.defaultSource;
+    const source = name ? this.resolved.sources[name] : undefined;
+    return source && source.driver !== 'mongodb'
+      ? { engine: source.sqlEngine, ownerUrl: source.ownerUrl, url: source.url }
+      : undefined;
+  }
+
+  describe(): PersistenceOverview {
+    return {
+      defaultSource: this.resolved.defaultSource,
+      models: getPersistedModels().map((model) => ({
+        name: model.name,
+        source: resolveModelSource(this.resolved, model.name, model.declaredSource),
+      })),
+      sources: Object.values(this.resolved.sources).map((source) => ({
+        driver: source.driver,
+        engine: source.sqlEngine,
+        host: redactUrl(source.url),
+        name: source.name,
+        ownerConfigured: !!source.ownerUrl,
+      })),
+    };
+  }
+
+  sqlSources(): { name: string; ping: () => Promise<void> }[] {
+    return Object.values(this.resolved.sources)
+      .filter((source) => source.driver !== 'mongodb')
+      .map((source) => ({
+        name: source.name,
+        ping: async () => {
+          await (await this.executor(source)).run({ params: [], text: 'SELECT 1' }, { kind: 'system' });
+        },
+      }));
   }
 
   /** Whether a model's table carries row-level security: tenant-scoped, multi-tenancy on, not excluded */
@@ -86,6 +145,15 @@ export class DataSourceRuntime implements PersistenceRuntime {
     const model = getModelDescriptor(name);
     if (!model) {
       throw new Error(`No descriptor for model "${name}" — register it with CorePersistenceModule.forFeature()`);
+    }
+    if (this.options.betterAuthEnabled && tableName(model) === BETTER_AUTH_USERS_TABLE) {
+      // Better-Auth reads and writes `users` in MongoDB: sign-ups, sign-ins and the system setup would see a different
+      // set of users than the application — an empty one, through which an anonymous setup call creates an admin
+      throw new DataSourceConfigError(
+        `${name} is stored in the "users" table, which Better-Auth shares, and Better-Auth keeps its users in MongoDB ` +
+          `as long as it has no SQL data source. Keep ${name} on MongoDB (database.models: { ${name}: 'mongoose' }), ` +
+          'or switch Better-Auth off (betterAuth: false) and sign in through the legacy endpoints',
+      );
     }
     const app = await this.executor(source);
     const options: PostgresSchemaOptions = {
@@ -111,6 +179,39 @@ export class DataSourceRuntime implements PersistenceRuntime {
     );
     const registration = getPersistedModels().find((entry) => entry.name === name);
     return new SqlDataStore<any>(app, model, { schema: registration?.schema as any });
+  }
+
+  private async openLockStore(): Promise<LockStore | undefined> {
+    const name = this.resolved.defaultSource;
+    const source = name ? this.resolved.sources[name] : undefined;
+    if (!source || source.driver === 'mongodb') {
+      return undefined;
+    }
+    const app = await this.executor(source);
+    const options: PostgresSchemaOptions = {
+      appRole: decodeURIComponent(new URL(source.url).username),
+      isTenantIsolated: (candidate) => this.isTenantIsolated(candidate),
+    };
+    if (!source.ownerUrl) {
+      await verifyPostgresSchema(app, [], options);
+    } else if (this.bootReleased) {
+      // First asked after the boot released its owner connections: a connection of its own, closed at once
+      const owner = await createSqlExecutor({
+        applicationName: 'nest-server-schema',
+        engine: source.sqlEngine,
+        maxConnections: 1,
+        url: source.ownerUrl,
+      });
+      try {
+        await applyPostgresSchema(owner, [], options);
+      } finally {
+        await owner.close();
+      }
+    } else {
+      await applyPostgresSchema(await this.owner(source), [], options);
+    }
+    await assertSafeApplicationRole(app, [tableName(LOCK_MODEL)]);
+    return new PostgresLockStore(app);
   }
 
   /**
@@ -140,6 +241,9 @@ export class DataSourceRuntime implements PersistenceRuntime {
     return pending;
   }
 }
+
+/** The table the user model and Better-Auth share */
+const BETTER_AUTH_USERS_TABLE = 'users';
 
 async function closeExecutor(pending: Promise<SqlExecutor>): Promise<void> {
   await (await pending.catch(() => undefined))?.close();

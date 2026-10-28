@@ -42,6 +42,30 @@ export async function createSqlExecutor(options: SqlExecutorOptions): Promise<Sq
   }
 }
 
+/**
+ * The first SQL engine the project has installed, in the framework's order (`typeorm`, `kysely`, `drizzle`) — for a
+ * caller that runs outside the application and has no `database.sqlEngine` to read, such as the migrate CLI. A project
+ * installs only the engine it chose, so assuming the default there would fail every call of a project on another one.
+ */
+export async function installedSqlEngine(): Promise<DatabaseSqlEngine> {
+  const candidates: [DatabaseSqlEngine, () => Promise<unknown>][] = [
+    ['typeorm', () => import('typeorm')],
+    ['kysely', () => import('kysely')],
+    ['drizzle', () => import('drizzle-orm')],
+  ];
+  for (const [engine, load] of candidates) {
+    try {
+      await load();
+      return engine;
+    } catch {
+      // Not installed — try the next one
+    }
+  }
+  throw new Error(
+    'A PostgreSQL connection needs one of the optional SQL engines, none is installed. Run: pnpm add typeorm pg',
+  );
+}
+
 function missingPeer(name: string): Error {
   return new Error(
     `A SQL data source is configured but the optional peer dependency "${name}" is not installed. Run: pnpm add ${name}`,

@@ -33,11 +33,12 @@ Do NOT set `hub` in the `production` block unless you intend the cockpit to be r
 | Diagnostics          | `/hub/diagnostics`    | heap/rss, node/platform, collector buffer levels                |
 | Logs                 | `/hub/logs`           | in-memory log ring buffer (redacted)                            |
 | Request Traces       | `/hub/traces`         | HTTP timing middleware                                          |
-| Query Performance    | `/hub/queries`        | MongoDB driver command monitoring (opt-in)                      |
+| Query Performance    | `/hub/queries`        | MongoDB driver command monitoring (opt-in; MongoDB only)        |
 | Cron Jobs            | `/hub/cron`           | `@nestjs/schedule` `SchedulerRegistry` (optional)               |
-| Database             | `/hub/db`             | dbStats / per-collection collStats                              |
+| Database             | `/hub/db`             | dbStats / per-collection collStats (MongoDB only)               |
 | Models / ERD         | `/hub/models`         | Mongoose schemas → Mermaid ER diagram                           |
-| Migrations           | `/hub/migrations`     | `MigrationRunner` status + run/rollback                         |
+| Persistence          | `/hub/persistence`    | data sources, and per model: source, database, capabilities     |
+| Migrations           | `/hub/migrations`     | `MigrationRunner` status + run/rollback (MongoDB or SQL state)  |
 | Files                | `/hub/files`          | listing + delete across all three storage drivers               |
 | Config               | `/hub/config`         | full config, secrets masked                                     |
 | Auth Migration       | `/hub/auth-migration` | Legacy → IAM progress (BetterAuth, optional)                    |
@@ -49,6 +50,14 @@ Do NOT set `hub` in the `production` block unless you intend the cockpit to be r
 
 Each panel has a `*.json` sidecar (the stable data contract) that the client polls. Optional sources
 degrade to an "unavailable" state instead of erroring.
+
+With a SQL data source (`database`, see `.claude/rules/configurable-features.md` → Data Sources) the Database and
+Query Performance panels cover the MongoDB connection only and report "unavailable" without one. The Migrations panel
+reads the state from the store the framework keeps for the default source: on a SQL default source the
+`lt_migrations` table, through the owner connection (`database.ownerUrl`, required there). That presumes
+`migrations-utils/migrate.js` passes `database.ownerUrl` to `createMigrationStore()` (see the migrate README). While
+it still passes the MongoDB URI, the table stays empty and the MongoDB collection lists the applied migrations; the
+panel then reports that conflict and refuses Run and Rollback, which would apply the migrations a second time.
 
 ### Files panel
 

@@ -26,7 +26,7 @@ import * as fs from 'fs';
 import * as path from 'path';
 
 import { MigrationRunner, parseStrictEnv } from '../migration-runner.js';
-import { MongoStateStore } from '../mongo-state-store.js';
+import type { MigrationStateStore } from '../migration-state-store.interface.js';
 import { createRequire } from 'node:module';
 import { callerDirectory } from '../../../common/helpers/module-location.helper.js';
 
@@ -235,7 +235,7 @@ async function listMigrations(options: CliOptions) {
 /**
  * Load state store from module
  */
-function loadStateStore(storePath: string | undefined): MongoStateStore {
+function loadStateStore(storePath: string | undefined): MigrationStateStore {
   if (!storePath) {
     throw new Error('--store option is required for up/down/list commands');
   }

@@ -83,7 +83,7 @@ When `passkey` is enabled, `trustedOrigins` is required (compile-time enforcemen
   - `strictMembershipRoles?`: `boolean` (default: `false`) — Refuse membership roles that are not declared anywhere (deny by default).
   - `additionalMembershipRoles?`: `string[]` (default: `[]`) — Membership roles that are valid but carry no hierarchy level (exact-match roles).
   - `cacheTtlMs?`: `number` (default: `30000 (30 seconds)`) — TTL in milliseconds for the tenant guard's in-memory membership cache.
-  - `isTenantActive?`: `(tenantId: string, context: { connection: Connection; }) => boolean | Promise...` (default: `undefined (every tenant is active)`) — Whether a tenant may be used at all — the hook that makes a DEACTIVATED tenant stop working.
+  - `isTenantActive?`: `(tenantId: string, context: { connection: Connection; store: (modelName: stri...` (default: `undefined (every tenant is active)`) — Whether a tenant may be used at all — the hook that makes a DEACTIVATED tenant stop working.
 
 ### IErrorCode
 

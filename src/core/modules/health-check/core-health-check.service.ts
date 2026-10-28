@@ -1,15 +1,17 @@
-import { Injectable } from '@nestjs/common';
+import { Injectable, Optional } from '@nestjs/common';
 import {
   DiskHealthIndicator,
   type DiskHealthIndicatorOptions,
   HealthCheckResult,
   HealthCheckService,
+  HealthIndicatorService,
   MemoryHealthIndicator,
   MongooseHealthIndicator,
   type MongoosePingCheckSettings,
 } from '@nestjs/terminus';
 
 import { getBuildInfo } from '../../common/helpers/meta.helper.js';
+import { getPersistenceRuntime } from '../../common/persistence/persistence-runtime.registry.js';
 import { ConfigService } from '../../common/services/config.service.js';
 
 /**
@@ -24,6 +26,7 @@ export class CoreHealthCheckService {
     protected disk: DiskHealthIndicator,
     protected health: HealthCheckService,
     protected memory: MemoryHealthIndicator,
+    @Optional() protected indicators?: HealthIndicatorService,
   ) {}
 
   healthCheck(): Promise<HealthCheckResult> {
@@ -44,6 +47,23 @@ export class CoreHealthCheckService {
         );
         return timeout === undefined ? attempt : attempt.withTimeout(timeout);
       });
+    }
+    if (this.config.get<boolean>('healthCheck.configs.database.enabled')) {
+      // Every SQL source answers on its own key, next to the MongoDB ping: `<key>:<source>` (`database:default`). A
+      // database the application cannot reach is down, whichever one it is
+      const key = this.config.get<string>('healthCheck.configs.database.key') ?? 'database';
+      const timeout =
+        this.config.get<MongoosePingCheckSettings>('healthCheck.configs.database.options')?.timeout ?? 1000;
+      for (const source of getPersistenceRuntime()?.sqlSources() ?? []) {
+        if (this.indicators) {
+          healthIndicatorFunctions.push(() =>
+            this.indicators
+              .check(`${key}:${source.name}`)
+              .attempt(() => source.ping())
+              .withTimeout(timeout),
+          );
+        }
+      }
     }
     if (this.config.get<boolean>('healthCheck.configs.memoryHeap.enabled')) {
       healthIndicatorFunctions.push(() =>

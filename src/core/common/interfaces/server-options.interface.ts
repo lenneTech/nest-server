@@ -17,6 +17,7 @@ import type * as SMTPPool from 'nodemailer/lib/smtp-pool';
 import * as SMTPTransport from 'nodemailer/lib/smtp-transport';
 import type * as StreamTransport from 'nodemailer/lib/stream-transport';
 
+import type { DataStore } from '../persistence/data-store.interface.js';
 import { Falsy } from '../types/falsy.type.js';
 import { IHubConfig } from '../../modules/hub/interfaces/hub-config.interface.js';
 import { IPermissions } from '../../modules/permissions/interfaces/permissions.interface.js';
@@ -1545,7 +1546,10 @@ export interface IMultiTenancy {
    *
    * Return `false` for an inactive tenant; any other value (including `undefined`) counts as active.
    * `context.connection` is the main database connection, for a lookup in the project's own tenant
-   * collection. Answers are cached for {@link cacheTtlMs}; after switching a tenant on or off, call
+   * collection; `context.store(modelName)` is the database-neutral alternative for a tenant model registered with
+   * `CorePersistenceModule.forFeature()`, and the one that works when that model is stored in a SQL database. It
+   * throws for a model not registered that way, so a misnamed or missing tenant model refuses the request rather than
+   * counting every tenant as active. Answers are cached for {@link cacheTtlMs}; after switching a tenant on or off, call
    * `CoreTenantGuard.invalidateTenant(tenantId)` (broadcast to every replica when Redis is
    * configured). A function cannot arrive through `NSC__*` / `NEST_SERVER_CONFIG` — set it in
    * `config.env.ts`.
@@ -1553,15 +1557,30 @@ export interface IMultiTenancy {
    * @example
    * ```typescript
    * multiTenancy: {
-   *   isTenantActive: async (tenantId, { connection }) =>
-   *     (await connection.collection('tenants').findOne({ _id: new Types.ObjectId(tenantId) }))?.active !== false,
+   *   // Any database: the tenant model registered with CorePersistenceModule.forFeature()
+   *   isTenantActive: async (tenantId, { store }) => (await store('Tenant').findById(tenantId))?.active !== false,
+   *   // MongoDB only
+   *   // isTenantActive: async (tenantId, { connection }) =>
+   *   //   (await connection.collection('tenants').findOne({ _id: new Types.ObjectId(tenantId) }))?.active !== false,
    * }
    * ```
    *
    * @default undefined (every tenant is active)
    * @since 11.42.0
    */
-  isTenantActive?: (tenantId: string, context: { connection: Connection }) => boolean | Promise<boolean>;
+  isTenantActive?: (
+    tenantId: string,
+    context: {
+      connection: Connection;
+      /**
+       * The data store of a model registered with `CorePersistenceModule.forFeature()` — the database-neutral lookup,
+       * also when the tenant model lives in a SQL database (`connection` reaches MongoDB only). Throws a
+       * `DataSourceConfigError` for a model that is not registered that way: an `undefined` here would read as
+       * "active" in a hook written with `?.`, and open every deactivated tenant.
+       */
+      store: (modelName: string) => DataStore<any>;
+    },
+  ) => boolean | Promise<boolean>;
 }
 
 /**
