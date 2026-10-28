@@ -33,6 +33,7 @@
 - [project-12-0-0-esm-switch-security-facts.md](project-12-0-0-esm-switch-security-facts.md) — 12.0.0 ESM/SWC-loader/loadLocalConfig traced neutral: config read before env merge, CLI-only loaders, no dual guard state
 - [project-ws-connection-ack-echoes-extra.md](project-ws-connection-ack-echoes-extra.md) — pre-existing: onConnect `return extra` = connection_ack payload (own user + headers); probe + fix if it ever carries secrets
 - [project-db-agnostic-phase0-store-facts.md](project-db-agnostic-phase0-store-facts.md) — DEV-3828 policies verbatim; DataStore select/filter/native safe only by no-caller; phase-1 re-check list
+- [project-db-agnostic-phase2-core-modules-facts.md](project-db-agnostic-phase2-core-modules-facts.md) — DEV-3830 user/tenant/token/locks on SQL traced sound; health-ping + logout deviceId residuals below bar
 
 ## Review Methodology
 

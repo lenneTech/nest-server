@@ -23,4 +23,4 @@
 - [Better-Auth 2FA Test Facts](better-auth-2fa-test-facts.md) — enable alone never activates TOTP (verify-totp does, and swaps the session); no replay guard; how 12.0.0 password normalization is pinned.
 - [FRAMEWORK-API Generator Probe](framework-api-generator-probe.md) — generator has no spec; scratch-copy probe (sed ROOT/OUTPUT + NODE_PATH tsx) for its date-only skip; why the gap is not High.
 - [ESM Package Consumer-Path Facts](esm-package-consumer-path-facts.md) — 12.0.0 "type": "module": require(esm) barrel, bin/+helpers package.json, forwarder, callerDirectory file: branch — were run by no gate, pinned since 2026-10-26 (package-format-contracts, check:manifest); probes.
-- [DB-Agnostic Persistence Test Facts](db-agnostic-persistence-test-facts.md) — phases 0+1: mutations seen red; BYPASSRLS branch pinned 2026-10-28; the 3 SQL engine columns share one run() path.
+- [DB-Agnostic Persistence Test Facts](db-agnostic-persistence-test-facts.md) — phases 0-2: all registered mutations seen red (phase 2: 21, clone + --retry=0); quoted 12.0.0 lock code faithful; per-app store lookup.

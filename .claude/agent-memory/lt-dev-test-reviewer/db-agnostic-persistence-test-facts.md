@@ -1,6 +1,6 @@
 ---
 name: db-agnostic-persistence-test-facts
-description: feat/db-agnostic phases 0+1 (2026-10-27/28) — what the persistence specs prove, which mutations were seen red, the unpinned BYPASSRLS role-check branch, and why the three engine columns exercise one code path
+description: feat/db-agnostic phases 0-2 (2026-10-27/28) — phase 2 mutations all seen red; what the persistence specs prove, which mutations were seen red, the unpinned BYPASSRLS role-check branch, and why the three engine columns exercise one code path
 metadata:
   type: project
 ---
@@ -36,3 +36,16 @@ are pinned keeps a re-review from re-deriving it.
 
 **How to apply:** for each new security guard branch, look for a test whose fixture triggers ONLY that branch.
 A superuser fixture satisfies most role checks at once and hides the others.
+
+**Phase 2** (DEV-3830, reviewed 2026-10-28; 21 new mutations + 2 re-pointed finds). Every new mutation was applied in a
+`git clone` + symlinked node_modules and its spec run with `--retry=0`: ALL went red, none vacuous. Durations: core module
+parity 16 s (52 tests, both columns), lock-formats + sql-state-store a few seconds, sql-wiring ~15 s.
+- The quoted 12.0.0 code in `persistence-lock-formats.e2e-spec.ts` matches `origin/feat/db-agnostic` statement for
+  statement (setup claim, cron insert, one acquireLock round). Green 3/3 without retry.
+- `api-token-last-used` is NOT vacuous on `updatedAt` (schema `timestamps: true`; the cell alone goes red).
+- `tenant-guard-before-identification` turns EVERY authenticated route of the parity app red, not only tenant routes.
+- Postgres column: services resolve stores per app via a WeakMap keyed on the Mongoose model INSTANCE
+  (`getStoreForModel`), and the routed-model guard throws on any Mongoose data access, so every "X on mongo on SQL"
+  mutation goes red by a throw rather than by a split write. `setPersistenceRuntime` is reset by every `forRoot()`.
+- Cosmetic only: in `persistence-sql-wiring` the `crud-mongoose-api-on-sql-store` JSDoc got separated from its `it`.
+- Peer sessions edited `routed-model.guard.ts` (+`$save`/`insertOne`/`where`) during the review: re-check that area.

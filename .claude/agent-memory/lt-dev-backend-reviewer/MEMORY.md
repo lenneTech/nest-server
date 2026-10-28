@@ -25,4 +25,5 @@
 - [12.0.0 native password routes](project_12-0-0-native-password-routes.md) — length refusal on /iam/change-password answered 500 via the middleware catch, BA logger dropped Error args — both FIXED 2026-10-24 (catch rethrows HttpException; formatBetterAuthLogArg).
 - [12.0.0 ESM dist switch](project_12-0-0-esm-dist-switch.md) — migration template cwd config lookup broke compiled runs w/o NSC__MONGOOSE__URI (High, FIXED 2026-10-26); rest of ESM switch probed sound.
 - [db-agnostic phase 0 (DEV-3828)](project_db-agnostic-phase0.md) — policies verified identical; `database` MongoDB URL accepted by guard but never wired (High, 2026-10-27).
+- [db-agnostic phase 2 (DEV-3830)](project_db-agnostic-phase2.md) — lock formats + Mongo parity verified; High: createMigrationStore SQL branch hardcodes typeorm (2026-10-28).
 - [db-agnostic phase 1 (DEV-3829)](project_db-agnostic-phase1.md) — SQL store/compilers injection-safe, RLS sound; 2 update-path Highs (undeclared keys 500, structuredClone kills ObjectIds) — both FIXED 2026-10-28.

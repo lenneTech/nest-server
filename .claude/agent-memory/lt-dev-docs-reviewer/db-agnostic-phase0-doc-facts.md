@@ -1,6 +1,6 @@
 ---
 name: db-agnostic-phase0-doc-facts
-description: feat/db-agnostic phases 0+1 (DEV-3828/3829) — what the persistence docs claim vs what the code wires; silent wrong-database routes; changes the release guide must list
+description: feat/db-agnostic phases 0-2 (DEV-3828/3829/3830) — what the persistence docs claim vs what the code wires; silent wrong-database routes, guard leaks, fail-open recipes; changes the release guide must list
 metadata:
   type: project
 ---
@@ -26,6 +26,23 @@ due in phase 5, DEV-3833).
   loud "install typeorm" on kysely/drizzle-only projects; Medium, not reported.
 - SQL TTL indexes become plain indexes with no boot notice (PLAN only) — Medium.
 - Counts after the phase-1 review fixes: 312 / 194 unit / 118 e2e; fifteen infra suites. FRAMEWORK-API regenerates identical.
+
+**Phase 2 (2026-10-28) — reported in review (verify fixed before re-flagging):**
+- `guardRoutedModel()` (routed-model.guard.ts) lists static methods + `prototype.save`, but Mongoose 9.11 also has
+  `Model.insertOne()` (→ `doc.$save()`), `doc.$save()` (an ALIAS bound at definition, so overriding `save` misses it)
+  and `Model.where()/$where()` → exec. Probe: tsx script with `mongoose.createConnection` to local Mongo,
+  `guardRoutedModel(M, { driver: 'postgres' })`, call each → insertOne/$save/where reach MongoDB. Docs (Data Sources
+  row, REQUEST-LIFECYCLE Data Store row, PLAN) claim "every data method refuses / cannot split".
+- `isTenantActive` README + JSDoc lead example `store('Tenant')?.findById(id))?.active !== false` fails OPEN when the
+  tenant model is registered via `MongooseModule.forFeature` (what `lt server module` generates): `storeOf()` returns
+  undefined → every tenant active. The parity test's own mutation (`store: () => undefined`) demonstrates it.
+- Hub Migrations panel reads `lt_migrations` whenever the DEFAULT source is SQL (`defaultSqlSource()`), not where the
+  project's `migrations-utils/migrate.js` keeps state; the starter's migrate.js passes the Mongo URI → panel shows all
+  pending, "run" would re-apply. Hub README claims "reads the state where createMigrationStore() keeps it".
+- Not reported (below bar): `createMigrationStore(pgUrl)` / `SqlStateStore` default engine `typeorm` regardless of
+  `sqlEngine` (loud missing-peer); testing.md "Measured at 333 mutations, the CI job for 11.41.6" (was 128 — a
+  measurement rewritten as a count; script header still says 128); Hub "17 panels" while HUB_PANELS has 18.
+- Counts after phase 2: 333 / 195 unit / 138 e2e; seventeen infra suites. FRAMEWORK-API regenerates identical.
 
 **Phase 0 — still relevant for the release guide (behaviour changes for MongoDB projects despite PLAN.md §6
 "Phases 0–4 change nothing"):**
