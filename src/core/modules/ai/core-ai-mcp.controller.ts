@@ -48,7 +48,8 @@ import { AiToolUser } from './tools/ai-tool.registry.js';
  * sessions behind a load balancer. When Redis is configured, session ids are additionally
  * registered in a shared registry (replica + owning user), which turns a mis-routed request
  * into an explicit 409 naming the owning replica instead of a misleading "unknown session" 404.
- * Without Redis the behavior is unchanged.
+ * Without Redis the behavior is unchanged. `ai.mcp.stateless` removes the requirement altogether:
+ * every request then builds its own server and transport, and any replica can answer it.
  *
  * The registry entry records the OWNING USER, and only that user is ever told about the 409.
  * Otherwise the cross-replica path would undo the local one: an authenticated caller probing
@@ -127,6 +128,11 @@ export class CoreAiMcpController implements OnModuleDestroy {
     const user = await this.resolveScopedUser(req);
     if (!user?.id) {
       this.unauthorized(res);
+      return;
+    }
+
+    if (this.statelessEnabled()) {
+      await this.handleStatelessPost(req, res, user);
       return;
     }
 
@@ -343,6 +349,42 @@ export class CoreAiMcpController implements OnModuleDestroy {
   }
 
   /**
+   * Whether `/ai/mcp` runs without sessions (`ai.mcp.stateless`).
+   */
+  protected statelessEnabled(): boolean {
+    const mcp = ConfigService.get<{ stateless?: boolean }>('ai.mcp');
+    return typeof mcp === 'object' && mcp?.stateless === true;
+  }
+
+  /**
+   * One request, one server: the stateless mode of the SDK transport (`sessionIdGenerator: undefined`).
+   *
+   * Nothing outlives the response, so nothing has to reach the same replica again — the reason this
+   * mode exists. Rights are the user's as of THIS request by construction. A `mcp-session-id` a client
+   * still sends (from before a switch to this mode) is ignored rather than answered 404: there is no
+   * session it could refer to, and a 404 would only send the client into a reconnect.
+   */
+  protected async handleStatelessPost(req: Request, res: Response, user: AiToolUser): Promise<void> {
+    let StreamableHTTPServerTransport: any;
+    try {
+      ({ StreamableHTTPServerTransport } = await import('@modelcontextprotocol/sdk/server/streamableHttp.js'));
+    } catch (err) {
+      // Same lazy import and 503 reasoning as the session path in handlePost().
+      return this.mcpUnavailable(res, err as Error);
+    }
+    const transport: any = new StreamableHTTPServerTransport({ sessionIdGenerator: undefined });
+    const server = await this.mcpService.createServer(user);
+    // Released with the response — an aborted request included, so a client that hangs up cannot
+    // leave a server behind.
+    res.on('close', () => {
+      Promise.resolve(transport.close?.()).catch(() => undefined);
+      Promise.resolve(server.close?.()).catch(() => undefined);
+    });
+    await server.connect(transport);
+    await transport.handleRequest(req, res, req.body);
+  }
+
+  /**
    * Whether the OAuth 2.1 layer is enabled via `ai.mcp.oauth`.
    */
   protected oauthEnabled(): boolean {
@@ -357,6 +399,11 @@ export class CoreAiMcpController implements OnModuleDestroy {
     const user = await this.resolveScopedUser(req);
     if (!user?.id) {
       this.unauthorized(res);
+      return;
+    }
+    // Without sessions there is no stream to open and nothing to end (MCP spec: 405 for GET then).
+    if (this.statelessEnabled()) {
+      res.status(405).set('Allow', 'POST').json({ error: 'Method not allowed: this MCP server is stateless' });
       return;
     }
     const sessionId = req.headers['mcp-session-id'] as string | undefined;
