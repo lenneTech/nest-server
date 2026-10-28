@@ -41,9 +41,10 @@ jobs:
           mongodb-version: ${{ matrix.mongodb-version }}
 
       # Redis + S3 (RustFS) back the distributed-feature e2e tests (DEV-2985:
-      # rate limiting, cron dedup, pubsub, S3 file storage). Shared with
-      # build.yml via a composite action so the two paths cannot drift.
-      - name: Start test infrastructure (Redis + S3)
+      # rate limiting, cron dedup, pubsub, S3 file storage), PostgreSQL the SQL
+      # persistence suites (DEV-3829). Shared with build.yml via a composite
+      # action so the two paths cannot drift.
+      - name: Start test infrastructure (Redis + S3 + PostgreSQL)
         uses: ./.github/actions/test-infra
         with:
           redis-name: ${{ env.REDIS_CONTAINER }}
@@ -195,7 +196,7 @@ jobs:
 
       # Own container names: this job runs CONCURRENTLY with `publish`, and on a self-hosted
       # runner the two would otherwise collide on `ci-redis` / `ci-rustfs`.
-      - name: Start test infrastructure (Redis + S3)
+      - name: Start test infrastructure (Redis + S3 + PostgreSQL)
         uses: ./.github/actions/test-infra
         with:
           redis-name: ${{ env.REDIS_CONTAINER }}

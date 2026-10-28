@@ -120,6 +120,49 @@ const INVENTORY: StateEntry[] = [
   },
   {
     because:
+      'One connection pool per configured SQL source, opened as the application role. It holds live sockets, so it '
+      + 'cannot leave the process; every replica opens its own pool against the same database, and nothing the '
+      + 'replicas must agree on lives in it — tenant scope is written per transaction, schema state is in the catalog.',
+    classification: 'local',
+    file: 'common/persistence/data-source.runtime.ts',
+    name: 'executors',
+  },
+  {
+    because:
+      'The owner connection per SQL source that migrates the schema while the stores are created; released once the '
+      + 'application is bootstrapped. Live sockets, so local; every replica migrates under the same advisory lock, '
+      + 'and the schema state it writes lives in the catalog, not here.',
+    classification: 'local',
+    file: 'common/persistence/data-source.runtime.ts',
+    name: 'owners',
+  },
+  {
+    because:
+      'The data store per SQL-routed model, created once per process from the configuration and the model '
+      + 'descriptor. Two replicas build the identical store over the identical table; the store itself keeps no '
+      + 'data — every read and write goes to the database.',
+    classification: 'derived',
+    file: 'common/persistence/data-source.runtime.ts',
+    name: 'stores',
+  },
+  {
+    because:
+      'The SET assignments of ONE update being compiled. Created per compilation and discarded with it; it never '
+      + 'outlives the statement it builds.',
+    classification: 'bounded',
+    file: 'common/persistence/sql/postgres/postgres-update.compiler.ts',
+    name: 'assignments',
+  },
+  {
+    because:
+      'Column → field lookup of one store, computed in the constructor from the model descriptor. Every replica '
+      + 'derives the same map from the same code.',
+    classification: 'derived',
+    file: 'common/persistence/sql/sql-data-store.ts',
+    name: 'fields',
+  },
+  {
+    because:
       'Subscriber callbacks — functions cannot be serialized, so they are local by definition. '
       + 'What crosses replicas is the MESSAGE, published through Redis; these maps only route it '
       + 'to the handlers registered in THIS process.',

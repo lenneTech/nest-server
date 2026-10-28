@@ -133,6 +133,39 @@ export function resolveTenantFilter(modelName?: string): Record<string, any> | u
 }
 
 /**
+ * The tenant scope of the current operation as a database can enforce it (row-level security, plan §3.4): the same
+ * decision as `resolveTenantFilter()`, for the request rather than for one model — a transaction may touch several
+ * tables, and the scope must be right for every one of them.
+ *
+ * - `system`: isolation off (multi-tenancy not configured, no request context, `runWithBypassTenantGuard()`), or a
+ *   platform admin without a tenant header
+ * - `tenant` / `tenants`: the validated tenant, or the caller's memberships
+ * - `none`: a request without a valid tenant context — tenant-scoped data must be refused
+ */
+export type TenantScope =
+  | { kind: 'none' }
+  | { kind: 'system' }
+  | { kind: 'tenant'; tenantId: string }
+  | { kind: 'tenants'; tenantIds: readonly string[] };
+
+export function resolveTenantScope(): TenantScope {
+  if (isTenantPolicyBypassed()) {
+    return { kind: 'system' };
+  }
+  const context = RequestContext.get();
+  if (context?.tenantId) {
+    return { kind: 'tenant', tenantId: context.tenantId };
+  }
+  if (context?.tenantIds) {
+    return { kind: 'tenants', tenantIds: context.tenantIds };
+  }
+  if (context?.isAdminBypass) {
+    return { kind: 'system' };
+  }
+  return { kind: 'none' };
+}
+
+/**
  * Resolve single tenant ID for write operations (save, insertMany).
  * Only returns a value when a specific tenant header is set.
  */

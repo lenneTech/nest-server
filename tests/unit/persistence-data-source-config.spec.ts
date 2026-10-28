@@ -8,10 +8,15 @@ import {
   assertDataSourcesSupported,
   DataSourceConfigError,
   driverFromUrl,
+  redactUrl,
   resolveDataSources,
   resolveModelSource,
 } from '../../src/core/common/persistence/data-source.config';
-import { getPersistedModelOptions, PersistedModel } from '../../src/core/common/persistence/persisted-model.decorator';
+import {
+  getPersistedModelOptions,
+  getPersistedModelOptionsByName,
+  PersistedModel,
+} from '../../src/core/common/persistence/persisted-model.decorator';
 
 const MONGO = 'mongodb://localhost/app';
 
@@ -33,6 +38,29 @@ describe('data source configuration', () => {
       expect(attempt).toThrow(DataSourceConfigError);
       expect(attempt).toThrow(/oracle:/);
       expect(attempt).not.toThrow(/s3cr3t/);
+    });
+  });
+
+  /**
+   * @regression   DEV-3829 (db-agnostic phase 1, review) — the credentials were cut at the FIRST `@`, so a password
+   *   with an unencoded `@` (which node-postgres accepts) put its tail into every boot log line and error.
+   * @seen-failing Cut at the first `@` in redactUrl() in src/core/common/persistence/data-source.config.ts —
+   *   registered as mutation `redact-url-first-at` in tests/regression-mutations.json.
+   */
+  describe('redactUrl', () => {
+    it.each([
+      ['postgres://app:s3cr3t@db.internal:5432/app', 'postgres://db.internal:5432'],
+      ['postgres://app:p@ss@w0rd@db.internal/app', 'postgres://db.internal'],
+      ['postgres://app:p@ss@db.internal?sslmode=require', 'postgres://db.internal'],
+      ['mongodb+srv://u:x@y@cluster.example.com/app#frag', 'mongodb+srv://cluster.example.com'],
+      ['postgres://db.internal/app', 'postgres://db.internal'],
+    ])('%s → %s', (url, expected) => {
+      expect(redactUrl(url)).toBe(expected);
+    });
+
+    it('never echoes what it cannot parse', () => {
+      expect(redactUrl('app:s3cr3t@db.internal/app')).toBe('<unparsable URL>');
+      expect(redactUrl(42)).toBe('<number>');
     });
   });
 
@@ -153,6 +181,29 @@ describe('data source configuration', () => {
       expect(getPersistedModelOptions(AuditEntry)).toEqual({ dataSource: 'logs' });
       expect(getPersistedModelOptions(Undeclared)).toBeUndefined();
     });
+
+    it('is found by the class name for a model registered without its class', () => {
+      @PersistedModel({ dataSource: 'logs' })
+      class NamedLedgerEntry {}
+      expect(NamedLedgerEntry.name).toBe('NamedLedgerEntry');
+      expect(getPersistedModelOptionsByName('NamedLedgerEntry')).toEqual({ dataSource: 'logs' });
+      expect(getPersistedModelOptionsByName('NeverDeclared')).toBeUndefined();
+    });
+
+    it('refuses to guess between two classes of one name that name different sources', () => {
+      const first = (() => {
+        @PersistedModel({ dataSource: 'logs' })
+        class SharedName {}
+        return SharedName;
+      })();
+      (() => {
+        @PersistedModel({ dataSource: 'reports' })
+        class SharedName {}
+        return SharedName;
+      })();
+      expect(first.name).toBe('SharedName');
+      expect(() => getPersistedModelOptionsByName('SharedName')).toThrow(/pass `model`/);
+    });
   });
 
   describe('assertDataSourcesSupported (what this version can wire)', () => {
@@ -161,9 +212,20 @@ describe('data source configuration', () => {
     });
 
     it.each([
-      ['a SQL default source', 'postgres://app@db/app', /postgres/],
+      ['a PostgreSQL default source', 'postgres://app@db/app'],
+      ['a PostgreSQL default with an owner', { ownerUrl: 'postgres://owner@db/app', url: 'postgres://app@db/app' }],
+      ['an additional PostgreSQL source', { sources: { reports: 'postgresql://app@db/reports' } }],
+    ])('accepts %s (phase 1)', (_label, database) => {
+      expect(() =>
+        assertDataSourcesSupported(resolveDataSources({ database: database as any, mongooseUri: MONGO })),
+      ).not.toThrow();
+    });
+
+    it.each([
+      ['a MySQL source', 'mysql://app@db/app', /mysql/],
+      ['a MariaDB source', { sources: { legacy: 'mariadb://app@db/app' } }, /mariadb/],
       ['no database at all', false, /database: false/],
-      ['an additional source', { sources: { logs: 'mongodb://logs/app' } }, /logs/],
+      ['a second MongoDB source', { sources: { logs: 'mongodb://logs/app' } }, /logs/],
     ])('refuses %s with a named error', (_label, database, message) => {
       const resolved = resolveDataSources({ database: database as any, mongooseUri: MONGO });
       expect(() => assertDataSourcesSupported(resolved)).toThrow(DataSourceConfigError);
@@ -191,7 +253,7 @@ describe('data source configuration', () => {
     });
 
     it('refuses a database this version cannot wire, before anything connects', () => {
-      expect(() => CoreModule.forRoot({ ...base, database: 'postgres://app@db/app' })).toThrow(DataSourceConfigError);
+      expect(() => CoreModule.forRoot({ ...base, database: 'mysql://app@db/app' })).toThrow(DataSourceConfigError);
     });
 
     /**
@@ -215,6 +277,45 @@ describe('data source configuration', () => {
       const forRoot = vi.spyOn(MongooseModule, 'forRoot');
       CoreModule.forRoot(base);
       expect(forRoot).toHaveBeenCalledWith(MONGO, expect.anything());
+    });
+  });
+  describe('ownerUrl', () => {
+    it('belongs to the default source, and to a named SQL source', () => {
+      const resolved = resolveDataSources({
+        database: {
+          ownerUrl: 'postgres://owner@db/app',
+          sources: { reports: { ownerUrl: 'postgres://owner@db/reports', url: 'postgres://app@db/reports' } },
+          url: 'postgres://app@db/app',
+        },
+      });
+      expect(resolved.sources.default.ownerUrl).toBe('postgres://owner@db/app');
+      expect(resolved.sources.reports.ownerUrl).toBe('postgres://owner@db/reports');
+    });
+
+    it.each([
+      ['on a MongoDB source', { ownerUrl: 'mongodb://owner@db/app', url: 'mongodb://db/app' }, /SQL sources only/],
+      [
+        'of another database kind',
+        { ownerUrl: 'mongodb://owner@db/app', url: 'postgres://app@db/app' },
+        /same database/,
+      ],
+    ])('is refused %s', (_label, database, message) => {
+      expect(() => resolveDataSources({ database: database as any })).toThrow(message);
+    });
+
+    /**
+     * @regression   DEV-3829 (db-agnostic phase 1, review) — NSC__DATABASE__OWNER_URL merged over a `database` URL
+     *   string replaces it with `{ ownerUrl }`: the URL was gone and every model silently fell back to MongoDB.
+     * @seen-failing Drop the `ownerUrl` without `url` refusal in resolveDataSources() in
+     *   src/core/common/persistence/data-source.config.ts — registered as mutation `owner-url-without-url-accepted`
+     *   in tests/regression-mutations.json.
+     */
+    it('is refused without the URL it belongs to (an env variable replaced the URL shorthand)', () => {
+      const attempt = () =>
+        resolveDataSources({ database: { ownerUrl: 'postgres://owner:s3cr3t@db/app' }, mongooseUri: MONGO });
+      expect(attempt).toThrow(DataSourceConfigError);
+      expect(attempt).toThrow(/database\.url/);
+      expect(attempt).not.toThrow(/s3cr3t/);
     });
   });
 });

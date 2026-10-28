@@ -137,6 +137,27 @@ await synchronizedMigration(migrationOptions, async (migrationSet) => {
 await synchronizedUp(migrationOptions);
 ```
 
+### SQL migrations (PostgreSQL data sources)
+
+On a PostgreSQL source the framework migrates the schema itself at boot (new tables, columns, declared renames,
+non-unique indexes, row-level security, grants). Changes that can reject or rewrite stored rows — a changed column
+type, a new unique index, a rename whose old and new column both exist — are never applied automatically: the boot
+stops with `SchemaMigrationRequiredError`, listing each change with a **suggested** statement.
+
+```bash
+migrate create widen-budget --sql
+```
+
+writes a migration whose `up` / `down` call `runSqlMigration(ownerUrl, statements)`. Paste the suggested statements,
+review them, add the reverse to `down`. They run as the table owner (`NSC__DATABASE__OWNER_URL`, i.e.
+`database.ownerUrl`), in one transaction, under the advisory lock the boot's schema migration takes — so a replica
+booting meanwhile waits and then finds nothing left to do. In a vendor-mode project the import points at the vendored
+core automatically.
+
+`NSC__DATABASE__OWNER_URL` in the server's environment needs the URL beside it: a `database` written as a URL string
+is REPLACED by the variable (the environment merge turns it into `{ ownerUrl }`), so the boot refuses that
+combination. Write `database: { url: … }` in the configuration, or set `NSC__DATABASE__URL` as well.
+
 ## API Reference
 
 ### MongoStateStore

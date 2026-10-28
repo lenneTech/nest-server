@@ -37,6 +37,11 @@ peerDependencyRules:
   # graphql-upload 17 (12.1.0), which peers `^4.0.29 || ^5.0.0`.
   allowedVersions:
     '@types/express': '5'
+    # typeorm 1.1.2 declares the OPTIONAL peer `ioredis: ^5.0.4` for its own Redis query-result cache, which
+    # the framework never enables (the SQL store compiles its own queries and caches nothing in TypeORM).
+    # This repo is on ioredis 6 for CoreRedisService. Parent-scoped, so no other consumer of ioredis is
+    # affected. Remove once typeorm's peer range includes 6.
+    'typeorm>ioredis': '6'
   # vis-network (via @compodoc/compodoc) declares peers compodoc never installs; without this,
   # `pnpm peers check` reports four missing peers on every run.
   ignoreMissing:

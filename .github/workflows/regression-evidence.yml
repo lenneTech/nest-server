@@ -54,7 +54,7 @@ jobs:
         with:
           mongodb-version: ${{ matrix.mongodb-version }}
 
-      - name: Start test infrastructure (Redis + S3)
+      - name: Start test infrastructure (Redis + S3 + PostgreSQL)
         uses: ./.github/actions/test-infra
         with:
           redis-name: ${{ env.REDIS_CONTAINER }}

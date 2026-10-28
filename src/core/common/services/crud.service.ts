@@ -17,6 +17,8 @@ import { getStringIds } from '../helpers/db.helper.js';
 import { convertFilterArgsToQuery } from '../helpers/filter.helper.js';
 import { mergePlain, prepareServiceOptionsForCreate } from '../helpers/input.helper.js';
 import { ServiceOptions } from '../interfaces/service-options.interface.js';
+import type { FindOptions, Where } from '../persistence/data-store.interface.js';
+import { UnsupportedCapabilityError } from '../persistence/unsupported-capability.error.js';
 import { CoreModel } from '../models/core-model.model.js';
 import { PaginationInfo } from '../models/pagination-info.model.js';
 import { PlainObject } from '../types/plain-object.type.js';
@@ -38,6 +40,7 @@ export abstract class CrudService<
     pipeline: PipelineStage[],
     serviceOptions?: ServiceOptions & { aggregateOptions?: AggregateOptions },
   ): Promise<T> {
+    this.assertMongooseStore('aggregate');
     return this.process(
       async () => {
         const aggregateOptions = serviceOptions?.aggregateOptions || {};
@@ -79,6 +82,9 @@ export abstract class CrudService<
     return this.process(
       async (data) => {
         const currentUserId = serviceOptions?.currentUser?.id;
+        if (this.usesNeutralStore) {
+          return this.dataStore.insert({ ...data.input, createdBy: currentUserId, updatedBy: currentUserId } as any);
+        }
         return new (this.mainDbModel as MongooseModel<Document & Model>)({
           ...data.input,
           createdBy: currentUserId,
@@ -120,6 +126,13 @@ export abstract class CrudService<
    * Get item by ID
    */
   async get(id: string, serviceOptions?: ServiceOptions): Promise<Model> {
+    if (this.usesNeutralStore) {
+      const record = await this.dataStore.findById(id, { select: neutralSelect(serviceOptions?.select) });
+      if (!record) {
+        throw new NotFoundException(`No ${this.mainModelConstructor.name} found with ID: ${id}`);
+      }
+      return this.process(async () => record, { dbObject: record, serviceOptions });
+    }
     const query = this.mainDbModel.findById(id);
     if (serviceOptions?.select) {
       query.select(serviceOptions.select);
@@ -177,6 +190,11 @@ export abstract class CrudService<
           const converted = convertFilterArgsToQuery(data.input);
           filterQuery.filterQuery = converted[0];
           filterQuery.queryOptions = converted[1];
+        }
+
+        if (this.usesNeutralStore) {
+          const { options, where } = neutralQuery(filterQuery, serviceOptions);
+          return this.dataStore.find(where, options);
         }
 
         // Find in DB
@@ -245,6 +263,31 @@ export abstract class CrudService<
           const converted = convertFilterArgsToQuery(data.input);
           filterQuery.filterQuery = converted[0];
           filterQuery.queryOptions = converted[1];
+        }
+
+        if (this.usesNeutralStore) {
+          if (filter?.samples) {
+            throw new UnsupportedCapabilityError(
+              `findAndCount() with samples needs a MongoDB store; ${this.dataStore.modelName} is stored on ${this.dataStore.driver}`,
+            );
+          }
+          const { options, where } = neutralQuery(filterQuery, serviceOptions);
+          const [items, totalCount] = await Promise.all([
+            this.dataStore.find(where, options),
+            this.dataStore.count(where),
+          ]);
+          const queryOptions = filterQuery.queryOptions || {};
+          return {
+            items,
+            pagination: PaginationInfo.create({
+              limit: queryOptions.limit,
+              offset: queryOptions.offset,
+              skip: queryOptions.skip,
+              take: queryOptions.take,
+              totalCount,
+            }),
+            totalCount,
+          };
         }
 
         // Prepare aggregation (with fixed defined sequence)
@@ -408,6 +451,15 @@ export abstract class CrudService<
           filterQuery.queryOptions = converted[1];
         }
 
+        if (this.usesNeutralStore) {
+          const { options, where } = neutralQuery(filterQuery, serviceOptions);
+          return this.dataStore.findOne(where, {
+            collation: options.collation,
+            select: options.select,
+            sort: options.sort,
+          });
+        }
+
         // Find in DB
         let find = this.mainDbModel.findOne(filterQuery.filterQuery, null, filterQuery.queryOptions);
         const collation = serviceOptions?.collation || ConfigService.get('mongoose.collation');
@@ -458,6 +510,7 @@ export abstract class CrudService<
    * to ensure plugins (Tenant, Audit, RoleGuard) fire correctly.
    */
   getModel(): MongooseModel<Document & Model> {
+    this.assertMongooseStore('getModel');
     return this.mainDbModel as unknown as MongooseModel<Document & Model>;
   }
 
@@ -481,6 +534,7 @@ export abstract class CrudService<
    */
   protected getNativeCollection(reason: string): Collection {
     this.validateNativeAccessReason(reason, 'getNativeCollection');
+    this.assertMongooseStore('getNativeCollection');
 
     const modelName = (this.mainDbModel as any)?.modelName || 'Unknown';
     Logger.warn(`[SECURITY] Native collection access: ${reason} (Model: ${modelName})`, this.constructor.name);
@@ -509,6 +563,7 @@ export abstract class CrudService<
    */
   protected getNativeConnection(reason: string): Connection {
     this.validateNativeAccessReason(reason, 'getNativeConnection');
+    this.assertMongooseStore('getNativeConnection');
 
     const modelName = (this.mainDbModel as any)?.modelName || 'Unknown';
     Logger.warn(`[SECURITY] Native connection access: ${reason} (Model: ${modelName})`, this.constructor.name);
@@ -614,6 +669,22 @@ export abstract class CrudService<
    * Update item via ID
    */
   async update(id: string, input: PlainObject<UpdateInput>, serviceOptions?: ServiceOptions): Promise<Model> {
+    if (this.usesNeutralStore) {
+      const stored = await this.dataStore.findById(id);
+      if (!stored) {
+        throw new NotFoundException(`No ${this.mainModelConstructor.name} found with ID: ${id}`);
+      }
+      return this.process(
+        async (data) => {
+          // The same write as on MongoDB: the stored record merged with the input, written back whole — minus
+          // the id, which never changes, and the update time, which the store stamps
+          const merged = mergePlain(stored, data.input, { updatedBy: serviceOptions?.currentUser?.id });
+          const { _id: _mongoId, id: _id, updatedAt: _updatedAt, ...patch } = merged as Record<string, any>;
+          return this.dataStore.updateById(id, patch as any);
+        },
+        { dbObject: stored, input, serviceOptions },
+      );
+    }
     const dbObject = await this.mainDbModel.findById(id).lean();
     if (!dbObject) {
       throw new NotFoundException(`No ${this.mainModelConstructor.name} found with ID: ${id}`);
@@ -656,6 +727,19 @@ export abstract class CrudService<
    * Delete item via ID
    */
   async delete(id: string, serviceOptions?: ServiceOptions): Promise<Model> {
+    if (this.usesNeutralStore) {
+      const stored = await this.dataStore.findById(id, { select: neutralSelect(serviceOptions?.select) });
+      if (!stored) {
+        throw new NotFoundException(`No ${this.mainModelConstructor.name} found with ID: ${id}`);
+      }
+      return this.process(
+        async () => {
+          await this.dataStore.deleteById(id);
+          return stored;
+        },
+        { dbObject: stored, serviceOptions },
+      );
+    }
     const query = this.mainDbModel.findById(id);
     if (serviceOptions?.select) {
       query.select(serviceOptions.select);
@@ -777,6 +861,7 @@ export abstract class CrudService<
     return this.process(
       () => {
         if (queryOrDocument instanceof Query) {
+          this.assertMongooseStore('processQueryOrDocument (with a Mongoose query)');
           if (serviceOptions?.select && queryOrDocument.select && typeof queryOrDocument.select === 'function') {
             queryOrDocument.select(serviceOptions.select);
           }
@@ -787,4 +872,71 @@ export abstract class CrudService<
       { serviceOptions },
     );
   }
+
+  /**
+   * Refuse an API that only exists on MongoDB when the main model is stored elsewhere. The Mongoose model may still
+   * be registered for such a model, so continuing would read or write ANOTHER database without a word.
+   */
+  protected assertMongooseStore(method: string): void {
+    if (this.usesNeutralStore) {
+      throw new UnsupportedCapabilityError(
+        `${method}() needs a MongoDB store, but ${this.dataStore.modelName} is stored on ${this.dataStore.driver} — ` +
+          'use this.dataStore (or this.dataStore.native(reason) for the engine API)',
+      );
+    }
+  }
+}
+
+/** A `select` service option as the field list of a data store (inclusion only) */
+function neutralSelect(select: unknown): string[] | undefined {
+  if (select === undefined || select === null) {
+    return undefined;
+  }
+  const names =
+    typeof select === 'string'
+      ? select.split(/\s+/).filter(Boolean)
+      : Array.isArray(select)
+        ? select.map(String)
+        : Object.entries(select as Record<string, unknown>)
+            .filter(([, include]) => include)
+            .map(([name]) => name);
+  return names.map((name) => (name === '_id' ? 'id' : name));
+}
+
+/** The filter and query options of a CrudService call as the neutral filter and find options */
+function neutralQuery(
+  query: { filterQuery?: unknown; queryOptions?: QueryOptions },
+  serviceOptions?: ServiceOptions,
+): { options: FindOptions; where: Where } {
+  const queryOptions = query.queryOptions || {};
+  const options: FindOptions = {
+    collation: (serviceOptions?.collation || ConfigService.get('mongoose.collation')) as Record<string, unknown>,
+    select: neutralSelect(serviceOptions?.select),
+  };
+  const skip = queryOptions.skip ?? queryOptions.offset;
+  const limit = queryOptions.limit ?? queryOptions.take;
+  if (skip) {
+    options.skip = skip;
+  }
+  if (limit) {
+    options.limit = limit;
+  }
+  if (queryOptions.sort) {
+    options.sort = neutralSort(queryOptions.sort);
+  }
+  return { options, where: (query.filterQuery ?? {}) as Where };
+}
+
+function neutralSort(sort: unknown): Record<string, -1 | 1> {
+  const result: Record<string, -1 | 1> = {};
+  if (typeof sort === 'string') {
+    for (const token of sort.split(/\s+/).filter(Boolean)) {
+      result[token.replace(/^-/, '')] = token.startsWith('-') ? -1 : 1;
+    }
+    return result;
+  }
+  for (const [field, direction] of Object.entries(sort as Record<string, unknown>)) {
+    result[field] = direction === -1 || direction === 'desc' || direction === 'descending' ? -1 : 1;
+  }
+  return result;
 }

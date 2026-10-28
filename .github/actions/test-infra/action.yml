@@ -1,4 +1,4 @@
-name: Test infrastructure (Redis + S3)
+name: Test infrastructure (Redis + S3 + PostgreSQL)
 description: >-
   Provision the Redis and S3-compatible (RustFS) containers the distributed-feature
   e2e suites need (DEV-2985: rate limiting, cron dedup, pubsub, S3 file storage),
@@ -35,6 +35,14 @@ inputs:
     description: Published host port for RustFS. Must match the port in S3_ENDPOINT.
     required: false
     default: '9102'
+  postgres-name:
+    description: Container name for PostgreSQL.
+    required: false
+    default: ci-postgres
+  postgres-port:
+    description: Published host port for PostgreSQL. Must match PG_PORT in the suites.
+    required: false
+    default: '5440'
 
 runs:
   using: composite
@@ -110,4 +118,33 @@ runs:
         done
         echo "::error::RustFS did not become ready within 60s (last HTTP status: ${code:-none})"
         docker logs ${{ inputs.rustfs-name }}
+        exit 1
+
+    # Same roles as scripts/test-infra.mjs and every deployed environment (plan §3.9): the owner owns the
+    # schema, the application role owns nothing and has neither BYPASSRLS nor superuser, so RLS holds.
+    - name: Start PostgreSQL
+      shell: bash
+      run: >-
+        docker run -d
+        --name ${{ inputs.postgres-name }}
+        -p ${{ inputs.postgres-port }}:5432
+        -e POSTGRES_USER=nest_owner
+        -e POSTGRES_PASSWORD=nest-owner-secret
+        -e POSTGRES_DB=nest_server_e2e
+        postgres:18.6-alpine3.24
+
+    - name: Wait for PostgreSQL and create the application role
+      shell: bash
+      run: |
+        for i in $(seq 1 60); do
+          # TCP, not the unix socket: the image's init phase serves the socket only.
+          if docker exec -e PGPASSWORD=nest-owner-secret ${{ inputs.postgres-name }} psql -h 127.0.0.1 -U nest_owner -d nest_server_e2e -v ON_ERROR_STOP=1 \
+            -c "DO \$\$ BEGIN IF NOT EXISTS (SELECT 1 FROM pg_roles WHERE rolname = 'nest_app') THEN CREATE ROLE nest_app LOGIN PASSWORD 'nest-app-secret' NOSUPERUSER NOBYPASSRLS NOCREATEDB NOCREATEROLE; END IF; END \$\$;" >/dev/null 2>&1; then
+            echo "PostgreSQL ready after ${i}s"
+            exit 0
+          fi
+          sleep 1
+        done
+        echo "::error::PostgreSQL did not become ready within 60s"
+        docker logs ${{ inputs.postgres-name }}
         exit 1

@@ -37,3 +37,4 @@ docker rm -f nest-server-proto-pg nest-server-proto-mariadb nest-server-proto-my
 | `14-decision-matrix.mjs` | §4 | the weighted engine comparison, every score with its evidence |
 | `16-engine-switch.mjs` | A9 | one store scenario, four adapters, switched by a config string: identical results, native handle on the store's transaction |
 | `17-pool-fault.mjs` | A10 | timed-out transactions: TypeORM leaks, Kysely poisons the pool (tenant setting visible); the framework pool guard fixes all four |
+| `18-tx-granularity.mjs` | A13 | per-operation (naive, combined, pipelined) against per-request transactions on a FORCE-RLS table as a non-owner role |

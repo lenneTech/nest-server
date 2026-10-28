@@ -2,6 +2,7 @@ import { Logger } from '@nestjs/common';
 import type { Model } from 'mongoose';
 
 import { getStringIds } from '../helpers/id.helper.js';
+import { assertAccessReason, assertArrayField, assertSelectFields } from './store-guards.js';
 import type {
   DataStore,
   DataStoreUpdate,
@@ -159,17 +160,6 @@ function toRecord<T>(doc: unknown): StoredRecord<T> {
 }
 
 function toProjection(select: readonly string[]): string {
+  assertSelectFields(select);
   return select.map((field) => (field === 'id' ? '_id' : field)).join(' ');
-}
-
-function assertArrayField(field: string, method: string): void {
-  if (typeof field !== 'string' || !field || field.startsWith('$') || field.includes('\0')) {
-    throw new Error(`${method}: invalid field name "${field}"`);
-  }
-}
-
-function assertAccessReason(reason: string, method: string): void {
-  if (!reason?.trim() || reason.trim().length < 20) {
-    throw new Error(`${method}() requires a meaningful reason (min 20 chars) — explain why native access is needed`);
-  }
 }

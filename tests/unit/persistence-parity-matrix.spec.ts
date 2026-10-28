@@ -55,4 +55,12 @@ describe('persistence parity matrix', () => {
     );
     expect(missing).toEqual([]);
   });
+
+  it('registers the complement of every design difference in the executor', () => {
+    const missing = PERSISTENCE_EXCLUSIONS.filter(
+      (entry) =>
+        entry.reason.startsWith('DIFFERENT-BY-DESIGN:') && !executor.includes(`persistenceComplement('${entry.case}'`),
+    ).map((entry) => `${entry.case} × ${entry.driver}`);
+    expect(missing).toEqual([]);
+  });
 });

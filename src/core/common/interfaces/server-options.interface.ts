@@ -2163,6 +2163,13 @@ export type DatabaseSqlEngine = 'drizzle' | 'kysely' | 'typeorm';
  */
 export interface IDatabaseSourceConfig {
   /**
+   * Connection URL of the role that OWNS the tables — used only to bring the schema up to date at boot, never for
+   * requests. Only valid on SQL URLs. Without it the application role only verifies the schema and the boot stops
+   * while changes are pending (plan §3.9: the application role owns nothing, so row-level security binds it).
+   */
+  ownerUrl?: string;
+
+  /**
    * SQL engine for this source. Only valid on SQL URLs.
    * @default the top-level `sqlEngine`, else 'typeorm'
    */
@@ -2187,6 +2194,12 @@ export interface IDatabaseConfig {
    * Model name → source name, for the models that do not use the default source.
    */
   models?: Record<string, string>;
+
+  /**
+   * Owner connection of the default source (see `IDatabaseSourceConfig.ownerUrl`). Needs `url` beside it: an
+   * `NSC__DATABASE__OWNER_URL` replaces a `database` given as a URL string, so the boot refuses `ownerUrl` alone.
+   */
+  ownerUrl?: string;
 
   /**
    * Further sources by name, each a URL or a source configuration. The name `default` is reserved.

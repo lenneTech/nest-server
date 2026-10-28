@@ -2,7 +2,7 @@ import _ from 'lodash';
 import { Document, Model, Types } from 'mongoose';
 
 import { ProcessType } from '../enums/process-type.enum.js';
-import { getStringIds, popAndMap } from '../helpers/db.helper.js';
+import { getStringIds, popAndMap, toPopulateOptions } from '../helpers/db.helper.js';
 import { check } from '../helpers/input.helper.js';
 import { prepareInput, prepareOutput } from '../helpers/service.helper.js';
 import { getTranslatablePropertyKeys, updateLanguage } from '../decorators/translatable.decorator.js';
@@ -10,6 +10,7 @@ import { ServiceOptions } from '../interfaces/service-options.interface.js';
 import { CoreModel } from '../models/core-model.model.js';
 import type { DataStore } from '../persistence/data-store.interface.js';
 import { MongooseDataStore } from '../persistence/mongoose-data-store.js';
+import { populateNeutral } from '../persistence/neutral-populate.js';
 import { FieldSelection } from '../types/field-selection.type.js';
 import { ConfigService } from './config.service.js';
 import { ModelRegistry } from './model-registry.service.js';
@@ -84,6 +85,15 @@ export abstract class ModuleService<T extends CoreModel = any> {
   }
 
   /**
+   * Whether the main model is stored without Mongoose documents (a SQL store): the CRUD pipeline then reads and
+   * writes plain records through `dataStore` and populates references through the stores of their models.
+   */
+  protected get usesNeutralStore(): boolean {
+    const store = this.dataStore;
+    return !!store && !store.capabilities.mongoosePopulate;
+  }
+
+  /**
    * Set main properties
    */
   protected constructor(options?: {
@@ -95,11 +105,19 @@ export abstract class ModuleService<T extends CoreModel = any> {
     this.configService = options?.configService;
     this.mainDbModel = options?.mainDbModel as SafeModel<Document & T>;
     this.explicitDataStore = options?.dataStore;
+    // A service written against the store alone (`@InjectStore()`) runs on MongoDB too: the Mongoose path of the
+    // pipeline takes the model behind the store
+    if (!this.mainDbModel && options?.dataStore?.capabilities.mongoosePopulate) {
+      this.mainDbModel = options.dataStore.native<SafeModel<Document & T>>(
+        'CrudService pipeline: the Mongoose model behind this data store',
+      );
+    }
     this.mainModelConstructor = options?.mainModelConstructor;
 
     // Auto-register model class for ResponseModelInterceptor lookups
-    if (options?.mainModelConstructor && options?.mainDbModel?.modelName) {
-      ModelRegistry.register(options.mainDbModel.modelName, options.mainModelConstructor);
+    const modelName = this.mainDbModel?.modelName ?? options?.dataStore?.modelName;
+    if (options?.mainModelConstructor && modelName) {
+      ModelRegistry.register(modelName, options.mainModelConstructor);
     }
   }
 
@@ -244,7 +262,14 @@ export abstract class ModuleService<T extends CoreModel = any> {
     // restricted fields, potentially breaking these checks.
     if (config.dbObject && config.checkRights && this.checkRights) {
       if (typeof config.dbObject === 'string' || config.dbObject instanceof Types.ObjectId) {
-        if (this.mainDbModel) {
+        if (this.usesNeutralStore) {
+          const record = await this.dataStore.findById(getStringIds(config.dbObject));
+          if (record) {
+            config.dbObject = (this.mainModelConstructor as any)?.map
+              ? (this.mainModelConstructor as any).map(record)
+              : record;
+          }
+        } else if (this.mainDbModel) {
           const rawDoc = await this.mainDbModel.findById(getStringIds(config.dbObject)).lean().exec();
           if (rawDoc) {
             config.dbObject = (this.mainModelConstructor as any)?.map
@@ -463,6 +488,10 @@ export abstract class ModuleService<T extends CoreModel = any> {
       model?: new (...args: any[]) => T;
     } = {},
   ) {
+    if (this.usesNeutralStore && !options.dbModel) {
+      await populateNeutral(data, toPopulateOptions(fieldsSelection) as any, this.dataStore.modelName);
+      return data;
+    }
     const config = {
       dbModel: this.mainDbModel,
       model: this.mainModelConstructor,

@@ -4,6 +4,8 @@ import type { Model } from 'mongoose';
 
 import { registerModelSchema } from './model-metadata.registry.js';
 import { MongooseDataStore } from './mongoose-data-store.js';
+import { getPersistedModelOptions, getPersistedModelOptionsByName } from './persisted-model.decorator.js';
+import { getPersistenceRuntime, registerDataStore, registerPersistedModel } from './persistence-runtime.registry.js';
 import { getStoreToken } from './persistence.tokens.js';
 
 /**
@@ -21,20 +23,48 @@ import { getStoreToken } from './persistence.tokens.js';
  * export class ProjectModule {}
  * ```
  */
+/** A model definition, plus where it is stored when the configuration does not say */
+export interface PersistenceModelDefinition extends ModelDefinition {
+  /** Source name (a key of `database.sources`); the configuration's `database.models` wins */
+  dataSource?: string;
+  /**
+   * The model class — its `@PersistedModel({ dataSource })` is read when `dataSource` is not given. Without it, the
+   * `@PersistedModel` class named like the model (`name`) is read
+   */
+  model?: abstract new (...args: any[]) => any;
+}
+
 @Module({})
 export class CorePersistenceModule {
-  static forFeature(models: ModelDefinition[]): DynamicModule {
+  static forFeature(models: PersistenceModelDefinition[]): DynamicModule {
     for (const model of models) {
       registerModelSchema(model.name, model.schema);
+      registerPersistedModel({
+        declaredSource:
+          model.dataSource ??
+          (model.model ? getPersistedModelOptions(model.model) : getPersistedModelOptionsByName(model.name))
+            ?.dataSource,
+        name: model.name,
+        schema: model.schema,
+      });
     }
-
-    const mongoose = MongooseModule.forFeature(models);
+    const mongoose = MongooseModule.forFeature(
+      models.map(({ dataSource: _source, model: _model, ...definition }) => definition),
+    );
     const stores: Provider[] = models.map((model) => ({
       inject: [getModelToken(model.name)],
       provide: getStoreToken(model.name),
-      useFactory: (mongooseModel: Model<any>) => new MongooseDataStore(mongooseModel),
+      // Routed when the store is created, not when the module is declared: feature modules are usually evaluated
+      // before `CoreModule.forRoot()` has read the configuration
+      useFactory: async (mongooseModel: Model<any>) => {
+        const runtime = getPersistenceRuntime();
+        const store = runtime
+          ? await runtime.resolveStore(model.name, mongooseModel)
+          : new MongooseDataStore(mongooseModel);
+        registerDataStore(model.name, store);
+        return store;
+      },
     }));
-
     return {
       exports: [mongoose, ...models.map((model) => getStoreToken(model.name))],
       imports: [mongoose],

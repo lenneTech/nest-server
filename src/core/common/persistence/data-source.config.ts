@@ -16,6 +16,8 @@ export type DatabaseDriver = 'mariadb' | 'mongodb' | 'mysql' | 'postgres';
 export interface ResolvedDataSource {
   driver: DatabaseDriver;
   name: string;
+  /** Present on SQL sources that configure the owner connection */
+  ownerUrl?: string;
   /** Present on SQL sources only */
   sqlEngine?: DatabaseSqlEngine;
   url: string;
@@ -85,8 +87,14 @@ export function redactUrl(url: unknown): string {
   if (typeof url !== 'string') {
     return `<${typeof url}>`;
   }
-  const match = /^([a-z][a-z0-9+.-]*:)\/\/(?:[^@/?#]*@)?([^/?#]*)/i.exec(url);
-  return match ? `${match[1]}//${match[2]}` : '<unparsable URL>';
+  const scheme = /^([a-z][a-z0-9+.-]*:)\/\//i.exec(url);
+  if (!scheme) {
+    return '<unparsable URL>';
+  }
+  // The authority ends at the first `/`, `?` or `#`, and the credentials at the LAST `@` inside it — the WHATWG
+  // rule node-postgres parses by, so a password with an unencoded `@` (which it accepts) never reaches the result
+  const authority = url.slice(scheme[0].length).split(/[/?#]/, 1)[0];
+  return `${scheme[1]}//${authority.slice(authority.lastIndexOf('@') + 1)}`;
 }
 
 /**
@@ -103,11 +111,25 @@ export function resolveDataSources(input: ResolveDataSourcesInput): ResolvedData
   if (typeof config !== 'object' || Array.isArray(config)) {
     throw new DataSourceConfigError('`database` must be a URL, an object or false');
   }
+  if (config.ownerUrl !== undefined && config.url === undefined) {
+    // The usual cause: `database` was a URL string and an NSC__DATABASE__* variable (e.g. NSC__DATABASE__OWNER_URL)
+    // was merged over it — the environment merge REPLACES a string with an object, so the URL is gone and every
+    // model would fall back to MongoDB without a word
+    throw new DataSourceConfigError(
+      'database.ownerUrl is set but database.url is not. A NSC__DATABASE__* variable replaces a `database` given as a ' +
+        'URL string; write `database: { url: … }` in the configuration (or set NSC__DATABASE__URL as well)',
+    );
+  }
   const topEngine = config.sqlEngine === undefined ? undefined : checkEngine(config.sqlEngine, 'database.sqlEngine');
 
   const sources: Record<string, ResolvedDataSource> = {};
   if (config.url !== undefined) {
-    sources[DEFAULT_SOURCE] = buildSource(DEFAULT_SOURCE, { url: config.url }, topEngine, 'database.url');
+    sources[DEFAULT_SOURCE] = buildSource(
+      DEFAULT_SOURCE,
+      { ownerUrl: config.ownerUrl, url: config.url },
+      topEngine,
+      'database.url',
+    );
     // A project that keeps its MongoDB next to a new default reaches it as a named source
     if (explicitMongoose && mongooseUri) {
       sources[MONGOOSE_SOURCE] = buildSource(MONGOOSE_SOURCE, { url: mongooseUri }, undefined, 'mongoose.uri');
@@ -175,11 +197,11 @@ export function resolveModelSource(
 }
 
 /**
- * Refuse what the running version cannot wire yet, with a message naming the setting.
+ * Refuse what the running version cannot wire, with a message naming the setting.
  *
- * Today that is everything except one MongoDB default source — the database-agnostic work lands phase by
- * phase, and each phase widens this guard. Refusing at boot is the point: a configuration that is
- * accepted and then silently served by the wrong database is the outcome to avoid.
+ * Phase 1 wires PostgreSQL sources (default or additional) next to the MongoDB connection; MySQL / MariaDB (phase
+ * 6), running without a database (phase 5) and a second MongoDB connection are refused. Refusing at boot is the
+ * point: a configuration that is accepted and then silently served by the wrong database is the outcome to avoid.
  */
 export function assertDataSourcesSupported(resolved: ResolvedDataSources): void {
   if (resolved.disabled) {
@@ -188,17 +210,22 @@ export function assertDataSourcesSupported(resolved: ResolvedDataSources): void 
     );
   }
   for (const source of Object.values(resolved.sources)) {
-    if (source.driver !== 'mongodb') {
+    if (source.driver === 'mysql' || source.driver === 'mariadb') {
       throw new DataSourceConfigError(
-        `The ${source.driver} source "${source.name}" (${redactUrl(source.url)}) is not supported by this version yet — MongoDB only`,
+        `The ${source.driver} source "${source.name}" (${redactUrl(source.url)}) is not supported by this version yet — PostgreSQL and MongoDB only`,
       );
     }
-    if (source.name !== DEFAULT_SOURCE) {
+    if (source.driver === 'mongodb' && source.name !== DEFAULT_SOURCE && source.name !== MONGOOSE_SOURCE) {
       throw new DataSourceConfigError(
-        `The additional source "${source.name}" (${redactUrl(source.url)}) is not supported by this version yet — one default source only`,
+        `The additional MongoDB source "${source.name}" (${redactUrl(source.url)}) is not supported by this version yet — one MongoDB connection only`,
       );
     }
   }
+}
+
+/** Whether any configured source is a SQL database */
+export function hasSqlSource(resolved: ResolvedDataSources): boolean {
+  return Object.values(resolved.sources).some((source) => source.driver !== 'mongodb');
 }
 
 function buildSource(
@@ -212,6 +239,9 @@ function buildSource(
   }
   const driver = driverFromUrl(source.url);
   if (driver === 'mongodb') {
+    if (source.ownerUrl !== undefined) {
+      throw new DataSourceConfigError(`${path}: ownerUrl applies to SQL sources only, not to ${redactUrl(source.url)}`);
+    }
     if (source.sqlEngine !== undefined) {
       throw new DataSourceConfigError(
         `${path}: sqlEngine applies to SQL sources only, not to ${redactUrl(source.url)}`,
@@ -223,6 +253,12 @@ function buildSource(
     source.sqlEngine === undefined
       ? (fallbackEngine ?? DEFAULT_SQL_ENGINE)
       : checkEngine(source.sqlEngine, `${path}.sqlEngine`);
+  if (source.ownerUrl !== undefined) {
+    if (typeof source.ownerUrl !== 'string' || !source.ownerUrl || driverFromUrl(source.ownerUrl) !== driver) {
+      throw new DataSourceConfigError(`${path}: ownerUrl must be a ${driver} URL of the same database`);
+    }
+    return { driver, name, ownerUrl: source.ownerUrl, sqlEngine: engine, url: source.url };
+  }
   return { driver, name, sqlEngine: engine, url: source.url };
 }
 

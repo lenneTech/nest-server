@@ -17,6 +17,7 @@
  *   --store, -s            Path to state store module
  *   --compiler, -c         Compiler to use (e.g., ts:./path/to/ts-compiler.js)
  *   --template-file, -t    Template file for creating migrations
+ *   --sql                  Create a SQL migration (statements run as the table owner, see runSqlMigration)
  *   --strict               Fail if a recorded migration's file is missing (default: off / tolerate).
  *                          Applies to up/list; down always fails hard on a missing rollback file.
  */
@@ -42,6 +43,8 @@ interface CliOptions {
   migrationsDir: string;
   store?: string;
   strict?: boolean;
+  /** `create`: a SQL migration instead of the default template */
+  sql?: boolean;
   templateFile?: string;
 }
 
@@ -97,6 +100,39 @@ export function rewriteFrameworkSpecifier(template: string, specifier: string): 
  *
  * @param coreRoot - Root of the core this CLI belongs to; defaults to the one it runs from (tests only)
  */
+/**
+ * The template of `migrate create <name> --sql`: the statements a refused boot suggested go into `up` after review,
+ * their reverse into `down`. They run as the table owner (`NSC__DATABASE__OWNER_URL`, i.e. `database.ownerUrl`).
+ * `specifier`: the import path a vendor-mode project uses instead of the package name.
+ */
+export function sqlMigrationTemplate(name: string, specifier?: string): string {
+  const template = `/**
+ * Migration: ${name} (SQL)
+ * Created: ${new Date().toISOString()}
+ *
+ * Paste the statements the boot suggested (SchemaMigrationRequiredError) and REVIEW them: a narrowed type, a new
+ * unique index or a rename collision can reject or rewrite stored rows. They run as the table owner, in one
+ * transaction, under the lock the boot's schema migration takes.
+ */
+import { runSqlMigration } from '@lenne.tech/nest-server';
+
+const ownerUrl = process.env.NSC__DATABASE__OWNER_URL ?? '';
+
+export const up = async () => {
+  await runSqlMigration(ownerUrl, [
+    // 'ALTER TABLE "projects" ALTER COLUMN "budget" TYPE text COLLATE "C" USING "budget"::text',
+  ]);
+};
+
+export const down = async () => {
+  await runSqlMigration(ownerUrl, [
+    // the reverse of every statement in up
+  ]);
+};
+`;
+  return specifier ? rewriteFrameworkSpecifier(template, specifier) : template;
+}
+
 async function createMigration(name: string, options: CliOptions, coreRoot?: string) {
   if (!name) {
     console.error('Error: Migration name is required');
@@ -116,7 +152,9 @@ async function createMigration(name: string, options: CliOptions, coreRoot?: str
   let template: string;
 
   // Use custom template if provided
-  if (options.templateFile) {
+  if (options.sql) {
+    template = sqlMigrationTemplate(name, vendoredFrameworkSpecifier(options.migrationsDir, process.cwd(), coreRoot));
+  } else if (options.templateFile) {
     const templatePath = path.resolve(process.cwd(), options.templateFile);
     template = fs.readFileSync(templatePath, 'utf-8');
     const specifier = vendoredFrameworkSpecifier(options.migrationsDir, process.cwd(), coreRoot);
@@ -298,6 +336,8 @@ function parseArgs(): { command: string; name?: string; options: CliOptions } {
       options.templateFile = args[++i];
     } else if (arg === '--strict') {
       options.strict = true;
+    } else if (arg === '--sql') {
+      options.sql = true;
     }
   }
 

@@ -1,6 +1,6 @@
 # @lenne.tech/nest-server — Framework API Reference
 
-> Auto-generated from source code as of 2026-10-27 (v12.0.0)
+> Auto-generated from source code as of 2026-10-28 (v12.0.0)
 > File: `FRAMEWORK-API.md` — compact, machine-readable API surface for Claude Code
 
 ## CoreModule.forRoot()
@@ -343,6 +343,7 @@ Generic: `CrudService<Model, CreateInput, UpdateInput>`
 - `async pushToArray(id: string | Types.ObjectId | { id?: any; _id?: any; }, field: string, items: any, options?: { $slice?: number; $position?: number; $sort?: Record<string, 1 | -1>; })`: `Promise<void>` — Append items to an array field without loading the full array.
 - `async pullFromArray(id: string | Types.ObjectId | { id?: any; _id?: any; }, field: string, condition: any)`: `Promise<void>` — Remove items from an array field.
 - `async processQueryOrDocument(queryOrDocument: Document<Types.ObjectId, any, any, Record<string, any>, {}> | Document<Types...., serviceOptions?: ServiceOptions)`: `Promise<T>` — Execute, populate and map Mongoose query or document(s) with serviceOptions
+- `assertMongooseStore(method: string)`: `void` — Refuse an API that only exists on MongoDB when the main model is stored elsewhere. The Mongoose model may still
 
 **Variants:** Each method has three variants:
 - `method()` — Standard: applies `securityCheck()`, respects permissions

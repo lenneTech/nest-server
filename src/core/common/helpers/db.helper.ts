@@ -340,6 +340,32 @@ export function objectIdsToStrings(element: any, prepared: WeakMap<any, any> = n
 /**
  * Set populates, execute and map result
  */
+/**
+ * A field selection (populate paths, GraphQL selection nodes or resolve info) as populate options — the form both
+ * Mongoose populate and the neutral populate of the SQL store read.
+ */
+export function toPopulateOptions(populate: FieldSelection): PopulateOptions[] {
+  if (!populate) {
+    return [];
+  }
+  if (
+    Array.isArray(populate) &&
+    (typeof (populate as string[])[0] === 'string' || typeof (populate as PopulateOptions[])[0]?.path === 'string')
+  ) {
+    return populate as PopulateOptions[];
+  }
+  if (Array.isArray(populate) && typeof (populate as SelectionNode[])[0]?.kind === 'string') {
+    return getPopulatOptionsFromSelections(populate as SelectionNode[]);
+  }
+  if ((populate as ResolveSelector).info) {
+    return getPopulateOptions((populate as ResolveSelector).info, (populate as ResolveSelector).select);
+  }
+  if (typeof populate === 'string' || (populate as PopulateOptions).path) {
+    return [populate as PopulateOptions];
+  }
+  return [];
+}
+
 export async function popAndMap<T extends CoreModel>(
   queryOrDocument: Document | Document[] | Query<any, any>,
   populate: FieldSelection,
@@ -350,22 +376,8 @@ export async function popAndMap<T extends CoreModel>(
   },
 ): Promise<T | T[]> {
   let result;
-  let populateOptions: PopulateOptions[] = [];
+  const populateOptions = toPopulateOptions(populate);
   const ignoreSelections = options?.ignoreSelections;
-  if (populate) {
-    if (
-      Array.isArray(populate) &&
-      (typeof (populate as string[])[0] === 'string' || typeof (populate as PopulateOptions[])[0]?.path === 'string')
-    ) {
-      populateOptions = populate as PopulateOptions[];
-    } else if (Array.isArray(populate) && typeof (populate as SelectionNode[])[0]?.kind === 'string') {
-      populateOptions = getPopulatOptionsFromSelections(populate as SelectionNode[]);
-    } else if ((populate as ResolveSelector).info) {
-      populateOptions = getPopulateOptions((populate as ResolveSelector).info, (populate as ResolveSelector).select);
-    } else if (typeof populate === 'string' || (populate as PopulateOptions).path) {
-      populateOptions = [populate as PopulateOptions];
-    }
-  }
   if (queryOrDocument instanceof Query) {
     // Get result
     result = await setPopulates(queryOrDocument, populateOptions, mongooseModel);

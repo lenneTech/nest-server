@@ -11,6 +11,7 @@ import {
 import { Error as MongooseError } from 'mongoose';
 
 import { ErrorCode } from '../../modules/error-code/error-codes.js';
+import { QueryCastError } from '../persistence/sql/sql-errors.js';
 
 import type { GqlContextType } from '@nestjs/graphql';
 import type { Request, Response } from 'express';
@@ -221,7 +222,10 @@ export function classifyGraphQlCastError(value: unknown, args: unknown): CastErr
  * - a `BSONError` from `new Types.ObjectId(bad)` in service code carries no value to classify; such code
  *   should check the id itself (see `CoreFileService.isMalformedFileId()`).
  */
-@Catch(MongooseError.CastError)
+/** A cast failure from either store: Mongoose's `CastError`, or the SQL store's `QueryCastError` (same rules, same fields) */
+export type CastFailure = MongooseError.CastError | QueryCastError;
+
+@Catch(MongooseError.CastError, QueryCastError)
 export class MongooseCastErrorFilter implements ExceptionFilter {
   protected static readonly logger = new Logger('MongooseCastErrorFilter');
 
@@ -231,7 +235,7 @@ export class MongooseCastErrorFilter implements ExceptionFilter {
    */
   protected static readonly unknownErrorLogger = new Logger('ExceptionsHandler');
 
-  catch(exception: MongooseError.CastError, host: ArgumentsHost): HttpException | undefined {
+  catch(exception: CastFailure, host: ArgumentsHost): HttpException | undefined {
     const type = host.getType<GqlContextType>();
     if (type === 'graphql') {
       return this.catchGraphQl(exception, host);
@@ -247,7 +251,7 @@ export class MongooseCastErrorFilter implements ExceptionFilter {
    * GraphQL: the returned exception becomes the field error. Returning nothing hands the error back to
    * Nest's external exception handler, which logs and rethrows it — what happened before this filter.
    */
-  protected catchGraphQl(exception: MongooseError.CastError, host: ArgumentsHost): HttpException | undefined {
+  protected catchGraphQl(exception: CastFailure, host: ArgumentsHost): HttpException | undefined {
     const origin = classifyGraphQlCastError(exception.value, host.getArgByIndex(1));
     if (origin === 'server') {
       return undefined;
@@ -259,7 +263,7 @@ export class MongooseCastErrorFilter implements ExceptionFilter {
    * REST: a filter that matched must answer the request itself — Nest does not fall back to its own
    * handler afterwards.
    */
-  protected catchHttp(exception: MongooseError.CastError, host: ArgumentsHost): void {
+  protected catchHttp(exception: CastFailure, host: ArgumentsHost): void {
     const ctx = host.switchToHttp();
     const response = ctx.getResponse<Response>();
     const origin = classifyHttpCastError(exception.value, ctx.getRequest<Request>());
@@ -280,7 +284,7 @@ export class MongooseCastErrorFilter implements ExceptionFilter {
    * The client error a request-supplied cast failure is answered with. The Mongoose message stays in
    * the server log (debug level): it names the model, which is none of the client's business.
    */
-  protected toHttpException(exception: MongooseError.CastError, origin: 'identifier' | 'input'): HttpException {
+  protected toHttpException(exception: CastFailure, origin: 'identifier' | 'input'): HttpException {
     MongooseCastErrorFilter.logger.debug(
       `Cast failed on a value from the request (${origin === 'identifier' ? 404 : 400}): ${exception.message}`,
     );

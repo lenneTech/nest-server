@@ -202,10 +202,20 @@ OAuth codes, passkey challenges — never rely on a TTL monitor for correctness)
 
 ### 3.8 Transactions and request context
 
-A unit of work per request lives in `RequestContext` (ALS): HTTP middleware, GraphQL WebSocket events, cron ticks.
-On SQL every request runs its store calls inside one transaction that first sets `app.tenant_id` / `app.tenant_ids` /
-`app.system` with `set_config(…, true)` (transaction-local, PgBouncer-safe, validated not to leak — A3, A9, A10). On
-Mongo the unit of work is a no-op unless a replica set is configured.
+**Decided 2026-10-28 (owner): one transaction per store operation, pipelined into one round trip; `store.transaction(fn)`
+for atomic multi-step writes.** Every SQL store operation sends `BEGIN` · `set_config('app.tenant_id' / 'app.tenant_ids' /
+'app.system', …, true)` · the statement · `COMMIT` through `pg`'s pipeline mode, so it costs one network round trip. The
+settings are read from `RequestContext` at THAT operation, so a `runWithBypassTenantGuard()` section or system mode
+inside a request is honoured exactly where it applies. `store.transaction(fn)` runs several operations on one connection
+in one transaction, re-applying the current context before each statement.
+
+Why not one transaction per request (measured, A13): it holds a pooled connection for the WHOLE request, including mail,
+AI and other external calls — with a pool of 10 and a 200 ms external call that caps a deployment at ~50 requests/s,
+against ~5,900 for per-operation; it keeps locks and old row versions alive for the request's lifetime; and after the
+first failed statement every later one in the request fails ("current transaction is aborted"), while framework code
+today catches database errors and continues — MongoDB without a replica set has exactly per-operation semantics, which
+this keeps. On the database side the cost is small: pipelined per-operation is within ~10 % of per-request on a pure
+database load and needs fewer round trips per operation (1 vs 1.4) once real network latency dominates.
 
 ### 3.9 Configuration: one default, exceptions per model, or none
 
@@ -218,7 +228,8 @@ database: 'postgres://app@db/app'
 
 // Default plus exceptions
 database: {
-  url: 'postgres://app@db/app',                       // default source for every model
+  url: 'postgres://app@db/app',                       // default source for every model — the APP role
+  ownerUrl: 'postgres://owner@db/app',                // schema changes only (boot / migrate) — the table OWNER
   sqlEngine: 'typeorm',                               // 'typeorm' (default) | 'kysely' | 'drizzle'
   sources: { logs: 'mongodb://…/logs' },              // further sources, same shorthand rules
   models: { AuditEntry: 'logs' },                     // the exceptions: model → source
@@ -237,6 +248,16 @@ database: false
   no extra key). Only the project's own `mongoose` counts: `CoreModule.forRoot()` always merges a fallback URI in, so
   "both configured → boot error", as first planned, would have refused every project that sets `database`.
 * Connection URLs appear in errors and logs as scheme + host only — never with credentials, path or options.
+* **Two roles on every SQL source, in every environment (decided 2026-10-28, owner: "local, test and production as alike as
+  possible").** `url` connects as the application role — owns no table, has neither `BYPASSRLS` nor superuser — so RLS
+  cannot be disabled or bypassed from the application's connection. It is NOT a defence against SQL injection: the
+  tenant scope is a setting (`set_config('app.tenant_scope', …)`) that any statement on that connection may write, so
+  injected SQL could give itself the system scope. Injection is kept out by binding every value as a parameter (the
+  compilers never write a value into the SQL text); RLS covers the forgotten filter and the query outside the
+  framework, not a hostile statement. `ownerUrl` owns the schema
+  and is used only for schema evolution. The boot refuses an application role that is superuser, has `BYPASSRLS` or owns
+  a framework table — locally exactly as in production. The test infrastructure and `lt dev` (DEV-3850) create both
+  roles automatically, so the separation costs nothing locally.
 * Boot validation: unknown source names, a model needing a capability its source lacks, an engine configured but not
   installed, an engine on a dialect it does not support — each fails the boot with a named error. The boot logs one
   line per model: model → source → database → engine.
@@ -335,6 +356,7 @@ storage interfaces per infrastructure feature with contract tests; the outbox cl
 | A10 | pool hygiene under query timeouts | without guard: TypeORM leaks (pool hangs, 2 connections idle in transaction), Kysely poisons (next query saw the dead transaction's tenant), Drizzle rc.5 and careful `pg` pass; **with the framework pool guard all four pass** |
 | A11 | MySQL 8.4 / MariaDB 11.8 | Drizzle, TypeORM, Kysely: JSON round trip + containment, rollback, atomic claim pass; MariaDB returns JSON as a string (store maps by descriptor); Kysely's migrator lock holds under 6 concurrent boots; TypeORM's migrations take no lock |
 | A12 | engine schema tooling on existing data | TypeORM `synchronize`/`migration:generate`: silent data loss on rename and type change; MikroORM: wrong rename guesses; `drizzle-kit`: refuses ambiguous changes without hints (good) but disables RLS on push (#4948) and has no lock (#874) → framework-owned evolution (§3.12) |
+| A13 | transaction granularity with RLS | Postgres 18, primary-key read on a FORCE-RLS table as a non-owner role, two runs: bare statement 222 µs/op · per operation naive (4 round trips) 806–816 · combined (3) 589–598 · **per operation pipelined (1) 324–340, 10.9–12.1 k ops/s** · per request with 5 operations 279–302, ~15.7 k ops/s on a pure database load. Per request holds a connection for the request's whole duration (`prototypes/18-tx-granularity.mjs`) |
 
 ## 6. Phases
 
@@ -400,6 +422,34 @@ for a MongoDB project (the existing tests are the proof); only phase 5 carries a
 8. Postgres test container in `scripts/test-infra.mjs` (pinned image, own port), per-run database under the existing
    drop guard; parity matrix: Postgres × {TypeORM, Kysely, Drizzle} columns, the whole CrudService contract and the
    tenant suite green in every column.
+
+**Decided while implementing phase 1 (2026-10-28):**
+* *Transactions (step 3):* no unit of work per request — per operation, pipelined (§3.8). The scope of every statement
+  is `resolveTenantScope()` (tenant policy), read at that statement. `DataStore.transaction(fn)` is NOT on the port
+  yet; the executor has it. It arrives with its first consumers in phase 2.
+* *Pool guard:* besides the A10 cases, it listens for `error` while a connection is checked out (pg-pool listens only
+  on idle ones; in pipeline mode a query timeout destroys the socket and the unlistened error ended the process) and
+  adds a pool `error` listener where the engine has none (Kysely, Drizzle). Engine error wrappers are unwrapped, so
+  every engine fails with the same pg error (Drizzle's wrapper printed the parameters).
+* *Schema:* table = the MongoDB collection name in snake_case (`mongoose.pluralize()` — phase 5 must replace that
+  dependency); strings `COLLATE "C"` (byte-wise like MongoDB); every column nullable (the database does not enforce
+  `required`, as on MongoDB); unique indexes `NULLS NOT DISTINCT` → **PostgreSQL ≥ 15**, checked at boot; partial
+  indexes compiled from `partialFilterExpression` (`$type` added to the compiler, DDL literals as escape strings); GIN
+  for single-field array/JSON indexes; text/2dsphere/hashed reported, not created; TTL indexes become plain indexes —
+  **no TTL sweeper yet** (phase 2, with the cron leases). The schema runner serialises with a transaction-scoped
+  advisory lock rather than the `LockStore` (DDL is transactional; the lock ends with it). A table that stops being
+  tenant-isolated keeps its RLS and the boot stops until a migration removes it (fail closed).
+* *Routing:* the model registry is process-wide, so each SQL model's table is migrated when ITS store is created
+  (idempotent under the lock), not for every registered model — tests boot several applications per process.
+* *Neutral CrudService:* `update` writes the stored record merged with the input back, as on MongoDB (minus id and
+  update time); `samples` and Mongoose-only APIs refuse with `UnsupportedCapabilityError`; a collation is not applied
+  (warned once). A service given only `@InjectStore()` runs on MongoDB too.
+* *Claims:* `PostgresLockStore` (its table `lt_locks` travels with every SQL schema). A neutral `upsert` on the store
+  port is NOT done — its consumers (system setup, cron) move in phase 2.
+* *Observation, not changed (pre-existing, identical on both stores):* `CorePersistenceModel` carries
+  `@Restricted(S_EVERYONE)` on the class; with `mergeRoles` a field restriction is OR-ed with the class roles, so
+  `@Restricted(ADMIN)` on a field of a model without its own class restriction is visible to everyone. The user model
+  sets `@Restricted(ADMIN)` on its class. For the owner to decide whether the default should change.
 
 ### Phase 2 — Core modules on SQL (DEV-3830)
 User (unique email, partial reset-token index, token maps as JSON), Tenant (+ `isTenantActive` with a neutral
@@ -501,3 +551,5 @@ Phase 0 ~2,800 · Phase 1 ~5,000 · Phase 2 ~3,000 · Phase 3 ~2,500 · Phase 4 
 * No hard foreign keys across modules; refs are indexed text columns.
 * RLS mandatory for tenant-scoped tables on Postgres; the API connects as a non-owner role.
 * Commits: local per TDD step, pushed as one commit per phase.
+* SQL transactions: one per store operation, pipelined into one round trip; `store.transaction(fn)` for atomic multi-step writes (§3.8, A13).
+* Two roles on every SQL source in every environment: application role (`url`) and owner (`ownerUrl`), checked at boot (§3.9).

@@ -3255,6 +3255,337 @@
         "tests/unit/persistence-data-source-config.spec.ts"
       ],
       "driverSpecific": false
+    },
+    {
+      "id": "sql-scope-outlives-transaction",
+      "defect": "DEV-3829 (db-agnostic phase 1) — a tenant scope written for the session instead of the transaction outlives its statement, and the next request on that pooled connection reads the previous request's tenant.",
+      "file": "src/core/common/persistence/sql/sql-session.ts",
+      "find": "set_config('app.tenant_id', $2, true)",
+      "replace": "set_config('app.tenant_id', $2, false)",
+      "specs": [
+        "tests/persistence-sql-executor.e2e-spec.ts"
+      ],
+      "driverSpecific": false
+    },
+    {
+      "id": "sql-pool-guard-reuses-dirty-client",
+      "defect": "DEV-3829 (db-agnostic phase 1, A10) — a connection handed back to the pool inside a transaction or with a query in flight is re-used, and the next request runs inside the dead transaction with the previous request's tenant.",
+      "file": "src/core/common/persistence/sql/sql-session.ts",
+      "find": "      return release(error ?? died ?? unhealthy(client));",
+      "replace": "      return release(error ?? died);",
+      "specs": [
+        "tests/persistence-sql-executor.e2e-spec.ts"
+      ],
+      "driverSpecific": false
+    },
+    {
+      "id": "sql-pool-guard-unlistened-checkout-error",
+      "defect": "DEV-3829 (db-agnostic phase 1) — pg-pool listens for `error` only on idle connections; a connection that dies while checked out (server termination, or a pipelined query timeout) emits `error` with nobody listening, and Node ends the process.",
+      "file": "src/core/common/persistence/sql/sql-session.ts",
+      "find": "    client.on?.('error', onError);\n",
+      "replace": "",
+      "specs": [
+        "tests/persistence-sql-executor.e2e-spec.ts"
+      ],
+      "driverSpecific": false
+    },
+    {
+      "id": "sql-where-inlines-values",
+      "defect": "DEV-3829 (db-agnostic phase 1) — a filter value written into the SQL text instead of bound as a parameter turns every filterQuery a client sends into SQL it controls.",
+      "find": "return cast === null ? `${target.expr} IS NULL` : `${target.expr} = ${this.params.add(cast)}`;",
+      "replace": "return cast === null ? `${target.expr} IS NULL` : `${target.expr} = '${String(cast)}'`;",
+      "specs": [
+        "tests/unit/persistence-sql-where.spec.ts"
+      ],
+      "file": "src/core/common/persistence/sql/postgres/postgres-where.compiler.ts",
+      "driverSpecific": false
+    },
+    {
+      "id": "sql-where-inlines-json-path",
+      "defect": "DEV-3829 (db-agnostic phase 1) — JSON path segments spliced into the SQL text instead of bound as a text[] parameter.",
+      "find": "return segments.length ? `(${base} #> ${this.params.add(segments)}::text[])` : base;",
+      "replace": "return segments.length ? `(${base} #> '{${segments.join(',')}}')` : base;",
+      "specs": [
+        "tests/unit/persistence-sql-where.spec.ts"
+      ],
+      "file": "src/core/common/persistence/sql/postgres/postgres-where.compiler.ts",
+      "driverSpecific": false
+    },
+    {
+      "id": "sql-where-drops-unsupported-operator",
+      "defect": "DEV-3829 (db-agnostic phase 1) — an operator the compiler does not know is skipped instead of refused, which widens the query: a condition meant to narrow a read silently disappears.",
+      "find": "        default:\n          throw new UnsupportedQueryError(`${operator} is not supported on SQL`);",
+      "replace": "        default:\n          parts.push('TRUE');",
+      "specs": [
+        "tests/unit/persistence-sql-where.spec.ts"
+      ],
+      "file": "src/core/common/persistence/sql/postgres/postgres-where.compiler.ts",
+      "driverSpecific": false
+    },
+    {
+      "id": "sql-where-ne-excludes-missing",
+      "defect": "DEV-3829 (db-agnostic phase 1) — $ne compiled as NOT (a = $1) is NULL for a missing value, so a record without the field disappears from a $ne read that MongoDB returns.",
+      "find": "          parts.push(`NOT COALESCE(${this.eq(target, value)}, FALSE)`);",
+      "replace": "          parts.push(`NOT (${this.eq(target, value)})`);",
+      "specs": [
+        "tests/persistence-sql-where.e2e-spec.ts"
+      ],
+      "file": "src/core/common/persistence/sql/postgres/postgres-where.compiler.ts",
+      "driverSpecific": false
+    },
+    {
+      "id": "sql-schema-unique-index-automatic",
+      "defect": "DEV-3829 (db-agnostic phase 1) — a new unique index applied at boot can fail on the rows already stored, or change what may be written, without anybody reviewing it.",
+      "file": "src/core/common/persistence/sql/postgres/postgres-schema.migrator.ts",
+      "find": "      kind: index.unique ? 'migration' : 'automatic',",
+      "replace": "      kind: 'automatic',",
+      "specs": [
+        "tests/persistence-sql-schema.e2e-spec.ts"
+      ],
+      "driverSpecific": false
+    },
+    {
+      "id": "sql-rls-guard-allows-missing-scope",
+      "defect": "DEV-3829 (db-agnostic phase 1) — a guard function that reads a missing tenant context as \"no restriction\" turns every query outside the framework's scope into a read of every tenant's rows.",
+      "file": "src/core/common/persistence/sql/postgres/postgres-schema.compiler.ts",
+      "find": "  RAISE EXCEPTION 'tenant-scoped data accessed without a tenant context' USING ERRCODE = 'insufficient_privilege';",
+      "replace": "  RETURN NULL;",
+      "specs": [
+        "tests/persistence-sql-schema.e2e-spec.ts",
+        "tests/persistence-parity.e2e-spec.ts"
+      ],
+      "driverSpecific": false
+    },
+    {
+      "id": "sql-rls-not-forced",
+      "defect": "DEV-3829 (db-agnostic phase 1) — without FORCE, row-level security does not bind the table owner, so any connection as the owner reads every tenant.",
+      "file": "src/core/common/persistence/sql/postgres/postgres-schema.compiler.ts",
+      "find": "    `ALTER TABLE ${quoted} FORCE ROW LEVEL SECURITY`,\n",
+      "replace": "",
+      "specs": [
+        "tests/persistence-sql-schema.e2e-spec.ts"
+      ],
+      "driverSpecific": false
+    },
+    {
+      "id": "sql-role-check-accepts-owner",
+      "defect": "DEV-3829 (db-agnostic phase 1) — an application role that owns a framework table may disable its row-level security from the app's own connection.",
+      "file": "src/core/common/persistence/sql/postgres/postgres-schema.migrator.ts",
+      "find": "  if (role.owned?.length) {\n    problems.push(`owns (or inherits the owner of) ${role.owned.join(', ')}`);\n  }\n",
+      "replace": "",
+      "specs": [
+        "tests/persistence-sql-schema.e2e-spec.ts"
+      ],
+      "driverSpecific": false
+    },
+    {
+      "id": "sql-schema-allows-system-roles",
+      "defect": "DEV-3829 (db-agnostic phase 1) — a roles column without the system-role CHECK stores s_* roles, which satisfy every S_SELF check (11.35.0).",
+      "file": "src/core/common/persistence/sql/postgres/postgres-schema.compiler.ts",
+      "find": "  if (roles?.isArray && (roles.kind === 'string' || roles.kind === 'enum')) {",
+      "replace": "  if (roles?.isArray && roles.kind === 'never') {",
+      "specs": [
+        "tests/persistence-sql-schema.e2e-spec.ts"
+      ],
+      "driverSpecific": false
+    },
+    {
+      "id": "sql-store-drops-tenant-filter",
+      "defect": "DEV-3829 (db-agnostic phase 1) — without the store's own tenant predicate a tenant reads and writes every tenant's rows on any table or database without row-level security.",
+      "file": "src/core/common/persistence/sql/sql-data-store.ts",
+      "find": "      tenantFilter && Object.keys(tenantFilter).length ? { $and: [where ?? {}, tenantFilter] } : (where ?? {});",
+      "replace": "      where ?? {};",
+      "specs": [
+        "tests/persistence-sql-store.e2e-spec.ts"
+      ],
+      "driverSpecific": false
+    },
+    {
+      "id": "sql-store-scope-always-system",
+      "defect": "DEV-3829 (db-agnostic phase 1) — a statement sent with the system scope makes row-level security read every tenant, whatever the request's tenant is.",
+      "file": "src/core/common/persistence/sql/sql-data-store.ts",
+      "find": "      return await this.executor.run<R>(statement, resolveTenantScope());",
+      "replace": "      return await this.executor.run<R>(statement, { kind: 'system' });",
+      "specs": [
+        "tests/persistence-sql-store.e2e-spec.ts"
+      ],
+      "driverSpecific": false
+    },
+    {
+      "id": "sql-store-skips-row-check",
+      "defect": "DEV-3829 (db-agnostic phase 1) — without the after-layer, a read that lost its tenant filter on a database without row-level security answers with a foreign tenant's rows.",
+      "file": "src/core/common/persistence/sql/sql-data-store.ts",
+      "find": "      assertRowsInTenantScope(\n        this.modelName,\n        rows.map((row) => ({ tenantId: row.tenant_id })),\n      );",
+      "replace": "      void rows;",
+      "specs": [
+        "tests/persistence-sql-store.e2e-spec.ts"
+      ],
+      "driverSpecific": false
+    },
+    {
+      "id": "sql-update-drops-unknown-operator",
+      "defect": "DEV-3829 (db-agnostic phase 1) — an update operator the compiler does not know is skipped, so the write silently does something else than asked.",
+      "file": "src/core/common/persistence/sql/postgres/postgres-update.compiler.ts",
+      "find": "          default:\n            throw new UnsupportedQueryError(`${operator} is not supported on SQL`);",
+      "replace": "          default:\n            break;",
+      "specs": [
+        "tests/persistence-sql-store.e2e-spec.ts"
+      ],
+      "driverSpecific": false
+    },
+    {
+      "id": "sql-lock-store-takes-held-lease",
+      "defect": "DEV-3829 (db-agnostic phase 1) — a lease claim on PostgreSQL that does not compare expires_at takes over a held, unexpired lease, so two replicas run what exactly one of them may run.",
+      "file": "src/core/common/persistence/sql/postgres/postgres-lock-store.ts",
+      "find": "          WHERE ${TABLE}.\"expires_at\" <= now()\n",
+      "replace": "",
+      "specs": [
+        "tests/persistence-lock-store.e2e-spec.ts"
+      ],
+      "driverSpecific": false
+    },
+    {
+      "id": "crud-mongoose-api-on-sql-store",
+      "defect": "DEV-3829 (db-agnostic phase 1) — a model routed to PostgreSQL keeps its Mongoose model registered, so a Mongoose-only API on its CrudService reads and writes MongoDB without a word.",
+      "file": "src/core/common/services/crud.service.ts",
+      "find": "  protected assertMongooseStore(method: string): void {\n    if (this.usesNeutralStore) {",
+      "replace": "  protected assertMongooseStore(method: string): void {\n    if (method === \"never\" && this.usesNeutralStore) {",
+      "specs": [
+        "tests/persistence-sql-wiring.e2e-spec.ts"
+      ],
+      "driverSpecific": false
+    },
+    {
+      "id": "sql-runtime-ignores-routing",
+      "defect": "DEV-3829 (db-agnostic phase 1) — a store resolved without the data-source routing serves a model configured for PostgreSQL from MongoDB.",
+      "file": "src/core/common/persistence/data-source.runtime.ts",
+      "find": "    if (!source || source.driver === 'mongodb') {\n      return new MongooseDataStore(mongoModel as any);",
+      "replace": "    if (source || !source) {\n      return new MongooseDataStore(mongoModel as any);",
+      "specs": [
+        "tests/persistence-sql-wiring.e2e-spec.ts"
+      ],
+      "driverSpecific": false
+    },
+    {
+      "id": "sql-runtime-skips-role-check",
+      "defect": "DEV-3829 (db-agnostic phase 1) — booting with an application connection that owns the tables or is a superuser leaves tenant isolation to the application: row-level security does not bind it.",
+      "file": "src/core/common/persistence/data-source.runtime.ts",
+      "find": "    await assertSafeApplicationRole(app, [tableName(model), tableName(LOCK_MODEL)]);\n",
+      "replace": "",
+      "specs": [
+        "tests/persistence-sql-wiring.e2e-spec.ts"
+      ],
+      "driverSpecific": false
+    },
+    {
+      "id": "sql-schema-drops-rls-automatically",
+      "defect": "DEV-3829 (db-agnostic phase 1) — a table that stops being tenant-isolated by configuration would lose its row-level security without review; a configuration slip must not switch database-level isolation off.",
+      "file": "src/core/common/persistence/sql/postgres/postgres-schema.migrator.ts",
+      "find": "      kind: 'migration',\n      statements: [\n        `DROP POLICY IF EXISTS",
+      "replace": "      kind: 'automatic',\n      statements: [\n        `DROP POLICY IF EXISTS",
+      "specs": [
+        "tests/persistence-sql-schema.e2e-spec.ts"
+      ],
+      "driverSpecific": false
+    },
+    {
+      "id": "redact-url-first-at",
+      "defect": "DEV-3829 (db-agnostic phase 1, review) — credentials cut at the first `@` put the tail of a password with an unencoded `@` into every boot log line and error.",
+      "file": "src/core/common/persistence/data-source.config.ts",
+      "find": "  return `${scheme[1]}//${authority.slice(authority.lastIndexOf('@') + 1)}`;",
+      "replace": "  return `${scheme[1]}//${authority.slice(authority.indexOf('@') + 1)}`;",
+      "specs": [
+        "tests/unit/persistence-data-source-config.spec.ts"
+      ],
+      "driverSpecific": false
+    },
+    {
+      "id": "owner-url-without-url-accepted",
+      "defect": "DEV-3829 (db-agnostic phase 1, review) — an NSC__DATABASE__OWNER_URL merged over a `database` URL string replaced it; the URL was gone and every model fell back to MongoDB without a word.",
+      "file": "src/core/common/persistence/data-source.config.ts",
+      "find": "  if (config.ownerUrl !== undefined && config.url === undefined) {",
+      "replace": "  if (config.ownerUrl !== undefined && config.url === undefined && false) {",
+      "specs": [
+        "tests/unit/persistence-data-source-config.spec.ts"
+      ],
+      "driverSpecific": false
+    },
+    {
+      "id": "sql-update-keeps-undeclared",
+      "defect": "DEV-3829 (db-agnostic phase 1, review) — CrudService.update() merges `updatedBy` into every update with a current user; on a model without that field the SQL store refused the path and answered 500, where MongoDB strict mode drops it.",
+      "file": "src/core/common/persistence/sql/sql-data-store.ts",
+      "find": "    const patch = this.dropUndeclared(await this.beforeUpdate(clone(update)));",
+      "replace": "    const patch = await this.beforeUpdate(clone(update));",
+      "specs": [
+        "tests/persistence-sql-wiring.e2e-spec.ts"
+      ],
+      "driverSpecific": false
+    },
+    {
+      "id": "sql-update-clone-loses-object-id",
+      "defect": "DEV-3829 (db-agnostic phase 1, review) — structuredClone turns an ObjectId in an update into a plain object, and the cast refuses the reference CrudService passes.",
+      "file": "src/core/common/persistence/sql/sql-data-store.ts",
+      "find": "function clone<V>(value: V): V {\n  if (Array.isArray(value)) {",
+      "replace": "function clone<V>(value: V): V {\n  return value && typeof value === 'object' ? (structuredClone(value) as V) : value;\n  if (Array.isArray(value)) {",
+      "specs": [
+        "tests/persistence-parity.e2e-spec.ts"
+      ],
+      "driverSpecific": false
+    },
+    {
+      "id": "sql-update-expression-doubles",
+      "defect": "DEV-3829 (db-agnostic phase 1, review) — the running expression of a column was inlined at every reference, so each nested level and each chained $inc doubled the statement (2^n), a request any client could send.",
+      "file": "src/core/common/persistence/sql/postgres/postgres-update.compiler.ts",
+      "find": "    return `(SELECT ${build(`${alias}.v`)} FROM (SELECT ${expr} AS v) AS ${alias})`;",
+      "replace": "    return build(`(${expr})`);",
+      "specs": [
+        "tests/unit/persistence-sql-update.spec.ts"
+      ],
+      "driverSpecific": false
+    },
+    {
+      "id": "persisted-model-needs-model-option",
+      "defect": "DEV-3829 (db-agnostic phase 1, review) — @PersistedModel was read only from a class passed as `model:`; registered as `{ name, schema }` the declaration did nothing and the model landed on the default source.",
+      "file": "src/core/common/persistence/core-persistence.module.ts",
+      "find": "(model.model ? getPersistedModelOptions(model.model) : getPersistedModelOptionsByName(model.name))",
+      "replace": "(model.model ? getPersistedModelOptions(model.model) : undefined)",
+      "specs": [
+        "tests/persistence-sql-wiring.e2e-spec.ts"
+      ],
+      "driverSpecific": false
+    },
+    {
+      "id": "sql-owner-connection-per-model",
+      "defect": "DEV-3829 (db-agnostic phase 1, review) — the schema was migrated through a new owner connection per model while Nest creates the stores concurrently: one privileged connection per table at boot.",
+      "file": "src/core/common/persistence/data-source.runtime.ts",
+      "find": "      this.owners.set(source.name, pending);",
+      "replace": "      this.owners.set(`${source.name}:${this.owners.size}`, pending);",
+      "specs": [
+        "tests/unit/persistence-data-source-runtime.spec.ts"
+      ],
+      "driverSpecific": false
+    },
+    {
+      "id": "sql-owner-held-after-boot",
+      "defect": "DEV-3829 (db-agnostic phase 1, review) — the owner connection must not outlive the boot; held until shutdown it keeps a table-owning session open for the life of the process.",
+      "file": "src/core/common/persistence/core-persistence.lifecycle.ts",
+      "find": "    await getPersistenceRuntime()?.releaseBootConnections();",
+      "replace": "    // released at shutdown only",
+      "specs": [
+        "tests/persistence-sql-wiring.e2e-spec.ts"
+      ],
+      "driverSpecific": false
+    },
+    {
+      "id": "sql-role-check-accepts-bypassrls",
+      "defect": "DEV-3829 (db-agnostic phase 1, review) — a BYPASSRLS application role reads and writes every tenant’s rows whatever the policies say; nothing pinned its refusal.",
+      "file": "src/core/common/persistence/sql/postgres/postgres-schema.migrator.ts",
+      "find": "  if (role.bypassrls) {",
+      "replace": "  if (role.bypassrls && false) {",
+      "specs": [
+        "tests/persistence-sql-schema.e2e-spec.ts"
+      ],
+      "driverSpecific": false
     }
   ]
 }

@@ -14,16 +14,21 @@
  *                  `persistenceComplement()`. A design difference nobody asserts is indistinguishable from a
  *                  bug nobody noticed.
  *
- * Phase 0 of the database-agnostic work fills the MongoDB column. Phase 1 adds one column per SQL database
- * and engine; every case must then be executed there too, or be declared with a reason.
+ * Phase 0 of the database-agnostic work filled the MongoDB column; phase 1 added PostgreSQL once per engine
+ * (TypeORM, Kysely, Drizzle). Every case is executed in every column, or declared with a reason.
  *
  * Executor: `tests/persistence-parity.e2e-spec.ts`.
  */
 import { it } from 'vitest';
 
-export type PersistenceDriver = 'mongodb';
+export type PersistenceDriver = 'mongodb' | 'postgres-drizzle' | 'postgres-kysely' | 'postgres-typeorm';
 
-export const PERSISTENCE_DRIVERS: readonly PersistenceDriver[] = ['mongodb'] as const;
+export const PERSISTENCE_DRIVERS: readonly PersistenceDriver[] = [
+  'mongodb',
+  'postgres-typeorm',
+  'postgres-kysely',
+  'postgres-drizzle',
+] as const;
 
 export interface PersistenceCase {
   /** Drivers this case is EXECUTED for. Every driver not listed needs an exclusion entry. */
@@ -42,6 +47,7 @@ export interface PersistenceExclusion {
 }
 
 const ALL = PERSISTENCE_DRIVERS;
+const SQL = PERSISTENCE_DRIVERS.filter((driver) => driver !== 'mongodb');
 
 export const PERSISTENCE_CASES: readonly PersistenceCase[] = [
   // --- CRUD contract --------------------------------------------------------------------------------------------
@@ -55,22 +61,59 @@ export const PERSISTENCE_CASES: readonly PersistenceCase[] = [
   { drivers: ALL, id: 'find-by-neutral-id', title: 'find and findOne address the id as `id`, also inside $or' },
   { drivers: ALL, id: 'find-one', title: 'findOne returns the first match, and null without one' },
   { drivers: ALL, id: 'find-select', title: 'select returns the requested fields and always the id' },
+  {
+    drivers: ALL,
+    id: 'select-hidden-fields',
+    title: 'a select: false field is left out unless it is selected by name',
+  },
+  {
+    drivers: ALL,
+    id: 'select-plain-names-only',
+    title: 'select refuses a name with a projection modifier (+field, -field)',
+  },
+  { drivers: ALL, id: 'sort-missing-first', title: 'a missing value sorts first ascending and last descending' },
+  { drivers: ALL, id: 'insert-applies-defaults', title: 'insert applies literal, function and array defaults' },
   { drivers: ALL, id: 'count', title: 'count counts the matches' },
   { drivers: ALL, id: 'distinct', title: 'distinct returns each value once' },
+  { drivers: ALL, id: 'distinct-array-items', title: 'distinct over an array field returns its items' },
   {
     drivers: ALL,
     id: 'update-partial',
-    title: 'updateById with a partial record sets those fields and returns the result',
+    title: 'updateById with a partial record sets those fields (an ObjectId value included) and returns the result',
   },
   { drivers: ALL, id: 'update-operators', title: 'updateById applies $inc and $unset' },
+  { drivers: ALL, id: 'update-nested-path', title: 'updateById sets and increments paths inside an embedded object' },
+  { drivers: ALL, id: 'update-array-operators', title: 'updateById applies $push, $addToSet and $pull' },
+  {
+    drivers: ALL,
+    id: 'duplicate-key-11000',
+    title: 'a duplicate unique value fails with code 11000 and an E11000 message',
+  },
   { drivers: ALL, id: 'delete-by-id', title: 'deleteById removes the record and returns it' },
   { drivers: ALL, id: 'push-with-slice', title: 'pushToArray appends atomically and keeps the last n with slice' },
+  { drivers: ALL, id: 'push-position-and-sort', title: 'pushToArray inserts at a position and sorts the array' },
+  {
+    drivers: ALL,
+    id: 'push-concurrent',
+    title: '20 concurrent pushToArray calls on one record all land (atomic, no lost update)',
+  },
   { drivers: ALL, id: 'pull-by-condition', title: 'pullFromArray removes the matching items' },
   { drivers: ALL, id: 'array-field-guard', title: 'array operations refuse an operator or empty field name' },
   {
     drivers: ALL,
     id: 'native-access-needs-reason',
     title: 'native() and raw() refuse an access without a meaningful reason',
+  },
+  // --- Through a CrudService (what a project's service runs on the store) ---------------------------------------
+  {
+    drivers: ALL,
+    id: 'crud-service-pipeline',
+    title: 'a CrudService creates, reads, finds, counts, updates and deletes through the store',
+  },
+  {
+    drivers: ALL,
+    id: 'crud-service-populate',
+    title: 'a CrudService populates a reference with the referenced record',
   },
   // --- Security policies (before-layer and after-layer) ---------------------------------------------------------
   { drivers: ALL, id: 'tenant-filters-reads', title: 'a tenant sees only its own rows' },
@@ -82,9 +125,23 @@ export const PERSISTENCE_CASES: readonly PersistenceCase[] = [
   { drivers: ALL, id: 'password-hashed', title: 'a password is stored hashed, never in plaintext' },
   { drivers: ALL, id: 'system-role-refused', title: 'a system role is never stored' },
   { drivers: ALL, id: 'role-change-stripped', title: 'a role change by a non-admin is stripped' },
+  {
+    drivers: SQL,
+    id: 'native-api-tenant-refused',
+    title: 'a query on a tenant table through the native engine API is refused by the database without a tenant scope',
+  },
 ];
 
-export const PERSISTENCE_EXCLUSIONS: readonly PersistenceExclusion[] = [];
+export const PERSISTENCE_EXCLUSIONS: readonly PersistenceExclusion[] = [
+  {
+    case: 'native-api-tenant-refused',
+    driver: 'mongodb',
+    provenBy: 'tenant-safety-net',
+    reason:
+      'DIFFERENT-BY-DESIGN: MongoDB has no database-level isolation; the native Mongoose model keeps the tenant ' +
+      'plugin, which filters by the tenant, refuses a request without one, and lets system work through',
+  },
+];
 
 export function getPersistenceCase(id: string): PersistenceCase {
   const found = PERSISTENCE_CASES.find((entry) => entry.id === id);

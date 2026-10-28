@@ -56,6 +56,11 @@ export interface FieldDescriptor {
   nested?: Record<string, FieldDescriptor>;
   /** Target model of a reference (`kind: 'ref'`) */
   ref?: string;
+  /**
+   * The field's previous name: a SQL store renames the column instead of adding a new, empty one. Declared, never
+   * guessed (plan §3.12) — MongoDB documents keep the old key until a migration moves it.
+   */
+  renamedFrom?: string;
   required: boolean;
   /** `false` when the field is excluded from reads unless explicitly selected (`select: false`) */
   select: boolean;

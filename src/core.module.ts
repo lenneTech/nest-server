@@ -40,7 +40,14 @@ import {
 } from './core/common/interfaces/server-options.interface.js';
 import { RequestContextMiddleware } from './core/common/middleware/request-context.middleware.js';
 import { SecurityHeadersMiddleware } from './core/common/middlewares/security-headers.middleware.js';
-import { assertDataSourcesSupported, resolveDataSources } from './core/common/persistence/data-source.config.js';
+import { CorePersistenceLifecycle } from './core/common/persistence/core-persistence.lifecycle.js';
+import {
+  assertDataSourcesSupported,
+  hasSqlSource,
+  resolveDataSources,
+} from './core/common/persistence/data-source.config.js';
+import { DataSourceRuntime } from './core/common/persistence/data-source.runtime.js';
+import { setPersistenceRuntime } from './core/common/persistence/persistence-runtime.registry.js';
 import { MapAndValidatePipe } from './core/common/pipes/map-and-validate.pipe.js';
 import { ComplexityPlugin } from './core/common/plugins/complexity.plugin.js';
 import { mongooseIdPlugin } from './core/common/plugins/mongoose-id.plugin.js';
@@ -282,6 +289,10 @@ export class CoreModule implements NestModule {
     if (defaultSource?.driver === 'mongodb') {
       config.mongoose.uri = defaultSource.url;
     }
+    // A SQL source routes the models registered with CorePersistenceModule.forFeature() to it; without one, nothing
+    // is installed and every model keeps its Mongoose store
+    const sqlSources = hasSqlSource(dataSources);
+    setPersistenceRuntime(sqlSources ? new DataSourceRuntime(dataSources) : undefined);
 
     // Wrap connectionFactory to add security plugins (password hashing, role guard)
     const originalConnectionFactory = config.mongoose?.options?.connectionFactory;
@@ -361,6 +372,9 @@ export class CoreModule implements NestModule {
       TemplateService,
       MailjetService,
     ];
+    if (sqlSources) {
+      providers.push(CorePersistenceLifecycle);
+    }
 
     // Add ComplexityPlugin only if not in Vitest (Vitest has dual GraphQL loading issue) and GraphQL is enabled
     if (!process.env.VITEST && isGraphQlEnabled) {

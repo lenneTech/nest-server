@@ -32,11 +32,11 @@ that every `*.spec.ts` / `*.test.ts` in the repo is claimed by **exactly one** r
 mis-named suite fails the build instead of silently passing. Type-only tests
 (`tests/types/*.type-test.ts`) are compiled by `pnpm run test:types`, never executed.
 
-## Infrastructure containers (Redis + S3)
+## Infrastructure containers (Redis + S3 + PostgreSQL)
 
-**Eight** e2e suites talk to a **real** Redis and/or a **real** S3-compatible store rather than a
-mock, and they **fail loudly** when it is missing — a silently skipped infrastructure test is how an
-untested driver ships:
+**Fifteen** e2e suites talk to a **real** Redis, a **real** S3-compatible store and/or a **real**
+PostgreSQL rather than a mock, and they **fail loudly** when it is missing — a silently skipped
+infrastructure test is how an untested driver ships:
 
 | Suite | Needs |
 |-------|-------|
@@ -48,10 +48,17 @@ untested driver ships:
 | `tests/file-storage-http-parity.e2e-spec.ts` | S3 |
 | `tests/redis-s3-bootstrap.e2e-spec.ts` | Redis + S3 |
 | `tests/graceful-shutdown.e2e-spec.ts` | Redis + S3 |
+| `tests/persistence-sql-executor.e2e-spec.ts` | PostgreSQL |
+| `tests/persistence-sql-where.e2e-spec.ts` | PostgreSQL |
+| `tests/persistence-sql-schema.e2e-spec.ts` | PostgreSQL |
+| `tests/persistence-sql-store.e2e-spec.ts` | PostgreSQL |
+| `tests/persistence-parity.e2e-spec.ts` | PostgreSQL (and MongoDB) |
+| `tests/persistence-lock-store.e2e-spec.ts` | PostgreSQL (and MongoDB) |
+| `tests/persistence-sql-wiring.e2e-spec.ts` | PostgreSQL (and MongoDB) |
 
-`tests/global-setup.ts` starts both containers automatically, so `pnpm test` works from a clean
+`tests/global-setup.ts` starts all three containers automatically, so `pnpm test` works from a clean
 machine with no manual docker command. It is idempotent (a running container is reused) and never
-fatal: without Docker every other suite still runs, and the eight above report their own actionable
+fatal: without Docker every other suite still runs, and the fifteen above report their own actionable
 error.
 
 ```bash
@@ -60,10 +67,19 @@ pnpm run test:infra:status   # what is running
 pnpm run test:infra:down     # stop and remove
 ```
 
-| | Redis | S3 (RustFS) |
-|---|---|---|
-| Port | 6380 (6379 is an auth-protected TurboOps Redis on lt dev machines) | 9102 |
-| Container | `nest-server-2985-redis` | `nest-server-2985-rustfs` |
+| | Redis | S3 (RustFS) | PostgreSQL |
+|---|---|---|---|
+| Port | 6380 (6379 is an auth-protected TurboOps Redis on lt dev machines) | 9102 | 5440 |
+| Container | `nest-server-2985-redis` | `nest-server-2985-rustfs` | `nest-server-2985-postgres` |
+
+**PostgreSQL runs with two roles, as every environment does** (`.claude/plans/db-agnostic/PLAN.md`
+§3.9): `nest_owner` owns the databases and their schema, `nest_app` owns nothing and has neither
+superuser nor `BYPASSRLS` — so a suite running as the application role meets row-level security the
+way production does. The readiness step creates `nest_app`, which is why the container is started
+through `pnpm run test:infra` (or the CI action) and not by a bare `docker run`. Each suite creates
+its own database through `tests/helpers/postgres-test-db.ts`, named after the run
+(`deriveTestDbUri()`), refused unless it passes the drop guard, and dropped in `afterAll`. Overridable
+via `PG_HOST`, `PG_PORT`, `PG_OWNER_USER`, `PG_OWNER_PASSWORD`, `PG_APP_USER`, `PG_APP_PASSWORD`.
 
 **CI provisions its own** containers in `.github/workflows/*.yml` and sets `LT_TEST_INFRA=0` so the
 automatic start stays out of the way. Same images, same ports — only who starts them differs. Set
@@ -212,7 +228,7 @@ exactly that (`getRawFileInfoByName()` consulted two of the three stores), and e
 | Route-contract executor (boots the real `ServerModule` per driver) | `tests/file-storage-http-parity.e2e-spec.ts` |
 | Structural guard | `tests/unit/file-storage-parity-matrix.spec.ts` |
 
-The **data store** contract follows the same discipline: `tests/helpers/persistence-matrix.ts` declares the cases (CRUD contract plus the security policies), `tests/persistence-parity.e2e-spec.ts` executes them against a store obtained via `CorePersistenceModule.forFeature()` + `@InjectStore()` with every security plugin registered, and `tests/unit/persistence-parity-matrix.spec.ts` guards that every (case, database) cell is declared. Today it has one column (`mongodb`); each SQL database and engine becomes a column of its own (plan `.claude/plans/db-agnostic/PLAN.md` §6).
+The **data store** contract follows the same discipline: `tests/helpers/persistence-matrix.ts` declares the cases (CRUD contract plus the security policies), `tests/persistence-parity.e2e-spec.ts` executes them against a store obtained via `CorePersistenceModule.forFeature()` + `@InjectStore()` with every security plugin registered, and `tests/unit/persistence-parity-matrix.spec.ts` guards that every (case, database) cell is declared. It has four columns: `mongodb`, and PostgreSQL once per engine (`postgres-typeorm`, `postgres-kysely`, `postgres-drizzle`) — the PostgreSQL columns run a `SqlDataStore` over the schema the migrator created, connected as the application role, so row-level security binds every case. A further database (MySQL / MariaDB, plan `.claude/plans/db-agnostic/PLAN.md` §6) becomes a column of its own. Each tenant layer of the SQL store is additionally proven ALONE in `tests/persistence-sql-store.e2e-spec.ts` — the matrix runs them together, where one layer hides the loss of another.
 
 ### A cell is EXECUTED, IMPOSSIBLE, or DIFFERENT-BY-DESIGN — never merely absent
 
@@ -275,7 +291,7 @@ pnpm run check:mutations -- --id=<id>       # one mutation
 pnpm run check:mutations -- --list          # the registry, without running anything
 pnpm run check:mutations -- --allow-dirty   # when the fix and its evidence share a working tree
 pnpm run check:mutations -- --jobs=4        # N mutations at a time (default: 2, or 4 on >=12 cores)
-pnpm run check:mutations -- --no-infra      # only the 187 that need no MongoDB
+pnpm run check:mutations -- --no-infra      # only the 194 that need no MongoDB
 pnpm run check:mutations -- --since=<ref>   # only mutations touching files changed since <ref>
 ```
 
@@ -294,7 +310,7 @@ when the registry, a vitest config or a setup file changed, since those can move
 commit, and in CI alongside the publish without blocking it. The price of caching is a cache that
 has to model each spec's full dependency closure correctly, and getting that wrong produces a stale
 PASS for a test that has since gone vacuous — exactly what the gate is there to prevent. Bad trade
-at 282 mutations.
+at 312 mutations.
 
 **Decided 2026-10-03 (repo owner): keep the full run.** Measured at 128 mutations, the CI job for
 11.41.6 took **14 minutes**. The trigger to revisit is that wall time, not the mutation count —
@@ -339,9 +355,9 @@ exactly the environment where the answer matters.
 
 ### The cost is vitest's cold start, not the tests
 
-Worth knowing before optimising the wrong thing: the specs behind all 95 e2e mutations add up to
+Worth knowing before optimising the wrong thing: the specs behind all 118 e2e mutations add up to
 **~40 seconds**. The step takes ~740s. The remaining ~700s is paying vitest's startup — process
-spawn, transform, module graph, mongod connect, DB create and drop — once per mutation, 282 times.
+spawn, transform, module graph, mongod connect, DB create and drop — once per mutation, 312 times.
 That work is largely single-threaded I/O and barely scales with cores: the full registry measures
 **744s on a 12-core laptop and 777s on a 4-vCPU CI runner**.
 

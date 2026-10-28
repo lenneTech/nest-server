@@ -53,6 +53,50 @@ const S3_SECRET_KEY = process.env.S3_SECRET_KEY || 'rustfs-secret';
 
 const s3Url = parseEndpoint(S3_ENDPOINT);
 
+/**
+ * PostgreSQL for the SQL data store suites — with the SAME role separation every environment uses
+ * (`.claude/plans/db-agnostic/PLAN.md` §3.9): the owner role owns the schema, the application role owns
+ * nothing and has neither BYPASSRLS nor superuser, so row-level security holds against it. 5440 keeps clear of
+ * a developer's own Postgres on 5432.
+ */
+const PG_HOST = process.env.PG_HOST || 'localhost';
+const PG_PORT = process.env.PG_PORT ? Number(process.env.PG_PORT) : 5440;
+const PG_OWNER_USER = process.env.PG_OWNER_USER || 'nest_owner';
+const PG_OWNER_PASSWORD = process.env.PG_OWNER_PASSWORD || 'nest-owner-secret';
+const PG_APP_USER = process.env.PG_APP_USER || 'nest_app';
+const PG_APP_PASSWORD = process.env.PG_APP_PASSWORD || 'nest-app-secret';
+const PG_MAINTENANCE_DB = 'nest_server_e2e';
+
+/**
+ * Ready = reachable over TCP (the image's init phase serves the unix socket only) AND the application role
+ * exists with no way around RLS. Creating the role here keeps it idempotent across reused containers.
+ */
+function postgresReady(name) {
+  const sql =
+    `DO $$ BEGIN IF NOT EXISTS (SELECT 1 FROM pg_roles WHERE rolname = '${PG_APP_USER}') THEN ` +
+    `CREATE ROLE ${PG_APP_USER} LOGIN PASSWORD '${PG_APP_PASSWORD}' NOSUPERUSER NOBYPASSRLS NOCREATEDB NOCREATEROLE; ` +
+    `END IF; END $$;`;
+  return (
+    run('docker', [
+      'exec',
+      '-e',
+      `PGPASSWORD=${PG_OWNER_PASSWORD}`,
+      name,
+      'psql',
+      '-h',
+      '127.0.0.1',
+      '-U',
+      PG_OWNER_USER,
+      '-d',
+      PG_MAINTENANCE_DB,
+      '-v',
+      'ON_ERROR_STOP=1',
+      '-c',
+      sql,
+    ]).status === 0
+  );
+}
+
 /** Parse `S3_ENDPOINT` into host + port, tolerating a missing port and a bad URL. */
 function parseEndpoint(endpoint) {
   try {
@@ -97,6 +141,18 @@ const CONTAINERS = [
     ports: [`${s3Url.port}:9000`],
     // No shell client to ping with, so probe the HTTP port directly.
     ready: () => httpReady(s3Url.host === '0.0.0.0' || s3Url.host === '::' ? '127.0.0.1' : s3Url.host, s3Url.port),
+  },
+  {
+    env: {
+      POSTGRES_DB: PG_MAINTENANCE_DB,
+      POSTGRES_PASSWORD: PG_OWNER_PASSWORD,
+      POSTGRES_USER: PG_OWNER_USER,
+    },
+    host: PG_HOST,
+    image: 'postgres:18.6-alpine3.24',
+    name: 'nest-server-2985-postgres',
+    ports: [`${PG_PORT}:5432`],
+    ready: postgresReady,
   },
 ];
 

@@ -3,32 +3,83 @@ import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest';
 
 import type { LockStore } from '../src/core/common/persistence/lock-store.interface';
 import { MongoLockStore } from '../src/core/common/persistence/mongo-lock-store';
+import { PostgresLockStore } from '../src/core/common/persistence/sql/postgres/postgres-lock-store';
+import { applyPostgresSchema } from '../src/core/common/persistence/sql/postgres/postgres-schema.migrator';
+import { createSqlExecutor } from '../src/core/common/persistence/sql/sql-executor.factory';
 import { deriveTestDbUri } from './db-lifecycle.reporter';
+import { createPostgresTestDatabase, PG_APP } from './helpers/postgres-test-db';
 
 /**
- * The LockStore contract, against a real database. Every implementation (MongoDB now, SQL from phase 1)
- * must pass the same cases: they are what makes a lease a lease.
+ * The LockStore contract, against real databases. Every implementation must pass the same cases: they are what
+ * makes a lease a lease.
  */
-describe('LockStore contract — mongodb (e2e)', () => {
-  let client: MongoClient;
+interface LockHarness {
+  locks: LockStore;
+  reset(): Promise<void>;
+  /** Whether the lease record of `key` is still stored */
+  stored(key: string): Promise<boolean>;
+  teardown(): Promise<void>;
+}
+
+async function mongoLocks(): Promise<LockHarness> {
+  const client = await MongoClient.connect(deriveTestDbUri('lock-store'));
+  const collection = client.db().collection('parity-locks');
+  return {
+    locks: new MongoLockStore(collection),
+    reset: async () => {
+      await collection.deleteMany({});
+    },
+    stored: async (key) => (await collection.countDocuments({ _id: key as any })) === 1,
+    teardown: async () => {
+      await client.db().dropDatabase();
+      await client.close();
+    },
+  };
+}
+
+async function postgresLocks(): Promise<LockHarness> {
+  const database = await createPostgresTestDatabase('lock-store');
+  const owner = await createSqlExecutor({ engine: 'typeorm', maxConnections: 1, url: database.ownerUrl });
+  try {
+    await applyPostgresSchema(owner, [], { appRole: PG_APP.user, isTenantIsolated: () => false });
+  } finally {
+    await owner.close();
+  }
+  const app = await createSqlExecutor({ engine: 'kysely', maxConnections: 16, url: database.appUrl });
+  return {
+    locks: new PostgresLockStore(app),
+    reset: async () => {
+      await app.run({ params: [], text: 'DELETE FROM lt_locks' }, { kind: 'system' });
+    },
+    stored: async (key) =>
+      (await app.run({ params: [key], text: 'SELECT 1 FROM lt_locks WHERE id = $1' }, { kind: 'system' })).rowCount ===
+      1,
+    teardown: async () => {
+      await app.close();
+      await database.drop();
+    },
+  };
+}
+
+const HARNESSES: Record<string, () => Promise<LockHarness>> = { mongodb: mongoLocks, postgres: postgresLocks };
+
+describe.each(Object.keys(HARNESSES))('LockStore contract — %s (e2e)', (driver) => {
+  let harness: LockHarness;
   let locks: LockStore;
-  let collection: ReturnType<ReturnType<MongoClient['db']>['collection']>;
 
   const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
 
   beforeAll(async () => {
-    client = await MongoClient.connect(deriveTestDbUri('lock-store'));
-    collection = client.db().collection('parity-locks');
-    locks = new MongoLockStore(collection);
+    harness = await HARNESSES[driver]();
+    locks = harness.locks;
   });
 
   beforeEach(async () => {
-    await collection.deleteMany({});
+    await harness.reset();
   });
 
   afterAll(async () => {
-    await client?.db().dropDatabase();
-    await client?.close();
+    await harness?.teardown();
   });
 
   it('lets exactly one of 16 concurrent contenders win, round after round', async () => {
@@ -45,7 +96,8 @@ describe('LockStore contract — mongodb (e2e)', () => {
    *   a held, unexpired lease, so two replicas run what exactly one of them may run.
    * @seen-failing Drop `expiresAt: { $lte: now }` from the claim filter in
    *   src/core/common/persistence/mongo-lock-store.ts — registered as mutation `lock-store-takes-held-lease`
-   *   in tests/regression-mutations.json.
+   *   in tests/regression-mutations.json; on PostgreSQL drop the `WHERE … expires_at <= now()` of the claim in
+   *   src/core/common/persistence/sql/postgres/postgres-lock-store.ts — mutation `sql-lock-store-takes-held-lease`.
    */
   it('never takes a held, unexpired lease — not even for its own owner', async () => {
     expect(await locks.tryAcquire('held', 'a', 30)).toBe(true);
@@ -65,8 +117,8 @@ describe('LockStore contract — mongodb (e2e)', () => {
   it('decides expiry at claim time, not through a background monitor', async () => {
     expect(await locks.tryAcquire('ttl', 'a', 1)).toBe(true);
     await sleep(1100);
-    // The document is still there (no TTL monitor ran); the claim must still see it as expired
-    expect(await collection.countDocuments({ _id: 'ttl' as any })).toBe(1);
+    // The record is still there (no TTL monitor ran); the claim must still see it as expired
+    expect(await harness.stored('ttl')).toBe(true);
     expect(await locks.tryAcquire('ttl', 'b', 30)).toBe(true);
   });
 

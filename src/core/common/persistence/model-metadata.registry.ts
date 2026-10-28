@@ -154,6 +154,7 @@ function describeField(name: string, schemaType: any, indexes: IndexDescriptor[]
     ...baseField(name),
     ...describeKind(schemaType, options),
     lowercase: options.lowercase === true,
+    renamedFrom: typeof options.renamedFrom === 'string' ? options.renamedFrom : undefined,
     required: !!schemaType?.isRequired,
     select: options.select !== false,
     sparse: !!options.sparse,
