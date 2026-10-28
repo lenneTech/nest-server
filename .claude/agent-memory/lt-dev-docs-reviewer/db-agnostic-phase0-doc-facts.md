@@ -1,6 +1,6 @@
 ---
 name: db-agnostic-phase0-doc-facts
-description: feat/db-agnostic phases 0-4 (DEV-3828..3832) — what the persistence docs claim vs what the code wires; silent wrong-database routes, guard leaks, fail-open recipes; changes the release guide must list
+description: feat/db-agnostic phases 0-5 (DEV-3828..3833) — what the persistence docs claim vs what the code wires; silent wrong-database routes, guard leaks, fail-open recipes; changes the release guide must list
 metadata:
   type: project
 ---
@@ -70,6 +70,22 @@ due in phase 5, DEV-3833).
   metadata (no "nothing is copied" note for files — release-guide item); AI README "budget sums run in the store"
   while MongoDB still aggregates natively.
 - Counts after phase 4: 358 / 202 unit / 156 e2e; seventeen infra suites.
+
+**Phase 5 (2026-10-28, DEV-3833) — MongoDB optional peers, `postgres` e2e project, guide 12.0.x-to-12.1.x:**
+- Reported High: vendor-mode PostgreSQL projects cannot drop the three packages (core `import type`s → 91 TS2307);
+  CLAUDE.md + choosing-a-database.md say they can. See [[vendor-type-imports-need-the-package]].
+- Verified sound: no value import of the three in src/core (only templates/.md); `database` absent still connects the
+  fallback MongoDB (`resolveDataSources` → mongooseUri → `usesMongoDb`); §5 fallback change matches core.module.ts;
+  Quick Migration versions = devDeps (mongoose 9.11.4, @nestjs/mongoose 12.0.0, mongodb 7.7.0); starter keeps
+  mongoose + @nestjs/mongoose in deps, mongodb in devDeps (Dockerfile installs `--prod`, so the guide's "move mongodb"
+  is needed); the updater agent never removes deps, so existing vendor projects keep the three; system-setup README SQL
+  (`lt_locks` column `id`, row `system-setup:initial-admin`) matches PostgresLockStore; compat exports all in barrel.
+- Not reported (latent): the three now live only in framework devDeps + peer ranges, so RAISE_SOURCES
+  (check-consumer.mjs + starter align script) never raises a consumer's RUNTIME pin of them; the next mongoose/mongodb
+  raise must be listed by hand in its guide. testing.md "Consumer gate" still says "nest-server keeps `mongodb` in
+  `dependencies`" (stale history). `lt dev up` always exports NSC__MONGOOSE__URI → counts as explicit `mongoose` →
+  a PostgreSQL-only project without the packages fails boot with MongoPackagesMissingError (lt CLI dev-env.ts:88).
+- Counts after phase 5: 369 mutations / 206 unit / 163 e2e (testing.md and check-mutations.mjs header agree).
 
 **Phase 0 — still relevant for the release guide (behaviour changes for MongoDB projects despite PLAN.md §6
 "Phases 0–4 change nothing"):**

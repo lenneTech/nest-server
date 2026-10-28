@@ -83,3 +83,22 @@ iam-expired-sessions-kept, file-metadata-routing-ignored, gridfs-derived-for-sql
   IAM-project file touches those tables (ai-mcp-oauth-tenant gets its own PG DB).
 - Hook blocks any command text containing a database-drop call (also `col.drop()`); for a Mongo probe use a DB named
   `nest-server-e2e-run-1700000000000-p1` + `deleteMany` — the next run's startup sweep collects it (age > 7 d).
+
+**Phase 5** (DEV-3833, reviewed 2026-10-28; 8 new mutations, `postgres` vitest project, MongoDB optional).
+- `postgres` project: one PG DB per FILE (`tests/postgres-file.setup.ts`, name `<runDb>-pf<pid><rand5>`, guarded,
+  dropped in a setup-file `afterAll` = runs last, `sequence.hooks: stack`). vitest 5 uses ONE `Pool` for all projects,
+  so `VITEST_POOL_ID` (the Mongo `-w<N>` suffix) never collides across projects.
+- Porting raw Mongoose writes to store writes LOSES pins: `MongooseDataStore.updateById/updateOne` both use
+  `findOneAndUpdate`. Probed: dropping the `updateOne` pre-hook from `mongooseSystemRolePlugin` or from
+  `mongooseRoleGuardPlugin` leaves ALL unit specs + server/api-token-security/safety-net/mongoose-plugins/parity green;
+  the base-branch raw-`Model.updateOne` versions went red. Reported High; check for a MongoDB-branch raw-Model case.
+- Declared schema view (Mongoose-free descriptors): `persistence-model-descriptor.spec` compares `declaredSchema(cls)`
+  vs `createForClass(cls)` — BOTH fresh, so post-hoc `XSchema.index()` compound indexes are on neither side. Dropping
+  the compound branch of `collectIndexes()` kept the whole unit suite green. TenantMember `{user,tenant}` unique and
+  the AI `upsertRecord` unique keys depend on it in a PG-only install. Reported High.
+- `check:without-mongodb` app boots no multiTenancy/AI → exercises no compound index. Pluralizer copy matched Mongoose
+  on ~130 words (probe), no finding.
+- `iam-test-db` `UserMatch {}` (and `{ id: undefined }`) now means EVERY user; `userColumns()` silently drops fields
+  without a column (same snake_case rule as `columnName()`). Both only amplify an already-red file — not reported.
+
+- **Phase 5 status:** both Highs FIXED 2026-10-28 — raw `Model.updateOne` cases back on MongoDB in server.e2e and api-token-security (mutations `system-role-plugin-skips-updateone`, `role-guard-skips-updateone`), compound-index case in the descriptor spec (`declared-view-drops-compound-indexes`).

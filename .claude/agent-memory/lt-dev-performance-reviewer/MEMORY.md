@@ -6,7 +6,7 @@
 - [API-Token Module Performance Profile](api-token-module-perf.md) — per-request cost with feature off/on (ns-level), token-request DB budget, bounded Map/rate-limit structures.
 - [Migrate Module Performance Profile](migrate-module-perf.md) — boot/CLI-only (no HTTP path); the per-migration state save is deliberate crash-safety, do NOT flag as N+1.
 - [Persistence layer (db-agnostic) costs](persistence-layer-db-agnostic-costs.md) — measured: tenant post-read row check 16-89 ns/row (~1-4 % of hydrate), ObjectId tag check faster than instanceof.
-- [SQL store perf profile](sql-store-perf-profile.md) — phases 1-4: Mongo path ~7 ns; owner conns FIXED; BA sign-up tx starves pool; phase 4 conversation full-read measured (below bar).
+- [SQL store perf profile](sql-store-perf-profile.md) — phases 1-5: Mongo path ~7 ns; owner conns FIXED; BA sign-up tx starves pool; phase 5 mongo-compat helpers +1-10 ns (cached).
 
 ## Request Path
 - [Auth-gate per-request cost](auth-gate-per-request-cost.md) — the global BetterAuth middleware already authenticates PUBLIC routes; gating adds ~0 lookups, but adds a double-verify failure path and kills shared-cache eligibility.

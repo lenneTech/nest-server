@@ -14,7 +14,8 @@ reuse instead of re-deriving:
   check is 1-4 % of hydration. Registered only on schemas with a `tenantId` path; with multi-tenancy off it
   exits on one frozen-config read. Admin-bypass without header skips the loop entirely.
 - **`isObjectIdLike` (bson `_bsontype` tag)** in `getStringId`: 1.8-4.3 ns vs `instanceof Types.ObjectId`
-  4.5-5.9 ns — faster, not slower.
+  4.5-5.9 ns — faster, not slower, in that call site. Measured in isolation 2026-10-28 it is +3-10 ns per call and
+  +19-33 ns on a MongooseArray (Proxy get trap): see [[sql-store-perf-profile]] phase 5. ns-level either way.
 - **`ModuleService.dataStore` getter**: builds one `MongooseDataStore` per service, cached until
   `mainDbModel` is replaced. Only `CrudService.distinct/pushToArray/pullFromArray` use it; same queries as before.
 - `registerModelSchema`/`describeSchema`/`resolveDataSources`: boot-only (`CorePersistenceModule.forFeature`,

@@ -14,7 +14,8 @@ though CLAUDE.md's vendor note reads as if every runtime-used peer must be liste
   vendored `.ts` with ts-morph, including dynamic `import('x')` calls with a string literal, and adds
   each missing package at the EXACT version from the upstream `pnpm-lock.yaml` `packages:` section.
   `typeof import('x')` type references are NOT scanned, but in practice the same file also has the
-  dynamic call. None of `client-s3`, the presigner, `ioredis` or `bullmq` is in `runtimeHelpers`.
+  dynamic call. `import type … from 'x'` DECLARATIONS are scanned (`getImportDeclarations()` includes them), so a
+  type-only peer is added to `dependencies` too (verified 2026-10-28). None of `client-s3`, the presigner, `ioredis` or `bullmq` is in `runtimeHelpers`.
 - **Existing vendor project, agent update:** `nest-server-core-updater` Phase 7b only raises deps the
   project ALREADY lists, plus `runtimeHelpers`. A brand-new peer is therefore never added
   automatically. The tsc in Phase 8 fails loudly with TS2307, and the migration guide's vendor

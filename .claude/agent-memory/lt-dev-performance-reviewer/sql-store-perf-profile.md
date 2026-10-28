@@ -1,6 +1,6 @@
 ---
 name: sql-store-perf-profile
-description: Measured costs of the db-agnostic SQL store (feat/db-agnostic, phases 1+2) - Mongo-path overhead, update-compiler blow-up, boot owner connections, RLS leakproof facts, phase-2 lock/tenant/token paths, how to measure without DROP
+description: Measured costs of the db-agnostic SQL store (feat/db-agnostic, phases 1-5) - Mongo-path overhead, update-compiler blow-up, boot owner connections, RLS leakproof facts, phase-2 lock/tenant/token paths, how to measure without DROP
 metadata:
   type: project
 ---
@@ -60,6 +60,32 @@ Measured 2026-10-28 on `feat/db-agnostic` (phase 1, DEV-3829), local Postgres 18
   `projection` (harmless, small rows). Budget `sum()` on SQL hits `(user_id|tenant_id, created_at)` compound indexes.
 - `upsertRecord()`: Mongo 1 trip (exists) / 2 (insert); SQL updateOne-miss = UPDATE+EXISTS, so 3 on insert. Only admin
   preference set + tool-grant confirm use it.
+
+**Phase 5 (DEV-3833, MongoDB optional), reviewed 2026-10-28: zero Critical/High.** Settled, re-check only if changed:
+- `mongo-packages.ts`: `createRequire()` once at module load; `optionalMongoPackages()` caches the result (`null` when
+  absent), so every compat helper is one variable read. Only a HALF install (throws) is uncached, and that fails the boot
+  at decoration time anyway. Same class instances as a static import (`Types.ObjectId`, `Query` identical, verified).
+- Measured overhead vs the direct Mongoose call it replaced: `newObjectId(hex)` 87 vs 80 ns, `newObjectId()` 53 vs 52,
+  `isMongooseQuery` 5.2 vs 4.3, `isValidObjectId` 38 vs 29. No-Mongo `HexObjectId`: 68 ns (hex), 167 ns (new).
+- `isObjectIdLike` vs `instanceof Types.ObjectId` per call (corrects the "faster" note in
+  [[persistence-layer-db-agnostic-costs]] for these shapes): +3-10 ns on plain/doc/subdoc/ObjectId, +19-33 ns on a
+  MongooseArray/DocumentArray, because `_bsontype` goes through the array Proxy get trap. It runs per processDeep node in
+  prepareInput/prepareOutput; under 1 % of hydration (~2 us/row).
+- `declared-schema.view.ts` / `model-declarations.ts`: only via `describeSchema()` <- `registerModelSchema()` <-
+  `CorePersistenceModule.forFeature()`, so boot only. Decorator records are WeakMaps keyed by prototype.
+- `CorePersistenceModule.forFeature()` model provider = `connection.models[name] ?? connection.model(...)`, identical to
+  `createMongooseProviders()` of @nestjs/mongoose 12.0.0, so no second compile, OverwriteModelError or duplicate index build.
+- Stand-in model + `unavailableStore` Proxy: only with no connection AND no runtime (`database: false`). A Mongo-only
+  project gets `new MongooseDataStore` (one Symbol lookup more).
+- `FindOptions.sample` on SQL: `SELECT * FROM (<where+order+limit+offset>) "page" ORDER BY random() LIMIT $n`, the same
+  set as Mongo's `$facet{items:[$skip,$limit,$sample]}`. Unbounded only when the caller gives no limit, on both DBs.
+  MongooseDataStore.find samples in JS after a full lean read, but nothing in the framework reaches it (Mongo
+  findAndCount keeps its aggregation).
+- `type: [Object]` / `type: Object` == `[Schema.Types.Mixed]` / `Mixed` (verified with mongoose 9.11.4), so AI messages
+  are not hydrated as subdocuments.
+- The `postgres` vitest project reruns every e2e file with its own PG database. check-mutations runs without `--project`,
+  so each e2e mutation also runs on postgres in the SAME vitest process (more spec time, no second cold start). Watch the
+  30-min regression-evidence trigger in testing.md.
 
 **How to measure without DROP** (the PreToolUse hook blocks `DROP DATABASE`): register models whose fields collide on one column (`fooBar` + `foo_bar`) so `desiredTable()` throws inside the owner transaction after the lock → everything rolls back, nothing is created. Hold `pg_advisory_lock(hashtext('lenne.tech:schema'))` from a side connection to simulate another replica migrating. Scripts ran via `node_modules/.bin/tsx` as `.mts` with absolute imports of `src/**.ts`.
 
