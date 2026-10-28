@@ -30,3 +30,4 @@
 - [db-agnostic phase 4 (DEV-3832)](project_db-agnostic-phase4.md) — SQL writes `$set: {x: undefined}` as NULL (Mongoose strips): AI prompt tenantId → RLS 403 (High).
 - [db-agnostic phase 1 (DEV-3829)](project_db-agnostic-phase1.md) — SQL store/compilers injection-safe, RLS sound; 2 update-path Highs (undeclared keys 500, structuredClone kills ObjectIds) — both FIXED 2026-10-28.
 - [db-agnostic phase 5 (DEV-3833)](project_db-agnostic-phase5.md) — postgres e2e keeps mongoose connected: null-connection path untested; 2 Highs (DeclaredSchema.path, AI store lookup), both FIXED 2026-10-28 (computedDefault, getModelStore).
+- [db-agnostic phase 6 (DEV-3848)](project_db-agnostic-phase6.md) — MySQL: pushToArray with 2+ modifiers fails (1054); unique on existing column → unrunnable migration (High).

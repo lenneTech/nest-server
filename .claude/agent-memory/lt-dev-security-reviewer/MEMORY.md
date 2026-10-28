@@ -37,6 +37,7 @@
 - [project-db-agnostic-phase3-better-auth-sql-facts.md](project-db-agnostic-phase3-better-auth-sql-facts.md) — DEV-3831 BA-on-SQL traced sound; MCP OAuth loadUser missed-reader finding FIXED in phase 4
 - [project-db-agnostic-phase4-ai-file-sweep-facts.md](project-db-agnostic-phase4-ai-file-sweep-facts.md) — DEV-3832: sweep ignores partialFilterExpression (data loss); OAuth/file/AI store paths sound; conversation-append IDOR below bar
 - [project-db-agnostic-phase5-mongo-optional-facts.md](project-db-agnostic-phase5-mongo-optional-facts.md) — DEV-3833: null connection breaks JWT verify, AI budget, MCP OAuth stores (fail closed), all FIXED 2026-10-28; DB-less probe recipe
+- [project-db-agnostic-phase6-mysql-facts.md](project-db-agnostic-phase6-mysql-facts.md) — DEV-3848: MySQL update compiler prototype pollution (`__proto__` path → tenant bypass); app-account check blind to roles; container probe recipe
 
 ## Review Methodology
 

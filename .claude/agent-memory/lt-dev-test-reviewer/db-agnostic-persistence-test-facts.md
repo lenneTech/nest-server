@@ -1,6 +1,6 @@
 ---
 name: db-agnostic-persistence-test-facts
-description: feat/db-agnostic phases 0-4 (2026-10-27/28) — phase 2 mutations all seen red; what the persistence specs prove, which mutations were seen red, the unpinned BYPASSRLS role-check branch, and why the three engine columns exercise one code path
+description: feat/db-agnostic phases 0-6 (2026-10-27/29) — phase 6 MySQL gaps probed; — phase 2 mutations all seen red; what the persistence specs prove, which mutations were seen red, the unpinned BYPASSRLS role-check branch, and why the three engine columns exercise one code path
 metadata:
   type: project
 ---
@@ -102,3 +102,17 @@ iam-expired-sessions-kept, file-metadata-routing-ignored, gridfs-derived-for-sql
   without a column (same snake_case rule as `columnName()`). Both only amplify an already-red file — not reported.
 
 - **Phase 5 status:** both Highs FIXED 2026-10-28 — raw `Model.updateOne` cases back on MongoDB in server.e2e and api-token-security (mutations `system-role-plugin-skips-updateone`, `role-guard-skips-updateone`), compound-index case in the descriptor spec (`declared-view-drops-compound-indexes`).
+
+**Phase 6** (DEV-3848, MySQL 8.4 / MariaDB 11.8, reviewed 2026-10-29; 13 new `mysql-*` mutations, all read as their
+defect). MySQL has no RLS: tenant isolation = store before-layer (`where()`) + row check in `toRecords()`. The MySQL
+single-row writes (insert/updateById/updateOne/deleteFirst) run write+`readById` in ONE transaction, so a lost filter
+picks the foreign row, the row check throws, and the transaction rolls back — the matrix `tenant-*` cases pin those.
+- **Unpinned, probed (clone + `tests/probe-*.e2e-spec.ts`, every existing MySQL spec green under the mutation):**
+  push/pull tenant filter (`updateColumn` → `compileWhere`), `count`/`sum`/`distinct` tenant filter (no after-layer for
+  aggregates: distinct leaked `secret-of-b`), MySQL push/pull role guard (staff pushed `admin`), MySQL update compiler
+  refusals (`default: break` = PG-registered `sql-update-drops-unknown-operator` shape; conflict `claim()` no-throw →
+  `{$inc,$set}` wrote age=1). Reported High x4. Check for matrix cases before re-reporting.
+- `mysql-engine-error-wrapped` goes red only via Drizzle: TypeORM's QueryFailedError copies `errno` onto itself.
+- Runs: parity (10 columns, 480 tests) ~5 s; core-module parity (4 columns) + sql-store + mysql-schema ~28 s.
+- Leftover `*_module_parity_mysql` DBs seen from author runs: a `boot()` that throws after `createMysqlTestDatabase()`
+  leaves `harness` undefined, so `afterAll` never drops it (no SQL sweep exists). Medium, not reported.

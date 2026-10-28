@@ -26,6 +26,12 @@ ticket that follows the doc and excludes them.
 missing file — TypeScript falls back to node_modules lookup when a `paths` target does not exist, and resolution of a
 repo file always walks up to the repo's own `node_modules`. 0 errors, proves nothing.
 
+**Also dynamic imports (verified 2026-10-29, phase 6):** `await import('mysql2')` with a string literal is TS2307 in a
+vendor tsc just like `import type`. So every lazily loaded SQL driver/engine the core names (pg, typeorm, kysely,
+drizzle-orm incl. subpaths, mysql2) is a compile dependency of every vendor project, whatever database it uses.
+`@types/pg` alone satisfies `import('pg')`. Build the probe's symlink loop under `bash` with `shopt -s nullglob` —
+zsh aborts on an empty scoped directory ("no matches found: @cspotcode/*").
+
 **How to apply:** whenever a diff makes a package optional "because only types are imported", check the vendor half.
 Related: [[optional-peer-vendor-delivery]], [[db-agnostic-phase0-doc-facts]], [[executable-doc-recipes]].
 

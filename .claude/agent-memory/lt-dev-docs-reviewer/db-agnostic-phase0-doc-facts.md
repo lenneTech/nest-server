@@ -1,6 +1,6 @@
 ---
 name: db-agnostic-phase0-doc-facts
-description: feat/db-agnostic phases 0-5 (DEV-3828..3833) — what the persistence docs claim vs what the code wires; silent wrong-database routes, guard leaks, fail-open recipes; changes the release guide must list
+description: feat/db-agnostic phases 0-6 (DEV-3828..3833, 3848) — what the persistence docs claim vs what the code wires; silent wrong-database routes, guard leaks, fail-open recipes; changes the release guide must list
 metadata:
   type: project
 ---
@@ -86,6 +86,23 @@ due in phase 5, DEV-3833).
   `dependencies`" (stale history). `lt dev up` always exports NSC__MONGOOSE__URI → counts as explicit `mongoose` →
   a PostgreSQL-only project without the packages fails boot with MongoPackagesMissingError (lt CLI dev-env.ts:88).
 - Counts after phase 5: 369 mutations / 206 unit / 163 e2e (testing.md and check-mutations.mjs header agree).
+
+**Phase 6 (2026-10-29, DEV-3848) — MySQL 8.4 / MariaDB 11.8; reported:**
+- High: `import('mysql2')` (mysql-executor.ts) is a NEW tsc dependency of EVERY vendor project (dynamic imports with a
+  string literal are TS2307 too, not only `import type`). CLAUDE.md "a MySQL / MariaDB one `mysql2` plus its engine" and
+  choosing-a-database "mysql2 plus the engine" are false in vendor mode: the core also dynamic-imports pg, typeorm,
+  kysely, drizzle-orm(+/node-postgres, /mysql2) → all needed. Guide has no vendor line. Probe: 1 error without mysql2,
+  8 with only mysql2+typeorm, 13 with none (pre-existing engines part dates from phases 1–5).
+- High: `migrate create --sql` template (migrate-cli.ts `sqlMigrationTemplate`) says "in one transaction" — false on
+  MySQL (runSqlMigration → withMysqlSchemaLock, DDL autocommits). Untouched file the diff made false.
+- Verified sound: FORBIDDEN privilege set + grantable check; version/scheme refusal; 1406 → 400 message; update-path
+  conflict message; createMigrationStore/runSqlMigration scheme routing; Hub uses SqlStateStore by URL; health ping
+  `SELECT 1`; CI action ports 3316/3317 + same users; env vars testing.md = test-infra.mjs = mysql-test-db.ts.
+- Not reported: new table + unique index are separate statements, a crash between them makes the next boot REFUSE
+  (unique index on existing table = migration) despite "the next boot completes the rest"; testing.md l.261 core-module
+  matrix still "MongoDB alone and PostgreSQL"; test-infra.mjs/action.yml comments say grants "table by table" (it is
+  per database); guide "four or more text fields" is approximate (3 text + uuid also exceeds 3072).
+- Counts after phase 6: 390 mutations / 212 unit / 178 e2e; twenty infra suites; persistence matrix 10 columns.
 
 **Phase 0 — still relevant for the release guide (behaviour changes for MongoDB projects despite PLAN.md §6
 "Phases 0–4 change nothing"):**

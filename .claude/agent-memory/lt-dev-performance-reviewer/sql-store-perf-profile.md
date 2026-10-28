@@ -1,6 +1,6 @@
 ---
 name: sql-store-perf-profile
-description: Measured costs of the db-agnostic SQL store (feat/db-agnostic, phases 1-5) - Mongo-path overhead, update-compiler blow-up, boot owner connections, RLS leakproof facts, phase-2 lock/tenant/token paths, how to measure without DROP
+description: Measured costs of the db-agnostic SQL store (feat/db-agnostic, phases 1-6 incl. MySQL/MariaDB) - Mongo-path overhead, update-compiler blow-up, boot owner connections, RLS leakproof facts, phase-2 lock/tenant/token paths, how to measure without DROP
 metadata:
   type: project
 ---
@@ -86,6 +86,23 @@ Measured 2026-10-28 on `feat/db-agnostic` (phase 1, DEV-3829), local Postgres 18
 - The `postgres` vitest project reruns every e2e file with its own PG database. check-mutations runs without `--project`,
   so each e2e mutation also runs on postgres in the SAME vitest process (more spec time, no second cold start). Watch the
   30-min regression-evidence trigger in testing.md.
+
+**Phase 6 (DEV-3848, MySQL 8.4 / MariaDB 11.8), reviewed 2026-10-29: one High.**
+- HIGH: a non-sparse UNIQUE index on a string/id/ref/enum/uuid column is created on the virtual `lt_nn_<col>`
+  (`IFNULL(col, CHAR(0))`), but the where compiler filters on the base column -> `type=ALL` on BOTH servers (no vcol
+  substitution for `col = ?`). Measured 50k rows: 14 ms vs 0.3 ms. Worse: `updateOne`/`deleteOne` pick with
+  `SELECT … LIMIT 1 FOR UPDATE` under REPEATABLE READ -> a full scan locks every row + gap; an unrelated UPDATE and an
+  INSERT hit lock-wait timeout. A plain companion index on the base column fixes plan AND lock scope (verified).
+  Hit: api_tokens.public_id (per API-token request), MCP OAuth client_id/code/token, src/server users.email, AI unique
+  compounds. Tenant members escape it via the extra non-unique `{user, tenant, status}` index.
+- Settled: update compiler is one expression per column, linear (128 nested paths -> 5.5 KB); placeholders are
+  rewritten to `?` with values duplicated per occurrence (mysql2 inlines client-side) -> pushToArray binds the items
+  at most 2x (slice<0). toMysqlStatement ~2 us typical, ~150 us for `$in` of 1000. Session SET once per pooled
+  connection (mysql2 3.24 maxIdle = connectionLimit, no recycling). Writes = START/INSERT|UPDATE/SELECT/COMMIT,
+  4 sequential RTT (PG pipelines 4) - design, no nested pool acquire. Schema plan 30 models ~50 ms. Defaults:
+  max_allowed_packet MySQL 64 MB, MariaDB 16 MB; both REPEATABLE-READ.
+- Measure in the `probe` database (exists on both, owner may create): TEMPORARY tables for plans; a real table +
+  `DROP TABLE` for two-session lock tests. Compilers import fine through tsx (no decorators needed).
 
 **How to measure without DROP** (the PreToolUse hook blocks `DROP DATABASE`): register models whose fields collide on one column (`fooBar` + `foo_bar`) so `desiredTable()` throws inside the owner transaction after the lock → everything rolls back, nothing is created. Hold `pg_advisory_lock(hashtext('lenne.tech:schema'))` from a side connection to simulate another replica migrating. Scripts ran via `node_modules/.bin/tsx` as `.mts` with absolute imports of `src/**.ts`.
 
