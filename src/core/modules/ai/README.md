@@ -686,6 +686,13 @@ and sends operators looking in the wrong place.
 
 Without Redis nothing changes: unknown ids answer `404` exactly as before.
 
+**No sticky sessions available?** Set `ai.mcp.stateless: true`. Every POST then builds its own server
+and transport for the authenticated user (the SDK's stateless mode, `sessionIdGenerator: undefined`),
+no `mcp-session-id` is issued, and GET / DELETE answer `405`. Any replica can answer any request, and
+the user's rights are read per request by construction. What is lost is what a session carries:
+server-initiated messages and the SSE stream — a server that only offers tools does not use them.
+`testHelper.mcpSession()` follows the setting (no session id expected or sent).
+
 ### OAuth 2.1 (`ai.mcp.oauth: true`)
 
 For generic MCP clients that auto-discover + register:

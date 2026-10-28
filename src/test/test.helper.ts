@@ -8,6 +8,7 @@ import * as util from 'util';
 import ws from 'ws';
 
 import { getStringIds } from '../core/common/helpers/db.helper.js';
+import { ConfigService } from '../core/common/services/config.service.js';
 import { resolveBetterAuthSessionCookieName } from '../core/modules/better-auth/better-auth-cookie-prefix.helper.js';
 
 /**
@@ -240,6 +241,12 @@ export interface TestMcpOptions {
  */
 export interface TestMcpSessionOptions extends Omit<TestMcpOptions, 'sessionId' | 'statusCode'> {
   /**
+   * Whether the server runs without sessions; then no session id is expected or sent, and
+   * `close()` does nothing. Defaults to `ai.mcp.stateless` of the running configuration.
+   */
+  stateless?: boolean;
+
+  /**
    * `clientInfo` sent with `initialize`. Default: `{ name: 'nest-server-test-helper', version: '1.0.0' }`
    */
   clientInfo?: { name: string; version: string };
@@ -342,9 +349,9 @@ export interface TestMcpSession {
   ): Promise<null | TestMcpMessage>;
 
   /**
-   * `mcp-session-id` the server assigned
+   * `mcp-session-id` the server assigned; undefined on a stateless server
    */
-  sessionId: string;
+  sessionId: string | undefined;
 }
 
 /**
@@ -697,8 +704,12 @@ export class TestHelper {
       base,
     );
     expect(init.message?.error).toBeUndefined();
-    expect(init.sessionId).toBeTruthy();
-    const sessionId = init.sessionId;
+    // A stateless server (`ai.mcp.stateless`) issues no session id; every request stands alone there.
+    const stateless = options.stateless ?? ConfigService.get<{ stateless?: boolean }>('ai.mcp')?.stateless === true;
+    if (!stateless) {
+      expect(init.sessionId).toBeTruthy();
+    }
+    const sessionId = stateless ? undefined : init.sessionId;
     await this.mcp({ method: 'notifications/initialized' }, { ...base, sessionId });
 
     let nextId = 2;
@@ -718,6 +729,9 @@ export class TestHelper {
         return { ...result, json: TestHelper.parseJsonOrUndefined(result.content?.[0]?.text) };
       },
       close: async () => {
+        if (!sessionId) {
+          return;
+        }
         await this.rest(path, {
           cookies: base.cookies,
           headers: { ...base.headers, 'mcp-session-id': sessionId },
