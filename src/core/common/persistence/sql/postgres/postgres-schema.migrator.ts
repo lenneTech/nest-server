@@ -1,4 +1,5 @@
 import type { ModelDescriptor } from '../../model-descriptor.interface.js';
+import { isForeignColumn } from '../../persistence-runtime.registry.js';
 import type { SqlExecutor, SqlQueryResult, SqlStatement, SqlTenantScope } from '../sql-executor.interface.js';
 import { quoteIdentifier } from '../sql-naming.js';
 import {
@@ -246,7 +247,7 @@ function planExistingTable(
     }
   }
   for (const column of existing.columns.keys()) {
-    if (!declared.has(column)) {
+    if (!declared.has(column) && !isForeignColumn(name, column)) {
       changes.push({
         description: `${name}.${column} is no longer declared; the column is kept until a migration drops it`,
         kind: 'notice',

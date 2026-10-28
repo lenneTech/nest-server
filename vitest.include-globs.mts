@@ -36,3 +36,21 @@ export const UNIT_TEST_INCLUDE = ['tests/unit/**/*.spec.ts'];
  * non-executable, so a misnamed type test surfaces as an orphan rather than an accidental e2e run.
  */
 export const E2E_TEST_INCLUDE = ['tests/**/*.e2e-spec.ts', 'tests/stories/**/*.story.test.ts'];
+
+/**
+ * The IAM suites that run once more per SQL engine, with PostgreSQL as the default data source (projects
+ * `iam-sql-<engine>` in `vitest-e2e.config.mts`): Better-Auth's stories (sign-in, 2FA, passkey, sessions), the sync
+ * between legacy and IAM (password, email, name), and the security specs that pin what must hold on every database
+ * (server-managed fields stay `input: false`, sign-in CSRF).
+ */
+export const IAM_SQL_TEST_INCLUDE = [
+  'tests/stories/better-auth-*.story.test.ts',
+  'tests/stories/better-auth-migration-status.e2e-spec.ts',
+  'tests/stories/better-auth-privilege-escalation.e2e-spec.ts',
+  'tests/better-auth-signin-csrf.e2e-spec.ts',
+  'tests/better-auth-storage-paths.e2e-spec.ts',
+  'tests/stories/bidirectional-auth-sync.e2e-spec.ts',
+];
+
+/** The SQL engines every IAM suite runs on (plan §3.10) */
+export const IAM_SQL_ENGINES = ['typeorm', 'kysely', 'drizzle'] as const;

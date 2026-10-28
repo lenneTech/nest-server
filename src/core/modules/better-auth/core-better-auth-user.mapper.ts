@@ -19,6 +19,8 @@ const scryptPromise = (password: string, salt: string, keylen: number, options: 
 import { RoleEnum } from '../../common/enums/role.enum.js';
 import { maskEmail } from '../../common/helpers/logging.helper.js';
 import { legacyCredentialAccountIssuer } from './core-better-auth-account-issuer.helper.js';
+import { getBetterAuthSqlStore } from './core-better-auth-sql.registry.js';
+import type { BetterAuthSqlStore } from './core-better-auth-sql.store.js';
 
 /**
  * Interface for Better-Auth session user
@@ -183,7 +185,8 @@ export class CoreBetterAuthUserMapper {
     }
 
     // If no database connection, return user with default roles
-    if (!this.connection) {
+    const sql = getBetterAuthSqlStore();
+    if (!this.connection && !sql) {
       this.logger.warn('No database connection available - using default role mapping');
       return this.createMappedUser({
         email: sessionUser.email,
@@ -217,10 +220,12 @@ export class CoreBetterAuthUserMapper {
 
       // Look up the user in our database by email OR iamId
       // This ensures we find the user regardless of which system they signed up with
-      const userCollection = this.connection.collection('users');
-      const dbUser = await userCollection.findOne({
-        $or: [{ email: sessionUser.email }, { iamId: sessionUser.id }],
-      });
+      // (on SQL, Better-Auth's user id IS the row's id — one row per user)
+      const dbUser = sql
+        ? await sql.findUser({ email: sessionUser.email, iamId: sessionUser.id, id: sessionUser.id })
+        : await this.connection?.collection('users').findOne({
+            $or: [{ email: sessionUser.email }, { iamId: sessionUser.id }],
+          });
 
       if (dbUser) {
         // User exists in our database - use their roles and verified status
@@ -230,14 +235,14 @@ export class CoreBetterAuthUserMapper {
 
         // Cache only the minimal data needed (not the full document)
         if (CoreBetterAuthUserMapper.USER_CACHE_TTL_MS > 0) {
-          this.cacheUserData(sessionUser.id, { id: dbUser._id.toString(), roles, verified });
+          this.cacheUserData(sessionUser.id, { id: String(dbUser._id ?? dbUser.id), roles, verified });
         }
 
         return this.createMappedUser({
           email: sessionUser.email,
           emailVerified: sessionUser.emailVerified,
           iamId: sessionUser.id,
-          id: dbUser._id.toString(),
+          id: String(dbUser._id ?? dbUser.id),
           image: sessionUser.image,
           name: sessionUser.name,
           roles,
@@ -344,6 +349,10 @@ export class CoreBetterAuthUserMapper {
    * @returns true if sync was successful, false otherwise
    */
   async syncPasswordToLegacy(iamUserId: string, userEmail: string, plainPassword?: string): Promise<boolean> {
+    const sql = getBetterAuthSqlStore();
+    if (sql) {
+      return this.syncPasswordToLegacyOnSql(sql, iamUserId, userEmail, plainPassword);
+    }
     if (!this.connection) {
       this.logger.warn('No database connection available - cannot sync password to legacy');
       return false;
@@ -403,6 +412,10 @@ export class CoreBetterAuthUserMapper {
    * @returns true if sync was successful, false otherwise
    */
   async syncPasswordChangeToIam(userEmail: string, plainPassword: string): Promise<boolean> {
+    const sql = getBetterAuthSqlStore();
+    if (sql) {
+      return this.syncPasswordChangeToIamOnSql(sql, userEmail, plainPassword);
+    }
     if (!this.connection) {
       this.logger.warn('No database connection available - cannot sync password to IAM');
       return false;
@@ -466,6 +479,10 @@ export class CoreBetterAuthUserMapper {
    * @returns true if account was created, false otherwise
    */
   async migrateAccountToIam(userEmail: string, plainPassword?: string): Promise<boolean> {
+    const sql = getBetterAuthSqlStore();
+    if (sql) {
+      return this.migrateAccountToIamOnSql(sql, userEmail, plainPassword);
+    }
     if (!this.connection) {
       return false;
     }
@@ -665,6 +682,10 @@ export class CoreBetterAuthUserMapper {
     if (!sessionUser?.email) {
       return null;
     }
+    const sql = getBetterAuthSqlStore();
+    if (sql) {
+      return this.linkOrCreateUserOnSql(sql, sessionUser, additionalData);
+    }
 
     // Cannot sync without database connection
     if (!this.connection) {
@@ -680,43 +701,7 @@ export class CoreBetterAuthUserMapper {
         $or: [{ email: sessionUser.email }, { iamId: sessionUser.id }],
       });
 
-      // Process additionalData to convert termsAndPrivacyAccepted to timestamp
-      const processedAdditionalData = { ...additionalData };
-      if (processedAdditionalData?.termsAndPrivacyAccepted === true) {
-        processedAdditionalData.termsAndPrivacyAcceptedAt = new Date();
-        delete processedAdditionalData.termsAndPrivacyAccepted;
-      } else {
-        delete processedAdditionalData?.termsAndPrivacyAccepted;
-      }
-
-      // Reverse-sync the Better-Auth name into firstName/lastName ONLY when it actually
-      // differs from the stored combination. The split is lossy (first word vs. rest), so an
-      // unconditional overwrite would clobber locally maintained names on EVERY sign-in —
-      // e.g. firstName "Anna Maria" / lastName "von Berg" would mutate to "Anna" / "Maria von
-      // Berg" although nothing changed on the Better-Auth side.
-      const existingFullName = [existingUser?.firstName, existingUser?.lastName].filter(Boolean).join(' ');
-      const nameChangedInIam = !!sessionUser.name && sessionUser.name !== existingFullName;
-
-      const updateData: Record<string, any> = {
-        email: sessionUser.email,
-        ...(sessionUser.name && nameChangedInIam && { firstName: sessionUser.name.split(' ')[0] }),
-        ...(sessionUser.name &&
-          nameChangedInIam &&
-          sessionUser.name.includes(' ') && {
-            lastName: sessionUser.name.split(' ').slice(1).join(' '),
-          }),
-        ...(sessionUser.emailVerified !== undefined && { verified: sessionUser.emailVerified }),
-        // Deliberately NOT `avatar: sessionUser.image`. `image` is a Better-Auth BUILT-IN column,
-        // so it is client-writable through `POST /iam/update-user` — it is not covered by
-        // PROTECTED_INPUT_FALSE_KEYS, which only locks the fields this framework adds. Copying it
-        // here wrote an attacker-chosen value into `avatar` through a NATIVE driver update, past
-        // both the `S_NO_ONE` input restriction on the field and every Mongoose plugin. Since the
-        // avatar endpoint deletes the file the previous value points at, that turned "set your own
-        // image" into "delete any file in the store". The avatar upload is the only writer.
-        iamId: sessionUser.id,
-        updatedAt: new Date(),
-        ...processedAdditionalData,
-      };
+      const updateData = this.linkedUserFields(sessionUser, existingUser, additionalData);
 
       // Build the update query
       const updateQuery: Record<string, any> = {
@@ -749,6 +734,53 @@ export class CoreBetterAuthUserMapper {
     }
   }
 
+  /**
+   * The fields `linkOrCreateUser()` writes onto the app user, on MongoDB and on SQL alike
+   */
+  protected linkedUserFields(
+    sessionUser: BetterAuthSessionUser,
+    existingUser: null | Record<string, any> | undefined,
+    additionalData?: Record<string, any>,
+  ): Record<string, any> {
+    // Process additionalData to convert termsAndPrivacyAccepted to timestamp
+    const processedAdditionalData = { ...additionalData };
+    if (processedAdditionalData?.termsAndPrivacyAccepted === true) {
+      processedAdditionalData.termsAndPrivacyAcceptedAt = new Date();
+      delete processedAdditionalData.termsAndPrivacyAccepted;
+    } else {
+      delete processedAdditionalData?.termsAndPrivacyAccepted;
+    }
+
+    // Reverse-sync the Better-Auth name into firstName/lastName ONLY when it actually
+    // differs from the stored combination. The split is lossy (first word vs. rest), so an
+    // unconditional overwrite would clobber locally maintained names on EVERY sign-in —
+    // e.g. firstName "Anna Maria" / lastName "von Berg" would mutate to "Anna" / "Maria von
+    // Berg" although nothing changed on the Better-Auth side.
+    const existingFullName = [existingUser?.firstName, existingUser?.lastName].filter(Boolean).join(' ');
+    const nameChangedInIam = !!sessionUser.name && sessionUser.name !== existingFullName;
+
+    return {
+      email: sessionUser.email,
+      ...(sessionUser.name && nameChangedInIam && { firstName: sessionUser.name.split(' ')[0] }),
+      ...(sessionUser.name &&
+        nameChangedInIam &&
+        sessionUser.name.includes(' ') && {
+          lastName: sessionUser.name.split(' ').slice(1).join(' '),
+        }),
+      ...(sessionUser.emailVerified !== undefined && { verified: sessionUser.emailVerified }),
+      // Deliberately NOT `avatar: sessionUser.image`. `image` is a Better-Auth BUILT-IN column,
+      // so it is client-writable through `POST /iam/update-user` — it is not covered by
+      // PROTECTED_INPUT_FALSE_KEYS, which only locks the fields this framework adds. Copying it
+      // here wrote an attacker-chosen value into `avatar` through a NATIVE driver update, past
+      // both the `S_NO_ONE` input restriction on the field and every Mongoose plugin. Since the
+      // avatar endpoint deletes the file the previous value points at, that turned "set your own
+      // image" into "delete any file in the store". The avatar upload is the only writer.
+      iamId: sessionUser.id,
+      updatedAt: new Date(),
+      ...processedAdditionalData,
+    };
+  }
+
   // ===================================================================================================================
   // Name Sync
   // ===================================================================================================================
@@ -767,6 +799,10 @@ export class CoreBetterAuthUserMapper {
    * @returns true if sync was successful, false otherwise
    */
   async syncNameChangeFromLegacy(userEmail: string, name: string): Promise<boolean> {
+    const sql = getBetterAuthSqlStore();
+    if (sql) {
+      return this.syncNameChangeFromLegacyOnSql(sql, userEmail, name);
+    }
     if (!this.connection) {
       this.logger.warn('No database connection available - cannot sync name change');
       return false;
@@ -807,6 +843,10 @@ export class CoreBetterAuthUserMapper {
    * @returns true if sync was successful, false otherwise
    */
   async syncEmailChangeFromLegacy(oldEmail: string, newEmail: string): Promise<boolean> {
+    const sql = getBetterAuthSqlStore();
+    if (sql) {
+      return this.syncEmailChangeFromLegacyOnSql(sql, oldEmail, newEmail);
+    }
     if (!this.connection) {
       this.logger.warn('No database connection available - cannot sync email change');
       return false;
@@ -853,6 +893,10 @@ export class CoreBetterAuthUserMapper {
    * @returns true if sync was successful, false otherwise
    */
   async syncEmailChangeFromIam(userId: string, newEmail: string): Promise<boolean> {
+    const sql = getBetterAuthSqlStore();
+    if (sql) {
+      return this.syncEmailChangeFromIamOnSql(sql, userId, newEmail);
+    }
     if (!this.connection) {
       this.logger.warn('No database connection available - cannot sync email change');
       return false;
@@ -905,6 +949,10 @@ export class CoreBetterAuthUserMapper {
     success: boolean;
     userDeleted: boolean;
   }> {
+    const sql = getBetterAuthSqlStore();
+    if (sql) {
+      return this.deleteUserFromBothSystemsOnSql(sql, userIdentifier);
+    }
     if (!this.connection) {
       this.logger.warn('No database connection available - cannot delete user');
       return { accountsDeleted: 0, sessionsDeleted: 0, success: false, userDeleted: false };
@@ -979,6 +1027,10 @@ export class CoreBetterAuthUserMapper {
     sessionsDeleted: number;
     success: boolean;
   }> {
+    const sql = getBetterAuthSqlStore();
+    if (sql) {
+      return this.cleanupIamDataForDeletedUserOnSql(sql, String(userId));
+    }
     if (!this.connection) {
       this.logger.warn('No database connection available - cannot cleanup IAM data');
       return { accountsDeleted: 0, sessionsDeleted: 0, success: false };
@@ -1019,6 +1071,10 @@ export class CoreBetterAuthUserMapper {
    * @returns true if cleanup was successful, false otherwise
    */
   async cleanupLegacyDataForDeletedIamUser(iamUserId: string): Promise<boolean> {
+    const sql = getBetterAuthSqlStore();
+    if (sql) {
+      return this.cleanupLegacyDataForDeletedIamUserOnSql(sql, iamUserId);
+    }
     if (!this.connection) {
       this.logger.warn('No database connection available - cannot cleanup Legacy data');
       return false;
@@ -1063,6 +1119,10 @@ export class CoreBetterAuthUserMapper {
     // A caller that only needs the counts — the boot-time deprecation warning does — should
     // not pay for a field it discards.
     const includePendingEmails = options?.includePendingEmails !== false;
+    const sql = getBetterAuthSqlStore();
+    if (sql) {
+      return this.getMigrationStatusOnSql(sql, includePendingEmails);
+    }
     if (!this.connection) {
       this.logger.warn('No database connection available - cannot get migration status');
       return {
@@ -1191,6 +1251,275 @@ export class CoreBetterAuthUserMapper {
           `Error getting migration status: ${error instanceof Error ? error.message : 'Unknown error'}`,
         );
       }
+      return {
+        canDisableLegacyAuth: false,
+        fullyMigratedUsers: 0,
+        migrationPercentage: 0,
+        pendingMigrationUsers: 0,
+        pendingUserEmails: [],
+        totalUsers: 0,
+        usersWithIamAccount: 0,
+        usersWithIamId: 0,
+      };
+    }
+  }
+
+  // ===================================================================================================================
+  // SQL data source — Better-Auth and the user model share ONE row per user in `users`, and Better-Auth's user id IS
+  // that row's id (see BetterAuthSqlStore). Same behaviour as the MongoDB paths above; only the access differs.
+  // ===================================================================================================================
+
+  protected async syncPasswordToLegacyOnSql(
+    sql: BetterAuthSqlStore,
+    iamUserId: string,
+    userEmail: string,
+    plainPassword?: string,
+  ): Promise<boolean> {
+    if (!plainPassword) {
+      return false;
+    }
+    try {
+      // bcrypt(sha256(password)), as on MongoDB; the password policy keeps a bcrypt value as it is
+      const bcryptHash = await bcrypt.hash(this.normalizePasswordForIam(plainPassword), 10);
+      return !!(await sql.updateUser({ email: userEmail, iamId: iamUserId }, { password: bcryptHash }));
+    } catch (error) {
+      this.logger.error(
+        `Error syncing password to legacy: ${error instanceof Error ? error.message : 'Unknown error'}`,
+      );
+      return false;
+    }
+  }
+
+  protected async syncPasswordChangeToIamOnSql(
+    sql: BetterAuthSqlStore,
+    userEmail: string,
+    plainPassword: string,
+  ): Promise<boolean> {
+    if (!plainPassword) {
+      return false;
+    }
+    try {
+      const user = await sql.findUser({ email: userEmail });
+      if (!user || !(await sql.findCredentialAccount(user.id))) {
+        return false;
+      }
+      await sql.updateCredentialPassword(user.id, await this.hashPasswordForBetterAuth(plainPassword));
+      return true;
+    } catch (error) {
+      this.logger.error(`Error syncing password to IAM: ${error instanceof Error ? error.message : 'Unknown error'}`);
+      return false;
+    }
+  }
+
+  protected async migrateAccountToIamOnSql(
+    sql: BetterAuthSqlStore,
+    userEmail: string,
+    plainPassword?: string,
+  ): Promise<boolean> {
+    try {
+      const legacyUser = await sql.findUser({ email: userEmail });
+      if (!legacyUser?.password) {
+        return false;
+      }
+      // FAST PATH, as on MongoDB: an existing credential account means the user is migrated already
+      if (await sql.findCredentialAccount(legacyUser.id)) {
+        return true;
+      }
+      if (!plainPassword) {
+        return false;
+      }
+      const directMatch = await bcrypt.compare(plainPassword, legacyUser.password);
+      const sha256Match = !directMatch ? await bcrypt.compare(sha256(plainPassword), legacyUser.password) : false;
+      if (!directMatch && !sha256Match) {
+        this.logger.warn(`Migration password verification failed for ${maskEmail(userEmail)}`);
+        return false;
+      }
+      if (!legacyUser.iamId) {
+        // The row IS Better-Auth's user already: link it by its own id instead of minting a second one
+        await sql.updateUser({ id: legacyUser.id }, { iamId: legacyUser.id });
+        await sql.updateIamUser(legacyUser.id, {
+          emailVerified: legacyUser.verified === true,
+          name: [legacyUser.firstName, legacyUser.lastName].filter(Boolean).join(' ') || undefined,
+        });
+      }
+      const credentialIssuer = legacyCredentialAccountIssuer();
+      await sql.createAccount({
+        accountId: legacyUser.id,
+        ...(credentialIssuer ? { issuer: credentialIssuer } : {}),
+        password: await this.hashPasswordForBetterAuth(plainPassword),
+        providerId: 'credential',
+        userId: legacyUser.id,
+      });
+      return true;
+    } catch (error) {
+      this.logger.error(`Error migrating account to IAM: ${error instanceof Error ? error.message : 'Unknown error'}`);
+      return false;
+    }
+  }
+
+  protected async linkOrCreateUserOnSql(
+    sql: BetterAuthSqlStore,
+    sessionUser: BetterAuthSessionUser,
+    additionalData?: Record<string, any>,
+  ): Promise<null | SyncedUserDocument> {
+    try {
+      const match = { email: sessionUser.email, iamId: sessionUser.id, id: sessionUser.id };
+      const existingUser = await sql.findUser(match);
+      if (!existingUser) {
+        // Better-Auth writes the row itself (same table): a missing one is a user Better-Auth does not know either
+        this.logger.warn(`Better-Auth user ${maskEmail(sessionUser.email)} has no row in the users table`);
+        return null;
+      }
+      const synced = await sql.updateUser(
+        { id: existingUser.id },
+        this.linkedUserFields(sessionUser, existingUser, additionalData),
+      );
+      return synced ? ({ ...synced, _id: synced.id } as SyncedUserDocument) : null;
+    } catch (error) {
+      this.logger.error(`Error syncing Better-Auth user: ${error instanceof Error ? error.message : 'Unknown error'}`);
+      return null;
+    }
+  }
+
+  protected async syncNameChangeFromLegacyOnSql(
+    sql: BetterAuthSqlStore,
+    userEmail: string,
+    name: string,
+  ): Promise<boolean> {
+    try {
+      const user = await sql.findUser({ email: userEmail });
+      if (!user) {
+        return false;
+      }
+      // `name` is Better-Auth's field, not the user model's: written through Better-Auth's adapter
+      await sql.updateIamUser(user.id, { name });
+      this.logger.debug(`Synced name change from Legacy to IAM for ${maskEmail(userEmail)}`);
+      return true;
+    } catch (error) {
+      this.logger.error(
+        `Error syncing name change from Legacy: ${error instanceof Error ? error.message : 'Unknown error'}`,
+      );
+      return false;
+    }
+  }
+
+  protected async syncEmailChangeFromLegacyOnSql(
+    sql: BetterAuthSqlStore,
+    oldEmail: string,
+    newEmail: string,
+  ): Promise<boolean> {
+    try {
+      const user = (await sql.findUser({ email: newEmail })) ?? (await sql.findUser({ email: oldEmail }));
+      if (!user) {
+        return false;
+      }
+      await sql.deleteSessions(user.id);
+      this.logger.debug(`Invalidated sessions for email change: ${maskEmail(oldEmail)} → ${maskEmail(newEmail)}`);
+      return true;
+    } catch (error) {
+      this.logger.error(
+        `Error syncing email change from Legacy: ${error instanceof Error ? error.message : 'Unknown error'}`,
+      );
+      return false;
+    }
+  }
+
+  protected async syncEmailChangeFromIamOnSql(
+    sql: BetterAuthSqlStore,
+    userId: string,
+    newEmail: string,
+  ): Promise<boolean> {
+    try {
+      return !!(await sql.updateUser({ iamId: userId, id: userId }, { email: newEmail, refreshTokens: {} }));
+    } catch (error) {
+      this.logger.error(
+        `Error syncing email change from IAM: ${error instanceof Error ? error.message : 'Unknown error'}`,
+      );
+      return false;
+    }
+  }
+
+  protected async deleteUserFromBothSystemsOnSql(
+    sql: BetterAuthSqlStore,
+    userIdentifier: string,
+  ): Promise<{ accountsDeleted: number; sessionsDeleted: number; success: boolean; userDeleted: boolean }> {
+    try {
+      const user =
+        (await sql.findUser({ email: userIdentifier })) ??
+        (await sql.findUser({ iamId: userIdentifier })) ??
+        (await sql.findUser({ id: userIdentifier }));
+      if (!user) {
+        return { accountsDeleted: 0, sessionsDeleted: 0, success: false, userDeleted: false };
+      }
+      const sessionsDeleted = await sql.deleteSessions(user.id);
+      const accountsDeleted = await sql.deleteAccounts(user.id);
+      await sql.deleteUser(user.id);
+      this.logger.log(
+        `Deleted user ${maskEmail(user.email)}: user=true, accounts=${accountsDeleted}, sessions=${sessionsDeleted}`,
+      );
+      return { accountsDeleted, sessionsDeleted, success: true, userDeleted: true };
+    } catch (error) {
+      this.logger.error(`Error deleting user: ${error instanceof Error ? error.message : 'Unknown error'}`);
+      return { accountsDeleted: 0, sessionsDeleted: 0, success: false, userDeleted: false };
+    }
+  }
+
+  protected async cleanupIamDataForDeletedUserOnSql(
+    sql: BetterAuthSqlStore,
+    userId: string,
+  ): Promise<{ accountsDeleted: number; sessionsDeleted: number; success: boolean }> {
+    try {
+      const sessionsDeleted = await sql.deleteSessions(userId);
+      const accountsDeleted = await sql.deleteAccounts(userId);
+      return { accountsDeleted, sessionsDeleted, success: true };
+    } catch (error) {
+      this.logger.error(`Error cleaning up IAM data: ${error instanceof Error ? error.message : 'Unknown error'}`);
+      return { accountsDeleted: 0, sessionsDeleted: 0, success: false };
+    }
+  }
+
+  protected async cleanupLegacyDataForDeletedIamUserOnSql(
+    sql: BetterAuthSqlStore,
+    iamUserId: string,
+  ): Promise<boolean> {
+    try {
+      const user = await sql.findUser({ iamId: iamUserId, id: iamUserId });
+      if (!user) {
+        return false;
+      }
+      await sql.deleteUser(user.id);
+      return true;
+    } catch (error) {
+      this.logger.error(`Error cleaning up Legacy data: ${error instanceof Error ? error.message : 'Unknown error'}`);
+      return false;
+    }
+  }
+
+  protected async getMigrationStatusOnSql(
+    sql: BetterAuthSqlStore,
+    includePendingEmails: boolean,
+  ): Promise<MigrationStatus> {
+    try {
+      const counts = await sql.migrationCounts(includePendingEmails ? 100 : 0);
+      const totalUsers = counts.total;
+      const usersWithIamId = counts.withIamId;
+      const usersWithIamAccount = counts.withIamAccount;
+      const fullyMigratedUsers = counts.fullyMigrated;
+      const pendingMigrationUsers = totalUsers - fullyMigratedUsers;
+      const migrationPercentage = totalUsers > 0 ? Math.round((fullyMigratedUsers / totalUsers) * 100 * 100) / 100 : 0;
+      const pendingUserEmails = counts.pendingEmails;
+      return {
+        canDisableLegacyAuth: totalUsers > 0 && fullyMigratedUsers === totalUsers,
+        fullyMigratedUsers,
+        migrationPercentage,
+        pendingMigrationUsers,
+        pendingUserEmails,
+        totalUsers,
+        usersWithIamAccount,
+        usersWithIamId,
+      };
+    } catch (error) {
+      this.logger.error(`Error getting migration status: ${error instanceof Error ? error.message : 'Unknown error'}`);
       return {
         canDisableLegacyAuth: false,
         fullyMigratedUsers: 0,

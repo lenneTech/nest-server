@@ -231,7 +231,7 @@ When `passkey` is enabled, `trustedOrigins` is required (compile-time enforcemen
   - `rpId?`: `string` — Relying Party ID (usually the domain without protocol).
   - `rpName?`: `string` — Relying Party Name (displayed to users)
   - `userVerification?`: `"discouraged" | "preferred" | "required"` (default: `'preferred'`) — User verification requirement.
-  - `webAuthnChallengeCookie?`: `string` (default: `'better-auth-passkey'`) — Custom cookie name for WebAuthn challenge storage.
+  - `webAuthnChallengeCookie?`: `string` (default: `'better-auth-passkey'`) — Key of Better-Auth's WebAuthn challenge cookie. Better-Auth puts its cookie prefix in front of it
 
 ### IBetterAuthTwoFactorConfig
 

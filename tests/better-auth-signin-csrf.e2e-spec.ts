@@ -12,22 +12,23 @@
  * and a non-browser client that sends none of these headers.
  */
 import { NestExpressApplication } from '@nestjs/platform-express';
-import { Db, MongoClient } from 'mongodb';
 import { AddressInfo } from 'node:net';
 import request from 'supertest';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 
-import { CoreBetterAuthModule, CoreBetterAuthService, TestHelper } from '../src';
+import { CoreBetterAuthModule, CoreBetterAuthService, CorePersistenceModule, TestHelper } from '../src';
 import { ConfigService } from '../src/core/common/services/config.service';
 import { apiTokenIamConfig, bootApiTokenIamApp } from './helpers/api-token-e2e.helpers';
 import { captureExpectedLogs } from './helpers/expected-log-output';
+import { type IamTestDb, openIamTestDb } from './helpers/iam-test-db';
+import { User, UserSchema } from '../src/server/modules/user/user.model';
 
 const CROSS_SITE_FORM = { 'sec-fetch-dest': 'document', 'sec-fetch-mode': 'navigate', 'sec-fetch-site': 'cross-site' };
 
 describe('IAM sign-in / sign-up — Better-Auth CSRF protection runs (e2e)', () => {
   let app: NestExpressApplication;
-  let db: Db;
-  let mongo: MongoClient;
+  // The database the run routes the users to (MongoDB, or PostgreSQL in the iam-sql projects)
+  let iamDb: IamTestDb;
   let previousConfig: any;
   let trusted: string[];
   const email = `signin-csrf-${Date.now()}@test.com`;
@@ -48,25 +49,27 @@ describe('IAM sign-in / sign-up — Better-Auth CSRF protection runs (e2e)', () 
         },
       },
     };
-    app = await bootApiTokenIamApp(config);
+    // The user model registered as a project registers it, so the users live where the configuration routes them
+    app = await bootApiTokenIamApp(config, {
+      imports: [CorePersistenceModule.forFeature([{ model: User, name: User.name, schema: UserSchema }])],
+    });
     // The origins the running instance trusts — derived from baseUrl / appUrl, not spelled out in config.
     const context: any = await (app.get(CoreBetterAuthService).getInstance() as any).$context;
     trusted = context.trustedOrigins.filter((origin: string) => /^https?:\/\/[^*]+$/.test(origin));
     expect(trusted.length).toBeGreaterThan(0);
-    mongo = await MongoClient.connect(config.mongoose.uri);
-    db = mongo.db();
+    iamDb = await openIamTestDb(config.mongoose.uri);
     await new TestHelper(app).rest('/iam/sign-up/email', {
       method: 'POST',
       payload: { email, name: 'CSRF', password, termsAndPrivacyAccepted: true },
       statusCode: 201,
     });
-    await db.collection('users').updateOne({ email }, { $set: { emailVerified: true, verified: true } });
-    await db.collection('iam_user').updateOne({ email }, { $set: { emailVerified: true } });
+    await iamDb.updateUser({ email }, { emailVerified: true, verified: true });
   });
 
   afterAll(async () => {
     await app?.close();
-    await mongo?.close();
+    await iamDb?.deleteUsers({ email });
+    await iamDb?.close();
     CoreBetterAuthModule.reset();
     if (previousConfig) {
       ConfigService.setConfig(previousConfig, { reInit: true, warn: false });
@@ -184,7 +187,7 @@ describe('IAM sign-in / sign-up — Better-Auth CSRF protection runs (e2e)', () 
       .send({ email: victimEmail, name: 'Victim', password, termsAndPrivacyAccepted: true });
 
     expect(response.status).toBe(403);
-    expect(await db.collection('users').countDocuments({ email: victimEmail })).toBe(0);
+    expect(await iamDb.countUsers({ email: victimEmail })).toBe(0);
     expect(refusals.join('\n')).toContain('Blocked cross-site navigation login attempt');
   });
 });

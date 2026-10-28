@@ -4,7 +4,6 @@ import { ConfigService } from '../services/config.service.js';
 import type { DataStore } from './data-store.interface.js';
 import type { LockStore } from './lock-store.interface.js';
 import {
-  DataSourceConfigError,
   redactUrl,
   type ResolvedDataSource,
   type ResolvedDataSources,
@@ -15,14 +14,21 @@ import { getModelDescriptor } from './model-metadata.registry.js';
 import { MongooseDataStore } from './mongoose-data-store.js';
 import {
   getPersistedModels,
+  type IamSqlStorage,
   type PersistenceOverview,
   type PersistenceRuntime,
 } from './persistence-runtime.registry.js';
 import { PostgresLockStore } from './sql/postgres/postgres-lock-store.js';
-import { LOCK_MODEL, type PostgresSchemaOptions, tableName } from './sql/postgres/postgres-schema.compiler.js';
+import {
+  grantStatement,
+  LOCK_MODEL,
+  type PostgresSchemaOptions,
+  tableName,
+} from './sql/postgres/postgres-schema.compiler.js';
 import {
   applyPostgresSchema,
   assertSafeApplicationRole,
+  SCHEMA_LOCK_SQL,
   type SchemaChange,
   verifyPostgresSchema,
 } from './sql/postgres/postgres-schema.migrator.js';
@@ -46,10 +52,7 @@ export class DataSourceRuntime implements PersistenceRuntime {
   private readonly owners = new Map<string, Promise<SqlExecutor>>();
   private readonly stores = new Map<string, Promise<DataStore<any>>>();
 
-  constructor(
-    protected readonly resolved: ResolvedDataSources,
-    protected readonly options: { betterAuthEnabled?: boolean } = {},
-  ) {}
+  constructor(protected readonly resolved: ResolvedDataSources) {}
 
   async close(): Promise<void> {
     const executors = [...this.executors.values()];
@@ -113,6 +116,27 @@ export class DataSourceRuntime implements PersistenceRuntime {
     };
   }
 
+  async iamStorage(): Promise<IamSqlStorage | undefined> {
+    const registration = getPersistedModels().find((model) => {
+      const descriptor = getModelDescriptor(model.name);
+      return !!descriptor && tableName(descriptor) === USERS_TABLE;
+    });
+    const source = registration ? this.sourceOf(registration.name) : undefined;
+    if (!registration || !source || source.driver === 'mongodb') {
+      return undefined;
+    }
+    // Opening the store brings `users` up to date first: Better-Auth only adds its columns to the table the user model
+    // defines, never the other way round
+    const users = await this.resolveStore(registration.name, undefined);
+    const app = await this.executor(source);
+    return {
+      applySchema: (migrate, tables) => this.applyForeignSchema(source, app, migrate, tables),
+      pool: app.driverPool,
+      source: source.name,
+      users,
+    };
+  }
+
   sqlSources(): { name: string; ping: () => Promise<void> }[] {
     return Object.values(this.resolved.sources)
       .filter((source) => source.driver !== 'mongodb')
@@ -145,15 +169,6 @@ export class DataSourceRuntime implements PersistenceRuntime {
     const model = getModelDescriptor(name);
     if (!model) {
       throw new Error(`No descriptor for model "${name}" — register it with CorePersistenceModule.forFeature()`);
-    }
-    if (this.options.betterAuthEnabled && tableName(model) === BETTER_AUTH_USERS_TABLE) {
-      // Better-Auth reads and writes `users` in MongoDB: sign-ups, sign-ins and the system setup would see a different
-      // set of users than the application — an empty one, through which an anonymous setup call creates an admin
-      throw new DataSourceConfigError(
-        `${name} is stored in the "users" table, which Better-Auth shares, and Better-Auth keeps its users in MongoDB ` +
-          `as long as it has no SQL data source. Keep ${name} on MongoDB (database.models: { ${name}: 'mongoose' }), ` +
-          'or switch Better-Auth off (betterAuth: false) and sign in through the legacy endpoints',
-      );
     }
     const app = await this.executor(source);
     const options: PostgresSchemaOptions = {
@@ -215,6 +230,45 @@ export class DataSourceRuntime implements PersistenceRuntime {
   }
 
   /**
+   * Tables another library creates in a SQL source (Better-Auth's): its migration runs as the owner under the schema lock
+   * the framework's own evolution takes, so replicas booting together apply it once; the application role is granted
+   * and checked as on the framework's tables. Two owner connections: one holds the lock, the library migrates on the
+   * other — it brings its own client and cannot run inside the locking transaction.
+   */
+  private async applyForeignSchema(
+    source: ResolvedDataSource,
+    app: SqlExecutor,
+    migrate: (pool: unknown, asOwner: boolean) => Promise<void>,
+    tables: string[],
+  ): Promise<void> {
+    if (!source.ownerUrl) {
+      await migrate(app.driverPool, false);
+    } else {
+      const connect = (maxConnections: number) =>
+        createSqlExecutor({
+          applicationName: 'nest-server-schema',
+          engine: source.sqlEngine,
+          maxConnections,
+          url: source.ownerUrl,
+        });
+      const [lock, migrator] = await Promise.all([connect(1), connect(2)]);
+      const appRole = decodeURIComponent(new URL(source.url).username);
+      try {
+        await lock.transaction(async (tx) => {
+          await tx.run({ params: [], text: SCHEMA_LOCK_SQL }, SYSTEM);
+          await migrate(migrator.driverPool, true);
+          for (const table of tables) {
+            await tx.run({ params: [], text: grantStatement(table, appRole) }, SYSTEM);
+          }
+        });
+      } finally {
+        await Promise.all([lock.close(), migrator.close()]);
+      }
+    }
+    await assertSafeApplicationRole(app, tables);
+  }
+
+  /**
    * One owner connection per source for the whole boot, released once every store exists: one per model opened and
    * closed a privileged connection for every table, and the stores are created concurrently
    */
@@ -243,7 +297,9 @@ export class DataSourceRuntime implements PersistenceRuntime {
 }
 
 /** The table the user model and Better-Auth share */
-const BETTER_AUTH_USERS_TABLE = 'users';
+const USERS_TABLE = 'users';
+
+const SYSTEM = { kind: 'system' } as const;
 
 async function closeExecutor(pending: Promise<SqlExecutor>): Promise<void> {
   await (await pending.catch(() => undefined))?.close();

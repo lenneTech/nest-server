@@ -716,8 +716,8 @@
       "defect": "11.37.0 — the legacy->IAM migration wrote the credential account WITHOUT an issuer; better-auth 1.7.0–1.7.2 key accounts by (issuer, accountId), so the migrated user's sign-in answered 401. Since 11.41.8 the issuer is written only while such a better-auth is installed.",
       "file": "src/core/modules/better-auth/core-better-auth-user.mapper.ts",
       "after": "      await accountsCollection.insertOne({",
-      "find": "        ...(credentialIssuer ? { issuer: credentialIssuer } : {}),\n",
-      "replace": "",
+      "find": "        id: this.generateId(),\n        ...(credentialIssuer ? { issuer: credentialIssuer } : {}),\n",
+      "replace": "        id: this.generateId(),\n",
       "specs": [
         "tests/unit/better-auth-account-issuer-writes.spec.ts"
       ],
@@ -3194,8 +3194,8 @@
       "id": "iam-sign-in-resplits-unchanged-name",
       "defect": "found in 11.43.1 — linkOrCreateUser() re-split the Better-Auth `name` into firstName/lastName on EVERY sign-in. The split is lossy (first word vs. rest), so a stored \"Anna Maria\" / \"von Berg\" became \"Anna\" / \"Maria von Berg\" although nothing had changed on the Better-Auth side.",
       "file": "src/core/modules/better-auth/core-better-auth-user.mapper.ts",
-      "find": "      const nameChangedInIam = !!sessionUser.name && sessionUser.name !== existingFullName;\n",
-      "replace": "      const nameChangedInIam = !!sessionUser.name;\n",
+      "find": "    const nameChangedInIam = !!sessionUser.name && sessionUser.name !== existingFullName;\n",
+      "replace": "    const nameChangedInIam = !!sessionUser.name;\n",
       "specs": [
         "tests/stories/bidirectional-auth-sync.e2e-spec.ts"
       ],
@@ -3799,17 +3799,6 @@
     },
     {
       "driverSpecific": false,
-      "id": "sql-users-beside-better-auth",
-      "defect": "DEV-3830 (db-agnostic phase 2) — with the user model on PostgreSQL and Better-Auth on MongoDB, the users were split across two databases and the system setup counted Better-Auth's empty users collection.",
-      "file": "src/core/common/persistence/data-source.runtime.ts",
-      "find": "    if (this.options.betterAuthEnabled && tableName(model) === BETTER_AUTH_USERS_TABLE) {",
-      "replace": "    if (false && this.options.betterAuthEnabled && tableName(model) === BETTER_AUTH_USERS_TABLE) {",
-      "specs": [
-        "tests/persistence-sql-wiring.e2e-spec.ts"
-      ]
-    },
-    {
-      "driverSpecific": false,
       "id": "legacy-logout-all-keeps-devices",
       "defect": "DEV-3830 (db-agnostic phase 2) — a legacy logout with allDevices wrote refreshTokens: {} through update(), which merges into the stored map: every device stayed signed in.",
       "file": "src/core/modules/auth/services/core-auth.service.ts",
@@ -3862,6 +3851,182 @@
       "replace": "    if (sqlCompleted.length || this.config.migrations === false || true) {\n      return false;\n    }",
       "specs": [
         "tests/core-module-parity.e2e-spec.ts"
+      ]
+    },
+    {
+      "driverSpecific": false,
+      "id": "better-auth-ignores-sql-users",
+      "defect": "DEV-3831 (db-agnostic phase 3) — with the user model on PostgreSQL, Better-Auth kept its users in MongoDB: users split across two databases, and the system setup counted Better-Auth's empty users.",
+      "file": "src/core/common/persistence/data-source.runtime.ts",
+      "find": "    if (!registration || !source || source.driver === 'mongodb') {\n      return undefined;\n    }",
+      "replace": "    if (!registration || !source || source.driver === 'mongodb' || true) {\n      return undefined;\n    }",
+      "specs": [
+        "tests/persistence-sql-wiring.e2e-spec.ts"
+      ]
+    },
+    {
+      "driverSpecific": false,
+      "id": "iam-request-path-objectid",
+      "defect": "DEV-3831 (db-agnostic phase 3) — the per-request token service assumed MongoDB ids (Types.ObjectId.isValid/new Types.ObjectId, _id as Types.ObjectId).",
+      "file": "src/core/modules/better-auth/better-auth-token.service.ts",
+      "find": "      id: user._id?.toString() || (user.id as string),",
+      "replace": "      id: (user._id as Types.ObjectId)?.toString() || (user.id as string),",
+      "specs": [
+        "tests/unit/iam-request-path-ids.spec.ts"
+      ]
+    },
+    {
+      "driverSpecific": false,
+      "id": "system-setup-counts-mongo-users-on-sql",
+      "defect": "DEV-3831 (db-agnostic phase 3) — the system setup counted MongoDB users although the users table lives in PostgreSQL.",
+      "file": "src/core/modules/system-setup/core-system-setup.service.ts",
+      "find": "    const users = getBetterAuthSqlStore()?.users ?? (await getPersistenceRuntime()?.iamStorage())?.users;",
+      "replace": "    const users = undefined;",
+      "specs": [
+        "tests/persistence-sql-wiring.e2e-spec.ts"
+      ]
+    },
+    {
+      "driverSpecific": false,
+      "id": "better-auth-sql-camel-columns",
+      "defect": "DEV-3831 (db-agnostic phase 3) — Better-Auth addressed camelCase columns on SQL, splitting the shared user row's values.",
+      "file": "src/core/modules/better-auth/better-auth-sql.helper.ts",
+      "find": "      fields[key] = columnName(field.fieldName ?? key);",
+      "replace": "      fields[key] = field.fieldName ?? key;",
+      "specs": [
+        "tests/unit/better-auth-sql-storage.spec.ts"
+      ]
+    },
+    {
+      "driverSpecific": false,
+      "id": "iam-required-user-column-not-null",
+      "defect": "DEV-3831 (db-agnostic phase 3) — Better-Auth added name as NOT NULL on users; framework-created users failed to insert.",
+      "file": "src/core/modules/better-auth/better-auth-sql.helper.ts",
+      "find": "    if (field.defaultValue === undefined && !existing.has(column) && SQL_TYPES[field.type]) {",
+      "replace": "    if (field.defaultValue === undefined && !existing.has(column) && SQL_TYPES[field.type] && false) {",
+      "specs": [
+        "tests/stories/bidirectional-auth-sync.e2e-spec.ts"
+      ]
+    },
+    {
+      "driverSpecific": false,
+      "id": "iam-mapper-link-on-mongo-on-sql",
+      "defect": "DEV-3831 (db-agnostic phase 3) — the user mapper wrote a signed-up user's app fields into MongoDB while Better-Auth ran on SQL.",
+      "file": "src/core/modules/better-auth/core-better-auth-user.mapper.ts",
+      "find": "      return this.linkOrCreateUserOnSql(sql, sessionUser, additionalData);",
+      "replace": "      void this.linkOrCreateUserOnSql;",
+      "specs": [
+        "tests/persistence-sql-wiring.e2e-spec.ts"
+      ]
+    },
+    {
+      "driverSpecific": false,
+      "id": "iam-session-lookup-on-mongo",
+      "defect": "DEV-3831: the session lookup by token read MongoDB's session collection, so on PostgreSQL a session token sent as a bearer token identified nobody",
+      "file": "src/core/modules/better-auth/core-better-auth.service.ts",
+      "find": "      return this.liveSession(() => sql.findSession(token), 'getSessionByToken');",
+      "replace": "      void this.liveSession;",
+      "specs": [
+        "tests/better-auth-storage-paths.e2e-spec.ts"
+      ]
+    },
+    {
+      "driverSpecific": false,
+      "id": "iam-token-user-on-mongo",
+      "defect": "DEV-3831: the token service loaded the user of a JWT or session from MongoDB, so on PostgreSQL it found nobody",
+      "file": "src/core/modules/better-auth/better-auth-token.service.ts",
+      "find": "    return getBetterAuthSqlStore() ?? (this.connection ? new BetterAuthMongoUsers(this.connection) : undefined);",
+      "replace": "    return this.connection ? new BetterAuthMongoUsers(this.connection) : undefined;",
+      "specs": [
+        "tests/better-auth-storage-paths.e2e-spec.ts"
+      ]
+    },
+    {
+      "driverSpecific": false,
+      "id": "iam-passkey-challenge-on-mongo",
+      "defect": "DEV-3831: passkey challenge mappings went into MongoDB while Better-Auth kept the challenge on PostgreSQL",
+      "file": "src/core/modules/better-auth/core-better-auth-challenge.service.ts",
+      "find": "    if (sql) {\n      // On SQL as one of Better-Auth's verification values",
+      "replace": "    if (sql && !this.collection) {\n      // On SQL as one of Better-Auth's verification values",
+      "specs": [
+        "tests/better-auth-storage-paths.e2e-spec.ts"
+      ]
+    },
+    {
+      "driverSpecific": false,
+      "id": "iam-email-verified-on-mongo",
+      "defect": "DEV-3831: the e-mail-verified hook set verified/verifiedAt in MongoDB, so on PostgreSQL the user stayed unverified",
+      "file": "src/core/modules/better-auth/core-better-auth.module.ts",
+      "find": "          if (sql) {\n            // One row per user on SQL",
+      "replace": "          if (sql && !db) {\n            // One row per user on SQL",
+      "specs": [
+        "tests/better-auth-storage-paths.e2e-spec.ts"
+      ]
+    },
+    {
+      "driverSpecific": false,
+      "id": "passkey-challenge-cookie-unprefixed",
+      "defect": "DEV-3831: the API middleware looked for the passkey challenge cookie without Better-Auth's cookie prefix, so database challenge storage never stored a mapping or returned a challengeId",
+      "file": "src/core/modules/better-auth/core-better-auth-api.middleware.ts",
+      "find": "    return context?.createAuthCookie?.(key)?.name ?? key;",
+      "replace": "    return `better-auth.${key}`;",
+      "specs": [
+        "tests/better-auth-storage-paths.e2e-spec.ts"
+      ]
+    },
+    {
+      "driverSpecific": false,
+      "id": "iam-migration-status-on-mongo",
+      "defect": "DEV-3831: the migration status counted users and credential accounts in MongoDB, so on PostgreSQL it reported an empty user base",
+      "file": "src/core/modules/better-auth/core-better-auth-user.mapper.ts",
+      "find": "      return this.getMigrationStatusOnSql(sql, includePendingEmails);",
+      "replace": "      void this.getMigrationStatusOnSql;",
+      "specs": [
+        "tests/stories/better-auth-migration-status.e2e-spec.ts"
+      ]
+    },
+    {
+      "driverSpecific": false,
+      "id": "iam-mongo-indices-on-sql",
+      "defect": "DEV-3831: with Better-Auth on a SQL source the boot still created the indices of Better-Auth's collections in MongoDB",
+      "file": "src/core/modules/better-auth/core-better-auth.service.ts",
+      "find": "    if (!this.isEnabled() || !this.connection?.db || getBetterAuthSqlStore()) return;",
+      "replace": "    if (!this.isEnabled() || !this.connection?.db) return;",
+      "specs": [
+        "tests/persistence-sql-wiring.e2e-spec.ts"
+      ]
+    },
+    {
+      "driverSpecific": false,
+      "id": "iam-sql-setup-stops-the-run",
+      "defect": "DEV-3831: the IAM SQL projects' global setup threw when PostgreSQL was not running; vitest runs every project's setup before any test and before the root setup, so the whole run stopped and the containers were never started",
+      "file": "tests/iam-sql.global-setup.ts",
+      "find": "    process.env[`LT_TEST_IAM_SQL_${key}_ERROR`] = error instanceof Error ? error.message : String(error);\n    return async () => undefined;",
+      "replace": "    throw error;",
+      "specs": [
+        "tests/unit/iam-sql-setup.spec.ts"
+      ]
+    },
+    {
+      "driverSpecific": false,
+      "id": "iam-migration-status-capped-at-a-page",
+      "defect": "DEV-3831: on SQL the migration status read the credential accounts through Better-Auth's findMany(), which stops at 100 rows without a limit, so it never counted more than 100 migrated users",
+      "file": "src/core/modules/better-auth/core-better-auth-sql.store.ts",
+      "find": "(SELECT count(*) FROM ${users} u WHERE u.${iamId} IS NOT NULL AND ${migrated})::int AS \"fullyMigrated\"",
+      "replace": "(SELECT count(*) FROM (SELECT 1 FROM ${users} u WHERE u.${iamId} IS NOT NULL AND ${migrated} LIMIT 100) page)::int AS \"fullyMigrated\"",
+      "specs": [
+        "tests/stories/better-auth-migration-status.e2e-spec.ts"
+      ]
+    },
+    {
+      "driverSpecific": false,
+      "id": "mcp-oauth-user-on-mongo",
+      "defect": "DEV-3831: the MCP OAuth layer loaded an access token's subject from MongoDB's users collection, so with the users on PostgreSQL it found nobody or a stale copy",
+      "file": "src/core/modules/ai/services/core-ai-mcp-oauth.service.ts",
+      "find": "      if (sql) {\n        const row = await sql.findUser({ id: userId }, ['roles']);",
+      "replace": "      if (sql && !sql) {\n        const row = await sql.findUser({ id: userId }, ['roles']);",
+      "specs": [
+        "tests/better-auth-storage-paths.e2e-spec.ts"
       ]
     }
   ]

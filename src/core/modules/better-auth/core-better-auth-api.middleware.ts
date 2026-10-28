@@ -244,6 +244,17 @@ export class CoreBetterAuthApiMiddleware implements NestMiddleware {
   }
 
   /**
+   * The passkey challenge cookie as Better-Auth names it: the configured key under the instance's cookie prefix
+   * (`iam.better-auth-passkey` by default). Asked from Better-Auth itself, so the prefix the session cookie follows
+   * (`COOKIE_PREFIX`, the base path) applies here too.
+   */
+  protected async passkeyChallengeCookieName(authInstance: unknown): Promise<string> {
+    const key = this.challengeService?.getCookieName() || 'better-auth-passkey';
+    const context = await (authInstance as { $context?: Promise<any> }).$context;
+    return context?.createAuthCookie?.(key)?.name ?? key;
+  }
+
+  /**
    * Check if database challenge storage should be used.
    * This is checked dynamically because the ChallengeService initializes in onModuleInit.
    */
@@ -312,7 +323,8 @@ export class CoreBetterAuthApiMiddleware implements NestMiddleware {
 
       // Get config for cookie signing
       const config = this.betterAuthService.getConfig();
-      const cookieName = this.challengeService?.getCookieName() || 'better-auth.better-auth-passkey';
+      const cookieName =
+        isPasskeyGenerate || isPasskeyVerify ? await this.passkeyChallengeCookieName(authInstance) : '';
 
       // For passkey verify requests with DB storage, inject the verificationToken as a cookie
       let challengeIdToDelete: string | undefined;

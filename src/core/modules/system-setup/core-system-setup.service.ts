@@ -20,6 +20,8 @@ import { legacyCredentialAccountIssuer } from '../better-auth/core-better-auth-a
 import { CoreBetterAuthUserMapper } from '../better-auth/core-better-auth-user.mapper.js';
 import { CoreBetterAuthService } from '../better-auth/core-better-auth.service.js';
 import { ErrorCode } from '../error-code/error-codes.js';
+import { getPersistenceRuntime } from '../../common/persistence/persistence-runtime.registry.js';
+import { getBetterAuthSqlStore } from '../better-auth/core-better-auth-sql.registry.js';
 
 /**
  * Collection holding the bootstrap claim marker on MongoDB — the 12.0.0 document (`{ _id, claimedAt }`), kept so
@@ -202,10 +204,19 @@ export class CoreSystemSetupService implements OnApplicationBootstrap {
   }
 
   /**
+   * How many users exist, wherever the `users` table lives: a user model on a SQL source is counted there — counting the
+   * MongoDB collection instead would find none and let an anonymous caller create an administrator
+   */
+  protected async countUsers(): Promise<number> {
+    const users = getBetterAuthSqlStore()?.users ?? (await getPersistenceRuntime()?.iamStorage())?.users;
+    return users ? users.count({}) : this.connection.collection('users').countDocuments({});
+  }
+
+  /**
    * Check if the system needs initial setup (zero users)
    */
   async getSetupStatus(): Promise<SystemSetupStatus> {
-    const userCount = await this.connection.collection('users').countDocuments({});
+    const userCount = await this.countUsers();
     return {
       betterAuthEnabled: this.betterAuthService.isEnabled(),
       needsSetup: userCount === 0,
@@ -220,7 +231,7 @@ export class CoreSystemSetupService implements OnApplicationBootstrap {
    */
   async createInitialAdmin(input: SystemSetupInitInput): Promise<SystemSetupInitResult> {
     // Pre-check: only allow when zero users exist
-    const userCount = await this.connection.collection('users').countDocuments({});
+    const userCount = await this.countUsers();
     if (userCount > 0) {
       throw new ForbiddenException(ErrorCode.SYSTEM_SETUP_NOT_AVAILABLE);
     }
@@ -337,10 +348,15 @@ export class CoreSystemSetupService implements OnApplicationBootstrap {
         throw new Error('Failed to sync user to nest-server collection');
       }
 
-      // Set admin role directly
-      await this.connection
-        .collection('users')
-        .updateOne({ _id: syncedUser._id }, { $set: { roles: ['admin'], updatedAt: new Date() } });
+      // Set admin role directly — the framework's own decision, as system work
+      const sql = getBetterAuthSqlStore();
+      if (sql) {
+        await sql.updateUserAsSystem(String(syncedUser._id), { roles: ['admin'] });
+      } else {
+        await this.connection
+          .collection('users')
+          .updateOne({ _id: syncedUser._id }, { $set: { roles: ['admin'], updatedAt: new Date() } });
+      }
 
       // Sync password to Legacy Auth for backwards compatibility
       await this.userMapper.syncPasswordToLegacy(iamUser.id, input.email, input.password);

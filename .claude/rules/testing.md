@@ -235,8 +235,24 @@ modules answer through REST and GraphQL — users and legacy sign-in, tenant mem
 tokens, health check, Hub panels — and `tests/core-module-parity.e2e-spec.ts` assembles them like the reference server
 once with MongoDB alone and once with PostgreSQL as the default source (default engine; the persistence matrix covers
 the engines). `tests/unit/core-module-parity-matrix.spec.ts` is its structural guard. The PostgreSQL column signs in
-through the legacy endpoints with `betterAuth: false`: Better-Auth keeps its users in MongoDB until it gets a SQL data
-source, and the boot refuses a user model on SQL beside it.
+through the legacy endpoints with `betterAuth: false`, so it proves the legacy-auth path on SQL; IAM on SQL is the job of
+the projects below.
+
+The **IAM suites** run once per database through vitest projects in `vitest-e2e.config.mts`: `e2e` on MongoDB, and
+`iam-sql-typeorm`, `iam-sql-kysely`, `iam-sql-drizzle` on PostgreSQL, each over the files in `IAM_SQL_TEST_INCLUDE`
+(`vitest.include-globs.mts`: the Better-Auth stories, privilege escalation, sign-in CSRF, migration status, the storage
+paths and the bidirectional sync). A project's global setup (`tests/iam-sql.global-setup.ts`) creates its PostgreSQL
+database per run and drops it afterwards; its setup file (`tests/iam-sql.setup.ts`) points `NSC__DATABASE__URL`,
+`NSC__DATABASE__OWNER_URL` and `NSC__DATABASE__SQL_ENGINE` at it, so the unchanged `ServerModule` boots with its users —
+and Better-Auth with them — on PostgreSQL. The suites read and prepare state through `tests/helpers/iam-test-db.ts`,
+which answers from whichever database the run routes the users to (camelCase fields, string ids, a column never written
+left out rather than `null`), never through a MongoDB client of their own. Keep the root config free of `include`: with
+`extends: true` it is merged into every project, and the IAM projects would run the whole suite. vitest runs the global
+setup of EVERY project before any test, and the project setups before the root one — so a throw in
+`tests/iam-sql.global-setup.ts` used to stop the whole run, MongoDB project included, before the root setup could start
+the containers. The IAM setup therefore starts the test infrastructure itself (once per run) and never throws: a
+database it still cannot create (no Docker) makes every suite of that project fail in `tests/iam-sql.setup.ts` with the
+reason, never fall back to MongoDB, while the `e2e` project runs. `--project e2e` runs MongoDB alone.
 
 The **data store** contract follows the same discipline: `tests/helpers/persistence-matrix.ts` declares the cases (CRUD contract plus the security policies), `tests/persistence-parity.e2e-spec.ts` executes them against a store obtained via `CorePersistenceModule.forFeature()` + `@InjectStore()` with every security plugin registered, and `tests/unit/persistence-parity-matrix.spec.ts` guards that every (case, database) cell is declared. It has four columns: `mongodb`, and PostgreSQL once per engine (`postgres-typeorm`, `postgres-kysely`, `postgres-drizzle`) — the PostgreSQL columns run a `SqlDataStore` over the schema the migrator created, connected as the application role, so row-level security binds every case. A further database (MySQL / MariaDB, plan `.claude/plans/db-agnostic/PLAN.md` §6) becomes a column of its own. Each tenant layer of the SQL store is additionally proven ALONE in `tests/persistence-sql-store.e2e-spec.ts` — the matrix runs them together, where one layer hides the loss of another.
 
@@ -301,7 +317,7 @@ pnpm run check:mutations -- --id=<id>       # one mutation
 pnpm run check:mutations -- --list          # the registry, without running anything
 pnpm run check:mutations -- --allow-dirty   # when the fix and its evidence share a working tree
 pnpm run check:mutations -- --jobs=4        # N mutations at a time (default: 2, or 4 on >=12 cores)
-pnpm run check:mutations -- --no-infra      # only the 197 that need no MongoDB
+pnpm run check:mutations -- --no-infra      # only the 200 that need no MongoDB
 pnpm run check:mutations -- --since=<ref>   # only mutations touching files changed since <ref>
 ```
 
@@ -320,7 +336,7 @@ when the registry, a vitest config or a setup file changed, since those can move
 commit, and in CI alongside the publish without blocking it. The price of caching is a cache that
 has to model each spec's full dependency closure correctly, and getting that wrong produces a stale
 PASS for a test that has since gone vacuous — exactly what the gate is there to prevent. Bad trade
-at 337 mutations.
+at 352 mutations.
 
 **Decided 2026-10-03 (repo owner): keep the full run.** Measured at 128 mutations, the CI job for
 11.41.6 took **14 minutes**. The trigger to revisit is that wall time, not the mutation count —
@@ -365,9 +381,9 @@ exactly the environment where the answer matters.
 
 ### The cost is vitest's cold start, not the tests
 
-Worth knowing before optimising the wrong thing: the specs behind all 140 e2e mutations add up to
+Worth knowing before optimising the wrong thing: the specs behind all 152 e2e mutations add up to
 **~40 seconds**. The step takes ~740s. The remaining ~700s is paying vitest's startup — process
-spawn, transform, module graph, mongod connect, DB create and drop — once per mutation, 337 times.
+spawn, transform, module graph, mongod connect, DB create and drop — once per mutation, 352 times.
 That work is largely single-threaded I/O and barely scales with cores: the full registry measures
 **744s on a 12-core laptop and 777s on a 4-vCPU CI runner**.
 

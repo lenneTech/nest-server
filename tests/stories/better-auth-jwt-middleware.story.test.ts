@@ -28,12 +28,12 @@
 
 import { Test, TestingModule } from '@nestjs/testing';
 import { PubSub } from 'graphql-subscriptions';
-import { MongoClient, ObjectId } from 'mongodb';
 import * as OTPAuth from 'otpauth';
 
 import { CoreBetterAuthService, HttpExceptionLogFilter, TestHelper } from '../../src';
 import envConfig from '../../src/config.env';
 import { ServerModule } from '../../src/server/server.module';
+import { type IamTestDb, openIamTestDb } from '../helpers/iam-test-db';
 
 describe('Story: BetterAuth JWT Mode Middleware (Cookie-Based JWT)', () => {
   let app: any;
@@ -45,8 +45,8 @@ describe('Story: BetterAuth JWT Mode Middleware (Cookie-Based JWT)', () => {
   let isJwtEnabled: boolean;
 
   // Database
-  let mongoClient: MongoClient;
-  let db: any;
+  // The database the run routes the users to (MongoDB, or PostgreSQL in the iam-sql projects)
+  let iamDb: IamTestDb;
 
   // Test data tracking
   const testUserIds: string[] = [];
@@ -81,8 +81,7 @@ describe('Story: BetterAuth JWT Mode Middleware (Cookie-Based JWT)', () => {
       isPasskeyEnabled = betterAuthService.isPasskeyEnabled();
       isJwtEnabled = betterAuthService.isJwtEnabled();
 
-      mongoClient = await MongoClient.connect(envConfig.mongoose.uri);
-      db = mongoClient.db();
+      iamDb = await openIamTestDb(envConfig.mongoose.uri);
     } catch (e) {
       console.error('beforeAllError', e);
       throw e;
@@ -90,30 +89,10 @@ describe('Story: BetterAuth JWT Mode Middleware (Cookie-Based JWT)', () => {
   });
 
   afterAll(async () => {
-    // Cleanup test users
-    if (db) {
-      for (const userId of testUserIds) {
-        try {
-          await db.collection('users').deleteOne({ _id: new ObjectId(userId) });
-        } catch {
-          // Ignore cleanup errors
-        }
-      }
-      for (const iamUserId of testIamUserIds) {
-        try {
-          await db.collection('user').deleteOne({ id: iamUserId });
-          await db.collection('session').deleteMany({ userId: iamUserId });
-          await db.collection('account').deleteMany({ userId: iamUserId });
-          await db.collection('twoFactor').deleteMany({ userId: iamUserId });
-          await db.collection('passkey').deleteMany({ userId: iamUserId });
-        } catch {
-          // Ignore cleanup errors
-        }
-      }
-    }
-
-    if (mongoClient) {
-      await mongoClient.close();
+    // Cleanup test users and everything Better-Auth keeps for them (sessions, accounts, 2FA, passkeys)
+    if (iamDb) {
+      await iamDb.deleteUsers({ ids: [...testUserIds, ...testIamUserIds] });
+      await iamDb.close();
     }
     if (app) {
       await app.close();
@@ -124,8 +103,7 @@ describe('Story: BetterAuth JWT Mode Middleware (Cookie-Based JWT)', () => {
   // Helper Functions
   // =============================================================================
 
-  const generateTestEmail = () =>
-    `jwt-middleware-${Date.now()}-${Math.random().toString(36).substring(7)}@test.com`;
+  const generateTestEmail = () => `jwt-middleware-${Date.now()}-${Math.random().toString(36).substring(7)}@test.com`;
 
   /**
    * Create a BetterAuth user and return sign-up response
@@ -436,7 +414,10 @@ describe('Story: BetterAuth JWT Mode Middleware (Cookie-Based JWT)', () => {
         statusCode: 200,
       });
       const signInBody = JSON.parse(secondSignIn.text);
-      expect(signInBody.twoFactorRedirect === true || signInBody.requiresTwoFactor === true, 'sign-in asks for the second factor').toBe(true);
+      expect(
+        signInBody.twoFactorRedirect === true || signInBody.requiresTwoFactor === true,
+        'sign-in asks for the second factor',
+      ).toBe(true);
 
       // =================================================================
       // Step 4: Complete the sign-in with a TOTP code and the pending two-factor cookie

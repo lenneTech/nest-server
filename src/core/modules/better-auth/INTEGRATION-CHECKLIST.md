@@ -673,7 +673,7 @@ In JWT mode (`cookies: false`), the server stores WebAuthn challenges in the dat
 
 | Mode                                | Challenge Storage                                  | Client Approach         |
 | ----------------------------------- | -------------------------------------------------- | ----------------------- |
-| Cookie (`cookies: true` or not set) | Cookie (`better-auth.better-auth-passkey`)         | Either approach works   |
+| Cookie (`cookies: true` or not set) | Cookie (`iam.better-auth-passkey`)                 | Either approach works   |
 | JWT (`cookies: false`)              | Database with `challengeId` mapping (auto-enabled) | **Must use composable** |
 
 **Note:** Database challenge storage is automatically enabled when `options.cookies: false` is set. No additional configuration is required.

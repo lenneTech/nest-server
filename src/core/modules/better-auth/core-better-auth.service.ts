@@ -47,6 +47,7 @@ import {
   DEFAULT_ACCOUNT_ISSUER_FIELD,
   DEFAULT_ACCOUNT_MODEL_NAME,
 } from './core-better-auth.constants.js';
+import { getBetterAuthSqlStore } from './core-better-auth-sql.registry.js';
 
 /**
  * Result of a session validation
@@ -145,7 +146,8 @@ export class CoreBetterAuthService implements OnApplicationBootstrap, OnModuleIn
    * better-auth pin yet therefore keeps working exactly as before.
    */
   async onModuleInit(): Promise<void> {
-    if (!this.isEnabled() || !this.connection?.db) return;
+    // Both steps concern MongoDB's collections: on a SQL source Better-Auth's migrator created the tables and indices
+    if (!this.isEnabled() || !this.connection?.db || getBetterAuthSqlStore()) return;
 
     await this.ensureIndices();
     if (usesLegacyAccountIssuer()) {
@@ -1087,7 +1089,14 @@ export class CoreBetterAuthService implements OnApplicationBootstrap, OnModuleIn
    * @returns Session and user data, or null if not found/expired
    */
   async getSessionByToken(token: string): Promise<SessionResult> {
-    if (!this.isEnabled() || !this.connection?.db) {
+    if (!this.isEnabled()) {
+      return { session: null, user: null };
+    }
+    const sql = getBetterAuthSqlStore();
+    if (sql) {
+      return this.liveSession(() => sql.findSession(token), 'getSessionByToken');
+    }
+    if (!this.connection?.db) {
       return { session: null, user: null };
     }
 
@@ -1183,7 +1192,14 @@ export class CoreBetterAuthService implements OnApplicationBootstrap, OnModuleIn
    * @returns Session result with token, or null if no active session exists
    */
   async getActiveSessionForUser(userId: string): Promise<SessionResult> {
-    if (!this.isEnabled() || !this.connection?.db) {
+    if (!this.isEnabled()) {
+      return { session: null, user: null };
+    }
+    const sql = getBetterAuthSqlStore();
+    if (sql) {
+      return this.liveSession(() => sql.findActiveSession(userId), 'getActiveSessionForUser');
+    }
+    if (!this.connection?.db) {
       return { session: null, user: null };
     }
 
@@ -1255,6 +1271,23 @@ export class CoreBetterAuthService implements OnApplicationBootstrap, OnModuleIn
       };
     } catch (error) {
       this.logger.debug(`getActiveSessionForUser error: ${error instanceof Error ? error.message : 'Unknown error'}`);
+      return { session: null, user: null };
+    }
+  }
+
+  /**
+   * A session from the SQL store, refused once expired — the check the MongoDB lookups make on the document
+   */
+  protected async liveSession(lookup: () => Promise<null | SessionResult>, caller: string): Promise<SessionResult> {
+    try {
+      const found = await lookup();
+      if (!found?.session || (found.session.expiresAt && new Date(found.session.expiresAt) < new Date())) {
+        this.logger.debug(`${caller}: no live session`);
+        return { session: null, user: null };
+      }
+      return found;
+    } catch (error) {
+      this.logger.debug(`${caller} error: ${error instanceof Error ? error.message : 'Unknown error'}`);
       return { session: null, user: null };
     }
   }
@@ -1412,17 +1445,22 @@ export class CoreBetterAuthService implements OnApplicationBootstrap, OnModuleIn
     email?: string;
     sub: string;
   }> {
-    if (!this.connection) {
+    const sql = getBetterAuthSqlStore();
+    if (!this.connection && !sql) {
       this.logger.debug('JWKS verification failed: no database connection');
       return null;
     }
 
     try {
-      // Fetch the JWKS public key from database
-      const jwksCollection = this.connection.collection('jwks');
-      let keyRecord = await jwksCollection.findOne({ id: kid });
+      // Fetch the JWKS public key from database (on SQL through Better-Auth's adapter, by its logical names)
+      const jwksCollection = this.connection?.collection('jwks');
+      let keyRecord = sql ? await sql.findJwk(kid) : await jwksCollection?.findOne({ id: kid });
 
-      if (!keyRecord) {
+      if (!keyRecord && sql) {
+        this.logger.debug(`No JWKS key found for kid: ${kid}`);
+        return null;
+      }
+      if (!keyRecord && jwksCollection) {
         // Try with _id as fallback (MongoDB ObjectId)
         const allKeys = await jwksCollection.find({}).toArray();
         const matchingKey = allKeys.find((k) => k.id === kid || k._id?.toString() === kid);

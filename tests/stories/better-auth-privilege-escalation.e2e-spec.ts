@@ -32,20 +32,20 @@
 
 import { Test, TestingModule } from '@nestjs/testing';
 import { PubSub } from 'graphql-subscriptions';
-import { Db, MongoClient } from 'mongodb';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 
 import { CoreBetterAuthService, HttpExceptionLogFilter, RoleEnum, TestHelper } from '../../src';
 import envConfig from '../../src/config.env';
 import { ServerModule } from '../../src/server/server.module';
 import { UserService } from '../../src/server/modules/user/user.service';
+import { type IamTestDb, openIamTestDb } from '../helpers/iam-test-db';
 
 describe('Story: Better-Auth Privilege-Escalation Prevention', () => {
   // Test environment
   let app;
   let testHelper: TestHelper;
-  let mongoClient: MongoClient;
-  let db: Db;
+  // The database the run routes the users to (MongoDB, or PostgreSQL in the iam-sql projects)
+  let iamDb: IamTestDb;
   let betterAuthService: CoreBetterAuthService;
   let userService: UserService;
   let isBetterAuthEnabled: boolean;
@@ -93,8 +93,8 @@ describe('Story: Better-Auth Privilege-Escalation Prevention', () => {
       statusCode: 200,
     });
 
-    const dbUser = await db.collection('users').findOne({ email });
-    return { email, token: signIn?.token || '', userId: dbUser?._id?.toString() || '' };
+    const dbUser = await iamDb.findUser({ email });
+    return { email, token: signIn?.token || '', userId: dbUser?.id || '' };
   }
 
   // ===================================================================================================================
@@ -119,8 +119,7 @@ describe('Story: Better-Auth Privilege-Escalation Prevention', () => {
       userService = moduleFixture.get(UserService);
       isBetterAuthEnabled = betterAuthService.isEnabled();
 
-      mongoClient = await MongoClient.connect(envConfig.mongoose.uri);
-      db = mongoClient.db();
+      iamDb = await openIamTestDb(envConfig.mongoose.uri);
     } catch (e) {
       console.error('beforeAllError', e);
       throw e;
@@ -128,23 +127,11 @@ describe('Story: Better-Auth Privilege-Escalation Prevention', () => {
   });
 
   afterAll(async () => {
-    if (db) {
+    if (iamDb) {
       for (const email of testEmails) {
-        const user = await db.collection('users').findOne({ email });
-        if (user) {
-          const userIds: any[] = [user._id, user._id.toString()];
-          if (user.iamId) {
-            userIds.push(user.iamId);
-          }
-          await db.collection('users').deleteOne({ _id: user._id });
-          await db.collection('account').deleteMany({ userId: { $in: userIds } });
-          await db.collection('session').deleteMany({ userId: { $in: userIds } });
-        }
+        await iamDb.deleteUsers({ email });
       }
-    }
-
-    if (mongoClient) {
-      await mongoClient.close();
+      await iamDb.close();
     }
     if (app) {
       await app.close();
@@ -169,7 +156,7 @@ describe('Story: Better-Auth Privilege-Escalation Prevention', () => {
       expect(token).not.toBe('');
 
       // Sanity: the freshly registered user starts with no roles.
-      const before = await db.collection('users').findOne({ email });
+      const before = await iamDb.findUser({ email });
       expect(before?.roles ?? []).toEqual([]);
 
       // The attack: forge admin via the raw-forwarded Better-Auth update-user route.
@@ -185,7 +172,7 @@ describe('Story: Better-Auth Privilege-Escalation Prevention', () => {
       expect(attack?.code).toBe('FIELD_NOT_ALLOWED');
 
       // LOAD-BEARING assertion: regardless of the response shape, the user must NOT have become admin.
-      const after = await db.collection('users').findOne({ email });
+      const after = await iamDb.findUser({ email });
       expect(after?.roles ?? []).toEqual([]);
       expect((after?.roles ?? []).includes('admin')).toBe(false);
 
@@ -210,7 +197,7 @@ describe('Story: Better-Auth Privilege-Escalation Prevention', () => {
       expect(attack?.code).toBe('FIELD_NOT_ALLOWED');
 
       // LOAD-BEARING assertion: the user must NOT have self-verified.
-      const after = await db.collection('users').findOne({ email });
+      const after = await iamDb.findUser({ email });
       expect(after?.verified === true).toBe(false);
     });
 
@@ -229,7 +216,7 @@ describe('Story: Better-Auth Privilege-Escalation Prevention', () => {
       });
 
       // LOAD-BEARING: the forged role must not have been persisted on the new account.
-      const after = await db.collection('users').findOne({ email });
+      const after = await iamDb.findUser({ email });
       expect(after?.roles ?? []).toEqual([]);
       expect((after?.roles ?? []).includes('admin')).toBe(false);
 
@@ -250,7 +237,7 @@ describe('Story: Better-Auth Privilege-Escalation Prevention', () => {
 
       expect(result?.status).toBe(true);
 
-      const after = await db.collection('users').findOne({ email });
+      const after = await iamDb.findUser({ email });
       expect(after?.name).toBe('Renamed User');
       // The legitimate update must not have granted any roles either.
       expect(after?.roles ?? []).toEqual([]);
@@ -274,7 +261,7 @@ describe('Story: Better-Auth Privilege-Escalation Prevention', () => {
 
       await userService.setRoles(userId, [RoleEnum.ADMIN]);
 
-      const after = await db.collection('users').findOne({ email });
+      const after = await iamDb.findUser({ email });
       expect(after?.roles).toEqual([RoleEnum.ADMIN]);
 
       const model = await userService.getViaEmail(email);
@@ -290,11 +277,11 @@ describe('Story: Better-Auth Privilege-Escalation Prevention', () => {
 
       // The target the admin promotes.
       const target = await createSignedInUser('promote-target');
-      expect((await db.collection('users').findOne({ email: target.email }))?.roles ?? []).toEqual([]);
+      expect((await iamDb.findUser({ email: target.email }))?.roles ?? []).toEqual([]);
 
       await userService.update(target.userId, { roles: [RoleEnum.ADMIN] } as any, { currentUser: adminModel as any });
 
-      const after = await db.collection('users').findOne({ email: target.email });
+      const after = await iamDb.findUser({ email: target.email });
       expect(after?.roles).toEqual([RoleEnum.ADMIN]);
     });
   });

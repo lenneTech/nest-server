@@ -19,6 +19,7 @@ import supertest from 'supertest';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 
 import {
+  CoreBetterAuthModule,
   CoreCronJobs,
   CoreModule,
   CorePersistenceModel,
@@ -38,6 +39,7 @@ import {
 } from '../src';
 import { deriveTestDbUri } from './db-lifecycle.reporter';
 import { createPostgresTestDatabase, type PostgresTestDatabase } from './helpers/postgres-test-db';
+import { User, UserSchema } from '../src/server/modules/user/user.model';
 
 /**
  * The SQL data source assembled the way a project uses it (plan §3.9): `database` names a PostgreSQL default with an
@@ -541,47 +543,176 @@ describe('SQL data source boot check (e2e)', () => {
   });
 
   /**
-   * @regression   DEV-3830 (db-agnostic phase 2) — with the user model on PostgreSQL and Better-Auth on MongoDB, the
-   *   users were split across two databases: the system setup counted Better-Auth's empty `users` and let an anonymous
-   *   caller create an administrator next to the existing users.
-   * @seen-failing Drop the Better-Auth check from DataSourceRuntime.openStore() in
-   *   src/core/common/persistence/data-source.runtime.ts — registered as mutation `sql-users-beside-better-auth` in
+   * @regression   DEV-3831 (db-agnostic phase 3) — with the user model on PostgreSQL, Better-Auth kept its users in
+   *   MongoDB: the users were split across two databases, and the system setup counted Better-Auth's empty `users` and
+   *   let an anonymous caller create an administrator next to the existing users (phase 2 refused that boot).
+   *   The user mapper then still wrote the app fields of a signed-up user into a MongoDB document of its own, and the
+   *   boot created the indices of Better-Auth's collections in MongoDB.
+   * @seen-failing Make DataSourceRuntime.iamStorage() answer undefined in
+   *   src/core/common/persistence/data-source.runtime.ts, skip the SQL branch of
+   *   CoreBetterAuthUserMapper.linkOrCreateUser() in src/core/modules/better-auth/core-better-auth-user.mapper.ts, or
+   *   let CoreBetterAuthService.onModuleInit() run its MongoDB steps on SQL too — registered as mutations
+   *   `better-auth-ignores-sql-users`, `iam-mapper-link-on-mongo-on-sql` and `iam-mongo-indices-on-sql` in
    *   tests/regression-mutations.json.
    */
-  it('refuses to boot with the user model on SQL while Better-Auth keeps its users in MongoDB', async () => {
-    const database = await createPostgresTestDatabase('sql-wiring-users');
-    try {
-      const UsersSchema = SchemaFactory.createForClass(WiringOwner);
-      UsersSchema.set('collection', 'users');
-
-      @Module({ imports: [CorePersistenceModule.forFeature([{ name: 'WiringUser', schema: UsersSchema }])] })
-      class UsersFeatureModule {}
+  it('runs Better-Auth on the PostgreSQL source the users table lives in, one row per user', async () => {
+    const database = await createPostgresTestDatabase('sql-wiring-iam');
+    const owner = new Client({ connectionString: database.ownerUrl });
+    await owner.connect();
+    let iamApp: INestApplication | undefined;
+    const boot = async () => {
+      CoreBetterAuthModule.reset();
+      @Module({ imports: [CorePersistenceModule.forFeature([{ model: User, name: User.name, schema: UserSchema }])] })
+      class IamUsersModule {}
 
       @Module({
         imports: [
           CoreModule.forRoot({
             betterAuth: {
-              autoRegister: true,
               basePath: '/iam',
               baseUrl: `http://localhost:${3400 + Math.floor(Math.random() * 100)}`,
+              emailVerification: false,
               secret: 'TEST_BETTERAUTH_SECRET_32_CHARS_MIN',
+              signUpChecks: false,
             },
             database: { ownerUrl: database.ownerUrl, url: database.appUrl },
             env: 'test',
             graphQl: { driver: { introspection: true }, maxComplexity: 1000 },
-            mongoose: { uri: deriveTestDbUri('sql-wiring-users') },
+            mongoose: { uri: deriveTestDbUri('sql-wiring-iam') },
             port: 0,
           } as any),
-          UsersFeatureModule,
+          IamUsersModule,
         ],
         providers: [JsonScalar],
       })
-      class UsersAppModule {}
+      class IamAppModule {}
 
-      await expect(Test.createTestingModule({ imports: [UsersAppModule] }).compile()).rejects.toThrow(
-        /WiringUser is stored in the "users" table, which Better-Auth shares/,
+      const moduleRef = await Test.createTestingModule({ imports: [IamAppModule] }).compile();
+      const app = moduleRef.createNestApplication();
+      await app.init();
+      return app;
+    };
+    try {
+      iamApp = await boot();
+      const email = `iam-sql-${Date.now()}@test.com`;
+      await supertest(iamApp.getHttpServer())
+        .post('/iam/sign-up/email')
+        .send({ email, name: 'Iam Sql', password: 'Iam-Sql-Password-1!', termsAndPrivacyAccepted: true })
+        .expect((response) => expect(response.status).toBeLessThan(300));
+      await supertest(iamApp.getHttpServer())
+        .post('/iam/sign-in/email')
+        .send({ email, password: 'Iam-Sql-Password-1!' })
+        .expect((response) => expect(response.status).toBeLessThan(300));
+
+      // One row in the framework's users table, written through the framework's columns, with the framework's id
+      const { rows: users } = await owner.query('SELECT id, email, name, email_verified FROM users WHERE email = $1', [
+        email,
+      ]);
+      expect(users).toHaveLength(1);
+      expect(users[0].id).toMatch(/^[0-9a-f]{24}$/);
+      expect(users[0].name).toBe('Iam Sql');
+      const { rows: sessions } = await owner.query('SELECT user_id FROM session WHERE user_id = $1', [users[0].id]);
+      expect(sessions.length).toBeGreaterThan(0);
+
+      // Better-Auth's tables are owned by the owner; the application role only reads and writes them
+      const { rows: owned } = await owner.query(
+        `SELECT c.relname FROM pg_class c WHERE c.relkind = 'r' AND pg_get_userbyid(c.relowner) = $1
+           AND c.relname IN ('session', 'account', 'verification', 'jwks', 'two_factor')`,
+        [new URL(database.appUrl).username],
       );
+      expect(owned).toEqual([]);
+
+      // Nothing of it in MongoDB — not even the indices of Better-Auth's collections
+      const connection = iamApp.get<any>(getConnectionToken());
+      expect(await connection.db.collection('users').countDocuments({ email })).toBe(0);
+      const collections = (await connection.db.listCollections().toArray()).map((collection) => collection.name);
+      expect(collections.filter((name) => ['account', 'session', 'verification'].includes(name))).toEqual([]);
+      await iamApp.close();
+      iamApp = undefined;
+
+      // A second boot finds everything in place and changes nothing
+      iamApp = await boot();
+      await supertest(iamApp.getHttpServer())
+        .post('/iam/sign-in/email')
+        .send({ email, password: 'Iam-Sql-Password-1!' })
+        .expect((response) => expect(response.status).toBeLessThan(300));
     } finally {
+      await iamApp?.close();
+      CoreBetterAuthModule.reset();
+      await owner.end();
+      await database.drop();
+    }
+  });
+
+  /**
+   * @regression   DEV-3831 (db-agnostic phase 3) — the system setup counted the users in MongoDB although the users
+   *   table lives in PostgreSQL: with an empty table it reported "set up", and with an empty MongoDB collection it let
+   *   an anonymous caller create an administrator next to the existing users.
+   * @seen-failing Count the MongoDB collection in CoreSystemSetupService.countUsers() in
+   *   src/core/modules/system-setup/core-system-setup.service.ts — registered as mutation
+   *   `system-setup-counts-mongo-users-on-sql` in tests/regression-mutations.json.
+   */
+  it('counts and creates the initial administrator in the SQL users table', async () => {
+    const database = await createPostgresTestDatabase('sql-wiring-setup');
+    const owner = new Client({ connectionString: database.ownerUrl });
+    await owner.connect();
+    let setupApp: INestApplication | undefined;
+    try {
+      CoreBetterAuthModule.reset();
+      @Module({ imports: [CorePersistenceModule.forFeature([{ model: User, name: User.name, schema: UserSchema }])] })
+      class SetupUsersModule {}
+
+      @Module({
+        imports: [
+          CoreModule.forRoot({
+            betterAuth: {
+              basePath: '/iam',
+              baseUrl: `http://localhost:${3500 + Math.floor(Math.random() * 100)}`,
+              emailVerification: false,
+              secret: 'TEST_BETTERAUTH_SECRET_32_CHARS_MIN',
+              signUpChecks: false,
+            },
+            database: { ownerUrl: database.ownerUrl, url: database.appUrl },
+            env: 'test',
+            graphQl: { driver: { introspection: true }, maxComplexity: 1000 },
+            mongoose: { uri: deriveTestDbUri(`sql-wiring-setup-${Date.now()}`) },
+            port: 0,
+          } as any),
+          SetupUsersModule,
+        ],
+        providers: [JsonScalar],
+      })
+      class SetupAppModule {}
+
+      const moduleRef = await Test.createTestingModule({ imports: [SetupAppModule] }).compile();
+      setupApp = moduleRef.createNestApplication();
+      await setupApp.init();
+      // A user only MongoDB knows: the setup must not count it — the users live in PostgreSQL
+      const connection = setupApp.get<any>(getConnectionToken());
+      await connection.db.collection('users').insertOne({ email: `mongo-only-${Date.now()}@test.com` });
+
+      const http = supertest(setupApp.getHttpServer());
+      expect((await http.get('/system-setup/status').expect(200)).body).toMatchObject({ needsSetup: true });
+
+      const email = `setup-sql-${Date.now()}@test.com`;
+      await http
+        .post('/system-setup/init')
+        .send({ email, name: 'Setup Admin', password: 'Setup-Admin-Password-1!' })
+        .expect(201);
+      const { rows } = await owner.query('SELECT id, roles, email_verified FROM users WHERE email = $1', [email]);
+      expect(rows).toHaveLength(1);
+      expect(rows[0]).toMatchObject({ email_verified: true, roles: ['admin'] });
+
+      // Set up now: a second anonymous caller gets nothing
+      expect((await http.get('/system-setup/status').expect(200)).body).toMatchObject({ needsSetup: false });
+      await http
+        .post('/system-setup/init')
+        .send({ email: `setup-sql-second-${Date.now()}@test.com`, password: 'Setup-Admin-Password-1!' })
+        .expect(403);
+    } finally {
+      await setupApp?.close();
+      CoreBetterAuthModule.reset();
+      await owner.end();
       await database.drop();
     }
   });

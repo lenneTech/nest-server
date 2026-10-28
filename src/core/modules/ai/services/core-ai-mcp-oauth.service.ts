@@ -7,6 +7,7 @@ import type { Connection } from 'mongoose';
 import { isLocalEnv, resolveAppUrlFromConfig } from '../../../common/helpers/cookies.helper.js';
 import { ConfigService } from '../../../common/services/config.service.js';
 import { getApiTokenContext, hasApiTokenCredential } from '../../api-token/core-api-token.helpers.js';
+import { getBetterAuthSqlStore } from '../../better-auth/core-better-auth-sql.registry.js';
 import { getBetterAuthTokenService } from '../../better-auth/core-better-auth.registry.js';
 import {
   IMcpOAuthConsentView,
@@ -427,6 +428,13 @@ export class CoreAiMcpOAuthService implements OnModuleInit {
    */
   async loadUser(userId: string): Promise<{ id: string; roles: string[] } | null> {
     try {
+      // With Better-Auth on SQL the subject is the row id of the `users` table there — a MongoDB `users` collection is
+      // empty, or a stale copy whose roles were revoked long ago
+      const sql = getBetterAuthSqlStore();
+      if (sql) {
+        const row = await sql.findUser({ id: userId }, ['roles']);
+        return row ? { id: userId, roles: Array.isArray(row.roles) ? row.roles : [] } : null;
+      }
       const { ObjectId } = await import('mongodb');
       const query = ObjectId.isValid(userId) ? { _id: new ObjectId(userId) } : { _id: userId as any };
       const doc = await this.db()

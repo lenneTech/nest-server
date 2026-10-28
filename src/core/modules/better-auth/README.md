@@ -1083,6 +1083,15 @@ social sign-in after the upgrade — see
 > `providerId` alone on purpose, so they keep working on rows the backfill has not reached yet —
 > which matters most when the backfill has failed.
 
+### Storage on a SQL source
+
+When the user model (table `users`) is routed to a SQL source through `database`, Better-Auth follows it: it runs its
+built-in Kysely adapter on that source's application pool and shares ONE `users` row per user with the user model.
+Its tables are snake_case (`session`, `account`, `verification`, `jwks`, `two_factor`, `passkey`), ids keep the
+ObjectId format, and its migrations run at boot as the owner (`database.ownerUrl`) — without an owner connection the
+boot stops while any are pending. The two MongoDB steps above are skipped there. Nothing is copied from MongoDB.
+Details: `.claude/rules/better-auth.md` §11.
+
 ---
 
 ## Module Setup
@@ -1757,7 +1766,7 @@ const legacyToken = await authService.signIn({ email, password });
 
 ### Key Points
 
-1. **Shared Users Collection**: Both systems use the same `users` MongoDB collection
+1. **Shared Users Collection**: Both systems use the same `users` collection — on MongoDB, or one `users` table when the user model is routed to a SQL source (see [Storage on a SQL source](#storage-on-a-sql-source))
 2. **bcrypt Compatibility**: Both systems use bcrypt - passwords work with either system
 3. **User Linking**: When a user logs in via Better-Auth, `iamId` is set to link them
 4. **Role Preservation**: User roles work with both systems

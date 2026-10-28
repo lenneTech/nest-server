@@ -491,6 +491,41 @@ ids, Better-Auth migrations inside the framework's migration flow; user mapper, 
 backfills behind an `IamUserStore` with Mongo (current code moved) and SQL implementations; the full Better-Auth story
 suites green on both databases.
 
+**Decided while implementing phase 3 (2026-10-28, autopilot — every point is an assumption recorded on DEV-3831):**
+* *Where Better-Auth lives:* it follows the users table. `DataSourceRuntime.iamStorage()` finds the model whose table is
+  `users`; on a SQL source Better-Auth gets that source's application `pg` pool and builds its own Kysely on it, so
+  the core imports no Kysely. A split of the users across two databases is impossible by construction — the phase 2
+  boot refusal is gone. Legacy-auth projects (`betterAuth: false`) were never affected.
+* *One row per user:* Better-Auth's `user` maps to the framework's `users` table (snake_case everywhere, the plugins'
+  tables too, ObjectId-hex ids, so a Better-Auth user id IS the framework's id and `iamId` equals it). Its required
+  columns (`name`, `email_verified`) are added nullable before its migrator runs, so a row the user model writes alone
+  stays valid; the schema planner treats them as foreign columns, not as undeclared ones.
+* *Schema:* Better-Auth validates its schema when the instance is created, so its migrations run first, as the owner,
+  under the framework's schema lock, followed by grants and the safe-role check — inside the boot, not as a separate
+  migration file.
+* *`IamUserStore` was not built as planned:* the MongoDB code stays where it is and a SQL branch sits beside it
+  (`BetterAuthSqlStore`, reached through an import-free registry leaf). Moving the MongoDB code would have touched every
+  MongoDB path without changing what it does. On the per-request path only `BetterAuthMongoUsers` knows what an ObjectId
+  is (`tests/unit/iam-request-path-ids.spec.ts`).
+* *Passkey challenges on SQL* are Better-Auth verification values (identifier prefix `lt-passkey-challenge:`), not a
+  framework table.
+* *Proof:* every IAM suite runs on MongoDB and on PostgreSQL with each engine (vitest projects `iam-sql-<engine>`, the
+  neutral helper `tests/helpers/iam-test-db.ts`); `tests/better-auth-storage-paths.e2e-spec.ts` covers the four paths
+  the stories pass either way.
+* *Found and fixed (pre-existing, also on MongoDB):* the API middleware looked for the passkey challenge cookie as
+  `better-auth.better-auth-passkey`, while Better-Auth names it after its cookie prefix (`iam.better-auth-passkey`) — no
+  mapping was stored and no `challengeId` returned, so a client without cookies could not finish a passkey ceremony; it
+  now asks the instance for the name. `passkey.webAuthnChallengeCookie` was passed to the plugin at the top level, where
+  the plugin ignores it; it goes to `advanced` now.
+
+* *From the phase 3 review:* the migration status counts in SQL — Better-Auth's `findMany()` stops at 100 rows without
+  a limit and had capped it at 100 migrated users; the MCP OAuth layer reads a token subject's roles from the SQL
+  `users` table (it read MongoDB: nobody, or a stale copy); the IAM test projects' global setup starts the containers
+  itself and never throws (vitest runs every project's setup before any test and before the root one).
+* *Accepted:* Better-Auth keeps its transactions on PostgreSQL, so a sign-up holds an application-pool connection while
+  the password is hashed and a burst of sign-ups makes other queries wait (~1.3 s at 100 concurrent). Standard
+  Better-Auth behaviour, atomic sign-up; a configurable pool size or a pool of Better-Auth's own is a follow-up.
+
 ### Phase 4 — Files, TUS, AI, MCP OAuth (DEV-3832)
 File/TUS metadata store neutral (S3 + filesystem on SQL; GridFS Mongo-only, derived-driver rule extended); AI module's
 11 models via CrudService on both databases, its 3 schema-less collections as tables, aggregates replaced by named

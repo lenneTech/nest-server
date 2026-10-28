@@ -800,8 +800,9 @@ export interface IBetterAuthPasskeyConfig {
   userVerification?: 'discouraged' | 'preferred' | 'required';
 
   /**
-   * Custom cookie name for WebAuthn challenge storage.
-   * Only used when challengeStorage is 'cookie'.
+   * Key of Better-Auth's WebAuthn challenge cookie. Better-Auth puts its cookie prefix in front of it
+   * (`iam.better-auth-passkey` by default); with database challenge storage the server reads the token from that
+   * cookie and maps it to the `challengeId` it returns instead.
    * @default 'better-auth-passkey'
    */
   webAuthnChallengeCookie?: string;

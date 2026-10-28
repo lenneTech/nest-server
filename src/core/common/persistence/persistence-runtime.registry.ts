@@ -34,6 +34,27 @@ export interface PersistenceRuntime {
   defaultSqlSource(): undefined | { engine?: string; ownerUrl?: string; url: string };
   /** Sources and model routing for the Hub; connection URLs reduced to scheme and host */
   describe(): PersistenceOverview;
+  /**
+   * Where Better-Auth keeps its data: the SQL source the `users` table is routed to, or `undefined` when the user model
+   * stays on MongoDB. Better-Auth and the user model share one row per user, so Better-Auth never decides this itself
+   */
+  iamStorage(): Promise<IamSqlStorage | undefined>;
+}
+
+/** The SQL source Better-Auth runs on — the one the `users` table lives in */
+export interface IamSqlStorage {
+  /**
+   * Bring the tables Better-Auth owns up to date. With the owner configured, `migrate` receives the OWNER's pool and runs
+   * while the framework's schema lock is held; the application role is then granted on `tables` and checked like on the
+   * framework's own tables. Without `ownerUrl`, `migrate` receives the application pool and must only verify.
+   */
+  applySchema(migrate: (pool: unknown, asOwner: boolean) => Promise<void>, tables: string[]): Promise<void>;
+  /** The application role's `pg` pool of that source — Better-Auth's own adapter runs on it */
+  pool: unknown;
+  /** Name of the data source */
+  source: string;
+  /** The store of the user model */
+  users: DataStore<any>;
 }
 
 /** What the data-source configuration resolved to, for operators (the Hub's persistence panel) */
@@ -44,6 +65,8 @@ export interface PersistenceOverview {
 }
 
 const models = new Map<string, PersistedModelRegistration>();
+/** Columns another library keeps in a framework table (Better-Auth's on `users`), per table */
+const foreignColumns = new Map<string, Set<string>>();
 const stores = new Map<string, DataStore<any>>();
 /**
  * The store serving a model, keyed by the Mongoose model INSTANCE. Every application has its own connection and
@@ -59,6 +82,20 @@ export function registerPersistedModel(registration: PersistedModelRegistration)
 
 export function getPersistedModels(): PersistedModelRegistration[] {
   return [...models.values()];
+}
+
+/**
+ * Declare columns another library adds to a framework table: no field of the model declares them, but they are not
+ * left-overs of a removed field either — the schema evolution does not report them at every boot
+ */
+export function registerForeignColumns(table: string, columns: readonly string[]): void {
+  const known = foreignColumns.get(table) ?? new Set<string>();
+  columns.forEach((column) => known.add(column));
+  foreignColumns.set(table, known);
+}
+
+export function isForeignColumn(table: string, column: string): boolean {
+  return foreignColumns.get(table)?.has(column) ?? false;
 }
 
 /** Remember the store serving a model — the neutral populate loads references through it */

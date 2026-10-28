@@ -11,7 +11,6 @@
 
 import { Test, TestingModule } from '@nestjs/testing';
 import { PubSub } from 'graphql-subscriptions';
-import { MongoClient, ObjectId } from 'mongodb';
 
 import {
   BETTER_AUTH_INSTANCE,
@@ -25,6 +24,7 @@ import {
 } from '../../src';
 import envConfig from '../../src/config.env';
 import { ServerModule } from '../../src/server/server.module';
+import { type IamTestDb, openIamTestDb } from '../helpers/iam-test-db';
 
 describe('Story: BetterAuth Integration', () => {
   // Test environment properties
@@ -32,7 +32,9 @@ describe('Story: BetterAuth Integration', () => {
   let testHelper: TestHelper;
 
   // Database
-  let mongoClient: MongoClient;
+  // The database the run routes the users to (MongoDB, or PostgreSQL in the iam-sql projects); `db` is the run's
+  // MongoDB database, which the direct createBetterAuthInstance() cases below construct their instances on
+  let iamDb: IamTestDb;
   let db;
 
   // Services
@@ -65,8 +67,8 @@ describe('Story: BetterAuth Integration', () => {
       configService = moduleFixture.get(ConfigService);
 
       // Connection to database
-      mongoClient = await MongoClient.connect(envConfig.mongoose.uri);
-      db = mongoClient.db();
+      iamDb = await openIamTestDb(envConfig.mongoose.uri);
+      db = iamDb.mongo;
     } catch (e) {
       console.error('beforeAllError', e);
       throw e;
@@ -74,8 +76,8 @@ describe('Story: BetterAuth Integration', () => {
   });
 
   afterAll(async () => {
-    if (mongoClient) {
-      await mongoClient.close();
+    if (iamDb) {
+      await iamDb.close();
     }
     if (app) {
       await app.close();
@@ -325,11 +327,7 @@ describe('Story: BetterAuth Integration', () => {
     afterAll(async () => {
       // Cleanup: Remove test user
       if (userId) {
-        try {
-          await db.collection('users').deleteOne({ _id: new ObjectId(userId) });
-        } catch (e) {
-          // Ignore cleanup errors
-        }
+        await iamDb.deleteUsers({ id: userId });
       }
     });
 
@@ -549,7 +547,7 @@ describe('Story: BetterAuth Integration', () => {
       expect(signInRes.user.email).toBe(testEmail);
 
       // Cleanup
-      await db.collection('users').deleteOne({ _id: new ObjectId(userId) });
+      await iamDb.deleteUsers({ id: userId });
     });
   });
 
@@ -979,10 +977,7 @@ describe('Story: BetterAuth Integration', () => {
       });
 
       // Track for cleanup
-      const iamUser = await db.collection('iam_user').findOne({ email });
-      const cleanupIamId = iamUser?._id;
-      const user = await db.collection('users').findOne({ email });
-      const cleanupUserId = user?._id?.toString();
+      const cleanupUserId = (await iamDb.findUser({ email }))?.id;
 
       try {
         // Sign in
@@ -1002,11 +997,7 @@ describe('Story: BetterAuth Integration', () => {
       } finally {
         // Cleanup
         if (cleanupUserId) {
-          await db.collection('users').deleteOne({ _id: new ObjectId(cleanupUserId) });
-        }
-        if (cleanupIamId) {
-          await db.collection('iam_user').deleteOne({ _id: cleanupIamId });
-          await db.collection('iam_session').deleteMany({ userId: cleanupIamId });
+          await iamDb.deleteUsers({ id: cleanupUserId });
         }
       }
     });
@@ -1029,8 +1020,6 @@ describe('Story: BetterAuth Integration', () => {
       });
 
       const userId = signUpRes?.user?.id;
-      const iamUser = await db.collection('iam_user').findOne({ email });
-      const cleanupIamId = iamUser?._id;
 
       try {
         // Sign in
@@ -1051,11 +1040,7 @@ describe('Story: BetterAuth Integration', () => {
       } finally {
         // Cleanup
         if (userId) {
-          await db.collection('users').deleteOne({ _id: new ObjectId(userId) });
-        }
-        if (cleanupIamId) {
-          await db.collection('iam_user').deleteOne({ _id: cleanupIamId });
-          await db.collection('iam_session').deleteMany({ userId: cleanupIamId });
+          await iamDb.deleteUsers({ id: userId });
         }
       }
     });

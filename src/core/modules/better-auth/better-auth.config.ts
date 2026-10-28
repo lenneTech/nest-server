@@ -13,6 +13,7 @@ import { revalidateWsConnectionsOf } from '../../common/helpers/graphql-ws-conne
 import { IBetterAuth, ICorsConfig } from '../../common/interfaces/server-options.interface.js';
 import { ConfigService } from '../../common/services/config.service.js';
 import { detectCookiePrefixDrift, resolveBetterAuthCookiePrefix } from './better-auth-cookie-prefix.helper.js';
+import { withSqlStorage } from './better-auth-sql.helper.js';
 import { projectProvidesOpenApiPlugin } from './core-better-auth-openapi.helper.js';
 
 /**
@@ -155,7 +156,7 @@ export interface CreateBetterAuthOptions {
    * MongoDB database instance
    * Note: Uses 'any' type to handle version incompatibilities between
    * mongoose's bundled mongodb types and the project's mongodb package.
-   * At runtime, this is a mongodb.Db instance.
+   * At runtime, this is a mongodb.Db instance. Unused when `sqlPool` is set.
    */
   db: any;
 
@@ -230,6 +231,13 @@ export interface CreateBetterAuthOptions {
    * Used for local environment defaults.
    */
   serverEnv?: string;
+
+  /**
+   * The `pg` pool of the SQL data source the `users` table lives in (the application role's pool of the configured
+   * engine). Set, Better-Auth runs its built-in Kysely adapter on it instead of MongoDB, with the framework's ids and
+   * table and column names — see `withSqlStorage()`.
+   */
+  sqlPool?: unknown;
 }
 
 /**
@@ -480,7 +488,31 @@ export interface CreateBetterAuthResult {
   instance: BetterAuthInstance;
 }
 
+/** The options `createBetterAuthInstance()` builds, before Better-Auth is constructed from them */
+export interface BetterAuthOptionsResult {
+  /** Resolved cookie domain for cross-subdomain cookies, or undefined if disabled */
+  cookieDomain: string | undefined;
+  /** What `betterAuth()` receives */
+  options: Record<string, unknown>;
+}
+
 export function createBetterAuthInstance(options: CreateBetterAuthOptions): CreateBetterAuthResult | null {
+  const built = buildBetterAuthOptions(options);
+  return built ? instantiateBetterAuth(built) : null;
+}
+
+/** Construct Better-Auth from built options — a separate step so a SQL schema can be brought up to date in between */
+export function instantiateBetterAuth(built: BetterAuthOptionsResult): CreateBetterAuthResult {
+  // Type assertion needed for maximum flexibility - allows projects to use any Better-Auth option
+  return { cookieDomain: built.cookieDomain, instance: betterAuth(built.options as any) };
+}
+
+/**
+ * Better-Auth's options as `createBetterAuthInstance()` builds them, without constructing Better-Auth: on a SQL data
+ * source its tables must exist before the instance does, because Better-Auth validates its schema as it starts and
+ * reports every missing table as an error.
+ */
+export function buildBetterAuthOptions(options: CreateBetterAuthOptions): BetterAuthOptionsResult | null {
   const {
     config,
     db,
@@ -490,6 +522,7 @@ export function createBetterAuthInstance(options: CreateBetterAuthOptions): Crea
     sendResetPasswordEmail,
     sendVerificationEmail,
     serverEnv,
+    sqlPool,
   } = options;
 
   // Return null only if better-auth is explicitly disabled
@@ -615,7 +648,7 @@ export function createBetterAuthInstance(options: CreateBetterAuthOptions): Crea
     },
     basePath,
     baseURL: betterAuthBaseUrl,
-    database: mongodbAdapter(db),
+    database: sqlPool ? undefined : mongodbAdapter(db),
     // Enable email/password authentication by default (required by Better-Auth 1.x)
     // Can be disabled by setting config.emailAndPassword.enabled = false
     emailAndPassword: {
@@ -810,12 +843,14 @@ export function createBetterAuthInstance(options: CreateBetterAuthOptions): Crea
     finalConfig = betterAuthConfig;
   }
 
-  // Create and return the better-auth instance with resolved metadata
-  // Type assertion needed for maximum flexibility - allows projects to use any Better-Auth option
+  // On SQL the storage is applied last, so the naming also covers fields and plugins `config.options` added
+  if (sqlPool) {
+    finalConfig = withSqlStorage(finalConfig, sqlPool);
+  }
 
   return {
     cookieDomain: crossSubDomain.enabled ? crossSubDomain.domain : undefined,
-    instance: betterAuth(finalConfig as any),
+    options: finalConfig,
   };
 }
 
@@ -1037,7 +1072,8 @@ function buildPlugins(
       passkeyOptions.userVerification = normalizedPasskey.userVerification;
     }
     if (normalizedPasskey.webAuthnChallengeCookie) {
-      passkeyOptions.webAuthnChallengeCookie = normalizedPasskey.webAuthnChallengeCookie;
+      // The plugin reads the name from `advanced`; a top-level option is ignored
+      passkeyOptions.advanced = { webAuthnChallengeCookie: normalizedPasskey.webAuthnChallengeCookie };
     }
 
     plugins.push(passkey(passkeyOptions));

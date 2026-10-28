@@ -16,11 +16,11 @@
 
 import { Test, TestingModule } from '@nestjs/testing';
 import { PubSub } from 'graphql-subscriptions';
-import { MongoClient, ObjectId } from 'mongodb';
 
 import { CoreBetterAuthService, HttpExceptionLogFilter, TestGraphQLType, TestHelper } from '../../src';
 import envConfig from '../../src/config.env';
 import { ServerModule } from '../../src/server/server.module';
+import { type IamTestDb, openIamTestDb } from '../helpers/iam-test-db';
 
 describe('Story: BetterAuth API', () => {
   // Test environment properties
@@ -29,13 +29,11 @@ describe('Story: BetterAuth API', () => {
   let betterAuthService: CoreBetterAuthService;
   let isBetterAuthEnabled: boolean;
 
-  // Database
-  let mongoClient: MongoClient;
-  let db;
+  // Database — the one the run routes the users to (MongoDB, or PostgreSQL in the iam-sql projects)
+  let iamDb: IamTestDb;
 
   // Test data tracking
   const testUserIds: string[] = [];
-  const testIamUserIds: string[] = [];
 
   // ===================================================================================================================
   // Setup & Teardown
@@ -63,8 +61,7 @@ describe('Story: BetterAuth API', () => {
       betterAuthService = moduleFixture.get(CoreBetterAuthService);
       isBetterAuthEnabled = betterAuthService.isEnabled();
 
-      mongoClient = await MongoClient.connect(envConfig.mongoose.uri);
-      db = mongoClient.db();
+      iamDb = await openIamTestDb(envConfig.mongoose.uri);
     } catch (e) {
       console.error('beforeAllError', e);
       throw e;
@@ -73,26 +70,9 @@ describe('Story: BetterAuth API', () => {
 
   afterAll(async () => {
     // Cleanup test users
-    if (db) {
-      for (const userId of testUserIds) {
-        try {
-          await db.collection('users').deleteOne({ _id: new ObjectId(userId) });
-        } catch {
-          // Ignore cleanup errors
-        }
-      }
-      // Cleanup Better-Auth users and sessions
-      for (const iamId of testIamUserIds) {
-        try {
-          await db.collection('iam_user').deleteOne({ _id: iamId });
-          await db.collection('iam_session').deleteMany({ userId: iamId });
-        } catch {
-          // Ignore cleanup errors
-        }
-      }
-    }
-    if (mongoClient) {
-      await mongoClient.close();
+    if (iamDb) {
+      await iamDb.deleteUsers({ ids: testUserIds });
+      await iamDb.close();
     }
     if (app) {
       await app.close();
@@ -270,8 +250,6 @@ describe('Story: BetterAuth API', () => {
 
             expect(res.success).toBe(true);
             if (res.user?.id) testUserIds.push(res.user.id);
-            const iamUser = await db.collection('iam_user').findOne({ email });
-            if (iamUser) testIamUserIds.push(iamUser._id);
           }
         });
       });
@@ -302,8 +280,6 @@ describe('Story: BetterAuth API', () => {
               type: TestGraphQLType.MUTATION,
             });
             if (signUpRes.user?.id) testUserIds.push(signUpRes.user.id);
-            const iamUser = await db.collection('iam_user').findOne({ email });
-            if (iamUser) testIamUserIds.push(iamUser._id);
 
             // Now signin
             const signInRes: any = await testHelper.graphQl({
@@ -447,7 +423,9 @@ describe('Story: BetterAuth API', () => {
               type: TestGraphQLType.MUTATION,
             });
             // Should have error in response
-            expect(res.success === false || hasGraphQlError(res, /unauthorized|forbidden|not enabled|LTNS_0100|LTNS_0101/i)).toBe(true);
+            expect(
+              res.success === false || hasGraphQlError(res, /unauthorized|forbidden|not enabled|LTNS_0100|LTNS_0101/i),
+            ).toBe(true);
           } catch (error: any) {
             expect(error.message).toMatch(/unauthorized|forbidden|401|status|LTNS_0100|LTNS_0101/i);
           }
@@ -514,7 +492,9 @@ describe('Story: BetterAuth API', () => {
               type: TestGraphQLType.MUTATION,
             });
             // Should return false or have error
-            expect(res === false || hasGraphQlError(res, /unauthorized|forbidden|not enabled|LTNS_0100|LTNS_0101/i)).toBe(true);
+            expect(
+              res === false || hasGraphQlError(res, /unauthorized|forbidden|not enabled|LTNS_0100|LTNS_0101/i),
+            ).toBe(true);
           } catch (error: any) {
             expect(error.message).toMatch(/unauthorized|forbidden|401|status|not enabled|LTNS_0100|LTNS_0101/i);
           }
@@ -553,7 +533,9 @@ describe('Story: BetterAuth API', () => {
               type: TestGraphQLType.MUTATION,
             });
             // Nullable - may return null or error
-            expect(res === null || hasGraphQlError(res, /unauthorized|forbidden|not enabled|LTNS_0100|LTNS_0101/i)).toBe(true);
+            expect(
+              res === null || hasGraphQlError(res, /unauthorized|forbidden|not enabled|LTNS_0100|LTNS_0101/i),
+            ).toBe(true);
           } catch (error: any) {
             expect(error.message).toMatch(/unauthorized|forbidden|401|status|not enabled|LTNS_0100|LTNS_0101/i);
           }
@@ -590,7 +572,9 @@ describe('Story: BetterAuth API', () => {
               type: TestGraphQLType.MUTATION,
             });
             // Should have success: false or error
-            expect(res.success === false || hasGraphQlError(res, /unauthorized|forbidden|not enabled|LTNS_0100|LTNS_0101/i)).toBe(true);
+            expect(
+              res.success === false || hasGraphQlError(res, /unauthorized|forbidden|not enabled|LTNS_0100|LTNS_0101/i),
+            ).toBe(true);
           } catch (error: any) {
             expect(error.message).toMatch(/unauthorized|forbidden|401|status|not enabled|LTNS_0100|LTNS_0101/i);
           }
@@ -644,7 +628,9 @@ describe('Story: BetterAuth API', () => {
               type: TestGraphQLType.MUTATION,
             });
             // Should return false or have error
-            expect(res === false || hasGraphQlError(res, /unauthorized|forbidden|not enabled|LTNS_0100|LTNS_0101/i)).toBe(true);
+            expect(
+              res === false || hasGraphQlError(res, /unauthorized|forbidden|not enabled|LTNS_0100|LTNS_0101/i),
+            ).toBe(true);
           } catch (error: any) {
             expect(error.message).toMatch(/unauthorized|forbidden|401|status|not enabled|LTNS_0100|LTNS_0101/i);
           }
@@ -732,10 +718,10 @@ describe('Story: BetterAuth API', () => {
           // testHelper.rest() returns the parsed JSON directly
           // Response should contain user data on successful signup
           expect(response).toBeDefined();
-          const iamUser = await db.collection('iam_user').findOne({ email });
-          if (iamUser) testIamUserIds.push(iamUser._id);
-          const user = await db.collection('users').findOne({ email });
-          if (user) testUserIds.push(user._id.toString());
+          // The user is stored where the configuration routes the users — one row, on either database
+          const user = await iamDb.findUser({ email });
+          expect(user?.email).toBe(email);
+          testUserIds.push(user.id);
         }
       });
     });
@@ -769,10 +755,10 @@ describe('Story: BetterAuth API', () => {
             statusCode: 201,
           });
 
-          const iamUser = await db.collection('iam_user').findOne({ email });
-          if (iamUser) testIamUserIds.push(iamUser._id);
-          const user = await db.collection('users').findOne({ email });
-          if (user) testUserIds.push(user._id.toString());
+          // The user is stored where the configuration routes the users — one row, on either database
+          const user = await iamDb.findUser({ email });
+          expect(user?.email).toBe(email);
+          testUserIds.push(user.id);
 
           // Sign in
           const response = await testHelper.rest('/iam/sign-in/email', {
@@ -1074,7 +1060,9 @@ describe('Story: BetterAuth API', () => {
         );
 
         // Should return a boolean (true/false) or have an error
-        expect(typeof res === 'boolean' || hasGraphQlError(res, /unauthorized|forbidden|LTNS_0100|LTNS_0101/i)).toBe(true);
+        expect(typeof res === 'boolean' || hasGraphQlError(res, /unauthorized|forbidden|LTNS_0100|LTNS_0101/i)).toBe(
+          true,
+        );
       });
     });
   });
