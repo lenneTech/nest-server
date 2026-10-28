@@ -44,8 +44,8 @@ infrastructure test is how an untested driver ships:
 | `tests/redis-consumers.e2e-spec.ts` | Redis |
 | `tests/multi-replica.e2e-spec.ts` | Redis |
 | `tests/s3-infra.e2e-spec.ts` | S3 |
-| `tests/file-storage-parity.e2e-spec.ts` | S3 |
-| `tests/file-storage-http-parity.e2e-spec.ts` | S3 |
+| `tests/file-storage-parity.e2e-spec.ts` | S3 + PostgreSQL |
+| `tests/file-storage-http-parity.e2e-spec.ts` | S3 + PostgreSQL |
 | `tests/redis-s3-bootstrap.e2e-spec.ts` | Redis + S3 |
 | `tests/graceful-shutdown.e2e-spec.ts` | Redis + S3 |
 | `tests/persistence-sql-executor.e2e-spec.ts` | PostgreSQL |
@@ -230,6 +230,16 @@ exactly that (`getRawFileInfoByName()` consulted two of the three stores), and e
 | Route-contract executor (boots the real `ServerModule` per driver) | `tests/file-storage-http-parity.e2e-spec.ts` |
 | Structural guard | `tests/unit/file-storage-parity-matrix.spec.ts` |
 
+**It has a database dimension (DEV-3832).** S3 and filesystem metadata follow `database` to a SQL table, so a column
+is a driver WITH its metadata database: `s3` / `filesystem` / `gridfs` (MongoDB, the names they always had) plus
+`s3@postgres` and `filesystem@postgres`, which run every case. `gridfs@postgres` is declared `IMPOSSIBLE` case by case
+— GridFS keeps bytes and metadata together in MongoDB — and the guard refuses a case that runs for a driver on MongoDB
+but not on PostgreSQL. The PostgreSQL environment routes the two metadata models through a real `DataSourceRuntime`
+(`routeFileMetadataToPostgres()`); the HTTP executor installs that runtime before it compiles `ServerModule`, as
+`CoreModule.forRoot()` would. **The harness reads and plants through the stores, never through
+`fileMetadataCollection()`**: a harness using the routing it checks follows a broken routing to MongoDB and stays green
+(mutation `file-metadata-routing-ignored` turns 22 cells red only because of that).
+
 The **core modules** follow it one level up: `tests/helpers/core-module-matrix.ts` declares what the framework's own
 modules answer through REST and GraphQL — users and legacy sign-in, tenant memberships and the tenant guard, API
 tokens, health check, Hub panels — and `tests/core-module-parity.e2e-spec.ts` assembles them like the reference server
@@ -241,12 +251,16 @@ the projects below.
 The **IAM suites** run once per database through vitest projects in `vitest-e2e.config.mts`: `e2e` on MongoDB, and
 `iam-sql-typeorm`, `iam-sql-kysely`, `iam-sql-drizzle` on PostgreSQL, each over the files in `IAM_SQL_TEST_INCLUDE`
 (`vitest.include-globs.mts`: the Better-Auth stories, privilege escalation, sign-in CSRF, migration status, the storage
-paths and the bidirectional sync). A project's global setup (`tests/iam-sql.global-setup.ts`) creates its PostgreSQL
+paths, the bidirectional sync, and since phase 4 the AI suite and both MCP OAuth suites). A project's global setup (`tests/iam-sql.global-setup.ts`) creates its PostgreSQL
 database per run and drops it afterwards; its setup file (`tests/iam-sql.setup.ts`) points `NSC__DATABASE__URL`,
 `NSC__DATABASE__OWNER_URL` and `NSC__DATABASE__SQL_ENGINE` at it, so the unchanged `ServerModule` boots with its users —
 and Better-Auth with them — on PostgreSQL. The suites read and prepare state through `tests/helpers/iam-test-db.ts`,
 which answers from whichever database the run routes the users to (camelCase fields, string ids, a column never written
-left out rather than `null`), never through a MongoDB client of their own. Keep the root config free of `include`: with
+left out rather than `null`), never through a MongoDB client of their own; the AI suite does the same through
+`tests/helpers/ai-test-stores.ts` (the stores the application routes the AI models to, `system()` for fixtures that span
+tenants). `tests/ai-mcp-oauth-tenant.e2e-spec.ts` boots with `multiTenancy` and therefore creates a PostgreSQL database
+of its own in those projects: a table that loses tenant isolation stops the boot of a suite configured without it, so
+two suites with different `multiTenancy` must never share one. Keep the root config free of `include`: with
 `extends: true` it is merged into every project, and the IAM projects would run the whole suite. vitest runs the global
 setup of EVERY project before any test, and the project setups before the root one — so a throw in
 `tests/iam-sql.global-setup.ts` used to stop the whole run, MongoDB project included, before the root setup could start
@@ -317,7 +331,7 @@ pnpm run check:mutations -- --id=<id>       # one mutation
 pnpm run check:mutations -- --list          # the registry, without running anything
 pnpm run check:mutations -- --allow-dirty   # when the fix and its evidence share a working tree
 pnpm run check:mutations -- --jobs=4        # N mutations at a time (default: 2, or 4 on >=12 cores)
-pnpm run check:mutations -- --no-infra      # only the 200 that need no MongoDB
+pnpm run check:mutations -- --no-infra      # only the 203 that need no MongoDB
 pnpm run check:mutations -- --since=<ref>   # only mutations touching files changed since <ref>
 ```
 
@@ -336,7 +350,7 @@ when the registry, a vitest config or a setup file changed, since those can move
 commit, and in CI alongside the publish without blocking it. The price of caching is a cache that
 has to model each spec's full dependency closure correctly, and getting that wrong produces a stale
 PASS for a test that has since gone vacuous — exactly what the gate is there to prevent. Bad trade
-at 352 mutations.
+at 361 mutations.
 
 **Decided 2026-10-03 (repo owner): keep the full run.** Measured at 128 mutations, the CI job for
 11.41.6 took **14 minutes**. The trigger to revisit is that wall time, not the mutation count —
@@ -381,9 +395,9 @@ exactly the environment where the answer matters.
 
 ### The cost is vitest's cold start, not the tests
 
-Worth knowing before optimising the wrong thing: the specs behind all 152 e2e mutations add up to
+Worth knowing before optimising the wrong thing: the specs behind all 158 e2e mutations add up to
 **~40 seconds**. The step takes ~740s. The remaining ~700s is paying vitest's startup — process
-spawn, transform, module graph, mongod connect, DB create and drop — once per mutation, 352 times.
+spawn, transform, module graph, mongod connect, DB create and drop — once per mutation, 361 times.
 That work is largely single-threaded I/O and barely scales with cores: the full registry measures
 **744s on a 12-core laptop and 777s on a 4-vCPU CI runner**.
 

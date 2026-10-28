@@ -25,7 +25,10 @@ import { mongo, Types } from 'mongoose';
  * `.claude/rules/architecture.md` → "DI Token Placement (SWC-Safe)".
  */
 
-/** Metadata collection handle (no Mongoose schema — these collections are driver-managed) */
+/**
+ * Metadata collection handle — the MongoDB collection, or its table on a SQL source behind the same operations
+ * (`fileMetadataCollection()` decides which)
+ */
 export type FileCollection = mongo.Collection<any>;
 
 /**

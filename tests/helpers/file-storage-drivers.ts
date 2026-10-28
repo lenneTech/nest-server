@@ -28,16 +28,24 @@ import { Readable } from 'stream';
 
 import { GridFSHelper } from '../../src/core/common/helpers/gridfs.helper';
 import { IServerOptions } from '../../src/core/common/interfaces/server-options.interface';
+import { resolveDataSources } from '../../src/core/common/persistence/data-source.config';
+import { DataSourceRuntime } from '../../src/core/common/persistence/data-source.runtime';
+import { registerModelSchema } from '../../src/core/common/persistence/model-metadata.registry';
+import type { DataStore } from '../../src/core/common/persistence/data-store.interface';
+import { bindStoreToModel } from '../../src/core/common/persistence/persistence-runtime.registry';
 import { ConfigService } from '../../src/core/common/services/config.service';
 import { CoreS3Service } from '../../src/core/common/services/core-s3.service';
 import { CoreFileService, FileInputCheckType } from '../../src/core/modules/file/core-file.service';
+import { FILE_METADATA_MODELS, FILESYSTEM_FILE_MODEL } from '../../src/core/modules/file/file-metadata.models';
+import { sqlFileCollection } from '../../src/core/modules/file/file-metadata.store';
 import {
   FILESYSTEM_FILES_COLLECTION,
   FilesystemFileHelper,
 } from '../../src/core/modules/file/filesystem-file.helper';
 import { FileServiceOptions } from '../../src/core/modules/file/interfaces/file-service-options.interface';
 import { S3_FILES_COLLECTION, S3FileHelper } from '../../src/core/modules/file/s3-file.helper';
-import { ParityDriver } from './file-storage-matrix';
+import { ParityDatabase, ParityDriver } from './file-storage-matrix';
+import { createPostgresTestDatabase, PostgresTestDatabase } from './postgres-test-db';
 
 export const GRIDFS_FILES_COLLECTION = 'fs.files';
 
@@ -153,6 +161,8 @@ export interface PlantOptions {
 export interface ParityEnvironment {
   /** Bucket this run created (named per run, removed in teardown — see helpers/s3-test-cleanup.ts). */
   bucket: string;
+  /** Where the S3 and filesystem metadata lives. */
+  database: ParityDatabase;
   /** Filesystem-driver storage directory. */
   directory: string;
   /** Metadata document of a file, read straight out of the store's own collection. */
@@ -161,9 +171,47 @@ export interface ParityEnvironment {
   holdsBytes(driver: ParityDriver, id: string): Promise<boolean>;
   /** Write a file DIRECTLY into a store, bypassing the active driver. */
   plant(driver: ParityDriver, options: PlantOptions): Promise<ParityFixture>;
+  /**
+   * On PostgreSQL: the runtime that routes the metadata models to the run's database. Install it with
+   * `setPersistenceRuntime()` before an application boots, as `CoreModule.forRoot()` does for a `database` config.
+   */
+  runtime?: DataSourceRuntime;
   s3Service: CoreS3Service;
   /** Unique per run + per worker, so fixtures of concurrent runs cannot collide. */
   testId: string;
+}
+
+/**
+ * Route the S3 and filesystem metadata models of `connection` to a PostgreSQL database, as
+ * `database: { sources, models }` does in a project — every other model stays on MongoDB. The tables
+ * are created as the owner, the stores run as the application role, and each Mongoose model is bound
+ * to its store, which is what `fileMetadataCollection()` reads. Answers the stores too: the harness
+ * reads and plants through them, never through the routing it is there to check.
+ */
+export async function routeFileMetadataToPostgres(
+  connection: Connection,
+  database: PostgresTestDatabase,
+  mongooseUri?: string,
+): Promise<{ runtime: DataSourceRuntime; stores: Record<'filesystem' | 's3', DataStore<any>> }> {
+  const runtime = new DataSourceRuntime(
+    resolveDataSources({
+      database: {
+        models: Object.fromEntries(FILE_METADATA_MODELS.map(({ name }) => [name, 'files'])),
+        sources: { files: { ownerUrl: database.ownerUrl, url: database.appUrl } },
+      },
+      explicitMongoose: true,
+      mongooseUri,
+    }),
+  );
+  const stores = {} as Record<'filesystem' | 's3', DataStore<any>>;
+  for (const { name, schema } of FILE_METADATA_MODELS) {
+    registerModelSchema(name, schema);
+    const model = connection.models[name] ?? connection.model(name, schema);
+    const store = await runtime.resolveStore(name, model);
+    bindStoreToModel(model, store);
+    stores[name === FILESYSTEM_FILE_MODEL ? 'filesystem' : 's3'] = store;
+  }
+  return { runtime, stores };
 }
 
 /** A GraphQL-upload-shaped source, which is what `createFile()` takes. */
@@ -221,9 +269,11 @@ export function restoreConfig(previous?: Partial<IServerOptions>): void {
 export async function createParityEnvironment(options: {
   base?: Partial<IServerOptions>;
   connection: Connection;
+  /** Where the S3 and filesystem metadata lives — MongoDB unless stated. */
+  database?: ParityDatabase;
   label: string;
 }): Promise<{ configService: ConfigService; env: ParityEnvironment; teardown: () => Promise<void> }> {
-  const { base, connection, label } = options;
+  const { base, connection, database = 'mongodb', label } = options;
   const testId = `${label}-${Date.now()}-p${process.pid}`;
   const bucket = `nest-server-${label}-${Date.now()}-p${process.pid}`;
   const directory = path.join(tmpdir(), `nest-server-${testId}`);
@@ -234,11 +284,26 @@ export async function createParityEnvironment(options: {
   const s3Service = new CoreS3Service(configService);
   await s3Service.onModuleInit();
 
-  const bucketFor = (driver: ParityDriver) => connection.db.collection(METADATA_COLLECTION[driver]);
+  let postgres: PostgresTestDatabase | undefined;
+  let runtime: DataSourceRuntime | undefined;
+  let stores: Record<'filesystem' | 's3', DataStore<any>> | undefined;
+  if (database === 'postgres') {
+    postgres = await createPostgresTestDatabase(label);
+    ({ runtime, stores } = await routeFileMetadataToPostgres(connection, postgres, base?.mongoose?.uri));
+  }
+
+  // Where the metadata is EXPECTED to be: the table of the store on PostgreSQL, the collection otherwise. Never
+  // through `fileMetadataCollection()` — a routing that sent the service to the wrong database would take a harness
+  // reading through it along, and every PostgreSQL column would pass against MongoDB.
+  const bucketFor = (driver: ParityDriver) =>
+    stores && driver !== 'gridfs'
+      ? sqlFileCollection(stores[driver], METADATA_COLLECTION[driver])
+      : connection.db.collection(METADATA_COLLECTION[driver]);
   const gridFsBucket = () => new mongo.GridFSBucket(connection.db, { bucketName: 'fs' });
 
   const env: ParityEnvironment = {
     bucket,
+    database,
     directory,
     async holdsBytes(driver, id) {
       if (driver === 's3') {
@@ -288,11 +353,14 @@ export async function createParityEnvironment(options: {
       });
       return { filename, id: String(info._id) };
     },
+    runtime,
     s3Service,
     testId,
   };
 
   const teardown = async () => {
+    await runtime?.close();
+    await postgres?.drop();
     // Metadata rows first: every fixture name carries `testId`, so this cannot touch another
     // suite's data even while sharing a worker database.
     for (const collection of Object.values(METADATA_COLLECTION)) {

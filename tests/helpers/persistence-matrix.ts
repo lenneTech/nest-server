@@ -101,6 +101,8 @@ export const PERSISTENCE_CASES: readonly PersistenceCase[] = [
     title: 'concurrent updateOne calls on one filter each take a different record, none is lost',
   },
   { drivers: ALL, id: 'delete-many', title: 'deleteMany removes every match and returns the count' },
+  { drivers: ALL, id: 'sum', title: 'sum counts the matches and totals a numeric field, a missing value as 0' },
+  { drivers: ALL, id: 'find-exclude', title: 'exclude leaves fields out of a read, never the id, never with select' },
   { drivers: ALL, id: 'delete-one', title: 'deleteOne removes the first match and returns it, null without one' },
   { drivers: ALL, id: 'update-many', title: 'updateMany applies the update to every match and returns the count' },
   {

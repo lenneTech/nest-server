@@ -77,14 +77,11 @@ export class CoreAiToolPolicyService extends CrudService<CoreAiToolPolicy, CoreA
 
     let policies: CoreAiToolPolicy[] = [];
     try {
-      policies = await this.mainDbModel
-        .find({
-          $or: refCandidates.map((c) => ({ refId: c.refId ?? null, scope: c.scope })),
-          enabled: { $ne: false },
-          tool,
-        })
-        .lean<CoreAiToolPolicy[]>()
-        .exec();
+      policies = (await this.dataStore.find({
+        $or: refCandidates.map((c) => ({ refId: c.refId ?? null, scope: c.scope })),
+        enabled: { $ne: false },
+        tool,
+      })) as CoreAiToolPolicy[];
     } catch {
       return undefined;
     }

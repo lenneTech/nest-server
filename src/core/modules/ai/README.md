@@ -213,6 +213,16 @@ Matching details worth knowing before you debug a refusal:
   and the framework logs an error — from the outside that state is indistinguishable from
   "correctly unset", which is exactly why it is not silent.
 
+## Where the data lives
+
+The module's eleven models (connections, preferences, conversations, interactions, budget limits,
+prompts, prompt hints, slots, modes, tool grants, tool policies) are registered through
+`CorePersistenceModule.forFeature()` and every service works on its model's data store, so `database`
+routes them like any model — MongoDB or a SQL source, one code path. Budget sums run in the store
+(`sum()`), across tenants as before; an expired tool grant is refused on read, and on SQL the expiry
+sweep removes it. Code of your own that reads these models goes through the store
+(`@InjectStore('<model>')`), not through `connection.collection()`.
+
 ## Connections (DB configuration)
 
 Connections live in the `aiConnections` collection and are managed by admins via
@@ -690,8 +700,11 @@ Without Redis nothing changes: unknown ids answer `404` exactly as before.
 
 For generic MCP clients that auto-discover + register:
 `CoreAiMcpOAuthService` provides HMAC-signed access tokens (constant-time verify),
-PKCE S256, and MongoDB-backed client/code/refresh stores; the MCP controller then
-also accepts OAuth access tokens.
+PKCE S256, and client/code/refresh stores; the MCP controller then also accepts OAuth access
+tokens. The stores live wherever `database` routes the models `AiMcpOAuthClient`, `AiMcpOAuthCode`
+and `AiMcpOAuthRefreshToken` (MongoDB collections, or SQL tables). An authorization code is refused
+on read once it is older than ten minutes, on both databases — never only by a TTL index, which
+deletes late; on SQL the expiry sweep removes old codes, on MongoDB the TTL index does.
 
 ```typescript
 // config.env.ts — that is all: endpoints, consent page and sign-in come with it

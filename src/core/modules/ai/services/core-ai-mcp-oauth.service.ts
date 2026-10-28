@@ -5,10 +5,18 @@ import { createHash, createHmac, randomBytes, timingSafeEqual } from 'node:crypt
 import type { Connection } from 'mongoose';
 
 import { isLocalEnv, resolveAppUrlFromConfig } from '../../../common/helpers/cookies.helper.js';
+import type { DataStore } from '../../../common/persistence/data-store.interface.js';
+import { getStoreForModel } from '../../../common/persistence/persistence-runtime.registry.js';
 import { ConfigService } from '../../../common/services/config.service.js';
 import { getApiTokenContext, hasApiTokenCredential } from '../../api-token/core-api-token.helpers.js';
 import { getBetterAuthSqlStore } from '../../better-auth/core-better-auth-sql.registry.js';
 import { getBetterAuthTokenService } from '../../better-auth/core-better-auth.registry.js';
+import {
+  AI_MCP_OAUTH_CLIENT_MODEL,
+  AI_MCP_OAUTH_CODE_MODEL,
+  AI_MCP_OAUTH_CODE_TTL_SECONDS,
+  AI_MCP_OAUTH_REFRESH_TOKEN_MODEL,
+} from '../core-ai.constants.js';
 import {
   IMcpOAuthConsentView,
   MCP_OAUTH_CONSENT_DECISION_FIELD,
@@ -168,6 +176,7 @@ export class CoreAiMcpOAuthService implements OnModuleInit {
   protected readonly refreshCollection = 'aiMcpOAuthRefreshTokens';
 
   private indexesEnsured = false;
+  private warnedIndexes = false;
   private warnedSecret = false;
 
   constructor(@InjectConnection() protected readonly connection: Connection) {}
@@ -305,6 +314,11 @@ export class CoreAiMcpOAuthService implements OnModuleInit {
    * Register a dynamic OAuth client.
    */
   async registerClient(client: AiMcpOAuthClient): Promise<AiMcpOAuthClient> {
+    const sql = this.sqlStore(AI_MCP_OAUTH_CLIENT_MODEL);
+    if (sql) {
+      await sql.insert({ client, client_id: client.client_id, createdAt: new Date() });
+      return client;
+    }
     await this.ensureIndexes();
     await this.db()
       .collection(this.clientsCollection)
@@ -322,7 +336,10 @@ export class CoreAiMcpOAuthService implements OnModuleInit {
    * the verification branch is skipped — PKCE protects the auth-code flow.
    */
   async getClient(clientId: string): Promise<AiMcpOAuthClient | null> {
-    const doc = await this.db().collection(this.clientsCollection).findOne({ client_id: clientId });
+    const sql = this.sqlStore(AI_MCP_OAUTH_CLIENT_MODEL);
+    const doc = sql
+      ? (await sql.findOne({ client_id: clientId }))?.client
+      : await this.db().collection(this.clientsCollection).findOne({ client_id: clientId });
     if (!doc) {
       return null;
     }
@@ -337,7 +354,7 @@ export class CoreAiMcpOAuthService implements OnModuleInit {
   }
 
   /**
-   * Persist an authorization code with its PKCE challenge (TTL 10 minutes).
+   * Persist an authorization code with its PKCE challenge, valid for `AI_MCP_OAUTH_CODE_TTL_SECONDS` (10 minutes).
    *
    * Issuing a code IS the authorization. While answering `/authorize` this refuses unless the
    * request is a POST — the user's approval of the consent form (see `assertCodeIssuanceAllowed`).
@@ -347,14 +364,20 @@ export class CoreAiMcpOAuthService implements OnModuleInit {
     data: { clientId: string; codeChallenge: string; userId: string },
   ): Promise<void> {
     assertCodeIssuanceAllowed();
-    await this.ensureIndexes();
-    await this.db().collection(this.codesCollection).insertOne({
+    const record = {
       clientId: data.clientId,
       code,
       codeChallenge: data.codeChallenge,
       createdAt: new Date(),
       userId: data.userId,
-    });
+    };
+    const sql = this.sqlStore(AI_MCP_OAUTH_CODE_MODEL);
+    if (sql) {
+      await sql.insert(record);
+      return;
+    }
+    await this.ensureIndexes();
+    await this.db().collection(this.codesCollection).insertOne(record);
   }
 
   /**
@@ -363,8 +386,9 @@ export class CoreAiMcpOAuthService implements OnModuleInit {
   async getAuthorizationCode(
     code: string,
   ): Promise<{ clientId: string; codeChallenge: string; userId: string } | null> {
-    const doc = await this.db().collection(this.codesCollection).findOne({ code });
-    return doc ? { clientId: doc.clientId, codeChallenge: doc.codeChallenge, userId: doc.userId } : null;
+    const sql = this.sqlStore(AI_MCP_OAUTH_CODE_MODEL);
+    const doc = sql ? await sql.findOne({ code }) : await this.db().collection(this.codesCollection).findOne({ code });
+    return this.liveCode(doc);
   }
 
   /**
@@ -379,21 +403,44 @@ export class CoreAiMcpOAuthService implements OnModuleInit {
     clientId?: string,
   ): Promise<{ clientId: string; codeChallenge: string; userId: string } | null> {
     const filter = clientId === undefined ? { code } : { clientId, code };
-    const doc = await this.db().collection(this.codesCollection).findOneAndDelete(filter);
+    const sql = this.sqlStore(AI_MCP_OAUTH_CODE_MODEL);
+    // Deleted whatever its age: an expired code is refused AND gone, so it can never be presented again
+    const doc = sql
+      ? await sql.deleteOne(filter)
+      : await this.db().collection(this.codesCollection).findOneAndDelete(filter);
     const value = (doc as any)?.value ?? doc; // driver version compatibility
-    if (!value) {
+    return this.liveCode(value);
+  }
+
+  /**
+   * The code's data while it is younger than `AI_MCP_OAUTH_CODE_TTL_SECONDS`, `null` otherwise. Checked on every read:
+   * MongoDB's TTL index removes an expired code only eventually (its monitor runs about once a minute, later under
+   * load), and a SQL table has no TTL at all — the sweeper only keeps the table small.
+   */
+  protected liveCode(doc: any): { clientId: string; codeChallenge: string; userId: string } | null {
+    if (!doc) {
       return null;
     }
-    return { clientId: value.clientId, codeChallenge: value.codeChallenge, userId: value.userId };
+    const createdAt = doc.createdAt ? new Date(doc.createdAt).getTime() : NaN;
+    if (!(Date.now() - createdAt <= AI_MCP_OAUTH_CODE_TTL_SECONDS * 1000)) {
+      return null;
+    }
+    return { clientId: doc.clientId, codeChallenge: doc.codeChallenge, userId: doc.userId };
   }
 
   /**
    * Issue a refresh token for a user + client.
    */
   async issueRefreshToken(userId: string, clientId: string): Promise<string> {
-    await this.ensureIndexes();
     const token = this.generateId();
-    await this.db().collection(this.refreshCollection).insertOne({ clientId, createdAt: new Date(), token, userId });
+    const record = { clientId, createdAt: new Date(), token, userId };
+    const sql = this.sqlStore(AI_MCP_OAUTH_REFRESH_TOKEN_MODEL);
+    if (sql) {
+      await sql.insert(record);
+      return token;
+    }
+    await this.ensureIndexes();
+    await this.db().collection(this.refreshCollection).insertOne(record);
     return token;
   }
 
@@ -413,7 +460,10 @@ export class CoreAiMcpOAuthService implements OnModuleInit {
     if (!token || !clientId) {
       return null;
     }
-    const doc = await this.db().collection(this.refreshCollection).findOneAndDelete({ clientId, token });
+    const sql = this.sqlStore(AI_MCP_OAUTH_REFRESH_TOKEN_MODEL);
+    const doc = sql
+      ? await sql.deleteOne({ clientId, token })
+      : await this.db().collection(this.refreshCollection).findOneAndDelete({ clientId, token });
     const value = (doc as any)?.value ?? doc;
     if (!value) {
       return null;
@@ -844,15 +894,31 @@ export class CoreAiMcpOAuthService implements OnModuleInit {
     if (this.indexesEnsured) {
       return;
     }
-    this.indexesEnsured = true;
     try {
       await this.db().collection(this.clientsCollection).createIndex({ client_id: 1 }, { unique: true });
-      // Authorization codes expire after 10 minutes.
-      await this.db().collection(this.codesCollection).createIndex({ createdAt: 1 }, { expireAfterSeconds: 600 });
+      // Removes expired codes eventually; their expiry itself is checked on every read (liveCode)
+      await this.db()
+        .collection(this.codesCollection)
+        .createIndex({ createdAt: 1 }, { expireAfterSeconds: AI_MCP_OAUTH_CODE_TTL_SECONDS });
       await this.db().collection(this.codesCollection).createIndex({ code: 1 }, { unique: true });
       await this.db().collection(this.refreshCollection).createIndex({ token: 1 }, { unique: true });
+      // Only now: a failed attempt is retried with the next write instead of never again
+      this.indexesEnsured = true;
     } catch (err) {
-      this.logger.warn(`Could not ensure MCP OAuth indexes: ${(err as Error).message}`);
+      if (!this.warnedIndexes) {
+        this.warnedIndexes = true;
+        this.logger.warn(`Could not ensure MCP OAuth indexes: ${(err as Error).message}`);
+      }
     }
+  }
+
+  /**
+   * The store of an OAuth model when it is routed to a SQL source; `undefined` keeps the native MongoDB collections.
+   * The models are registered by `CoreAiModule` through `CorePersistenceModule.forFeature()`.
+   */
+  protected sqlStore(modelName: string): DataStore<any> | undefined {
+    const model = (this.connection as { models?: Record<string, unknown> } | undefined)?.models?.[modelName];
+    const store = model ? getStoreForModel(model) : undefined;
+    return store && !store.capabilities.mongoosePopulate ? store : undefined;
   }
 }

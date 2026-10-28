@@ -1,8 +1,10 @@
 import { Inject, Injectable } from '@nestjs/common';
 import { InjectConnection, InjectModel } from '@nestjs/mongoose';
-import { type Connection, Model, Types } from 'mongoose';
+import { type Connection, Model } from 'mongoose';
 
 import { RoleEnum } from '../../../common/enums/role.enum.js';
+import { isWellFormedId } from '../../../common/persistence/id-format.js';
+import { getStoreForModel } from '../../../common/persistence/persistence-runtime.registry.js';
 import { ServiceOptions } from '../../../common/interfaces/service-options.interface.js';
 import { CrudService } from '../../../common/services/crud.service.js';
 import type { CoreModelConstructor } from '../../../common/types/core-model-constructor.type.js';
@@ -125,18 +127,22 @@ export class CoreAiConversationService extends CrudService<
       // No `User` model registered on this connection (exotic setup) — skip attribution.
       return;
     }
-    const users = await userModel
-      .find({ _id: { $in: ids } })
-      .select('email firstName lastName username')
-      .lean()
-      .exec();
+    // Through the users' store wherever the user model is routed (a SQL source, or MongoDB)
+    const userStore = getStoreForModel(userModel);
+    const users = userStore
+      ? await userStore.find({ id: { $in: ids } }, { select: ['email', 'firstName', 'lastName', 'username'] })
+      : await userModel
+          .find({ _id: { $in: ids } })
+          .select('email firstName lastName username')
+          .lean()
+          .exec();
     const byId = new Map(
       (users as any[]).map((user) => [
-        String(user._id),
+        String(user.id ?? user._id),
         {
           email: user.email,
           firstName: user.firstName,
-          id: String(user._id),
+          id: String(user.id ?? user._id),
           lastName: user.lastName,
           username: user.username,
         },
@@ -154,16 +160,9 @@ export class CoreAiConversationService extends CrudService<
    * grow unbounded.
    */
   async appendMessage(id: string, message: { content: string; createdAt?: Date; role: string }): Promise<void> {
-    await this.mainDbModel
-      .findByIdAndUpdate(id, {
-        $push: {
-          messages: {
-            $each: [{ ...message, createdAt: message.createdAt ?? new Date() }],
-            $slice: -this.maxRetainedMessages,
-          },
-        },
-      })
-      .exec();
+    await this.dataStore.pushToArray(id, 'messages', [{ ...message, createdAt: message.createdAt ?? new Date() }], {
+      slice: -this.maxRetainedMessages,
+    });
   }
 
   /**
@@ -187,15 +186,17 @@ export class CoreAiConversationService extends CrudService<
     currentUser: { id?: string; roles?: string[] } | undefined,
     limit = 20,
   ): Promise<{ content: string; role: string }[]> {
-    if (!id || typeof id !== 'string' || !Types.ObjectId.isValid(id)) {
+    if (!id || typeof id !== 'string' || !isWellFormedId(id)) {
       return [];
     }
-    const doc = await this.mainDbModel
-      .findById(id, { createdBy: 1, messages: { $slice: -limit } })
-      .lean()
-      .exec();
+    const doc = await this.dataStore.findById(id, { select: ['createdBy', 'messages'] });
     if (!doc) {
       return [];
+    }
+    // The last `limit` turns, cut after the read: a conversation keeps at most `maxRetainedMessages`
+    const messages = (doc as { messages?: unknown[] }).messages;
+    if (Array.isArray(messages)) {
+      (doc as { messages?: unknown[] }).messages = limit > 0 ? messages.slice(-limit) : [];
     }
     const isOwner = currentUser?.id && String((doc as { createdBy?: unknown }).createdBy) === String(currentUser.id);
     const isAdmin = currentUser?.roles?.includes('admin');

@@ -16,7 +16,8 @@ import {
  *
  * S3 itself has no queryable metadata store, so file info (filename, contentType,
  * length, uploadDate) is kept in this collection — the equivalent of GridFS's
- * `fs.files`. The object key in the bucket is the string form of `_id`.
+ * `fs.files`. The object key in the bucket is the string form of `_id`. On a SQL
+ * source the same records live in the table `s3_files` (`fileMetadataCollection()`).
  */
 export const S3_FILES_COLLECTION = 's3-files';
 
@@ -56,7 +57,9 @@ export async function streamToBuffer(stream: Readable): Promise<Buffer> {
 }
 
 /**
- * Helper for files stored in S3 with their metadata in MongoDB.
+ * Helper for files stored in S3 with their metadata in the database — pass
+ * `fileMetadataCollection(connection, 's3')` as the collection: on a SQL source the
+ * metadata lives in the table `s3_files`, not in MongoDB.
  *
  * Counterpart of GridFSHelper: same operations, S3 as the byte store and
  * `s3-files` as the metadata store.

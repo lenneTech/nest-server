@@ -39,7 +39,7 @@ export { AI_CONNECTION_CLASS, AI_CONNECTION_MODEL } from '../core-ai.constants.j
  * use the bulk `find()` result directly (no per-connection re-read / N+1).
  */
 type ResolvableConnectionDoc = {
-  _id: unknown;
+  id: string;
   apiKeyEncrypted?: string;
   apiKeyEnv?: string;
   baseUrl: string;
@@ -121,14 +121,14 @@ export class CoreAiConnectionService
       );
       return;
     }
-    const count = await this.mainDbModel.countDocuments().exec();
+    const count = await this.dataStore.count();
     if (count > 0) {
       return;
     }
     const { apiKey, ...rest } = seed;
-    // Direct model access: system-internal seeding without a user context, and we
+    // Direct store access: system-internal seeding without a user context, and we
     // must set the internal `apiKeyEncrypted` field which CrudService does not expose.
-    await this.mainDbModel.create({
+    await this.dataStore.insert({
       ...rest,
       apiKeyEncrypted: apiKey ? this.aiCryptoService.encrypt(apiKey) : undefined,
       isDefault: true,
@@ -145,16 +145,16 @@ export class CoreAiConnectionService
    */
   protected async assertStoredKeysDecryptable(): Promise<void> {
     try {
-      const docs = await this.mainDbModel
-        .find({ apiKeyEncrypted: { $exists: true, $ne: '' } }, { apiKeyEncrypted: 1, name: 1 })
-        .lean()
-        .exec();
+      const docs = await this.dataStore.find(
+        { apiKeyEncrypted: { $exists: true, $ne: '' } },
+        { select: ['apiKeyEncrypted', 'name'] },
+      );
       const broken: string[] = [];
-      for (const doc of docs as { _id: unknown; apiKeyEncrypted?: string; name?: string }[]) {
+      for (const doc of docs as { apiKeyEncrypted?: string; id: string; name?: string }[]) {
         try {
           this.aiCryptoService.decrypt(doc.apiKeyEncrypted ?? '');
         } catch {
-          broken.push(doc.name || String(doc._id));
+          broken.push(doc.name || doc.id);
         }
       }
       if (broken.length) {
@@ -205,10 +205,7 @@ export class CoreAiConnectionService
     try {
       // Single read (no per-connection re-resolve): the full docs carry everything the
       // provider factory needs, so there is no N+1 findById per connection.
-      const docs = (await this.mainDbModel
-        .find({ enabled: { $ne: false } })
-        .lean()
-        .exec()) as unknown as ResolvableConnectionDoc[];
+      const docs = (await this.dataStore.find({ enabled: { $ne: false } })) as unknown as ResolvableConnectionDoc[];
       for (const doc of docs) {
         // Only a connection that DECLARES a capability can drift; undefined flags are
         // auto-detected on first use, so there is nothing to reconcile here.
@@ -227,7 +224,7 @@ export class CoreAiConnectionService
             defaultTemperature: doc.defaultTemperature,
             defaultUserMaxPeriod: doc.defaultUserMaxPeriod,
             defaultUserMaxTokens: doc.defaultUserMaxTokens,
-            id: String(doc._id),
+            id: String(doc.id),
             model: doc.model,
             name: doc.name,
             providerType: doc.providerType || 'openai-compatible',
@@ -266,7 +263,7 @@ export class CoreAiConnectionService
         }
         if (drift.length) {
           this.logger.warn(
-            `AI connection "${doc.name || String(doc._id)}" capability drift: ${drift.join('; ')}. ` +
+            `AI connection "${doc.name || String(doc.id)}" capability drift: ${drift.join('; ')}. ` +
               `The declared value is authoritative and was NOT changed — correct it in the admin UI, or clear it to ` +
               `re-enable auto-detection, so the assistant uses the endpoint's real capabilities.`,
           );
@@ -399,7 +396,7 @@ export class CoreAiConnectionService
       }
     }
     if (Object.keys(update).length) {
-      await this.mainDbModel.findByIdAndUpdate(connectionId, { $set: update }).exec();
+      await this.dataStore.updateById(connectionId, { $set: update });
       this.logger.log(`Auto-detected AI connection metadata for "${resolved.name}": ${JSON.stringify(update)}`);
     }
     return resolved;
@@ -420,16 +417,14 @@ export class CoreAiConnectionService
       tenantIds?: string[];
     }[]
   > {
-    const docs = await this.mainDbModel
-      .find({ enabled: { $ne: false } })
-      .select('enforced enforcedTenantIds isDefault model name tenantIds')
-      .sort({ createdAt: 1 })
-      .lean()
-      .exec();
+    const docs = (await this.dataStore.find(
+      { enabled: { $ne: false } },
+      { select: ['enforced', 'enforcedTenantIds', 'isDefault', 'model', 'name', 'tenantIds'], sort: { createdAt: 1 } },
+    )) as (Partial<CoreAiConnection> & { id: string })[];
     return docs.map((doc) => ({
       enforced: doc.enforced,
       enforcedTenantIds: doc.enforcedTenantIds,
-      id: String(doc._id),
+      id: String(doc.id),
       isDefault: doc.isDefault,
       model: doc.model,
       name: doc.name,
@@ -444,21 +439,18 @@ export class CoreAiConnectionService
    * @param connectionId Specific connection, or undefined for the default / first enabled one.
    */
   async resolve(connectionId?: string): Promise<ResolvedAiConnection> {
-    // Direct lean reads: system-internal resolution that must access the
+    // Direct store reads: system-internal resolution that must access the
     // encrypted key field, which CrudService strips from outputs.
-    let doc = connectionId
-      ? await this.mainDbModel.findById(connectionId).lean().exec()
-      : await this.mainDbModel
-          .findOne({ enabled: { $ne: false }, isDefault: true })
-          .lean()
-          .exec();
+    let doc = (
+      connectionId
+        ? await this.dataStore.findById(connectionId)
+        : await this.dataStore.findOne({ enabled: { $ne: false }, isDefault: true })
+    ) as (CoreAiConnection & { id: string }) | null;
 
     if (!doc && !connectionId) {
-      doc = await this.mainDbModel
-        .findOne({ enabled: { $ne: false } })
-        .sort({ createdAt: 1 })
-        .lean()
-        .exec();
+      doc = (await this.dataStore.findOne({ enabled: { $ne: false } }, { sort: { createdAt: 1 } })) as
+        | (CoreAiConnection & { id: string })
+        | null;
     }
 
     if (!doc) {
@@ -476,7 +468,7 @@ export class CoreAiConnectionService
       defaultTemperature: doc.defaultTemperature,
       defaultUserMaxPeriod: doc.defaultUserMaxPeriod,
       defaultUserMaxTokens: doc.defaultUserMaxTokens,
-      id: String(doc._id),
+      id: String(doc.id),
       model: doc.model,
       name: doc.name,
       providerType: doc.providerType || 'openai-compatible',
@@ -490,11 +482,9 @@ export class CoreAiConnectionService
    */
   protected async applyApiKey(id: string, apiKey: string): Promise<void> {
     if (apiKey === '') {
-      await this.mainDbModel.findByIdAndUpdate(id, { $unset: { apiKeyEncrypted: 1 } }).exec();
+      await this.dataStore.updateById(id, { $unset: { apiKeyEncrypted: 1 } });
     } else {
-      await this.mainDbModel
-        .findByIdAndUpdate(id, { $set: { apiKeyEncrypted: this.aiCryptoService.encrypt(apiKey) } })
-        .exec();
+      await this.dataStore.updateById(id, { $set: { apiKeyEncrypted: this.aiCryptoService.encrypt(apiKey) } });
     }
   }
 
@@ -516,6 +506,6 @@ export class CoreAiConnectionService
    * Ensure only one connection is marked as default.
    */
   protected async unsetOtherDefaults(id: string): Promise<void> {
-    await this.mainDbModel.updateMany({ _id: { $ne: id } }, { $set: { isDefault: false } }).exec();
+    await this.dataStore.updateMany({ id: { $ne: id } }, { $set: { isDefault: false } });
   }
 }

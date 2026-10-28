@@ -64,9 +64,11 @@ export class CoreAiPromptService extends CrudService<CoreAiPrompt, CoreAiPromptC
     // then reload the row through the full pipeline so the response carries
     // every field (and `securityCheck` returns it to the owner).
     const created = await super.create(input as any, serviceOptions);
-    await this.mainDbModel
-      .updateOne({ _id: created.id }, { $set: { ownerId: String(user.id), scope, tenantId } })
-      .exec();
+    // `tenantId` only when the prompt is shared with a tenant: MongoDB drops an undefined key, a SQL store writes NULL —
+    // which row-level security refuses for a row stamped with the request's tenant
+    await this.dataStore.updateById(created.id, {
+      $set: { ownerId: String(user.id), scope, ...(tenantId !== undefined ? { tenantId } : {}) },
+    });
     return this.get(created.id, serviceOptions);
   }
 
@@ -105,7 +107,9 @@ export class CoreAiPromptService extends CrudService<CoreAiPrompt, CoreAiPromptC
     // stripped by `prepareInput` if passed through `super.update`.
     const updated = await super.update(id, sanitized as any, serviceOptions);
     if (scopeChange) {
-      await this.mainDbModel.updateOne({ _id: id }, { $set: { tenantId: scopeChange.tenantId } }).exec();
+      if (scopeChange.tenantId !== undefined) {
+        await this.dataStore.updateById(id, { $set: { tenantId: scopeChange.tenantId } });
+      }
       return this.get(id, serviceOptions);
     }
     return updated;
@@ -131,11 +135,10 @@ export class CoreAiPromptService extends CrudService<CoreAiPrompt, CoreAiPromptC
       or.push({ scope: 'tenant', tenantId: String(tenantId) });
     }
     try {
-      const rows = await this.mainDbModel
-        .find({ $or: or, enabled: { $ne: false } })
-        .sort({ order: 1, name: 1 })
-        .lean<CoreAiPrompt[]>()
-        .exec();
+      const rows = (await this.dataStore.find(
+        { $or: or, enabled: { $ne: false } },
+        { sort: { order: 1, name: 1 } },
+      )) as CoreAiPrompt[];
       return rows || [];
     } catch (err) {
       this.logger.warn(`Failed to list prompts: ${(err as Error).message}`);
@@ -153,7 +156,7 @@ export class CoreAiPromptService extends CrudService<CoreAiPrompt, CoreAiPromptC
       return;
     }
     try {
-      const row = await this.mainDbModel.findById(id).lean<CoreAiPrompt>().exec();
+      const row = (await this.dataStore.findById(id)) as CoreAiPrompt | null;
       if (!row) {
         throw new ForbiddenException(`Prompt ${id} not found.`);
       }

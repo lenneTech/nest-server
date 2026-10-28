@@ -15,7 +15,7 @@ import {
 } from './file-metadata.helper.js';
 import { streamToBuffer } from './s3-file.helper.js';
 
-/** Metadata collection for files stored on the local filesystem */
+/** Metadata collection for files stored on the local filesystem (on a SQL source: the table `filesystem_files`) */
 export const FILESYSTEM_FILES_COLLECTION = 'filesystem-files';
 
 /** Default directory for the filesystem storage driver */
@@ -31,12 +31,14 @@ export const DEFAULT_FILESYSTEM_DIR = 'uploads/files';
 export type FilesystemFileInfo = FileMetadataInfo;
 
 /**
- * Helper for files stored on the local filesystem with their metadata in MongoDB.
+ * Helper for files stored on the local filesystem with their metadata in the database.
  *
  * Counterpart of `GridFSHelper` and `S3FileHelper`: same operations, the local
- * disk as the byte store and `filesystem-files` as the metadata store.
+ * disk as the byte store and `filesystem-files` as the metadata store — pass
+ * `fileMetadataCollection(connection, 'filesystem')`, never the MongoDB collection
+ * directly: on a SQL source the metadata lives in the table `filesystem_files`.
  *
- * WHY THE METADATA STILL LIVES IN MONGO: filename, content type, length and the
+ * WHY THE METADATA STILL LIVES IN THE DATABASE: filename, content type, length and the
  * custom `metadata` a per-file authorization rule reads have to be queryable —
  * `findFileInfo()` filters and pages over them, and `checkRights()` reads them
  * per request. A directory listing answers none of that, and sidecar files would

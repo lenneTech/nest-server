@@ -38,6 +38,7 @@ import {
   UnsupportedCapabilityError,
 } from '../src';
 import { deriveTestDbUri } from './db-lifecycle.reporter';
+import { CorePersistenceLifecycle } from '../src/core/common/persistence/core-persistence.lifecycle';
 import { createPostgresTestDatabase, type PostgresTestDatabase } from './helpers/postgres-test-db';
 import { User, UserSchema } from '../src/server/modules/user/user.model';
 
@@ -89,6 +90,38 @@ class WiringLedger extends CorePersistenceModel {
   entry?: string;
 }
 
+/** Single-use codes that expire a minute after they were issued (`expires`, Mongoose's TTL shorthand) */
+@Schema({ collection: 'wiringCodes' })
+class WiringCode extends CorePersistenceModel {
+  @Prop({ type: String })
+  code?: string;
+
+  @Prop({ expires: 60, type: Date })
+  issuedAt?: Date;
+}
+
+/** Grants that expire at the date they carry (`expireAfterSeconds: 0`), or never without one */
+@Schema({ collection: 'wiringGrants' })
+class WiringGrant extends CorePersistenceModel {
+  @Prop({ index: { expireAfterSeconds: 0 }, type: Date })
+  expiresAt?: Date;
+
+  @Prop({ type: String })
+  tool?: string;
+}
+
+/** Invitations: only an unaccepted one expires a minute after it was sent (a PARTIAL TTL index) */
+@Schema({ collection: 'wiringInvites' })
+class WiringInvite extends CorePersistenceModel {
+  @Prop({ type: Boolean })
+  accepted?: boolean;
+
+  @Prop({ type: Date })
+  sentAt?: Date;
+}
+const WiringInviteSchema = SchemaFactory.createForClass(WiringInvite);
+WiringInviteSchema.index({ sentAt: 1 }, { expireAfterSeconds: 60, partialFilterExpression: { accepted: false } });
+
 @Injectable()
 class WiringProjectService extends CrudService<WiringProject> {
   constructor(@InjectStore('WiringProject') readonly store: DataStore<WiringProject>) {
@@ -116,6 +149,9 @@ class WiringMongoProjectService extends CrudService<WiringProject> {
 class WiringStores {
   constructor(
     @InjectStore('WiringArchive') readonly archive: DataStore<any>,
+    @InjectStore('WiringCode') readonly codes: DataStore<any>,
+    @InjectStore('WiringGrant') readonly grants: DataStore<any>,
+    @InjectStore('WiringInvite') readonly invites: DataStore<any>,
     @InjectStore('WiringLedger') readonly ledger: DataStore<any>,
     @InjectStore('WiringOwner') readonly owners: DataStore<any>,
   ) {}
@@ -173,6 +209,9 @@ describe('SQL data source wired through CoreModule (e2e)', () => {
           { name: 'WiringMongoProject', schema: SchemaFactory.createForClass(WiringProject) },
           { model: WiringArchive, name: 'WiringArchive', schema: SchemaFactory.createForClass(WiringArchive) },
           { name: 'WiringLedger', schema: SchemaFactory.createForClass(WiringLedger) },
+          { name: 'WiringCode', schema: SchemaFactory.createForClass(WiringCode) },
+          { name: 'WiringGrant', schema: SchemaFactory.createForClass(WiringGrant) },
+          { name: 'WiringInvite', schema: WiringInviteSchema },
         ]),
       ],
       providers: [WiringModelProjectService, WiringMongoProjectService, WiringProjectService, WiringStores],
@@ -260,7 +299,17 @@ describe('SQL data source wired through CoreModule (e2e)', () => {
       const { rows } = await owner.query(
         'SELECT tablename, tableowner FROM pg_tables WHERE schemaname = current_schema() ORDER BY tablename',
       );
-      expect(rows.map((row) => row.tablename)).toEqual(['lt_locks', 'wiring_owners', 'wiring_projects']);
+      expect(rows.map((row) => row.tablename)).toEqual([
+        // The framework's file metadata (S3, filesystem) follows the default source
+        'filesystem_files',
+        'lt_locks',
+        's3_files',
+        'wiring_codes',
+        'wiring_grants',
+        'wiring_invites',
+        'wiring_owners',
+        'wiring_projects',
+      ]);
       expect(new Set(rows.map((row) => row.tableowner))).toEqual(new Set([new URL(database.ownerUrl).username]));
 
       // The owner connection only lives for the boot: released once the application is bootstrapped
@@ -452,6 +501,47 @@ describe('SQL data source wired through CoreModule (e2e)', () => {
   });
 
   /**
+   * @regression   DEV-3832 (db-agnostic phase 4) — a TTL becomes a plain index on SQL, and nothing removed an expired
+   *   row: a table of single-use codes or expiring grants grew for as long as the application ran.
+   * @seen-failing Return before the delete in DataSourceRuntime.sweepExpired() in
+   *   src/core/common/persistence/data-source.runtime.ts — registered as mutation `sql-ttl-rows-never-swept` in
+   *   tests/regression-mutations.json.
+   */
+  it("removes the expired rows of TTL models in the sweep the lease table schedules, as MongoDB's TTL monitor does", async () => {
+    const minutesAgo = (minutes: number) => new Date(Date.now() - minutes * 60_000);
+    const expiredCode = await stores.codes.insert({ code: 'expired', issuedAt: minutesAgo(2) });
+    const liveCode = await stores.codes.insert({ code: 'live', issuedAt: new Date() });
+    const expiredGrant = await stores.grants.insert({ expiresAt: minutesAgo(1), tool: 'expired' });
+    const liveGrant = await stores.grants.insert({ expiresAt: new Date(Date.now() + 60_000), tool: 'live' });
+    const lastingGrant = await stores.grants.insert({ tool: 'lasting' });
+    // A partial TTL index expires only what its filter covers: an accepted invitation stays however old it is
+    const expiredInvite = await stores.invites.insert({ accepted: false, sentAt: minutesAgo(2) });
+    const acceptedInvite = await stores.invites.insert({ accepted: true, sentAt: minutesAgo(2) });
+
+    const lifecycle: any = moduleRef.get(CorePersistenceLifecycle);
+    await lifecycle.expirySweep.runNow();
+
+    expect(await stores.codes.findById(expiredCode.id)).toBeNull();
+    expect(await stores.grants.findById(expiredGrant.id)).toBeNull();
+    for (const kept of [liveCode, liveGrant, lastingGrant]) {
+      expect(await (kept === liveCode ? stores.codes : stores.grants).findById(kept.id)).not.toBeNull();
+    }
+    expect(await stores.invites.findById(expiredInvite.id)).toBeNull();
+    expect(await stores.invites.findById(acceptedInvite.id)).not.toBeNull();
+
+    // The boot started the schedule, under one lease per interval in the default source's lease table (Better-Auth
+    // stays on MongoDB here — no user model is routed to SQL — so it schedules no sweep of its own)
+    const owner = new Client({ connectionString: database.ownerUrl });
+    await owner.connect();
+    try {
+      const { rows } = await owner.query(`SELECT id FROM lt_locks WHERE id LIKE 'expiry-sweep:%' ORDER BY id`);
+      expect(rows.map((row) => row.id)).toEqual(['expiry-sweep:models']);
+    } finally {
+      await owner.end();
+    }
+  });
+
+  /**
    * @regression   DEV-3830 (db-agnostic phase 2) — the anonymous `POST /system-setup/init` is check-then-act on the user
    *   count; only the claim keeps concurrent callers from each getting an admin, and with a SQL default source the
    *   claim must hold in its lease table.
@@ -533,9 +623,10 @@ describe('SQL data source boot check (e2e)', () => {
       })
       class UnsafeAppModule {}
 
-      // The store factory opens the source while the module is compiled — the boot stops there
+      // The store factory opens the source while the module is compiled — the boot stops at the first store it opens,
+      // which since phase 4 may be one of the framework's file metadata tables rather than this suite's
       await expect(Test.createTestingModule({ imports: [UnsafeAppModule] }).compile()).rejects.toThrow(
-        /"nest_owner" is a superuser.*owns .*wiring_owners.*Row-level security cannot protect tenant data/,
+        /"nest_owner" is a superuser.*owns \(or inherits the owner of\) \w+.*Row-level security cannot protect tenant data/,
       );
     } finally {
       await database.drop();

@@ -36,10 +36,7 @@ export class CoreAiModeService extends CrudService<CoreAiMode, CoreAiMode, CoreA
       return null;
     }
     try {
-      const row = await this.mainDbModel
-        .findOne({ enabled: { $ne: false }, name })
-        .lean<CoreAiMode>()
-        .exec();
+      const row = (await this.dataStore.findOne({ enabled: { $ne: false }, name })) as CoreAiMode | null;
       return row || null;
     } catch (err) {
       this.logger.warn(`Failed to load mode "${name}": ${(err as Error).message}`);

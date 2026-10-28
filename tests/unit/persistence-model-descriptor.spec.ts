@@ -10,6 +10,7 @@ import {
   getModelDescriptor,
   registerModelSchema,
 } from '../../src/core/common/persistence/model-metadata.registry';
+import { tableName } from '../../src/core/common/persistence/sql/postgres/postgres-schema.compiler';
 import { CoreAiBudgetLimit } from '../../src/core/modules/ai/models/core-ai-budget-limit.model';
 import { CoreAiConnectionPreference } from '../../src/core/modules/ai/models/core-ai-connection-preference.model';
 import { CoreAiConnection } from '../../src/core/modules/ai/models/core-ai-connection.model';
@@ -214,5 +215,16 @@ describe('persistence model descriptor', () => {
     expect(described.User.fields.roles.isArray).toBe(true);
     expect(described.CoreTenantMemberModel.tenantScoped).toBe(false);
     expect(described).toMatchSnapshot();
+  });
+
+  it('names the SQL table after the collection, a hyphen as an underscore', () => {
+    const inCollection = (collection: string) =>
+      tableName(describeSchema('Named', new MongooseSchema({ label: String }, { collection })));
+
+    expect(inCollection('s3-files')).toBe('s3_files');
+    expect(inCollection('filesystem-files')).toBe('filesystem_files');
+    expect(inCollection('aiMcpOAuthCodes')).toBe('ai_mcp_o_auth_codes');
+    // Anything else that is no identifier stays refused rather than guessed at
+    expect(() => inCollection('fs.files')).toThrow('cannot be mapped');
   });
 });

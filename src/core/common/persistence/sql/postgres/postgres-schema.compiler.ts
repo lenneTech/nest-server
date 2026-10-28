@@ -100,11 +100,14 @@ export interface PostgresSchemaOptions {
   isTenantIsolated: (model: ModelDescriptor) => boolean;
 }
 
-/** The table of a model: the collection MongoDB would use, in snake_case */
+/**
+ * The table of a model: the collection MongoDB would use, in snake_case. A hyphen becomes an underscore (`s3-files` →
+ * `s3_files`): MongoDB allows it in a collection name, SQL not in an unquoted identifier
+ */
 export function tableName(model: ModelDescriptor): string {
   const pluralize = mongoose.pluralize();
   const collection = model.collection ?? (pluralize ? pluralize(model.name) : model.name);
-  return columnName(collection);
+  return columnName(collection.replace(/-/g, '_'));
 }
 
 export function desiredTable(model: ModelDescriptor, options: PostgresSchemaOptions): DesiredTable {

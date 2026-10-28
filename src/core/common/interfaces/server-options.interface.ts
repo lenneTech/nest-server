@@ -1264,8 +1264,10 @@ export interface IFileConfig {
    *
    * **Left unset, it is derived**, most capable first:
    * 1. `'s3'` when `s3.bucket` is configured
-   * 2. `'gridfs'` when a database is configured
-   * 3. `'filesystem'` when neither is
+   * 2. `'filesystem'` when `database` routes the file metadata to a SQL source — GridFS would put bytes and
+   *    metadata into MongoDB. Pod-local: mount `storageDir` as a volume, or configure `s3`
+   * 3. `'gridfs'` when a database is configured
+   * 4. `'filesystem'` when none is
    *
    * A configured-but-unreachable database is an error in its own right (Mongoose
    * fails the boot), never a reason to fall through to the disk.

@@ -2,7 +2,7 @@ import { Logger } from '@nestjs/common';
 import type { Model } from 'mongoose';
 
 import { getStringIds } from '../helpers/id.helper.js';
-import { assertAccessReason, assertArrayField, assertSelectFields } from './store-guards.js';
+import { assertAccessReason, assertArrayField, assertProjection, assertSelectFields } from './store-guards.js';
 import type {
   DataStore,
   DataStoreUpdate,
@@ -50,6 +50,19 @@ export class MongooseDataStore<T = Record<string, any>> implements DataStore<T> 
     return this.model.countDocuments(toMongoFilter(where)).exec();
   }
 
+  async sum(field: string, where?: Where<T>): Promise<{ count: number; sum: number }> {
+    assertSelectFields([field]);
+    // An aggregation's $match is not cast like a query: cast it through a query of the model first
+    const match = this.model.find().cast(this.model, toMongoFilter(where));
+    const [row] = await this.model
+      .aggregate<{ count: number; sum: number }>([
+        { $match: match },
+        { $group: { _id: null, count: { $sum: 1 }, sum: { $sum: { $ifNull: [`$${field}`, 0] } } } },
+      ])
+      .exec();
+    return { count: row?.count ?? 0, sum: row?.sum ?? 0 };
+  }
+
   async deleteById(id: string): Promise<null | StoredRecord<T>> {
     return toRecord<T>(await this.model.findByIdAndDelete(id).lean().exec());
   }
@@ -69,7 +82,7 @@ export class MongooseDataStore<T = Record<string, any>> implements DataStore<T> 
 
   async find(where?: Where<T>, options: FindOptions = {}): Promise<StoredRecord<T>[]> {
     let query = this.model.find(toMongoFilter(where));
-    if (options.select) query = query.select(toProjection(options.select));
+    if (options.select || options.exclude) query = query.select(toProjection(options));
     if (options.sort) query = query.sort(options.sort);
     if (options.skip !== undefined) query = query.skip(options.skip);
     if (options.limit !== undefined) query = query.limit(options.limit);
@@ -78,15 +91,15 @@ export class MongooseDataStore<T = Record<string, any>> implements DataStore<T> 
     return (docs as unknown[]).map((doc) => toRecord<T>(doc));
   }
 
-  async findById(id: string, options: Pick<FindOptions, 'select'> = {}): Promise<null | StoredRecord<T>> {
+  async findById(id: string, options: Pick<FindOptions, 'exclude' | 'select'> = {}): Promise<null | StoredRecord<T>> {
     let query = this.model.findById(id);
-    if (options.select) query = query.select(toProjection(options.select));
+    if (options.select || options.exclude) query = query.select(toProjection(options));
     return toRecord<T>(await query.lean().exec());
   }
 
   async findOne(where: Where<T>, options: Omit<FindOptions, 'limit' | 'skip'> = {}): Promise<null | StoredRecord<T>> {
     let query = this.model.findOne(toMongoFilter(where));
-    if (options.select) query = query.select(toProjection(options.select));
+    if (options.select || options.exclude) query = query.select(toProjection(options));
     if (options.sort) query = query.sort(options.sort);
     if (options.collation) query = query.collation(options.collation as any);
     return toRecord<T>(await query.lean().exec());
@@ -189,7 +202,10 @@ function toRecord<T>(doc: unknown): StoredRecord<T> {
   return { ...fields, id: _id === undefined ? fields.id : getStringIds(_id) } as StoredRecord<T>;
 }
 
-function toProjection(select: readonly string[]): string {
-  assertSelectFields(select);
-  return select.map((field) => (field === 'id' ? '_id' : field)).join(' ');
+function toProjection(options: Pick<FindOptions, 'exclude' | 'select'>): string {
+  assertProjection(options);
+  if (options.exclude?.length) {
+    return options.exclude.map((field) => `-${field}`).join(' ');
+  }
+  return (options.select ?? []).map((field) => (field === 'id' ? '_id' : field)).join(' ');
 }

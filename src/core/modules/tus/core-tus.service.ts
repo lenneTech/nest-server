@@ -14,13 +14,10 @@ import { ConfigService } from '../../common/services/config.service.js';
 import { CoreRedisService } from '../../common/services/core-redis.service.js';
 import { CoreS3Service } from '../../common/services/core-s3.service.js';
 import { getTenantContextResolver } from '../../common/services/core-tenant-context.registry.js';
+import { fileMetadataCollection } from '../file/file-metadata.store.js';
 import { resolveFileStorage } from '../file/file-storage.helper.js';
-import {
-  DEFAULT_FILESYSTEM_DIR,
-  FILESYSTEM_FILES_COLLECTION,
-  FilesystemFileHelper,
-} from '../file/filesystem-file.helper.js';
-import { S3_FILES_COLLECTION, S3FileHelper } from '../file/s3-file.helper.js';
+import { DEFAULT_FILESYSTEM_DIR, FilesystemFileHelper } from '../file/filesystem-file.helper.js';
+import { S3FileHelper } from '../file/s3-file.helper.js';
 import { TUS_FILE_ID_HEADER, TUS_OWNER_METADATA_KEY, TUS_TENANT_METADATA_KEY } from './tus.constants.js';
 import { TusRedisLocker } from './tus-redis-locker.js';
 import {
@@ -233,7 +230,7 @@ export class CoreTusService implements OnModuleDestroy, OnModuleInit {
       if (this.canCopyWithinS3(upload)) {
         const fileInfo = await S3FileHelper.copyFile(
           this.options.s3Service,
-          this.connection.db.collection(S3_FILES_COLLECTION),
+          fileMetadataCollection(this.connection, 's3'),
           {
             contentLength: upload.size,
             contentType,
@@ -260,14 +257,14 @@ export class CoreTusService implements OnModuleDestroy, OnModuleInit {
       if (this.fileStorageDriver === 'filesystem') {
         fileInfo = await FilesystemFileHelper.writeFile(
           this.fileStorageDir,
-          this.connection.db.collection(FILESYSTEM_FILES_COLLECTION),
+          fileMetadataCollection(this.connection, 'filesystem'),
           { body: readStream, contentType, filename, metadata: fileMetadata },
         );
         this.logger.debug(`Upload ${upload.id} migrated to the filesystem as ${fileInfo._id} (filename: ${filename})`);
       } else if (this.s3FileStorage) {
         fileInfo = await S3FileHelper.writeFile(
           this.options.s3Service,
-          this.connection.db.collection(S3_FILES_COLLECTION),
+          fileMetadataCollection(this.connection, 's3'),
           // Streamed with the length TUS already knows, so a multi-GB resumable upload is never
           // materialised in memory.
           { body: readStream, contentLength: upload.size, contentType, filename, metadata: fileMetadata },

@@ -39,7 +39,7 @@ export class CoreAiInteractionService extends CrudService<CoreAiInteraction> {
    * passed through explicitly when known for robustness.
    */
   async record(rec: AiInteractionRecord): Promise<void> {
-    await this.mainDbModel.create({
+    await this.dataStore.insert({
       actions: rec.actions,
       completionTokens: rec.usage?.completionTokens,
       connectionId: rec.connectionId,

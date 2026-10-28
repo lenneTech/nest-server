@@ -265,6 +265,20 @@ export class BetterAuthSqlStore {
     return owned.length;
   }
 
+  /**
+   * Remove the sessions and verification values whose expiry has passed. Better-Auth never deletes an expired session
+   * itself, and it clears expired verification values only when somebody looks one up; on MongoDB a TTL index removes
+   * the verification documents. Readers check the expiry either way, so this only keeps the tables from growing
+   */
+  async deleteExpired(now = new Date()): Promise<{ sessions: number; verificationValues: number }> {
+    const { adapter } = await this.context();
+    const expired = [{ field: 'expiresAt', operator: 'lt', value: now }];
+    return {
+      sessions: Number(await adapter.deleteMany({ model: 'session', where: expired })),
+      verificationValues: Number(await adapter.deleteMany({ model: 'verification', where: expired })),
+    };
+  }
+
   /** Better-Auth's context: its adapter maps every model and field to the tables `withSqlStorage()` named */
   protected context(): Promise<any> {
     return (this.auth as any).$context;

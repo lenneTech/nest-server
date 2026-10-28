@@ -17,10 +17,17 @@
 import { Test, TestingModule } from '@nestjs/testing';
 import { PubSub } from 'graphql-subscriptions';
 
-import { BetterAuthTokenService, CoreBetterAuthModule, HttpExceptionLogFilter, TestHelper } from '../src';
+import {
+  BetterAuthTokenService,
+  CoreBetterAuthModule,
+  CoreBetterAuthService,
+  HttpExceptionLogFilter,
+  TestHelper,
+} from '../src';
 import envConfig from '../src/config.env';
 import { CoreAiMcpOAuthService } from '../src/core/modules/ai/services/core-ai-mcp-oauth.service';
 import { CoreBetterAuthChallengeService } from '../src/core/modules/better-auth/core-better-auth-challenge.service';
+import { getBetterAuthSqlStore } from '../src/core/modules/better-auth/core-better-auth-sql.registry';
 import { ServerModule } from '../src/server/server.module';
 import { type IamTestDb, openIamTestDb } from './helpers/iam-test-db';
 
@@ -200,5 +207,50 @@ describe('Better-Auth data on the configured database: session, token, passkey c
     const row = await iamDb.findUser({ id: user.id });
     expect(row?.verified).toBe(true);
     expect(row?.verifiedAt).toBeInstanceOf(Date);
+  });
+  /**
+   * @regression   DEV-3832 (db-agnostic phase 4) — Better-Auth never deletes an expired session, and on SQL no TTL index
+   *   removes expired verification values (reset links, passkey challenges) either: both tables grew for as long as
+   *   the application ran.
+   * @seen-failing Keep the sessions in BetterAuthSqlStore.deleteExpired() in
+   *   src/core/modules/better-auth/core-better-auth-sql.store.ts — registered as mutation `iam-expired-sessions-kept`
+   *   in tests/regression-mutations.json; keep the verification values there — mutation `iam-expired-verification-kept`.
+   */
+  it('removes expired sessions and verification values on SQL, and only those', async () => {
+    const service: any = app.get(CoreBetterAuthService);
+    if (iamDb.driver === 'mongodb') {
+      // MongoDB removes verification documents through its TTL index; the sweep exists for SQL tables only
+      expect(service.expirySweep).toBeUndefined();
+      return;
+    }
+    const user = await signUp();
+    await iamDb.expireSession(user.sessionToken);
+    await testHelper.rest('/iam/sign-in/email', {
+      method: 'POST',
+      payload: { email: user.email, password },
+      statusCode: 200,
+    });
+    const liveSession = await iamDb.latestSessionToken(user.id);
+    expect(liveSession).not.toBe(user.sessionToken);
+
+    const challenge = (expiresAt: Date) => ({
+      expiresAt,
+      type: 'authentication' as const,
+      userId: user.id,
+      verificationToken: 'token',
+    });
+    const suffix = Math.random().toString(36).slice(2);
+    // The live one FIRST: storing a challenge removes the expired ones already there, so an expired challenge stored
+    // before it would be gone before the sweep runs, and its assertion would hold whatever the sweep did
+    await getBetterAuthSqlStore()!.storeChallenge(`live-${suffix}`, challenge(new Date(Date.now() + 60_000)));
+    await getBetterAuthSqlStore()!.storeChallenge(`expired-${suffix}`, challenge(new Date(Date.now() - 60_000)));
+    expect(await iamDb.passkeyChallenge(`expired-${suffix}`)).not.toBeNull();
+
+    await service.expirySweep.runNow();
+
+    expect(await iamDb.findSession(user.sessionToken)).toBeNull();
+    expect(await iamDb.passkeyChallenge(`expired-${suffix}`)).toBeNull();
+    expect(await iamDb.findSession(liveSession!)).not.toBeNull();
+    expect(await iamDb.passkeyChallenge(`live-${suffix}`)).not.toBeNull();
   });
 });

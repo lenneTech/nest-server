@@ -35,6 +35,11 @@ export interface PersistenceRuntime {
   /** Sources and model routing for the Hub; connection URLs reduced to scheme and host */
   describe(): PersistenceOverview;
   /**
+   * Delete the rows whose TTL has passed, in every SQL table this application opened — what MongoDB's TTL monitor does
+   * for a collection. Answers per model with a TTL field how many rows went
+   */
+  sweepExpired(now?: Date): Promise<{ deleted: number; model: string }[]>;
+  /**
    * Where Better-Auth keeps its data: the SQL source the `users` table is routed to, or `undefined` when the user model
    * stays on MongoDB. Better-Auth and the user model share one row per user, so Better-Auth never decides this itself
    */

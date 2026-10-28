@@ -30,3 +30,18 @@ export function assertSelectFields(select: readonly string[] | undefined): void 
     }
   }
 }
+
+/**
+ * `select` and `exclude` together: plain field names each, and never both — MongoDB refuses a projection that
+ * includes and excludes at once. The id cannot be left out: every record carries it.
+ */
+export function assertProjection(options: { exclude?: readonly string[]; select?: readonly string[] }): void {
+  assertSelectFields(options.select);
+  assertSelectFields(options.exclude);
+  if (options.select?.length && options.exclude?.length) {
+    throw new Error('select and exclude cannot be combined');
+  }
+  if (options.exclude?.some((field) => field === 'id' || field === '_id')) {
+    throw new Error('exclude: the id is always returned');
+  }
+}

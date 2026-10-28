@@ -43,6 +43,11 @@ export interface FindOptions {
   /** Language-specific string comparison (MongoDB collation; mapped by SQL stores where supported) */
   collation?: Record<string, unknown>;
   limit?: number;
+  /**
+   * Field names to leave out (MongoDB's `-name` projection); everything else the model returns by default is read.
+   * Not combinable with `select`, as MongoDB does not combine them either.
+   */
+  exclude?: readonly string[];
   /** Field names to return; the id is always returned */
   select?: readonly string[];
   skip?: number;
@@ -109,7 +114,7 @@ export interface DataStore<T = Record<string, any>> {
   deleteOne(where: Where<T>): Promise<null | StoredRecord<T>>;
   distinct(field: string, where?: Where<T>): Promise<unknown[]>;
   find(where?: Where<T>, options?: FindOptions): Promise<StoredRecord<T>[]>;
-  findById(id: string, options?: Pick<FindOptions, 'select'>): Promise<null | StoredRecord<T>>;
+  findById(id: string, options?: Pick<FindOptions, 'exclude' | 'select'>): Promise<null | StoredRecord<T>>;
   findOne(where: Where<T>, options?: Omit<FindOptions, 'limit' | 'skip'>): Promise<null | StoredRecord<T>>;
   insert(record: Partial<T>): Promise<StoredRecord<T>>;
   /**
@@ -126,6 +131,11 @@ export interface DataStore<T = Record<string, any>> {
    * store; the reason is mandatory and logged as a security event.
    */
   raw<N = unknown>(reason: string): N;
+  /**
+   * How many records match `where`, and the total of the numeric `field` over them (a missing value adds 0) — counted
+   * by the database, so only the result crosses the wire (MongoDB's `$group`, SQL's `count`/`sum`).
+   */
+  sum(field: string, where?: Where<T>): Promise<{ count: number; sum: number }>;
   /** Apply `update` to the record and return it as stored afterwards; `null` when there is none. */
   updateById(id: string, update: DataStoreUpdate<T>, options?: UpdateOptions): Promise<null | StoredRecord<T>>;
   /** Apply `update` to every record matching `where`; returns how many records matched. */

@@ -425,6 +425,26 @@ for (const driver of PERSISTENCE_DRIVERS) {
       expect(await items.deleteMany({ status: 'old' })).toBe(0);
     });
 
+    persistenceIt('sum', driver, async () => {
+      await items.insert({ age: 2, status: 'open' });
+      await items.insert({ age: 5, status: 'open' });
+      await items.insert({ status: 'open' });
+      await items.insert({ age: 100, status: 'done' });
+      expect(await items.sum('age', { status: 'open' })).toEqual({ count: 3, sum: 7 });
+      expect(await items.sum('age')).toEqual({ count: 4, sum: 107 });
+      expect(await items.sum('age', { status: 'none' })).toEqual({ count: 0, sum: 0 });
+    });
+
+    persistenceIt('find-exclude', driver, async () => {
+      const record = await items.insert({ age: 3, name: 'a', status: 'x' });
+      const found = await items.findById(record.id, { exclude: ['age'] });
+      expect(found).toMatchObject({ id: record.id, name: 'a', status: 'x' });
+      expect(found?.age).toBeUndefined();
+      expect((await items.find({ status: 'x' }, { exclude: ['age', 'name'] }))[0]).toMatchObject({ status: 'x' });
+      await expect(items.find({}, { exclude: ['age'], select: ['name'] })).rejects.toThrow();
+      await expect(items.find({}, { exclude: ['id'] })).rejects.toThrow();
+    });
+
     persistenceIt('delete-one', driver, async () => {
       await items.insert({ name: 'a', status: 'keep' });
       const doomed = await items.insert({ name: 'b', status: 'old' });

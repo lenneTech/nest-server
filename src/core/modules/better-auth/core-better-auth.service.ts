@@ -4,6 +4,7 @@ import {
   Injectable,
   Logger,
   OnApplicationBootstrap,
+  OnModuleDestroy,
   OnModuleInit,
   Optional,
 } from '@nestjs/common';
@@ -19,6 +20,7 @@ import { importJWK, jwtVerify } from 'jose';
 import type { Connection } from 'mongoose';
 
 import { shouldConvertSessionTokenToJwt } from '../../common/helpers/cookies.helper.js';
+import { type ExpirySweep, scheduleExpirySweep } from '../../common/persistence/expiry-sweep.js';
 import { maskEmail, maskToken } from '../../common/helpers/logging.helper.js';
 import { type IBetterAuth, ICookiesConfig } from '../../common/interfaces/server-options.interface.js';
 import { ConfigService } from '../../common/services/config.service.js';
@@ -104,8 +106,9 @@ export { BETTER_AUTH_CONFIG, BETTER_AUTH_COOKIE_DOMAIN } from './core-better-aut
  * ```
  */
 @Injectable()
-export class CoreBetterAuthService implements OnApplicationBootstrap, OnModuleInit {
+export class CoreBetterAuthService implements OnApplicationBootstrap, OnModuleDestroy, OnModuleInit {
   private readonly logger = new Logger(CoreBetterAuthService.name);
+  protected expirySweep?: ExpirySweep;
   private readonly config: IBetterAuth;
   private openApiSchema: IBetterAuthOpenApiDocument | undefined;
   private unavailableOperations: Set<string> | undefined;
@@ -166,6 +169,34 @@ export class CoreBetterAuthService implements OnApplicationBootstrap, OnModuleIn
    */
   async onApplicationBootstrap(): Promise<void> {
     await this.prepareOpenApiSchema();
+    this.startExpirySweep();
+  }
+
+  async onModuleDestroy(): Promise<void> {
+    // Before the data sources close their connections (onApplicationShutdown)
+    await this.expirySweep?.stop();
+  }
+
+  /**
+   * On a SQL source, removes expired sessions and verification values periodically (`scheduleExpirySweep()`): there is
+   * no TTL index, and Better-Auth deletes neither an expired session nor, unless one is looked up, an expired
+   * verification value. MongoDB keeps its TTL index and gets no sweep.
+   */
+  protected startExpirySweep(): void {
+    const sql = getBetterAuthSqlStore();
+    if (!this.isEnabled() || !sql || this.expirySweep) {
+      return;
+    }
+    this.expirySweep = scheduleExpirySweep(
+      'iam',
+      async () => {
+        const { sessions, verificationValues } = await sql.deleteExpired();
+        if (sessions || verificationValues) {
+          this.logger.debug(`Removed ${sessions} expired session(s) and ${verificationValues} verification value(s)`);
+        }
+      },
+      { logger: this.logger },
+    );
   }
 
   /**

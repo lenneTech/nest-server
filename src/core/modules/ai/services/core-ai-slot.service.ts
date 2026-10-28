@@ -194,18 +194,21 @@ export class CoreAiSlotService extends CrudService<CoreAiSlot, CoreAiSlotCreateI
     this.assertAdmin(serviceOptions);
     const tenantId = this.tenantOf(serviceOptions);
     if (input?.key) {
-      const existing = await this.mainDbModel
-        .findOne({ key: input.key, tenantId: tenantId ?? { $in: [null, undefined] } })
-        .lean<CoreAiSlot>()
-        .exec();
-      if (existing?.id || (existing as any)?._id) {
-        const existingId = String(existing?.id || (existing as any)?._id);
+      // `null` matches a missing tenant as well, on every database
+      const existing = (await this.dataStore.findOne({ key: input.key, tenantId: tenantId ?? null })) as
+        | (CoreAiSlot & { id?: string })
+        | null;
+      if (existing?.id) {
+        const existingId = String(existing.id);
         const updated = await super.update(existingId, input as any, serviceOptions);
         return this.decorateWithSystemFlags(updated);
       }
     }
     const created = await super.create(input as any, serviceOptions);
-    await this.mainDbModel.updateOne({ _id: created.id }, { $set: { tenantId } }).exec();
+    // Only a tenant to record: an undefined key is dropped by MongoDB and written as NULL by a SQL store
+    if (tenantId !== undefined) {
+      await this.dataStore.updateById(created.id, { $set: { tenantId } });
+    }
     const reloaded = await this.get(created.id, serviceOptions);
     return this.decorateWithSystemFlags(reloaded);
   }
@@ -268,10 +271,9 @@ export class CoreAiSlotService extends CrudService<CoreAiSlot, CoreAiSlotCreateI
 
     let rows: CoreAiSlot[] = [];
     try {
-      rows = await this.mainDbModel
-        .find(tenantId ? { tenantId } : { $or: [{ tenantId: { $exists: false } }, { tenantId: null }] })
-        .lean<CoreAiSlot[]>()
-        .exec();
+      rows = (await this.dataStore.find(
+        tenantId ? { tenantId } : { $or: [{ tenantId: { $exists: false } }, { tenantId: null }] },
+      )) as CoreAiSlot[];
     } catch (err) {
       this.logger.warn(`listEffective failed to load rows: ${(err as Error).message}`);
       rows = [];
@@ -352,7 +354,7 @@ export class CoreAiSlotService extends CrudService<CoreAiSlot, CoreAiSlotCreateI
   async resetSystemSlot(id: string, serviceOptions: ServiceOptions = {}): Promise<EffectiveSlot> {
     this.assertAdmin(serviceOptions);
     await this.assertSameTenant(id, serviceOptions);
-    const row = await this.mainDbModel.findById(id).lean<CoreAiSlot>().exec();
+    const row = (await this.dataStore.findById(id)) as CoreAiSlot | null;
     if (!row) {
       throw new ForbiddenException(`Slot ${id} not found.`);
     }
@@ -361,7 +363,7 @@ export class CoreAiSlotService extends CrudService<CoreAiSlot, CoreAiSlotCreateI
     if (!fallback) {
       throw new ForbiddenException('Only system-slot overrides can be reset. Use delete for custom slots.');
     }
-    await this.mainDbModel.deleteOne({ _id: id }).exec();
+    await this.dataStore.deleteById(id);
     return {
       capability: fallback.capability,
       content: fallback.content,
@@ -407,10 +409,7 @@ export class CoreAiSlotService extends CrudService<CoreAiSlot, CoreAiSlotCreateI
       const tenantFilter = tenantId
         ? { tenantId: String(tenantId) }
         : { $or: [{ tenantId: { $exists: false } }, { tenantId: null }] };
-      rows = await this.mainDbModel
-        .find({ enabled: { $ne: false }, ...tenantFilter })
-        .lean<CoreAiSlot[]>()
-        .exec();
+      rows = (await this.dataStore.find({ enabled: { $ne: false }, ...tenantFilter })) as CoreAiSlot[];
     } catch {
       rows = [];
     }
@@ -421,10 +420,7 @@ export class CoreAiSlotService extends CrudService<CoreAiSlot, CoreAiSlotCreateI
       const tenantFilter = tenantId
         ? { tenantId: String(tenantId) }
         : { $or: [{ tenantId: { $exists: false } }, { tenantId: null }] };
-      disabled = await this.mainDbModel
-        .find({ enabled: false, ...tenantFilter })
-        .lean<CoreAiSlot[]>()
-        .exec();
+      disabled = (await this.dataStore.find({ enabled: false, ...tenantFilter })) as CoreAiSlot[];
     } catch {
       disabled = [];
     }
@@ -477,7 +473,7 @@ export class CoreAiSlotService extends CrudService<CoreAiSlot, CoreAiSlotCreateI
    */
   protected async assertSameTenant(id: string, serviceOptions: ServiceOptions): Promise<void> {
     const tenantId = this.tenantOf(serviceOptions);
-    const row = await this.mainDbModel.findById(id, { tenantId: 1 }).lean<{ tenantId?: string }>().exec();
+    const row = (await this.dataStore.findById(id, { select: ['tenantId'] })) as { tenantId?: string } | null;
     if (!row) {
       throw new ForbiddenException(`Slot ${id} not found.`);
     }

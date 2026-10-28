@@ -41,6 +41,7 @@ import {
 import { RequestContextMiddleware } from './core/common/middleware/request-context.middleware.js';
 import { SecurityHeadersMiddleware } from './core/common/middlewares/security-headers.middleware.js';
 import { CorePersistenceLifecycle } from './core/common/persistence/core-persistence.lifecycle.js';
+import { CorePersistenceModule } from './core/common/persistence/core-persistence.module.js';
 import {
   assertDataSourcesSupported,
   hasSqlSource,
@@ -73,6 +74,7 @@ import { CoreBetterAuthModule } from './core/modules/better-auth/core-better-aut
 import { CoreBetterAuthService } from './core/modules/better-auth/core-better-auth.service.js';
 import { ErrorCodeModule } from './core/modules/error-code/error-code.module.js';
 import { CoreFileAccessAuditInitializer } from './core/modules/file/core-file-access-audit.initializer.js';
+import { FILE_METADATA_MODELS } from './core/modules/file/file-metadata.models.js';
 import { applyFileRoles, warnOnPresignedDownloadsWithRestrictedRoles } from './core/modules/file/file-roles.helper.js';
 import { CoreHealthCheckModule } from './core/modules/health-check/core-health-check.module.js';
 import { CoreHubModule } from './core/modules/hub/core-hub.module.js';
@@ -457,7 +459,12 @@ export class CoreModule implements NestModule {
 
     // DiscoveryModule: CoreFileAccessAuditInitializer needs the registered controller/resolver
     // classes, which only exist once Nest has built its route table.
-    const imports: any[] = [DiscoveryModule, MongooseModule.forRoot(config.mongoose.uri, config.mongoose.options)];
+    const imports: any[] = [
+      DiscoveryModule,
+      MongooseModule.forRoot(config.mongoose.uri, config.mongoose.options),
+      // The metadata of S3 and filesystem files, routed like every model: on a SQL default source it lives in tables
+      CorePersistenceModule.forFeature(FILE_METADATA_MODELS),
+    ];
 
     if (isGraphQlEnabled && config.graphQl) {
       imports.push(

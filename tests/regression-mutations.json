@@ -3569,7 +3569,7 @@
       "id": "sql-owner-held-after-boot",
       "defect": "DEV-3829 (db-agnostic phase 1, review) — the owner connection must not outlive the boot; held until shutdown it keeps a table-owning session open for the life of the process.",
       "file": "src/core/common/persistence/core-persistence.lifecycle.ts",
-      "find": "    await getPersistenceRuntime()?.releaseBootConnections();",
+      "find": "    await runtime?.releaseBootConnections();",
       "replace": "    // released at shutdown only",
       "specs": [
         "tests/persistence-sql-wiring.e2e-spec.ts"
@@ -4025,6 +4025,106 @@
       "file": "src/core/modules/ai/services/core-ai-mcp-oauth.service.ts",
       "find": "      if (sql) {\n        const row = await sql.findUser({ id: userId }, ['roles']);",
       "replace": "      if (sql && !sql) {\n        const row = await sql.findUser({ id: userId }, ['roles']);",
+      "specs": [
+        "tests/better-auth-storage-paths.e2e-spec.ts"
+      ]
+    },
+    {
+      "driverSpecific": false,
+      "id": "mcp-oauth-code-age-unchecked",
+      "defect": "DEV-3832: MCP OAuth accepted an authorization code of any age; only MongoDB's TTL index removed it, eventually (and never when the lazy index creation failed once)",
+      "file": "src/core/modules/ai/services/core-ai-mcp-oauth.service.ts",
+      "find": "    if (!(Date.now() - createdAt <= AI_MCP_OAUTH_CODE_TTL_SECONDS * 1000)) {",
+      "replace": "    if (false && !(Date.now() - createdAt <= AI_MCP_OAUTH_CODE_TTL_SECONDS * 1000)) {",
+      "specs": [
+        "tests/unit/ai-mcp-oauth-code-expiry.spec.ts"
+      ]
+    },
+    {
+      "driverSpecific": false,
+      "id": "mcp-oauth-expired-code-exchanged",
+      "defect": "DEV-3832: an expired MCP OAuth authorization code was exchanged for tokens at the token endpoint for as long as it stayed in the store, on MongoDB and on SQL",
+      "file": "src/core/modules/ai/services/core-ai-mcp-oauth.service.ts",
+      "find": "    if (!(Date.now() - createdAt <= AI_MCP_OAUTH_CODE_TTL_SECONDS * 1000)) {",
+      "replace": "    if (false && !(Date.now() - createdAt <= AI_MCP_OAUTH_CODE_TTL_SECONDS * 1000)) {",
+      "specs": [
+        "tests/ai-mcp-oauth.e2e-spec.ts"
+      ]
+    },
+    {
+      "driverSpecific": false,
+      "id": "sql-ttl-rows-never-swept",
+      "defect": "DEV-3832: a TTL is a plain index on SQL and nothing removed an expired row, so tables of single-use codes and expiring grants grew for as long as the application ran",
+      "file": "src/core/common/persistence/data-source.runtime.ts",
+      "find": "      if (!expired) {",
+      "replace": "      if (expired || !expired) {",
+      "specs": [
+        "tests/persistence-sql-wiring.e2e-spec.ts"
+      ]
+    },
+    {
+      "driverSpecific": false,
+      "id": "iam-expired-sessions-kept",
+      "defect": "DEV-3832: Better-Auth never deletes an expired session, so on SQL the session table grew for as long as the application ran",
+      "file": "src/core/modules/better-auth/core-better-auth-sql.store.ts",
+      "find": "      sessions: Number(await adapter.deleteMany({ model: 'session', where: expired })),",
+      "replace": "      sessions: 0,",
+      "specs": [
+        "tests/better-auth-storage-paths.e2e-spec.ts"
+      ]
+    },
+    {
+      "driverSpecific": false,
+      "id": "file-metadata-routing-ignored",
+      "defect": "DEV-3832: the S3 and filesystem metadata went to MongoDB's collections while database routed the file metadata models to PostgreSQL",
+      "file": "src/core/modules/file/file-metadata.store.ts",
+      "find": "  if (dataStore && !dataStore.capabilities.mongoosePopulate) {",
+      "replace": "  if (false && dataStore && !dataStore.capabilities.mongoosePopulate) {",
+      "specs": [
+        "tests/file-storage-parity.e2e-spec.ts",
+        "tests/file-storage-http-parity.e2e-spec.ts"
+      ]
+    },
+    {
+      "driverSpecific": false,
+      "id": "gridfs-derived-for-sql-metadata",
+      "defect": "DEV-3832: with the file metadata routed to a SQL source, GridFS was still derived and every upload went into MongoDB",
+      "file": "src/core/modules/file/file-storage.helper.ts",
+      "find": "  if (sqlSource) {",
+      "replace": "  if (false && sqlSource) {",
+      "specs": [
+        "tests/unit/file-storage-resolver.spec.ts"
+      ]
+    },
+    {
+      "driverSpecific": false,
+      "id": "sql-ttl-partial-filter-ignored",
+      "defect": "DEV-3832 review: the SQL expiry sweep dropped a TTL index's partialFilterExpression and deleted every old row, also those MongoDB keeps",
+      "file": "src/core/common/persistence/expiry-sweep.ts",
+      "find": "      return partial ? { $and: [expired, partial] } : expired;",
+      "replace": "      return expired;",
+      "specs": [
+        "tests/unit/expiry-sweep.spec.ts"
+      ]
+    },
+    {
+      "driverSpecific": false,
+      "id": "ai-prompt-tenant-written-as-null",
+      "defect": "DEV-3832 review: creating a personal AI prompt inside a tenant wrote tenantId undefined, which a SQL store writes as NULL; row-level security refused it with 403 and left an orphan row",
+      "file": "src/core/modules/ai/services/core-ai-prompt.service.ts",
+      "find": "      $set: { ownerId: String(user.id), scope, ...(tenantId !== undefined ? { tenantId } : {}) },",
+      "replace": "      $set: { ownerId: String(user.id), scope, tenantId },",
+      "specs": [
+        "tests/ai-mcp-oauth-tenant.e2e-spec.ts"
+      ]
+    },
+    {
+      "driverSpecific": false,
+      "id": "iam-expired-verification-kept",
+      "defect": "DEV-3832 review: on SQL nothing removed expired Better-Auth verification values (reset links, passkey challenges) unless one was looked up",
+      "file": "src/core/modules/better-auth/core-better-auth-sql.store.ts",
+      "find": "      verificationValues: Number(await adapter.deleteMany({ model: 'verification', where: expired })),",
+      "replace": "      verificationValues: 0,",
       "specs": [
         "tests/better-auth-storage-paths.e2e-spec.ts"
       ]

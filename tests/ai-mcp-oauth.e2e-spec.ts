@@ -19,6 +19,8 @@ import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 
 import { CoreBetterAuthModule, TestHelper } from '../src';
 import envConfig from '../src/config.env';
+import type { DataStore } from '../src/core/common/persistence/data-store.interface';
+import { getStoreToken } from '../src/core/common/persistence/persistence.tokens';
 import { ConfigService } from '../src/core/common/services/config.service';
 import { apiTokenIamConfig, bootApiTokenIamApp } from './helpers/api-token-e2e.helpers';
 
@@ -156,6 +158,38 @@ describe('MCP OAuth — built-in consent on the assembled stack (e2e)', () => {
       .send({ client_id: clientId, grant_type: 'refresh_token', refresh_token: 'not-a-refresh-token' });
     expect(reused.status).toBe(400);
     expect(reused.body.error).toBe('invalid_grant');
+  });
+
+  /**
+   * @regression   DEV-3832 (db-agnostic phase 4) — an authorization code was exchangeable for as long as it stayed in
+   *   the store: MongoDB's TTL index removed it late or never, and a SQL table has no TTL at all.
+   * @seen-failing Drop the age check in CoreAiMcpOAuthService.liveCode() in
+   *   src/core/modules/ai/services/core-ai-mcp-oauth.service.ts — registered as mutation `mcp-oauth-expired-code-exchanged`
+   *   in tests/regression-mutations.json.
+   */
+  it('refuses an authorization code older than ten minutes at the token endpoint, on the stored record', async () => {
+    const browser = request.agent(app.getHttpServer());
+    await browser.post('/iam/sign-in/email').send({ email, password }).expect(200);
+    const { clientId, params } = await authorizationRequest();
+    const page = await browser.get('/authorize').query(params);
+    const approved = await browser
+      .post('/authorize')
+      .type('form')
+      .send({ ...formOf(page.text), lt_mcp_consent: 'approve' });
+    const code = new URL(approved.headers.location).searchParams.get('code')!;
+
+    // Age the stored code past its ten minutes, as a code nobody swept — wherever it is stored (MongoDB or SQL)
+    const codes = app.get<DataStore<any>>(getStoreToken('AiMcpOAuthCode'), { strict: false });
+    const aged = await codes.updateOne({ code }, { $set: { createdAt: new Date(Date.now() - 11 * 60_000) } });
+    expect(aged).toMatchObject({ code });
+
+    const tokens = await request(app.getHttpServer())
+      .post('/token')
+      .type('form')
+      .send({ client_id: clientId, code, code_verifier: CODE_VERIFIER, grant_type: 'authorization_code' });
+    expect(tokens.status).toBe(400);
+    expect(tokens.body.error).toBe('invalid_grant');
+    expect(tokens.body.access_token).toBeUndefined();
   });
 
   it('issues nothing for an Allow that carries no valid consent token', async () => {

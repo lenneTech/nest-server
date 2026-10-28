@@ -24,7 +24,7 @@ import {
   resolveTenantFilter,
   resolveTenantScope,
 } from '../policies/tenant.policy.js';
-import { assertAccessReason, assertArrayField, assertSelectFields } from '../store-guards.js';
+import { assertAccessReason, assertArrayField, assertProjection, assertSelectFields } from '../store-guards.js';
 import { tableName } from './postgres/postgres-schema.compiler.js';
 import { compilePostgresUpdate, pullExpression } from './postgres/postgres-update.compiler.js';
 import { compilePostgresPath, compilePostgresWhere } from './postgres/postgres-where.compiler.js';
@@ -122,6 +122,25 @@ export class SqlDataStore<T = Record<string, any>> implements DataStore<T> {
     return rows[0].n;
   }
 
+  async sum(field: string, where?: Where<T>): Promise<{ count: number; sum: number }> {
+    assertSelectFields([field]);
+    const params = new SqlParams();
+    const path = compilePostgresPath(this.model, field, params);
+    if (path.kind === 'array') {
+      throw new UnsupportedQueryError(`sum() needs a single value, "${field}" is an array`);
+    }
+    // A JSON value counts only when it is a number, as MongoDB's $sum ignores other types
+    const value =
+      path.kind === 'column'
+        ? path.expr
+        : `CASE WHEN jsonb_typeof(${path.expr}) = 'number' THEN (${path.expr})::numeric END`;
+    const { rows } = await this.run<{ n: number; total: number | string }>({
+      params: params.values,
+      text: `SELECT count(*)::int AS n, COALESCE(sum(${value}), 0)::float8 AS total FROM ${this.table} WHERE ${this.where(where, params)}`,
+    });
+    return { count: rows[0].n, sum: Number(rows[0].total) };
+  }
+
   async distinct(field: string, where?: Where<T>): Promise<unknown[]> {
     const params = new SqlParams();
     const path = compilePostgresPath(this.model, field, params);
@@ -136,7 +155,7 @@ export class SqlDataStore<T = Record<string, any>> implements DataStore<T> {
 
   async find(where?: Where<T>, options: FindOptions = {}): Promise<StoredRecord<T>[]> {
     const params = new SqlParams();
-    let text = `SELECT ${this.selectList(options.select)} FROM ${this.table} WHERE ${this.where(where, params)}`;
+    let text = `SELECT ${this.selectList(options.select, options.exclude)} FROM ${this.table} WHERE ${this.where(where, params)}`;
     text += this.orderBy(options, params);
     if (options.limit !== undefined) {
       text += ` LIMIT ${params.add(nonNegativeInteger(options.limit, 'limit'))}`;
@@ -148,7 +167,7 @@ export class SqlDataStore<T = Record<string, any>> implements DataStore<T> {
     return this.toRecords(rows, options.select);
   }
 
-  async findById(id: string, options: Pick<FindOptions, 'select'> = {}): Promise<null | StoredRecord<T>> {
+  async findById(id: string, options: Pick<FindOptions, 'exclude' | 'select'> = {}): Promise<null | StoredRecord<T>> {
     return this.findOne({ id } as Where<T>, options);
   }
 
@@ -481,14 +500,20 @@ export class SqlDataStore<T = Record<string, any>> implements DataStore<T> {
   }
 
   /** Columns to read: the selected fields (`select: false` fields only when named), the id, and `tenant_id` for the row check */
-  protected selectList(select?: readonly string[]): string {
-    assertSelectFields(select);
+  protected selectList(select?: readonly string[], exclude?: readonly string[]): string {
+    assertProjection({ exclude, select });
     const wanted = new Set(select?.map((name) => (name === '_id' ? 'id' : name)));
+    const left = new Set(exclude);
     const columns = new Set<string>(['id']);
     for (const field of Object.values(this.model.fields)) {
       const column = columnName(field.name);
-      if (select ? wanted.has(field.name) : field.select !== false) {
+      if (select ? wanted.has(field.name) : field.select !== false && !left.has(field.name)) {
         columns.add(column);
+      }
+    }
+    for (const name of exclude ?? []) {
+      if (!this.model.fields[name]) {
+        throw new UnsupportedQueryError(`Unknown field "${name}" on ${this.modelName}`);
       }
     }
     if (select) {

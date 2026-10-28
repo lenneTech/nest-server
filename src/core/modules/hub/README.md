@@ -62,14 +62,14 @@ panel then reports that conflict and refuses Run and Rollback, which would apply
 ### Files panel
 
 The panel reads all three file metadata stores, not just GridFS — the same three
-`CoreFileService.findFileInfo()` consults, because metadata always lives in MongoDB whichever store
-holds the bytes:
+`CoreFileService.findFileInfo()` consults, wherever `database` routes their metadata
+(`fileMetadataCollection()`):
 
-| Store        | Collection                            | Bytes live in                   |
-| ------------ | ------------------------------------- | ------------------------------- |
-| `s3`         | `s3-files`                            | the S3 bucket                   |
-| `filesystem` | `filesystem-files`                    | `file.storageDir` on local disk |
-| `gridfs`     | `<bucket>.files` (default `fs.files`) | MongoDB                         |
+| Store        | Metadata                                                | Bytes live in                   |
+| ------------ | ------------------------------------------------------- | ------------------------------- |
+| `s3`         | collection `s3-files`, on a SQL source table `s3_files` | the S3 bucket                   |
+| `filesystem` | `filesystem-files`, on a SQL source `filesystem_files`  | `file.storageDir` on local disk |
+| `gridfs`     | `<bucket>.files` (default `fs.files`), always MongoDB   | MongoDB                         |
 
 Every row carries the `store` it was found in, and `files.json` reports a per-store `count` so an
 empty store reads as **empty** rather than as _"this panel does not cover your driver"_. Until

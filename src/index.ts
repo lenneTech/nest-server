@@ -224,6 +224,8 @@ export * from './core/modules/file/core-file.controller.js';
 export * from './core/modules/file/core-file.resolver.js';
 export * from './core/modules/file/core-file.service.js';
 export * from './core/modules/file/file-access.helper.js';
+export * from './core/modules/file/file-metadata.models.js';
+export * from './core/modules/file/file-metadata.store.js';
 export * from './core/modules/file/file-roles.helper.js';
 export * from './core/modules/file/file-storage.helper.js';
 export * from './core/modules/file/filesystem-file.helper.js';

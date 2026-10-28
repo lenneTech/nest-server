@@ -55,6 +55,35 @@ describe('resolveFileStorage', () => {
     it('ignores an explicitly disabled S3 block', () => {
       expect(resolveFileStorage(cfg({ ...DB, s3: { bucket: 'b', enabled: false } })).driver).toBe('gridfs');
     });
+
+    /**
+     * @regression   DEV-3832 (db-agnostic phase 4) — with the file metadata routed to a SQL source, GridFS was still
+     *   derived: a project that moved its data to PostgreSQL had every upload put into MongoDB, bytes and metadata.
+     * @seen-failing Drop the SQL-metadata branch of resolveFileStorage() in
+     *   src/core/modules/file/file-storage.helper.ts — registered as mutation `gridfs-derived-for-sql-metadata` in
+     *   tests/regression-mutations.json.
+     */
+    it('derives the filesystem, not GridFS, when the file metadata lives in a SQL source', () => {
+      const PG = 'postgres://app:secret@localhost:5440/files';
+      const sqlDefault = resolveFileStorage(cfg({ ...DB, database: { url: PG } }));
+      expect(sqlDefault).toMatchObject({ driver: 'filesystem', explicit: false });
+      expect(sqlDefault.reason).toContain('SQL source "default"');
+      // Routed per model, too — and named after the source it went to
+      const routed = resolveFileStorage(
+        cfg({ ...DB, database: { models: { CoreFilesystemFile: 'files' }, sources: { files: PG } } }),
+      );
+      expect(routed.driver).toBe('filesystem');
+      expect(routed.reason).toContain('SQL source "files"');
+
+      // What the rule leaves alone: S3 still wins, an explicit GridFS is kept, metadata on MongoDB keeps GridFS
+      expect(resolveFileStorage(cfg({ ...DB, ...S3, database: { url: PG } })).driver).toBe('s3');
+      expect(resolveFileStorage(cfg({ ...DB, database: { url: PG }, file: { storage: 'gridfs' } })).driver).toBe(
+        'gridfs',
+      );
+      expect(
+        resolveFileStorage(cfg({ ...DB, database: { models: { CoreFilesystemFile: 'mongoose' }, url: PG } })).driver,
+      ).toBe('gridfs');
+    });
   });
 
   describe('backwards compatibility', () => {

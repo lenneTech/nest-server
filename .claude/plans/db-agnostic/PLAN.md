@@ -531,6 +531,34 @@ File/TUS metadata store neutral (S3 + filesystem on SQL; GridFS Mongo-only, deri
 11 models via CrudService on both databases, its 3 schema-less collections as tables, aggregates replaced by named
 store methods, TTL correctness replaced by explicit expiry predicates + sweeper on the cron lease.
 
+**Decided while implementing phase 4 (2026-10-28, autopilot — every point is an assumption recorded on DEV-3832):**
+* *AI module:* its 11 models are registered through `CorePersistenceModule.forFeature()` and every service uses its
+  `dataStore` — one code path on both databases, the Mongoose plugins still fire on MongoDB. An upsert is
+  `upsertRecord()` (update, else insert, retry on a duplicate key); a conversation is trimmed to its last 500 messages
+  by `pushToArray(…, { slice: -500 })`; a prompt hint's counter rises atomically (`$inc`). The port gained `sum()`
+  (the budget aggregation: MongoDB `$group`, SQL `count`/`sum`, across tenants as before) and `find(…, { exclude })`
+  (MongoDB's `-field` projection, never combined with `select`).
+* *MCP OAuth:* clients, codes and refresh tokens are three framework models (`autoIndex: false`); on MongoDB the
+  service keeps its native collections and TTL index, on SQL it uses their stores. A code is refused on read once it is
+  older than ten minutes, on both databases, whatever any sweep did; refresh tokens keep their unlimited lifetime.
+* *Expiry sweep, not a TTL monitor:* a TTL is a plain index on SQL. `scheduleExpirySweep()` runs at boot and every 15
+  minutes, on one replica per interval (a lease in the default SQL source's `lt_locks`, never released; on a MongoDB
+  default every replica sweeps, which is harmless — a sweep only deletes what has expired), and fails open.
+  `CorePersistenceLifecycle` sweeps every routed SQL table whose model declares a TTL (MongoDB's rule: date + TTL in
+  the past, no date never), `CoreBetterAuthService` expired sessions and verification values when Better-Auth runs on
+  SQL. MongoDB keeps its TTL indexes and gets no sweep — the decision comment had the sweep on both; it is redundant
+  there, since every reader checks the expiry and the indexes delete.
+* *File metadata:* two framework models (`CoreS3File`, `CoreFilesystemFile`, `autoCreate`/`autoIndex` off so a store
+  nobody writes to grows no collection) registered by `CoreModule`; `fileMetadataCollection()` answers the native
+  collection or a collection-shaped view of the routed store, and is the ONLY way the file service, the TUS hand-off
+  and the Hub reach that metadata. Without `file.storage`, metadata on SQL derives `'filesystem'` instead of GridFS.
+* *Table names:* a hyphen in a collection name becomes an underscore (`s3-files` → `s3_files`); before, such a model
+  could not be routed to SQL at all.
+* *Proof:* the AI suite and both MCP OAuth suites run in the `iam-sql-<engine>` projects (neutral helper
+  `tests/helpers/ai-test-stores.ts`; the tenant suite on a PostgreSQL database of its own, because its `multiTenancy`
+  differs); the file parity matrix has the columns `filesystem@postgres`, `s3@postgres` and `gridfs@postgres`
+  (IMPOSSIBLE in every case), executed at the service and the HTTP layer.
+
 ### Phase 5 — PostgreSQL first-class, Mongo optional, release (DEV-3833)
 Reference server bootable on Postgres; CI matrix `db: [mongodb, postgres]` running the full e2e suite (one engine per
 CI job, all three engines in the parity matrix); `mongoose`/`@nestjs/mongoose`/`mongodb` become optional peers,

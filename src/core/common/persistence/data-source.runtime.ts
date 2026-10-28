@@ -1,7 +1,9 @@
 import { Logger } from '@nestjs/common';
 
 import { ConfigService } from '../services/config.service.js';
+import { RequestContext } from '../services/request-context.service.js';
 import type { DataStore } from './data-store.interface.js';
+import { expiredRecordsFilter } from './expiry-sweep.js';
 import type { LockStore } from './lock-store.interface.js';
 import {
   redactUrl,
@@ -135,6 +137,31 @@ export class DataSourceRuntime implements PersistenceRuntime {
       source: source.name,
       users,
     };
+  }
+
+  async sweepExpired(now = new Date()): Promise<{ deleted: number; model: string }[]> {
+    const swept: { deleted: number; model: string }[] = [];
+    const failed: string[] = [];
+    for (const [name, pending] of this.stores) {
+      const descriptor = getModelDescriptor(name);
+      const expired = descriptor ? expiredRecordsFilter(descriptor, now) : undefined;
+      if (!expired) {
+        continue;
+      }
+      try {
+        const store = await pending;
+        // System work across every tenant, as the TTL monitor is: row-level security admits the system scope
+        const deleted = await RequestContext.runWithBypassTenantGuard(() => store.deleteMany(expired as any));
+        swept.push({ deleted, model: name });
+      } catch (error) {
+        // One table that cannot be swept must not keep the others full
+        failed.push(`${name}: ${(error as Error)?.message ?? error}`);
+      }
+    }
+    if (failed.length) {
+      throw new Error(failed.join('; '));
+    }
+    return swept;
   }
 
   sqlSources(): { name: string; ping: () => Promise<void> }[] {

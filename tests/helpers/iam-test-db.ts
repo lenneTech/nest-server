@@ -23,6 +23,8 @@ export interface IamTestDb {
   findUserSession(userId: string): Promise<null | Record<string, any>>;
   /** Remove users and everything Better-Auth keeps for them (sessions, accounts, 2FA, passkeys) */
   deleteUsers(match: UserMatch): Promise<void>;
+  /** Let a session expire a minute ago, as if its lifetime had passed */
+  expireSession(token: string): Promise<void>;
   findSession(token: string): Promise<null | Record<string, any>>;
   findUser(match: UserMatch): Promise<null | Record<string, any>>;
   /** Write a credential account for a user directly, as Better-Auth would after a password sign-up */
@@ -103,6 +105,10 @@ class MongoIamTestDb implements IamTestDb {
     await this.mongo.collection('users').deleteMany({ _id: { $in: users.map((user) => user._id) } });
   }
 
+  async expireSession(token: string): Promise<void> {
+    await this.mongo.collection('session').updateOne({ token }, { $set: { expiresAt: new Date(Date.now() - 60_000) } });
+  }
+
   async findSession(token: string): Promise<null | Record<string, any>> {
     const session = await this.mongo.collection('session').findOne({ token });
     return session ? { ...session, id: String(session._id), userId: String(session.userId) } : null;
@@ -115,15 +121,13 @@ class MongoIamTestDb implements IamTestDb {
 
   async insertCredentialAccount(userId: string): Promise<void> {
     const now = new Date();
-    await this.mongo
-      .collection('account')
-      .insertOne({
-        accountId: userId,
-        createdAt: now,
-        providerId: 'credential',
-        updatedAt: now,
-        userId: new ObjectId(userId),
-      });
+    await this.mongo.collection('account').insertOne({
+      accountId: userId,
+      createdAt: now,
+      providerId: 'credential',
+      updatedAt: now,
+      userId: new ObjectId(userId),
+    });
   }
 
   async insertUser(fields: Record<string, unknown>): Promise<string> {
@@ -214,6 +218,10 @@ class PostgresIamTestDb implements IamTestDb {
       await this.pg.query(`DELETE FROM ${table} WHERE user_id = ANY($1)`, [ids]).catch(() => undefined);
     }
     await this.pg.query('DELETE FROM users WHERE id = ANY($1)', [ids]);
+  }
+
+  async expireSession(token: string): Promise<void> {
+    await this.pg.query(`UPDATE session SET expires_at = now() - interval '1 minute' WHERE token = $1`, [token]);
   }
 
   async findSession(token: string): Promise<null | Record<string, any>> {

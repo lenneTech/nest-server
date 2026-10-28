@@ -26,13 +26,10 @@ import {
   logFileStorage,
   resolveFileStorage,
 } from './file-storage.helper.js';
-import {
-  DEFAULT_FILESYSTEM_DIR,
-  FILESYSTEM_FILES_COLLECTION,
-  FilesystemFileHelper,
-  FilesystemFileInfo,
-} from './filesystem-file.helper.js';
-import { S3_FILES_COLLECTION, S3FileHelper, S3FileInfo } from './s3-file.helper.js';
+import type { FileCollection } from './file-metadata.helper.js';
+import { fileMetadataCollection } from './file-metadata.store.js';
+import { DEFAULT_FILESYSTEM_DIR, FilesystemFileHelper, FilesystemFileInfo } from './filesystem-file.helper.js';
+import { S3FileHelper, S3FileInfo } from './s3-file.helper.js';
 
 /**
  * Type for checking input
@@ -57,11 +54,18 @@ export abstract class CoreFileService {
   // Use the native MongoDB driver's types (accessed via Mongoose's exports) to avoid BSON version conflicts
   files: mongo.GridFSBucket;
 
-  /** Metadata collection for files stored in S3 (no Mongoose schema) */
-  protected s3Files: mongo.Collection<any>;
+  /**
+   * Metadata of the files stored in S3: the `s3-files` collection, or the table of its model when `database` routes it
+   * to a SQL source (`fileMetadataCollection()`)
+   */
+  protected get s3Files(): FileCollection {
+    return fileMetadataCollection(this.connection, 's3');
+  }
 
-  /** Metadata collection for files stored on the local filesystem (no Mongoose schema) */
-  protected filesystemFiles: mongo.Collection<any>;
+  /** Metadata of the files stored on the local filesystem: `filesystem-files`, or its table on a SQL source */
+  protected get filesystemFiles(): FileCollection {
+    return fileMetadataCollection(this.connection, 'filesystem');
+  }
 
   protected readonly logger = new Logger(CoreFileService.name);
 
@@ -78,8 +82,6 @@ export abstract class CoreFileService {
   ) {
     // Use the native MongoDB driver's GridFSBucket via Mongoose's mongo export to avoid BSON version conflicts
     this.files = new mongo.GridFSBucket(connection.db, { bucketName });
-    this.s3Files = connection.db.collection(S3_FILES_COLLECTION);
-    this.filesystemFiles = connection.db.collection(FILESYSTEM_FILES_COLLECTION);
 
     // Resolve from the global config rather than the optional injected
     // ConfigService: a project on the pre-11.33 constructor (`super(connection)`)

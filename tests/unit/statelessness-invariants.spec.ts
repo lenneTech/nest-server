@@ -147,6 +147,16 @@ const INVENTORY: StateEntry[] = [
   },
   {
     because:
+      'The interval of one expiry sweep (expired rows of SQL tables, expired IAM sessions). Every replica runs its own '
+      + 'timer, and that is the intended shape: with a SQL default source a lease in the shared lease table lets one '
+      + 'replica per interval do the work, otherwise each one does — harmless, because a sweep deletes only what '
+      + 'has already expired and every reader checks the expiry itself. Cleared on shutdown and unref-ed.',
+    classification: 'bounded',
+    file: 'common/persistence/expiry-sweep.ts',
+    name: 'timer',
+  },
+  {
+    because:
       'The SET assignments of ONE update being compiled. Created per compilation and discarded with it; it never '
       + 'outlives the statement it builds.',
     classification: 'bounded',

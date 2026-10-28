@@ -1,5 +1,5 @@
 import { Test, TestingModule } from '@nestjs/testing';
-import { MongoClient, ObjectId } from 'mongodb';
+import { ObjectId } from 'mongodb';
 import request from 'supertest';
 
 import {
@@ -28,6 +28,8 @@ import {
 } from '../src';
 import envConfig from '../src/config.env';
 import { ServerModule } from '../src/server/server.module';
+import { aiTestStores } from './helpers/ai-test-stores';
+import { type IamTestDb, openIamTestDb } from './helpers/iam-test-db';
 
 /**
  * Scripted provider that returns canned responses per call — used to drive the
@@ -47,8 +49,9 @@ class ScriptedE2eProvider implements ILlmProvider {
 
 describe('AI module (e2e)', () => {
   let app;
-  let connection;
-  let db;
+  // The AI module's stores and the users, on whichever database the run routes them to (MongoDB or PostgreSQL)
+  let ai: ReturnType<typeof aiTestStores>;
+  let iamDb: IamTestDb;
 
   let budgetService: CoreAiBudgetService;
   let connectionService: CoreAiConnectionService;
@@ -99,8 +102,7 @@ describe('AI module (e2e)', () => {
       payload: { email, name: 'AI HTTP Test', password: httpPassword, termsAndPrivacyAccepted: true },
       statusCode: 201,
     });
-    await db.collection('users').updateOne({ email }, { $set: { emailVerified: true, roles, verified: true } });
-    await db.collection('iam_user').updateOne({ email }, { $set: { emailVerified: true } });
+    await iamDb.updateUser({ email }, { emailVerified: true, roles, verified: true });
 
     const signInResponse = await testHelper.rest('/iam/sign-in/email', {
       method: 'POST',
@@ -152,8 +154,8 @@ describe('AI module (e2e)', () => {
     promptHintService = app.get(CoreAiPromptHintService);
     promptService = app.get(CoreAiPromptService);
 
-    connection = await MongoClient.connect(envConfig.mongoose.uri);
-    db = connection.db();
+    ai = aiTestStores(app);
+    iamDb = await openIamTestDb(envConfig.mongoose.uri);
 
     // Real BetterAuth users for the HTTP-level security tests.
     testHelper = new TestHelper(app);
@@ -162,26 +164,22 @@ describe('AI module (e2e)', () => {
   });
 
   afterAll(async () => {
-    if (db) {
-      await db.collection('aiConnections').deleteMany({});
-      await db.collection('aiConnectionPreferences').deleteMany({});
-      await db.collection('aiInteractions').deleteMany({});
-      await db.collection('aiConversations').deleteMany({});
-      await db.collection('aiBudgetLimits').deleteMany({});
-      await db.collection('aiSlots').deleteMany({});
-      await db.collection('aiPromptHints').deleteMany({});
-      await db.collection('aiPrompts').deleteMany({});
+    if (ai) {
+      await ai.system(() => ai.connections.deleteMany({}));
+      await ai.system(() => ai.preferences.deleteMany({}));
+      await ai.system(() => ai.interactions.deleteMany({}));
+      await ai.system(() => ai.conversations.deleteMany({}));
+      await ai.system(() => ai.budgetLimits.deleteMany({}));
+      await ai.system(() => ai.slots.deleteMany({}));
+      await ai.system(() => ai.promptHints.deleteMany({}));
+      await ai.system(() => ai.prompts.deleteMany({}));
       // Clean up the HTTP test users + their auth artifacts.
-      const httpUsers = await db.collection('users').find({ email: { $in: [httpAdminEmail, httpRegularEmail] } }).toArray();
-      const iamIds = httpUsers.map((u: any) => u.iamId).filter(Boolean);
-      await db.collection('users').deleteMany({ email: { $in: [httpAdminEmail, httpRegularEmail] } });
-      if (iamIds.length) {
-        await db.collection('account').deleteMany({ userId: { $in: iamIds } });
-        await db.collection('session').deleteMany({ userId: { $in: iamIds } });
+      for (const email of [httpAdminEmail, httpRegularEmail]) {
+        await iamDb.deleteUsers({ email });
       }
     }
-    if (connection) {
-      await connection.close();
+    if (iamDb) {
+      await iamDb.close();
     }
     if (app) {
       await app.close();
@@ -223,7 +221,7 @@ describe('AI module (e2e)', () => {
     expect(created.id).toBeDefined();
 
     // The raw DB document stores an encrypted triplet, not the plaintext.
-    const raw = await db.collection('aiConnections').findOne({ _id: new ObjectId(created.id) });
+    const raw = await ai.connections.findById(created.id);
     expect(raw.apiKeyEncrypted).toBeDefined();
     expect(raw.apiKeyEncrypted).not.toContain('sk-secret-123');
     expect(raw.apiKeyEncrypted.split('.')).toHaveLength(3);
@@ -243,7 +241,13 @@ describe('AI module (e2e)', () => {
 
   it('clears the API key when an empty string is passed on update', async () => {
     const created = await connectionService.create(
-      { apiKey: 'sk-to-clear', baseUrl: 'http://fake/v1', model: 'm', name: 'Clearable', providerType: 'fake-e2e' } as any,
+      {
+        apiKey: 'sk-to-clear',
+        baseUrl: 'http://fake/v1',
+        model: 'm',
+        name: 'Clearable',
+        providerType: 'fake-e2e',
+      } as any,
       adminOptions,
     );
     await connectionService.update(created.id, { apiKey: '' } as any, adminOptions);
@@ -254,11 +258,23 @@ describe('AI module (e2e)', () => {
 
   it('keeps a single default connection', async () => {
     const first = await connectionService.create(
-      { baseUrl: 'http://fake/v1', isDefault: true, model: 'm', name: 'First Default', providerType: 'fake-e2e' } as any,
+      {
+        baseUrl: 'http://fake/v1',
+        isDefault: true,
+        model: 'm',
+        name: 'First Default',
+        providerType: 'fake-e2e',
+      } as any,
       adminOptions,
     );
     const second = await connectionService.create(
-      { baseUrl: 'http://fake/v1', isDefault: true, model: 'm', name: 'Second Default', providerType: 'fake-e2e' } as any,
+      {
+        baseUrl: 'http://fake/v1',
+        isDefault: true,
+        model: 'm',
+        name: 'Second Default',
+        providerType: 'fake-e2e',
+      } as any,
       adminOptions,
     );
 
@@ -285,13 +301,23 @@ describe('AI module (e2e)', () => {
       parameters: { properties: {}, type: 'object' },
       roles: [RoleEnum.S_USER],
     });
-    providerFactory.registerBuilder('fake-e2e', () => new ScriptedE2eProvider([
-      JSON.stringify({ tool_calls: [{ arguments: {}, name: 'e2e_ping' }] }),
-      JSON.stringify({ data: { ok: true }, final: 'I checked the data.' }),
-    ]));
+    providerFactory.registerBuilder(
+      'fake-e2e',
+      () =>
+        new ScriptedE2eProvider([
+          JSON.stringify({ tool_calls: [{ arguments: {}, name: 'e2e_ping' }] }),
+          JSON.stringify({ data: { ok: true }, final: 'I checked the data.' }),
+        ]),
+    );
 
     const conn = await connectionService.create(
-      { baseUrl: 'http://fake/v1', isDefault: true, model: 'fake-model', name: 'Prompt Default', providerType: 'fake-e2e' } as any,
+      {
+        baseUrl: 'http://fake/v1',
+        isDefault: true,
+        model: 'fake-model',
+        name: 'Prompt Default',
+        providerType: 'fake-e2e',
+      } as any,
       adminOptions,
     );
 
@@ -314,7 +340,10 @@ describe('AI module (e2e)', () => {
       name: 'fake-e2e',
       async chat(messages: LlmMessage[]): Promise<LlmResponse> {
         seenPerCall.push(messages);
-        return { text: JSON.stringify({ final: 'ok' }), usage: { completionTokens: 1, promptTokens: 1, totalTokens: 2 } };
+        return {
+          text: JSON.stringify({ final: 'ok' }),
+          usage: { completionTokens: 1, promptTokens: 1, totalTokens: 2 },
+        };
       },
     }));
 
@@ -340,7 +369,10 @@ describe('AI module (e2e)', () => {
     expect(reloaded.messages?.map((m) => m.role)).toEqual(['user', 'assistant', 'user', 'assistant']);
 
     await connectionService.delete(conn.id, adminOptions);
-    await conversationService.delete(conversation.id, { currentUser: admin, roles: [RoleEnum.ADMIN, RoleEnum.S_CREATOR] });
+    await conversationService.delete(conversation.id, {
+      currentUser: admin,
+      roles: [RoleEnum.ADMIN, RoleEnum.S_CREATOR],
+    });
   });
 
   it('scopes AI conversation listing: non-admin own-only (200 not 403), admin own-by-default with ?all opt-in, createdBy attribution', async () => {
@@ -425,14 +457,8 @@ describe('AI module (e2e)', () => {
     expect(theirOwned.createdByUser?.email).toBe(otherEmail);
 
     // Clean up both conversations + the extra user and its auth artifacts.
-    await db.collection('aiConversations').deleteMany({ title: { $in: [myTitle, theirTitle] } });
-    const otherUser = await db.collection('users').findOne({ email: otherEmail });
-    await db.collection('users').deleteOne({ email: otherEmail });
-    await db.collection('iam_user').deleteMany({ email: otherEmail });
-    if (otherUser?.iamId) {
-      await db.collection('account').deleteMany({ userId: otherUser.iamId });
-      await db.collection('session').deleteMany({ userId: otherUser.iamId });
-    }
+    await ai.system(() => ai.conversations.deleteMany({ title: { $in: [myTitle, theirTitle] } }));
+    await iamDb.deleteUsers({ email: otherEmail });
   });
 
   it('rejects an unauthenticated AI conversation list with 401 (not 403)', async () => {
@@ -468,7 +494,10 @@ describe('AI module (e2e)', () => {
     mcpToolsRegistered = true;
     registry.register({
       description: 'MCP e2e: open to every signed-in user',
-      execute: async (_args, context) => ({ data: { callerId: context.currentUser?.id, scope: 'user' }, success: true }),
+      execute: async (_args, context) => ({
+        data: { callerId: context.currentUser?.id, scope: 'user' },
+        success: true,
+      }),
       name: mcpUserTool,
       parameters: { properties: {}, type: 'object' },
       roles: [RoleEnum.S_USER],
@@ -494,7 +523,7 @@ describe('AI module (e2e)', () => {
     registerMcpTools();
     const session = await testHelper.mcpSession({ token: httpRegularToken });
 
-    const names = (await session.listTools()).map(tool => tool.name);
+    const names = (await session.listTools()).map((tool) => tool.name);
 
     expect(names).toContain(mcpUserTool);
     expect(names).not.toContain(mcpAdminTool);
@@ -512,7 +541,7 @@ describe('AI module (e2e)', () => {
     expect(result.json.data.callerId).toBeTruthy();
   });
 
-  it('MCP: tools/call refuses a tool outside the caller\'s roles without running it', async () => {
+  it("MCP: tools/call refuses a tool outside the caller's roles without running it", async () => {
     registerMcpTools();
     const session = await testHelper.mcpSession({ token: httpRegularToken });
 
@@ -527,7 +556,7 @@ describe('AI module (e2e)', () => {
     registerMcpTools();
     const session = await testHelper.mcpSession({ token: httpAdminToken });
 
-    expect((await session.listTools()).map(tool => tool.name)).toContain(mcpAdminTool);
+    expect((await session.listTools()).map((tool) => tool.name)).toContain(mcpAdminTool);
     const result = await session.callTool(mcpAdminTool);
     expect(result.isError).toBeFalsy();
     expect(result.json.data.scope).toBe('admin-only-payload');
@@ -574,10 +603,7 @@ describe('AI module (e2e)', () => {
     // Isolated user so prior tests' usage does not count against this limit.
     const budgetUser = { id: new ObjectId().toString(), roles: [RoleEnum.ADMIN] };
     const budgetOptions = { currentUser: budgetUser };
-    await budgetService.create(
-      { maxTokens: 2, refId: budgetUser.id, scope: 'user' } as any,
-      adminOptions,
-    );
+    await budgetService.create({ maxTokens: 2, refId: budgetUser.id, scope: 'user' } as any, adminOptions);
 
     // First run is allowed and reports the budget summary (each fake run = 2 tokens).
     const first = await aiService.prompt({ prompt: 'hi' } as any, budgetOptions);
@@ -597,7 +623,10 @@ describe('AI module (e2e)', () => {
   });
 
   it('persists an audit interaction record when ai.audit is enabled', async () => {
-    providerFactory.registerBuilder('fake-e2e', () => new ScriptedE2eProvider([JSON.stringify({ final: 'audited answer' })]));
+    providerFactory.registerBuilder(
+      'fake-e2e',
+      () => new ScriptedE2eProvider([JSON.stringify({ final: 'audited answer' })]),
+    );
     const conn = await connectionService.create(
       { baseUrl: 'http://fake/v1', isDefault: true, model: 'm', name: 'Audit Conn', providerType: 'fake-e2e' } as any,
       adminOptions,
@@ -617,8 +646,8 @@ describe('AI module (e2e)', () => {
   // ===================================================================================================================
 
   it('resolves the global default and lists it as available + selected', async () => {
-    await db.collection('aiConnections').deleteMany({});
-    await db.collection('aiConnectionPreferences').deleteMany({});
+    await ai.system(() => ai.connections.deleteMany({}));
+    await ai.system(() => ai.preferences.deleteMany({}));
     const c1 = await connectionService.create(
       { baseUrl: 'http://fake/v1', model: 'm', name: 'Plain', providerType: 'fake-e2e' } as any,
       adminOptions,
@@ -643,14 +672,20 @@ describe('AI module (e2e)', () => {
   });
 
   it('restricts connections per tenant and validates the user self-service selection', async () => {
-    await db.collection('aiConnections').deleteMany({});
-    await db.collection('aiConnectionPreferences').deleteMany({});
+    await ai.system(() => ai.connections.deleteMany({}));
+    await ai.system(() => ai.preferences.deleteMany({}));
     const cGlobal = await connectionService.create(
       { baseUrl: 'http://fake/v1', isDefault: true, model: 'm', name: 'Global', providerType: 'fake-e2e' } as any,
       adminOptions,
     );
     const cTenant = await connectionService.create(
-      { baseUrl: 'http://fake/v1', model: 'm', name: 'Tenant-only', providerType: 'fake-e2e', tenantIds: ['t1'] } as any,
+      {
+        baseUrl: 'http://fake/v1',
+        model: 'm',
+        name: 'Tenant-only',
+        providerType: 'fake-e2e',
+        tenantIds: ['t1'],
+      } as any,
       adminOptions,
     );
 
@@ -662,7 +697,9 @@ describe('AI module (e2e)', () => {
     expect(inTenant.map((a) => a.id).sort()).toEqual([cGlobal.id, cTenant.id].sort());
 
     // A user may not select a connection that is not available to their tenant.
-    await expect(connectionResolver.setUserConnection(admin.id, cTenant.id, undefined)).rejects.toThrow(/not available/);
+    await expect(connectionResolver.setUserConnection(admin.id, cTenant.id, undefined)).rejects.toThrow(
+      /not available/,
+    );
     // Within t1 the selection is valid and then resolves.
     await connectionResolver.setUserConnection(admin.id, cTenant.id, 't1');
     expect(await connectionResolver.resolveConnectionId({ tenantId: 't1', userId: admin.id })).toBe(cTenant.id);
@@ -672,8 +709,8 @@ describe('AI module (e2e)', () => {
   });
 
   it('admin tenant-enforced preference overrides client selection and locks the choice', async () => {
-    await db.collection('aiConnections').deleteMany({});
-    await db.collection('aiConnectionPreferences').deleteMany({});
+    await ai.system(() => ai.connections.deleteMany({}));
+    await ai.system(() => ai.preferences.deleteMany({}));
     const c1 = await connectionService.create(
       { baseUrl: 'http://fake/v1', model: 'm', name: 'A', providerType: 'fake-e2e' } as any,
       adminOptions,
@@ -698,25 +735,25 @@ describe('AI module (e2e)', () => {
   });
 
   it('deletes dangling preferences when the referenced connection is removed', async () => {
-    await db.collection('aiConnections').deleteMany({});
-    await db.collection('aiConnectionPreferences').deleteMany({});
+    await ai.system(() => ai.connections.deleteMany({}));
+    await ai.system(() => ai.preferences.deleteMany({}));
     const conn = await connectionService.create(
       { baseUrl: 'http://fake/v1', model: 'm', name: 'Doomed', providerType: 'fake-e2e' } as any,
       adminOptions,
     );
     await preferenceService.upsertPreference('tenant', 't1', conn.id, true);
     await preferenceService.upsertPreference('user', admin.id, conn.id);
-    expect(await db.collection('aiConnectionPreferences').countDocuments({ connectionId: conn.id })).toBe(2);
+    expect(await ai.preferences.count({ connectionId: conn.id })).toBe(2);
 
     await connectionService.delete(conn.id, adminOptions);
 
     // Both preferences pointing to the deleted connection are cleaned up.
-    expect(await db.collection('aiConnectionPreferences').countDocuments({ connectionId: conn.id })).toBe(0);
+    expect(await ai.preferences.count({ connectionId: conn.id })).toBe(0);
   });
 
   it('validates connection existence when an admin sets a preference', async () => {
-    await db.collection('aiConnections').deleteMany({});
-    await db.collection('aiConnectionPreferences').deleteMany({});
+    await ai.system(() => ai.connections.deleteMany({}));
+    await ai.system(() => ai.preferences.deleteMany({}));
     const conn = await connectionService.create(
       { baseUrl: 'http://fake/v1', model: 'm', name: 'Pref Target', providerType: 'fake-e2e' } as any,
       adminOptions,
@@ -732,13 +769,10 @@ describe('AI module (e2e)', () => {
   });
 
   it('enforces ownership in the shipped get_user tool (S_SELF), denying access to other users', async () => {
-    const ownerId = new ObjectId();
-    const otherId = new ObjectId();
-    await db.collection('users').insertMany([
-      { _id: ownerId, email: `ai-tool-owner-${ownerId}@test.com`, roles: [] },
-      { _id: otherId, email: `ai-tool-other-${otherId}@test.com`, roles: [] },
-    ]);
-    const regularUser = { id: ownerId.toString(), roles: [] as string[] };
+    const suffix = new ObjectId().toString();
+    const ownerId = await iamDb.insertUser({ email: `ai-tool-owner-${suffix}@test.com`, roles: [] });
+    const otherId = await iamDb.insertUser({ email: `ai-tool-other-${suffix}@test.com`, roles: [] });
+    const regularUser = { id: ownerId, roles: [] as string[] };
     const context = {
       currentUser: regularUser,
       language: 'en',
@@ -749,20 +783,20 @@ describe('AI module (e2e)', () => {
     expect(getUserTool).toBeDefined();
 
     // Owner can read their own record (S_SELF).
-    const own = await getUserTool!.execute({ id: ownerId.toString() }, context);
+    const own = await getUserTool!.execute({ id: ownerId }, context);
     expect((own as any).success).not.toBe(false);
 
     // A regular user must NOT read another user's record. The requester IS authenticated and merely
     // lacks the right, so checkRestricted() answers with a deterministic 403 — pinning it (instead of
     // accepting [401, 403]) is what makes this test able to detect a regression to the old 401.
-    const denial = await getUserTool!.execute({ id: otherId.toString() }, context).then(
+    const denial = await getUserTool!.execute({ id: otherId }, context).then(
       () => null,
       (e) => e,
     );
     expect(denial).toBeTruthy();
     expect(denial.status).toBe(403);
 
-    await db.collection('users').deleteMany({ _id: { $in: [ownerId, otherId] } });
+    await iamDb.deleteUsers({ ids: [ownerId, otherId] });
   });
 
   it('only exposes admin-only tools (delete_user) to admins, not regular users', () => {
@@ -773,7 +807,7 @@ describe('AI module (e2e)', () => {
   });
 
   it('returns a disabled (denied) response when no usable connection exists', async () => {
-    await db.collection('aiConnections').deleteMany({});
+    await ai.system(() => ai.connections.deleteMany({}));
     const response = await aiService.prompt({ prompt: 'hi' } as any, adminOptions);
     expect(response.denied).toBe(true);
     expect(response.text).toMatch(/No AI service is currently available/);
@@ -839,7 +873,10 @@ describe('AI module (e2e)', () => {
   });
 
   it('streams a prompt answer via SSE (Content-Type + data framing + final event)', async () => {
-    providerFactory.registerBuilder('fake-e2e', () => new ScriptedE2eProvider([JSON.stringify({ final: 'streamed answer' })]));
+    providerFactory.registerBuilder(
+      'fake-e2e',
+      () => new ScriptedE2eProvider([JSON.stringify({ final: 'streamed answer' })]),
+    );
     const conn = await connectionService.create(
       { baseUrl: 'http://fake/v1', isDefault: true, model: 'm', name: 'SSE Conn', providerType: 'fake-e2e' } as any,
       adminOptions,
@@ -884,7 +921,7 @@ describe('AI module (e2e)', () => {
     );
     expect(conn.supportsJsonResponse).toBe(true);
     expect(conn.supportsNativeTools).toBe(false);
-    const raw = await db.collection('aiConnections').findOne({ _id: new ObjectId(conn.id) });
+    const raw = await ai.connections.findById(conn.id);
     expect(raw.supportsJsonResponse).toBe(true);
     expect(raw.supportsNativeTools).toBe(false);
     await connectionService.delete(conn.id, adminOptions);
@@ -927,9 +964,7 @@ describe('AI module (e2e)', () => {
       adminOptions,
     );
     // Clear the flags so the endpoint has something to detect.
-    await db
-      .collection('aiConnections')
-      .updateOne({ _id: new ObjectId(conn.id) }, { $unset: { supportsJsonResponse: '', supportsNativeTools: '' } });
+    await ai.connections.updateById(conn.id, { $unset: { supportsJsonResponse: '', supportsNativeTools: '' } });
 
     const res = await request(app.getHttpServer())
       .post(`/ai/connections/${conn.id}/detect-capabilities`)
@@ -1030,14 +1065,8 @@ describe('AI module (e2e)', () => {
     expect(gqlMineRow?.createdByUser?.email).toBe(httpRegularEmail);
 
     // Clean up both conversations + the extra user and its auth artifacts.
-    await db.collection('aiConversations').deleteMany({ title: { $in: [myTitle, theirTitle] } });
-    const otherUser = await db.collection('users').findOne({ email: otherEmail });
-    await db.collection('users').deleteOne({ email: otherEmail });
-    await db.collection('iam_user').deleteMany({ email: otherEmail });
-    if (otherUser?.iamId) {
-      await db.collection('account').deleteMany({ userId: otherUser.iamId });
-      await db.collection('session').deleteMany({ userId: otherUser.iamId });
-    }
+    await ai.system(() => ai.conversations.deleteMany({ title: { $in: [myTitle, theirTitle] } }));
+    await iamDb.deleteUsers({ email: otherEmail });
   });
 
   // ===================================================================================================================
@@ -1066,11 +1095,13 @@ describe('AI module (e2e)', () => {
       parameters: { properties: {}, type: 'object' },
       roles: [RoleEnum.S_USER],
     } as any);
-    providerFactory.registerBuilder('fake-e2e', () =>
-      new ScriptedE2eProvider([
-        JSON.stringify({ tool_calls: [{ arguments: {}, name: 'e2e_boom' }] }),
-        JSON.stringify({ final: 'Sorry, that failed.' }),
-      ]),
+    providerFactory.registerBuilder(
+      'fake-e2e',
+      () =>
+        new ScriptedE2eProvider([
+          JSON.stringify({ tool_calls: [{ arguments: {}, name: 'e2e_boom' }] }),
+          JSON.stringify({ final: 'Sorry, that failed.' }),
+        ]),
     );
     const conn = await connectionService.create(
       { baseUrl: 'http://fake/v1', isDefault: true, model: 'm', name: 'Learn Conn', providerType: 'fake-e2e' } as any,
@@ -1086,7 +1117,7 @@ describe('AI module (e2e)', () => {
     // the assertion intermittently see `null`.
     let hint = null;
     for (let i = 0; i < 100 && !hint; i++) {
-      hint = await db.collection('aiPromptHints').findOne({ scope: 'e2e_boom', trigger: 'tool_exception' });
+      hint = await ai.promptHints.findOne({ scope: 'e2e_boom', trigger: 'tool_exception' });
       if (!hint) {
         await new Promise((resolve) => setTimeout(resolve, 20));
       }
@@ -1096,7 +1127,7 @@ describe('AI module (e2e)', () => {
     expect(await promptHintService.approvedHints(['e2e_boom'])).toHaveLength(0);
 
     // Admin approves → it now flows into the prompt.
-    await promptHintService.update(String(hint._id), { status: 'approved' } as any, adminOptions);
+    await promptHintService.update(String(hint.id), { status: 'approved' } as any, adminOptions);
     const builder = app.get(CoreAiPromptBuilderService);
     const prompt = await builder.buildSystemPrompt(
       [{ description: 'x', name: 'e2e_boom', parameters: {} } as any],
@@ -1168,10 +1199,9 @@ describe('AI module (e2e)', () => {
   it('rejects unknown scopes (including the removed "global" scope) for everyone — including admins', async () => {
     const regular = { id: new ObjectId().toString(), roles: [] } as any;
     await expect(
-      promptService.create(
-        { content: 'x', name: `forbid-global-${Date.now()}`, scope: 'global' } as any,
-        { currentUser: regular },
-      ),
+      promptService.create({ content: 'x', name: `forbid-global-${Date.now()}`, scope: 'global' } as any, {
+        currentUser: regular,
+      }),
     ).rejects.toThrow(/invalid|scope/i);
 
     await expect(
@@ -1185,31 +1215,27 @@ describe('AI module (e2e)', () => {
   it('refuses public (tenant) prompts when the user has no tenant context', async () => {
     const noTenant = { id: new ObjectId().toString(), roles: [] } as any;
     await expect(
-      promptService.create(
-        { content: 'no-tenant', name: `forbid-no-tenant-${Date.now()}`, scope: 'tenant' } as any,
-        { currentUser: noTenant },
-      ),
+      promptService.create({ content: 'no-tenant', name: `forbid-no-tenant-${Date.now()}`, scope: 'tenant' } as any, {
+        currentUser: noTenant,
+      }),
     ).rejects.toThrow(/tenant/i);
   });
 
   it('only the owner can update/delete a prompt (non-owner is forbidden)', async () => {
     const owner = { id: new ObjectId().toString(), roles: [] } as any;
     const stranger = { id: new ObjectId().toString(), roles: [] } as any;
-    const prompt = await promptService.create(
-      { content: 'own-only', name: `owner-only-${Date.now()}` } as any,
-      { currentUser: owner },
-    );
+    const prompt = await promptService.create({ content: 'own-only', name: `owner-only-${Date.now()}` } as any, {
+      currentUser: owner,
+    });
 
     await expect(
       promptService.update(prompt.id, { content: 'hacked' } as any, { currentUser: stranger }),
     ).rejects.toThrow(/owner|denied|forbidden/i);
     await expect(promptService.delete(prompt.id, { currentUser: stranger })).rejects.toThrow(/owner|denied|forbidden/i);
 
-    const updated = await promptService.update(
-      prompt.id,
-      { content: 'updated-by-owner' } as any,
-      { currentUser: owner },
-    );
+    const updated = await promptService.update(prompt.id, { content: 'updated-by-owner' } as any, {
+      currentUser: owner,
+    });
     expect(updated.content).toBe('updated-by-owner');
   });
 
@@ -1247,7 +1273,7 @@ describe('AI module (e2e)', () => {
   // ===================================================================================================================
 
   it('listEffective returns all built-in system defaults when the tenant has zero overrides', async () => {
-    await db.collection('aiSlots').deleteMany({});
+    await ai.system(() => ai.slots.deleteMany({}));
     const effective = await slotService.listEffective(adminOptions);
     const keys = effective.map((e) => e.key);
     expect(keys).toEqual(
@@ -1271,7 +1297,7 @@ describe('AI module (e2e)', () => {
   });
 
   it('an admin can override a system slot and reset it to the default', async () => {
-    await db.collection('aiSlots').deleteMany({});
+    await ai.system(() => ai.slots.deleteMany({}));
     const created = await slotService.create({ content: 'OVERRIDE-BASE-XYZ', key: 'base' } as any, adminOptions);
     expect(created.id).toBeDefined();
 
@@ -1290,7 +1316,7 @@ describe('AI module (e2e)', () => {
   });
 
   it('createSlot is idempotent on (tenantId, key): a second "override" updates the existing row instead of duplicating', async () => {
-    await db.collection('aiSlots').deleteMany({});
+    await ai.system(() => ai.slots.deleteMany({}));
     const first = await slotService.create({ content: 'first-override', key: 'base' } as any, adminOptions);
     const second = await slotService.create({ content: 'second-override', key: 'base' } as any, adminOptions);
 
@@ -1299,7 +1325,7 @@ describe('AI module (e2e)', () => {
     expect(second.content).toBe('second-override');
 
     // DB confirms a single row exists for that (tenantId, key).
-    const all = await db.collection('aiSlots').find({ key: 'base' }).toArray();
+    const all = await ai.system(() => ai.slots.find({ key: 'base' }));
     expect(all).toHaveLength(1);
     expect(all[0].content).toBe('second-override');
   });
@@ -1308,10 +1334,10 @@ describe('AI module (e2e)', () => {
     // Insert two synthetic interactions for the user inside the current day window.
     const u = new ObjectId().toString();
     const now = new Date();
-    await db.collection('aiInteractions').insertMany([
-      { createdAt: now, promptTokens: 100, totalTokens: 500, userId: u },
-      { createdAt: now, promptTokens: 150, totalTokens: 800, userId: u },
-    ]);
+    await ai.system(async () => {
+      await ai.interactions.insert({ createdAt: now, promptTokens: 100, totalTokens: 500, userId: u });
+      await ai.interactions.insert({ createdAt: now, promptTokens: 150, totalTokens: 800, userId: u });
+    });
     try {
       // No user/tenant limit configured → falls through to provider quota / context window
       // but `usedTokens` must be the cumulative sum (500 + 800 = 1300).
@@ -1321,14 +1347,14 @@ describe('AI module (e2e)', () => {
       expect(summary.usedTokens).toBe(1300);
       expect(summary.remainingTokens).toBeUndefined(); // context-window fallback has no remaining
     } finally {
-      await db.collection('aiInteractions').deleteMany({ userId: u });
+      await ai.system(() => ai.interactions.deleteMany({ userId: u }));
     }
   });
 
   it('budget summary uses the connection providerQuota as soft fallback when no hard limit is set', async () => {
     const u = new ObjectId().toString();
     const now = new Date();
-    await db.collection('aiInteractions').insertOne({ createdAt: now, totalTokens: 2000, userId: u });
+    await ai.system(() => ai.interactions.insert({ createdAt: now, totalTokens: 2000, userId: u }));
     try {
       const summary = await budgetService.buildSummary(u, undefined, 100, 8192, {
         maxTokens: 100000,
@@ -1340,7 +1366,7 @@ describe('AI module (e2e)', () => {
       expect(summary.remainingTokens).toBe(98000);
       expect(summary.resetAt).toBeDefined();
     } finally {
-      await db.collection('aiInteractions').deleteMany({ userId: u });
+      await ai.system(() => ai.interactions.deleteMany({ userId: u }));
     }
   });
 
@@ -1396,10 +1422,9 @@ describe('AI module (e2e)', () => {
     );
     const targetUserId = new ObjectId().toString();
     try {
-      await aiService.prompt(
-        { prompt: 'Hallo Nutzer {{userId}} mit Rollen {{roles}}.' } as any,
-        { currentUser: { id: targetUserId, roles: ['admin'] } },
-      );
+      await aiService.prompt({ prompt: 'Hallo Nutzer {{userId}} mit Rollen {{roles}}.' } as any, {
+        currentUser: { id: targetUserId, roles: ['admin'] },
+      });
       expect(seenPrompts.length).toBeGreaterThan(0);
       expect(seenPrompts[0]).toContain(targetUserId);
       expect(seenPrompts[0]).toContain('admin');
@@ -1428,10 +1453,9 @@ describe('AI module (e2e)', () => {
       adminOptions,
     );
     try {
-      await aiService.prompt(
-        { prompt: 'Plain text with {{notARegisteredPlaceholder}} in it.' } as any,
-        { currentUser: { id: 'u', roles: [] } },
-      );
+      await aiService.prompt({ prompt: 'Plain text with {{notARegisteredPlaceholder}} in it.' } as any, {
+        currentUser: { id: 'u', roles: [] },
+      });
       expect(seenPrompts[0]).toContain('{{notARegisteredPlaceholder}}');
     } finally {
       await connectionService.delete(conn.id, adminOptions);

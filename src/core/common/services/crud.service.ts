@@ -127,7 +127,7 @@ export abstract class CrudService<
    */
   async get(id: string, serviceOptions?: ServiceOptions): Promise<Model> {
     if (this.usesNeutralStore) {
-      const record = await this.dataStore.findById(id, { select: neutralSelect(serviceOptions?.select) });
+      const record = await this.dataStore.findById(id, neutralSelect(serviceOptions?.select));
       if (!record) {
         throw new NotFoundException(`No ${this.mainModelConstructor.name} found with ID: ${id}`);
       }
@@ -455,6 +455,7 @@ export abstract class CrudService<
           const { options, where } = neutralQuery(filterQuery, serviceOptions);
           return this.dataStore.findOne(where, {
             collation: options.collation,
+            exclude: options.exclude,
             select: options.select,
             sort: options.sort,
           });
@@ -728,7 +729,7 @@ export abstract class CrudService<
    */
   async delete(id: string, serviceOptions?: ServiceOptions): Promise<Model> {
     if (this.usesNeutralStore) {
-      const stored = await this.dataStore.findById(id, { select: neutralSelect(serviceOptions?.select) });
+      const stored = await this.dataStore.findById(id, neutralSelect(serviceOptions?.select));
       if (!stored) {
         throw new NotFoundException(`No ${this.mainModelConstructor.name} found with ID: ${id}`);
       }
@@ -887,20 +888,26 @@ export abstract class CrudService<
   }
 }
 
-/** A `select` service option as the field list of a data store (inclusion only) */
-function neutralSelect(select: unknown): string[] | undefined {
+/**
+ * A `select` service option as a data store's projection: names to return, or — with MongoDB's `-name` — names to leave
+ * out. Both at once is refused by the store, as by MongoDB.
+ */
+function neutralSelect(select: unknown): Pick<FindOptions, 'exclude' | 'select'> {
   if (select === undefined || select === null) {
-    return undefined;
+    return {};
   }
   const names =
     typeof select === 'string'
       ? select.split(/\s+/).filter(Boolean)
       : Array.isArray(select)
         ? select.map(String)
-        : Object.entries(select as Record<string, unknown>)
-            .filter(([, include]) => include)
-            .map(([name]) => name);
-  return names.map((name) => (name === '_id' ? 'id' : name));
+        : Object.entries(select as Record<string, unknown>).map(([name, include]) => (include ? name : `-${name}`));
+  const exclude = names.filter((name) => name.startsWith('-')).map((name) => name.slice(1));
+  const include = names.filter((name) => !name.startsWith('-')).map((name) => (name === '_id' ? 'id' : name));
+  return {
+    ...(exclude.length ? { exclude } : {}),
+    ...(include.length ? { select: include } : {}),
+  };
 }
 
 /** The filter and query options of a CrudService call as the neutral filter and find options */
@@ -911,7 +918,7 @@ function neutralQuery(
   const queryOptions = query.queryOptions || {};
   const options: FindOptions = {
     collation: (serviceOptions?.collation || ConfigService.get('mongoose.collation')) as Record<string, unknown>,
-    select: neutralSelect(serviceOptions?.select),
+    ...neutralSelect(serviceOptions?.select),
   };
   const skip = queryOptions.skip ?? queryOptions.offset;
   const limit = queryOptions.limit ?? queryOptions.take;

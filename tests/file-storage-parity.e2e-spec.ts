@@ -42,12 +42,17 @@ import {
   upload,
 } from './helpers/file-storage-drivers';
 import {
+  columnRuns,
   expectExactlyOnce,
   failMissingInfrastructure,
+  PARITY_COLUMNS,
+  PARITY_DATABASES,
   PARITY_DRIVERS,
+  ParityDatabase,
   ParityDriver,
   parityComplement,
   parityIt,
+  splitColumn,
 } from './helpers/file-storage-matrix';
 import { dropS3Buckets } from './helpers/s3-test-cleanup';
 
@@ -93,10 +98,14 @@ function filterArgs(partial: Partial<FilterArgs>): FilterArgs {
 }
 
 describe('File storage parity — service contract (e2e)', () => {
+  /** The environment of the column that is running — each column takes its own in its `beforeAll`. */
   let connection: Connection;
   let configService: ConfigService;
   let env: ParityEnvironment;
-  let teardown: () => Promise<void>;
+  /** One environment per metadata database: the PostgreSQL one routes the metadata of its own connection. */
+  const environments: Partial<
+    Record<ParityDatabase, { configService: ConfigService; connection: Connection; env: ParityEnvironment; teardown: () => Promise<void> }>
+  > = {};
   let previousConfig: Partial<IServerOptions> | undefined;
   /**
    * What every driver's config is built on top of.
@@ -111,29 +120,43 @@ describe('File storage parity — service contract (e2e)', () => {
   beforeAll(async () => {
     previousConfig = ConfigService.configFastButReadOnly as Partial<IServerOptions> | undefined;
     base = previousConfig ?? (envConfig as Partial<IServerOptions>);
-    connection = mongoose.createConnection(envConfig.mongoose.uri);
-    await connection.asPromise();
-    try {
-      ({ configService, env, teardown } = await createParityEnvironment({
-        base,
-        connection,
-        label: 'parity-svc',
-      }));
-    } catch (error) {
-      failMissingInfrastructure('s3', error);
+    for (const database of PARITY_DATABASES) {
+      const own = mongoose.createConnection(envConfig.mongoose.uri);
+      await own.asPromise();
+      try {
+        environments[database] = {
+          connection: own,
+          ...(await createParityEnvironment({
+            base,
+            connection: own,
+            database,
+            label: database === 'mongodb' ? 'parity-svc' : 'parity-svc-pg',
+          })),
+        };
+      } catch (error) {
+        await own.close();
+        failMissingInfrastructure(database === 'mongodb' ? 's3' : 's3@postgres', error);
+      }
     }
   }, 120_000);
 
   afterAll(async () => {
-    await teardown?.();
-    await dropS3Buckets(env?.s3Service?.getClient(), [env?.bucket]);
-    await env?.s3Service?.onApplicationShutdown();
-    await connection?.close();
+    for (const environment of Object.values(environments)) {
+      await environment.teardown();
+      await dropS3Buckets(environment.env.s3Service?.getClient(), [environment.env.bucket]);
+      await environment.env.s3Service?.onApplicationShutdown();
+      await environment.connection.close();
+    }
     restoreConfig(previousConfig);
   }, 120_000);
 
-  for (const driver of PARITY_DRIVERS) {
-    describe(`driver: ${driver}`, () => {
+  for (const column of PARITY_COLUMNS) {
+    const { database, driver } = splitColumn(column);
+    if (!columnRuns(column, 'service')) {
+      // gridfs@postgres: declared IMPOSSIBLE case by case in the matrix
+      continue;
+    }
+    describe(`driver: ${column}`, () => {
       let service: ParityFileService;
       /** The two stores that are NOT the active driver — the "before the switch" fixtures. */
       const others = PARITY_DRIVERS.filter(other => other !== driver);
@@ -142,6 +165,7 @@ describe('File storage parity — service contract (e2e)', () => {
       const name = (label: string) => `${env.testId}-${driver}-${label}-${++n}.txt`;
 
       beforeAll(() => {
+        ({ configService, connection, env } = environments[database]);
         applyParityConfig({ base, bucket: env.bucket, directory: env.directory, driver });
         service = new ParityFileService(connection, env.s3Service, configService);
       });
@@ -150,14 +174,21 @@ describe('File storage parity — service contract (e2e)', () => {
       // Resolution + write placement
       // ---------------------------------------------------------------------------------------
 
-      parityIt('service.driverResolution', driver, () => {
+      parityIt('service.driverResolution', column, () => {
         expect(service.driver).toBe(driver);
         // `explicit` distinguishes "the project asked for this" from "we derived it". A derived
         // driver that happens to match would make this case pass while `file.storage` is ignored.
         expect(service.resolution.explicit).toBe(true);
       });
 
-      parityIt('service.writesToActiveStoreOnly', driver, async () => {
+      /**
+       * @regression   DEV-3832 (db-agnostic phase 4) — the S3 and filesystem metadata went to MongoDB's collections
+       *   while `database` routed it to PostgreSQL: the file service wrote and read where no other reader looks.
+       * @seen-failing Let fileMetadataCollection() ignore the routed store in
+       *   src/core/modules/file/file-metadata.store.ts — registered as mutation `file-metadata-routing-ignored` in
+       *   tests/regression-mutations.json.
+       */
+      parityIt('service.writesToActiveStoreOnly', column, async () => {
         const filename = name('placement');
         const info = await service.createFile(upload('placed', filename));
 
@@ -176,7 +207,7 @@ describe('File storage parity — service contract (e2e)', () => {
       // Round trips
       // ---------------------------------------------------------------------------------------
 
-      parityIt('service.readByIdRoundTrip', driver, async () => {
+      parityIt('service.readByIdRoundTrip', column, async () => {
         const filename = name('by-id');
         const content = `bytes for ${filename}`;
         const info = await service.createFile(upload(content, filename));
@@ -192,7 +223,7 @@ describe('File storage parity — service contract (e2e)', () => {
         expect(resolved?.info.filename).toBe(filename);
       });
 
-      parityIt('service.unknownLengthStreamRoundTrip', driver, async () => {
+      parityIt('service.unknownLengthStreamRoundTrip', column, async () => {
         const filename = name('unknown-length');
         const info = await service.createFile({
           createReadStream: largeFileStream,
@@ -206,7 +237,7 @@ describe('File storage parity — service contract (e2e)', () => {
         expect(createHash('sha256').update(await service.getBuffer(info.id)).digest('hex')).toBe(LARGE_FILE_SHA);
       });
 
-      parityIt('service.knownSizeStreamRoundTrip', driver, async () => {
+      parityIt('service.knownSizeStreamRoundTrip', column, async () => {
         const filename = name('known-size');
         const info = await service.createFile({
           createReadStream: largeFileStream,
@@ -220,7 +251,7 @@ describe('File storage parity — service contract (e2e)', () => {
         expect(createHash('sha256').update(await service.getBuffer(info.id)).digest('hex')).toBe(LARGE_FILE_SHA);
       });
 
-      parityIt('service.readByNameRoundTrip', driver, async () => {
+      parityIt('service.readByNameRoundTrip', column, async () => {
         const filename = name('by-name');
         const content = `bytes for ${filename}`;
         const info = await service.createFile(upload(content, filename));
@@ -261,7 +292,7 @@ describe('File storage parity — service contract (e2e)', () => {
        *   answers a different document than the stream — registered as mutation
        *   `by-name-lookup-unsorted` in `tests/regression-mutations.json`.
        */
-      parityIt('service.byNameAuthorizesWhatItServes', driver, async () => {
+      parityIt('service.byNameAuthorizesWhatItServes', column, async () => {
         const filename = name('reused');
         // Two files, one name — the shape a second uploader produces, deliberately or not.
         const first = await service.createFile(upload('FIRST bytes', filename));
@@ -297,7 +328,7 @@ describe('File storage parity — service contract (e2e)', () => {
        *   `raw-by-name-skips-filesystem` in `tests/regression-mutations.json`, verified red by
        *   `pnpm run check:mutations`.
        */
-      parityIt('service.metadataRoundTrip', driver, async () => {
+      parityIt('service.metadataRoundTrip', column, async () => {
         const filename = name('owned');
         const info = await service.createFile(upload('owned bytes', filename), {
           metadata: { ownerId: OWNER.id },
@@ -313,7 +344,7 @@ describe('File storage parity — service contract (e2e)', () => {
       // Deletes
       // ---------------------------------------------------------------------------------------
 
-      parityIt('service.deleteById', driver, async () => {
+      parityIt('service.deleteById', column, async () => {
         const filename = name('delete-by-id');
         const info = await service.createFile(upload('doomed', filename));
         expect(await env.holdsBytes(driver, info.id)).toBe(true);
@@ -326,7 +357,7 @@ describe('File storage parity — service contract (e2e)', () => {
         expect(await env.holdsBytes(driver, info.id)).toBe(false);
       });
 
-      parityIt('service.deleteByName', driver, async () => {
+      parityIt('service.deleteByName', column, async () => {
         const filename = name('delete-by-name');
         const info = await service.createFile(upload('doomed', filename));
 
@@ -355,7 +386,7 @@ describe('File storage parity — service contract (e2e)', () => {
        * it shipped. The refusal half below is what keeps the pair honest: without it, a rule that
        * had gone permissive would explain the green just as well.
        */
-      parityIt('service.deleteByNameForwardsContext', driver, async () => {
+      parityIt('service.deleteByNameForwardsContext', column, async () => {
         const filename = name('delete-context');
         const info = await service.createFile(upload('owned bytes', filename), {
           metadata: { ownerId: OWNER.id },
@@ -381,7 +412,7 @@ describe('File storage parity — service contract (e2e)', () => {
       // Refusal shape
       // ---------------------------------------------------------------------------------------
 
-      parityIt('service.checkRightsRefusalIsUniform', driver, async () => {
+      parityIt('service.checkRightsRefusalIsUniform', column, async () => {
         const filename = name('refused');
         const info = await service.createFile(upload('secret bytes', filename), {
           metadata: { ownerId: OWNER.id },
@@ -434,7 +465,7 @@ describe('File storage parity — service contract (e2e)', () => {
        *   `createFile()` in `src/core/modules/file/core-file.service.ts` — registered as mutation
        *   `create-file-skips-write-gate` in `tests/regression-mutations.json`.
        */
-      parityIt('service.writeRefusalWritesNothing', driver, async () => {
+      parityIt('service.writeRefusalWritesNothing', column, async () => {
         const single = name('write-refused');
         const batch = name('write-refused-batch');
         // Refuses exactly the write gates and nothing else, so a `null` here can only come from them.
@@ -462,7 +493,7 @@ describe('File storage parity — service contract (e2e)', () => {
       // Listing: filter, sort, page
       // ---------------------------------------------------------------------------------------
 
-      parityIt('service.findFilterByName', driver, async () => {
+      parityIt('service.findFilterByName', column, async () => {
         const wanted = name('filter-hit');
         const other = name('filter-miss');
         await service.createFile(upload('a', wanted));
@@ -479,7 +510,7 @@ describe('File storage parity — service contract (e2e)', () => {
         expect(found.map(file => file.filename)).toEqual([wanted]);
       });
 
-      parityIt('service.findSorts', driver, async () => {
+      parityIt('service.findSorts', column, async () => {
         // One shared prefix, three names whose alphabetical order is NOT their insertion order —
         // so a result that merely preserves write order cannot pass.
         const prefix = `${env.testId}-${driver}-sort-${++n}`;
@@ -514,7 +545,7 @@ describe('File storage parity — service contract (e2e)', () => {
         expect((await query(SortOrderEnum.DESC)).map(file => file.filename)).toEqual(descending);
       });
 
-      parityIt('service.findPages', driver, async () => {
+      parityIt('service.findPages', column, async () => {
         const prefix = `${env.testId}-${driver}-page-${++n}`;
         const names = ['a', 'b', 'c', 'd'].map(letter => `${prefix}-${letter}.txt`);
         for (const filename of names) {
@@ -561,7 +592,7 @@ describe('File storage parity — service contract (e2e)', () => {
        *   `src/core/modules/file/core-file.service.ts` — registered as mutation
        *   `s3-lookup-gated-on-active-driver` in `tests/regression-mutations.json`.
        */
-      parityIt('service.crossDriverRead', driver, async () => {
+      parityIt('service.crossDriverRead', column, async () => {
         for (const other of others) {
           const filename = name(`legacy-${other}`);
           const content = `written under ${other}, read under ${driver}`;
@@ -580,7 +611,7 @@ describe('File storage parity — service contract (e2e)', () => {
         }
       });
 
-      parityIt('service.crossDriverDelete', driver, async () => {
+      parityIt('service.crossDriverDelete', column, async () => {
         for (const other of others) {
           const filename = name(`legacy-delete-${other}`);
           const planted = await env.plant(other, { content: 'to be deleted', filename });
@@ -597,7 +628,7 @@ describe('File storage parity — service contract (e2e)', () => {
       // Listing across stores — executed for filesystem/s3, complemented for gridfs
       // ---------------------------------------------------------------------------------------
 
-      if (driver === 'gridfs') {
+      if (column === 'gridfs') {
         parityComplement('service.findMergesOtherStores', 'gridfs', async () => {
           const marker = `${env.testId}-gridfs-single-store-${++n}`;
           const own = `${marker}-gridfs.txt`;
@@ -628,7 +659,7 @@ describe('File storage parity — service contract (e2e)', () => {
           expect((await service.getFileInfoByName(foreign)).id).toBe(planted.id);
         });
       } else {
-        parityIt('service.findMergesOtherStores', driver, async () => {
+        parityIt('service.findMergesOtherStores', column, async () => {
           const marker = `${env.testId}-${driver}-merged-${++n}`;
           const own = `${marker}-active.txt`;
           await service.createFile(upload('active side', own));
@@ -664,7 +695,7 @@ describe('File storage parity — service contract (e2e)', () => {
       // Presigned downloads (off in this configuration)
       // ---------------------------------------------------------------------------------------
 
-      parityIt('service.downloadUrlWithoutPresigning', driver, async () => {
+      parityIt('service.downloadUrlWithoutPresigning', column, async () => {
         // The property is "answers, never throws". Under gridfs/filesystem the S3 branch must not
         // be entered at all; under s3 it is entered and must fall through because
         // `s3.presignedDownloads` is off. Both end at `undefined`, so the controller streams —
