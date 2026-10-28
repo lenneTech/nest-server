@@ -30,6 +30,22 @@ Measured 2026-10-28 on `feat/db-agnostic` (phase 1, DEV-3829), local Postgres 18
   on a SQL default source, `SqlStateStore.loadAsync()` opens a fresh OWNER connection + `CREATE TABLE IF NOT EXISTS` per
   poll (Mongo reuses the app connection).
 
+**Phase 3 (DEV-3831, Better-Auth on SQL), reviewed 2026-10-28 — two High findings:**
+- Better-Auth gets the framework's SHARED app pool (`app.driverPool`, max 10). For a pg pool Better-Auth's Kysely adapter
+  sets `transaction = true`, and `/sign-up/email` runs entirely inside `runWithTransaction` — scrypt hash included
+  (`sign-up.mjs`, better-auth 1.7.13). Measured (pg 8.23, PG 18 container, framework scrypt params): 100 concurrent
+  sign-ups → an unrelated `SELECT 1` waits 1.3 s (FIFO behind the burst, ~14 ms per queued sign-up) vs 17 ms max with
+  the hash outside a tx. Mongo has no adapter transactions (`mongodbAdapter(db)` without client). Password reset hashes
+  BEFORE its tx; sign-in has none. Script pattern: pool + BEGIN/scrypt/COMMIT vs probe query, no schema needed.
+- Better-Auth's adapter `findMany` without `limit` returns at most 100 (`defaultFindManyLimit ?? 100`, factory.mjs;
+  proven with the memory adapter: 150 stored → 100). Any framework `adapter.findMany` that means "all rows" is capped.
+- Settled, sound: `session.token` unique, `session.user_id`, `account.user_id`, `verification.identifier` indexes are
+  created by Better-Auth's migrator on table creation; `users` gets `ux email`, partial `ix iam_id` from the Mongoose
+  indexes (so mapSessionUser's 3-way `$or` is a BitmapOr); runtime schema check cached after first clean result;
+  Better-Auth's `findVerificationValue` deletes ALL expired verification rows (seq scan, no expires_at index on SQL).
+- Derive the users-table SQL indexes: `node -r ./src/core/modules/migrate/helpers/ts-compiler.js script.mjs` importing
+  `UserSchema` + `describeSchema` + `desiredTable` (tsx lacks decorator metadata → CannotDetermineTypeError).
+
 **How to measure without DROP** (the PreToolUse hook blocks `DROP DATABASE`): register models whose fields collide on one column (`fooBar` + `foo_bar`) so `desiredTable()` throws inside the owner transaction after the lock → everything rolls back, nothing is created. Hold `pg_advisory_lock(hashtext('lenne.tech:schema'))` from a side connection to simulate another replica migrating. Scripts ran via `node_modules/.bin/tsx` as `.mts` with absolute imports of `src/**.ts`.
 
 Related: [[persistence-layer-db-agnostic-costs]]

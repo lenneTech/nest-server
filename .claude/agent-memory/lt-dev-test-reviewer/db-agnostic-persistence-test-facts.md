@@ -49,3 +49,18 @@ parity 16 s (52 tests, both columns), lock-formats + sql-state-store a few secon
   mutation goes red by a throw rather than by a split write. `setPersistenceRuntime` is reset by every `forRoot()`.
 - Cosmetic only: in `persistence-sql-wiring` the `crud-mongoose-api-on-sql-store` JSDoc got separated from its `it`.
 - Peer sessions edited `routed-model.guard.ts` (+`$save`/`insertOne`/`where`) during the review: re-check that area.
+
+**Phase 3** (DEV-3831, reviewed 2026-10-28, static only; 13 new mutations, `sql-users-beside-better-auth` removed).
+- IAM suites run in 4 vitest projects (`e2e` + `iam-sql-<engine>`); ONE PG database per project per run, shared by all
+  forks of that project (not per fork like MongoDB). JWKS verification looks keys up by kid per request, so concurrent
+  key creation is harmless; no IAM suite does a global PG delete.
+- `tests/helpers/iam-test-db.ts` picks PG purely from `NSC__DATABASE__OWNER_URL` (set only in IAM workers). Routing is
+  proven positively by storage-paths, api.story (`user?.email`), bidirectional sync (`.password` deref), migration
+  status. The csrf spec has NO positive PG anchor (its victim count would be vacuous if misrouted) — its boot uses the
+  same forFeature pattern as the wiring spec, so not reported.
+- Every new mutation reads as its defect statically (session/token/challenge/email-verified fall back to MongoDB, which
+  holds nothing in an IAM project). Weak `toBeDefined()` on nullable finds in bidirectional sync are pre-existing.
+- Found: `tests/iam-sql.global-setup.ts` needs PostgreSQL but runs BEFORE the root setup that starts the containers
+  ([[vitest-projects-global-setup-order]]). The author fixed it in the working tree during the review
+  (`startInfrastructureOnce()`, error handed to `iam-sql.setup.ts`, mutation `iam-sql-setup-stops-the-run`); that fix
+  first forgot the six mutation counts `regression-evidence.spec.ts` pins (registry 350, unit-only 200) — check them.

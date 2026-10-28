@@ -34,6 +34,7 @@
 - [project-ws-connection-ack-echoes-extra.md](project-ws-connection-ack-echoes-extra.md) — pre-existing: onConnect `return extra` = connection_ack payload (own user + headers); probe + fix if it ever carries secrets
 - [project-db-agnostic-phase0-store-facts.md](project-db-agnostic-phase0-store-facts.md) — DEV-3828 policies verbatim; DataStore select/filter/native safe only by no-caller; phase-1 re-check list
 - [project-db-agnostic-phase2-core-modules-facts.md](project-db-agnostic-phase2-core-modules-facts.md) — DEV-3830 user/tenant/token/locks on SQL traced sound; health-ping + logout deviceId residuals below bar
+- [project-db-agnostic-phase3-better-auth-sql-facts.md](project-db-agnostic-phase3-better-auth-sql-facts.md) — DEV-3831 BA-on-SQL traced sound; MCP OAuth loadUser still reads Mongo `users` (missed reader)
 
 ## Review Methodology
 

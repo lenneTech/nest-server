@@ -1,6 +1,6 @@
 ---
 name: db-agnostic-phase0-doc-facts
-description: feat/db-agnostic phases 0-2 (DEV-3828/3829/3830) — what the persistence docs claim vs what the code wires; silent wrong-database routes, guard leaks, fail-open recipes; changes the release guide must list
+description: feat/db-agnostic phases 0-3 (DEV-3828..3831) — what the persistence docs claim vs what the code wires; silent wrong-database routes, guard leaks, fail-open recipes; changes the release guide must list
 metadata:
   type: project
 ---
@@ -43,6 +43,19 @@ due in phase 5, DEV-3833).
   `sqlEngine` (loud missing-peer); testing.md "Measured at 333 mutations, the CI job for 11.41.6" (was 128 — a
   measurement rewritten as a count; script header still says 128); Hub "17 panels" while HUB_PANELS has 18.
 - Counts after phase 2: 333 / 195 unit / 138 e2e; seventeen infra suites. FRAMEWORK-API regenerates identical.
+
+**Phase 3 (2026-10-28, DEV-3831) — Better-Auth on SQL; reported in review:**
+- vitest 5 `projects`: every selected project's `globalSetup` runs BEFORE the root's (`initializeGlobalSetup` adds
+  the root project last) and a throw aborts the WHOLE run ("No test files found", exit 1, zero tests). So
+  `tests/iam-sql.global-setup.ts` failing on an unreachable PostgreSQL kills the `e2e` project too, and the root
+  `tests/global-setup.ts` that starts the containers never runs (no `--restart` policy → after a reboot `pnpm test`
+  stays red). testing.md claimed "the `e2e` project is unaffected" / "works from a clean machine".
+  Probe: `PG_PORT=5999 LT_TEST_INFRA=0 NODE_ENV=e2e npx vitest run --config vitest-e2e.config.mts better-auth-signin-csrf`
+  → abort, no `[test-infra]` line; same with `--project e2e -t __none__` → root setup logs, file found.
+- Verified sound: passkey plugin reads only `advanced.webAuthnChallengeCookie`; default cookie `iam.better-auth-passkey`
+  (prefix = basePath); `CoreBetterAuthChallengeService` is NOT barrel-exported (getCookieName change is internal);
+  better-auth 1.7.13 depends on kysely + @better-auth/kysely-adapter directly ("built-in" is true).
+- Counts after phase 3: 349 / 199 unit / 150 e2e.
 
 **Phase 0 — still relevant for the release guide (behaviour changes for MongoDB projects despite PLAN.md §6
 "Phases 0–4 change nothing"):**
