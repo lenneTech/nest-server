@@ -4722,6 +4722,39 @@
         "tests/multi-replica.e2e-spec.ts"
       ],
       "driverSpecific": false
+    },
+    {
+      "id": "redis-ready-resubscribe-missing",
+      "defect": "12.1.1 (DEV-3894) — a SUBSCRIBE on the shared subscriber that failed while Redis was down (typically at boot) was never repeated, and ioredis re-subscribes on reconnect only what once succeeded: the tenant cache invalidation of a replica that booted during a Redis outage stayed deaf for its whole life, so a removed membership or a deactivated tenant stayed valid there until cacheTtlMs.",
+      "file": "src/core/common/services/core-redis.service.ts",
+      "find": "      this.subscriberClient.on?.('ready', this.onSubscriberReady);",
+      "replace": "      void this.onSubscriberReady;",
+      "specs": [
+        "tests/unit/core-redis.service.spec.ts"
+      ],
+      "driverSpecific": false
+    },
+    {
+      "id": "redis-subscriber-ready-not-resubscribing",
+      "defect": "12.1.1 (DEV-3894) — a SUBSCRIBE on the shared subscriber that failed while Redis was down (typically at boot) was never repeated, and ioredis re-subscribes on reconnect only what once succeeded: the tenant cache invalidation of a replica that booted during a Redis outage stayed deaf for its whole life, so a removed membership or a deactivated tenant stayed valid there until cacheTtlMs.",
+      "file": "src/core/common/services/core-redis.service.ts",
+      "find": "      this.subscriberClient.on?.('ready', this.onSubscriberReady);",
+      "replace": "      void this.onSubscriberReady;",
+      "specs": [
+        "tests/redis-consumers.e2e-spec.ts"
+      ],
+      "driverSpecific": false
+    },
+    {
+      "id": "tenant-guard-subscribe-unregistered",
+      "defect": "12.1.1 (DEV-3894) — the tenant guard subscribed the shared subscriber directly instead of through the channel registry, so a subscribe that failed at boot was never established again and the replica received no tenant cache invalidation.",
+      "file": "src/core/modules/tenant/core-tenant.guard.ts",
+      "find": "      await this.redisService.subscribeChannel(channel);",
+      "replace": "      await subscriber.subscribe(channel);",
+      "specs": [
+        "tests/redis-consumers.e2e-spec.ts"
+      ],
+      "driverSpecific": false
     }
   ]
 }

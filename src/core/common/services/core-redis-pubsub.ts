@@ -75,14 +75,18 @@ export class CoreRedisPubSub extends PubSubEngine implements OnModuleDestroy {
     const channel = this.channel(triggerName);
     let channelHandlers = this.handlers.get(channel);
 
-    // First handler for this channel: subscribe on Redis
+    // First handler for this channel: subscribe on Redis. Registered with the Redis service, so the subscription is
+    // established again after every reconnect.
     if (!channelHandlers) {
       channelHandlers = new Map();
       this.handlers.set(channel, channelHandlers);
       try {
-        await this.getSubscriber().subscribe(channel);
+        this.getSubscriber();
+        await this.redisService.subscribeChannel(channel);
       } catch (error) {
+        // The caller gets the error, as before, so the channel is not kept for a later reconnect either.
         this.handlers.delete(channel);
+        await this.redisService.releaseChannel(channel).catch(() => undefined);
         throw error;
       }
     }
@@ -109,7 +113,7 @@ export class CoreRedisPubSub extends PubSubEngine implements OnModuleDestroy {
     // Last handler for this channel: unsubscribe on Redis
     if (channelHandlers.size === 0) {
       this.handlers.delete(channel);
-      await this.getSubscriber().unsubscribe(channel);
+      await this.redisService.releaseChannel(channel);
     }
   }
 
@@ -163,9 +167,7 @@ export class CoreRedisPubSub extends PubSubEngine implements OnModuleDestroy {
         subscriber.off('message', this.messageListener);
         this.messageListener = undefined;
       }
-      if (channels.length) {
-        await subscriber.unsubscribe(...channels);
-      }
+      await Promise.all(channels.map((channel) => this.redisService.releaseChannel(channel)));
     } catch (error) {
       // Redis already gone: the connection is being torn down anyway.
       this.logger.debug(`PubSub teardown skipped: ${error instanceof Error ? error.message : 'Unknown error'}`);

@@ -384,6 +384,7 @@ The architecture is designed for horizontal scalability:
 
 - **Stateless request handling** — No server-side session state in the process (JWT, or Better-Auth sessions in the database)
 - **Optional central infrastructure** — with `redis` configured, rate limits hold across replicas, cron jobs run once per tick (BullMQ), GraphQL subscriptions reach every replica and tenant-cache invalidations are broadcast; with `s3` configured, files and resumable uploads live in shared storage. Without the configuration every feature keeps its process-local behaviour
+- **Redis outages** — Redis unreachable at boot is a warning, not a failed start; every Redis consumer uses its fallback until the connection is up, and `CoreRedisService.isReady()` reports it. Subscriptions on the shared subscriber (tenant-cache invalidation, GraphQL subscriptions) are established again after every reconnect, also when the first attempt failed at boot
 - **Cron schedules survive a Redis restart** — the BullMQ schedules live in Redis; when Redis loses them (a restart without persistence, a FLUSHDB, an eviction), every replica registers the missing ones again after its reconnect and on a 60-second check. A tick that fell due while a schedule was missing is not run
 - **Distributed locks** — migrations, cron leases and the initial admin setup are serialized across instances, on MongoDB or SQL
 - **Graceful shutdown** — `installGracefulShutdown(app)` with `shutdownDelayMs` lets a load balancer deregister the instance before it closes

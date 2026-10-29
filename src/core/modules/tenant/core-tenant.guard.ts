@@ -339,9 +339,14 @@ export class CoreTenantGuard implements CanActivate, OnApplicationBootstrap, OnM
         }
       };
       subscriber.on('message', this.invalidationListener);
-      await subscriber.subscribe(channel);
+      // Registered with the Redis service, so the subscription is established again after every reconnect — also when
+      // this first attempt fails because Redis is down at boot.
+      await this.redisService.subscribeChannel(channel);
     } catch (error) {
-      this.logger.debug(`Tenant cache invalidation subscribe failed: ${(error as Error).message}`);
+      this.logger.warn(
+        `Tenant cache invalidation subscribe failed: ${(error as Error).message}. Retried when the Redis connection ` +
+          'is up; until then this replica learns of a removed membership or a deactivated tenant only after cacheTtlMs.',
+      );
     }
   }
 
@@ -353,7 +358,7 @@ export class CoreTenantGuard implements CanActivate, OnApplicationBootstrap, OnM
         const subscriber = this.redisService?.getSubscriber();
         subscriber?.off('message', this.invalidationListener);
         if (this.invalidationChannel) {
-          void subscriber?.unsubscribe(this.invalidationChannel).catch(() => undefined);
+          void this.redisService?.releaseChannel(this.invalidationChannel).catch(() => undefined);
         }
       } catch {
         // Redis already gone — nothing to detach from
