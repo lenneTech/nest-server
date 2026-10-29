@@ -42,7 +42,7 @@ import { Test, TestingModule } from '@nestjs/testing';
 import bcrypt = require('bcrypt');
 import { PubSub } from 'graphql-subscriptions';
 import { sha256 } from 'js-sha256';
-import { Db, MongoClient } from 'mongodb';
+import { Db } from 'mongodb';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 
 import { nativeScryptVerify } from '../../src/core/modules/better-auth/better-auth.config';
@@ -55,6 +55,7 @@ import {
 } from '../../src';
 import envConfig from '../../src/config.env';
 import { ServerModule } from '../../src/server/server.module';
+import { type IamTestDb, openIamTestDb } from '../helpers/iam-test-db';
 
 /**
  * How the browser puts the password on the wire.
@@ -72,8 +73,7 @@ const WIRE_FORMATS = [
 describe('Story: Password reset parity (Legacy + IAM)', () => {
   let app: any;
   let testHelper: TestHelper;
-  let mongoClient: MongoClient;
-  let db: Db;
+  let iamDb: IamTestDb;
   let userMapper: CoreBetterAuthUserMapper;
   let isBetterAuthEnabled: boolean;
 
@@ -114,7 +114,7 @@ describe('Story: Password reset parity (Legacy + IAM)', () => {
 
   /** Does the LEGACY bcrypt hash in `users.password` accept this password? */
   const legacyStoreAccepts = async (email: string, password: string): Promise<boolean> => {
-    const user = await db.collection('users').findOne({ email });
+    const user = await iamDb.findUser({ email: email });
     if (!user?.password) {
       return false;
     }
@@ -126,14 +126,11 @@ describe('Story: Password reset parity (Legacy + IAM)', () => {
 
   /** Does the IAM scrypt hash in `account.password` accept this password? */
   const iamStoreAccepts = async (email: string, password: string): Promise<boolean> => {
-    const user = await db.collection('users').findOne({ email });
+    const user = await iamDb.findUser({ email: email });
     if (!user) {
       return false;
     }
-    const account = await db.collection('account').findOne({
-      providerId: 'credential',
-      userId: { $in: [user._id, user._id.toString(), user.iamId, user.id].filter(Boolean) },
-    });
+    const account = await iamDb.credentialAccount(user.id);
     if (!account?.password) {
       return false;
     }
@@ -170,7 +167,7 @@ describe('Story: Password reset parity (Legacy + IAM)', () => {
   /** Reset through the LEGACY user endpoint (`CoreUserService.resetPassword`). */
   const resetViaLegacy = async (email: string, newPasswordOnWire: string): Promise<void> => {
     await testHelper.rest('/users/password/reset-request', { method: 'POST', payload: { email }, statusCode: 201 });
-    const user = await db.collection('users').findOne({ email });
+    const user = await iamDb.findUser({ email: email });
     expect(user?.passwordResetToken, 'legacy reset request must produce a token').toBeTruthy();
     await testHelper.rest('/users/password/reset', {
       method: 'POST',
@@ -185,15 +182,9 @@ describe('Story: Password reset parity (Legacy + IAM)', () => {
       method: 'POST',
       payload: { email },
     });
-    const user = await db.collection('users').findOne({ email });
-    const verification = await db
-      .collection('verification')
-      .find({ identifier: /^reset-password:/, value: { $in: [user?.id, user?.iamId, user?._id?.toString()] } })
-      .sort({ _id: -1 })
-      .limit(1)
-      .toArray();
-    expect(verification.length, 'IAM reset request must store a verification token').toBe(1);
-    const token = String(verification[0].identifier).replace('reset-password:', '');
+    const user = await iamDb.findUser({ email });
+    const [token] = user ? await iamDb.passwordResetTokens(user.id) : [];
+    expect(token, 'IAM reset request must store a verification token').toBeTruthy();
     await testHelper.rest('/iam/reset-password', {
       method: 'POST',
       payload: { newPassword: newPasswordOnWire, token },
@@ -202,10 +193,10 @@ describe('Story: Password reset parity (Legacy + IAM)', () => {
 
   /** Change the password through `CoreUserService.update()` (the admin/self update path). */
   const changeViaUpdate = async (email: string, newPasswordOnWire: string, token: string): Promise<void> => {
-    const user = await db.collection('users').findOne({ email });
+    const user = await iamDb.findUser({ email: email });
     const result = await testHelper.graphQl(
       {
-        arguments: { id: user!._id.toString(), input: { password: newPasswordOnWire } },
+        arguments: { id: user!.id, input: { password: newPasswordOnWire } },
         fields: ['id'],
         name: 'updateUser',
         type: TestGraphQLType.MUTATION,
@@ -226,7 +217,7 @@ describe('Story: Password reset parity (Legacy + IAM)', () => {
    * case below is what actually rules that explanation out.
    */
   const changeViaSelfUpdate = async (email: string, newPasswordOnWire: string): Promise<void> => {
-    const currentUser = await db.collection('users').findOne({ email });
+    const currentUser = await iamDb.findUser({ email: email });
     expect(currentUser, 'the user must exist before changing its password').toBeTruthy();
 
     const signIn = await testHelper.rest('/iam/sign-in/email', {
@@ -273,8 +264,7 @@ describe('Story: Password reset parity (Legacy + IAM)', () => {
     userMapper = moduleFixture.get(CoreBetterAuthUserMapper);
     isBetterAuthEnabled = moduleFixture.get(CoreBetterAuthService).isEnabled();
 
-    mongoClient = await MongoClient.connect(envConfig.mongoose.uri);
-    db = mongoClient.db();
+    iamDb = await openIamTestDb(envConfig.mongoose.uri);
 
     // Once, loudly, instead of five times with two divergent texts. A silently skipped
     // infrastructure test is how an untested path ships, and this story's whole premise is that
@@ -288,22 +278,14 @@ describe('Story: Password reset parity (Legacy + IAM)', () => {
   });
 
   afterAll(async () => {
-    if (db) {
+    if (iamDb) {
       for (const email of testEmails) {
-        const user = await db.collection('users').findOne({ email });
-        if (user) {
-          const userIds: any[] = [user._id, user._id.toString()];
-          if (user.iamId) userIds.push(user.iamId);
-          if (user.id) userIds.push(user.id);
-          await db.collection('users').deleteOne({ _id: user._id });
-          await db.collection('account').deleteMany({ userId: { $in: userIds } });
-          await db.collection('session').deleteMany({ userId: { $in: userIds } });
-          await db.collection('verification').deleteMany({ value: { $in: userIds.map(String) } });
-        }
+        // Accounts, sessions and pending reset tokens go with the user
+        await iamDb.deleteUsers({ email });
       }
     }
-    if (mongoClient) {
-      await mongoClient.close();
+    if (iamDb) {
+      await iamDb.close();
     }
     if (app) {
       await app.close();
@@ -402,10 +384,10 @@ describe('Story: Password reset parity (Legacy + IAM)', () => {
       const attackerToken = signIn?.token || signIn?.data?.token;
       expect(attackerToken).toBeTruthy();
 
-      const victimUser = await db.collection('users').findOne({ email: victim });
+      const victimUser = await iamDb.findUser({ email: victim });
       const result = await testHelper.graphQl(
         {
-          arguments: { id: victimUser!._id.toString(), input: { password: 'Hijacked456!' } },
+          arguments: { id: victimUser!.id, input: { password: 'Hijacked456!' } },
           fields: ['id'],
           name: 'updateUser',
           type: TestGraphQLType.MUTATION,

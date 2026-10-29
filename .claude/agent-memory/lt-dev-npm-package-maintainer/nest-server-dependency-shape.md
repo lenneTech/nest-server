@@ -5,7 +5,7 @@ metadata:
   type: project
 ---
 
-# nest-server dependency shape and couplings (verified 2026-09-26, AWS note 2026-10-03)
+# nest-server dependency shape and couplings (verified 2026-09-26, AWS note 2026-10-03, lockstep 2026-10-29)
 
 **Shape is a contract.** The lt CLI's `src/config/vendor-runtime-deps.json` mirrors which
 section each package lives in, so a maintenance run never moves packages between
@@ -31,8 +31,9 @@ range (`9.9.3` → `~7.5`, `9.10.2` → `~7.6`); a direct `mongodb` outside it s
 (ObjectId `instanceof` failures). Current (2026-10-17, DEV-3616): mongoose 9.11.2 (`~7.7`) + mongodb 7.7.0. Since DEV-3616 the consumer gate and the starter's `pnpm run update` raise a framework `dependencies` pin in EITHER consumer section, so the starter's mongodb devDep follows automatically; framework devDeps still raise only consumer devDeps (better-auth stays consumer-owned).
 
 **Lockstep with upstream exact pins** (see [[nest-server-maintenance-gotchas]]):
-`graphql-ws` = `@nestjs/graphql`'s pin, `ws` = its pin, `express` = the `@nestjs/platform-express` pin,
-`multer` = the multer override target. NestJS 12 (nest-server 12.0.0): graphql-ws 6.3.0, ws 8.22.0, express 5.3.0;
-platform-express 12.2.0 exact-pins multer 2.4.0, so direct multer 2.5.0 + override `<2.5.0` -> 2.5.0 (2026-10-24).
+`graphql-ws` = `@nestjs/graphql`'s pin, `ws` = its pin, `express` and `multer` = the `@nestjs/platform-express` pins.
+State 2026-10-29 (12.1.0 run): @nestjs/graphql 14.1.0 -> graphql-ws 6.3.0, ws 8.22.0 (graphql-ws 6.4.1 exists, HELD);
+platform-express 12.3.2 -> express 5.3.0, multer 2.5.0 (no override needed any more). graphql-upload 17.1.0 is a
+runtime dependency (scalar + middleware must be ONE copy; consumers import `GraphQLUpload` from nest-server).
 
 Related: [[deferred-major-updates]], [[nest-server-override-status]]

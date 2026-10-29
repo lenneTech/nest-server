@@ -6,7 +6,19 @@ import { CoreAiInteractionService } from '../../ai/services/core-ai-interaction.
 import { CoreBetterAuthUserMapper } from '../../better-auth/core-better-auth-user.mapper.js';
 import { CoreErrorCodeService } from '../../error-code/core-error-code.service.js';
 import { CorePermissionsService } from '../../permissions/core-permissions.service.js';
-import { HubCronData, HubErrorCodesData, HubUnavailable } from '../interfaces/hub-panels.interface.js';
+import { redactUrl } from '../../../common/persistence/data-source.config.js';
+import {
+  getPersistedModels,
+  getPersistenceRuntime,
+  getRegisteredDataStore,
+} from '../../../common/persistence/persistence-runtime.registry.js';
+import { ConfigService } from '../../../common/services/config.service.js';
+import {
+  HubCronData,
+  HubErrorCodesData,
+  HubPersistenceData,
+  HubUnavailable,
+} from '../interfaces/hub-panels.interface.js';
 
 /**
  * Single choke point for the Hub's OPTIONAL data sources.
@@ -27,6 +39,40 @@ export class CoreHubSourcesService {
     protected readonly moduleRef: ModuleRef,
     @Optional() protected readonly schedulerRegistry?: SchedulerRegistry,
   ) {}
+
+  /**
+   * Where every model registered with `CorePersistenceModule.forFeature()` is stored: its source, the database and
+   * engine behind it, and what that store can do. Without a SQL source everything is on the MongoDB connection.
+   */
+  getPersistence(): HubPersistenceData {
+    const overview = getPersistenceRuntime()?.describe() ?? {
+      defaultSource: 'default',
+      models: getPersistedModels().map((model) => ({ name: model.name, source: 'default' })),
+      sources: [
+        {
+          driver: 'mongodb',
+          host: redactUrl(ConfigService.configFastButReadOnly?.mongoose?.uri ?? ''),
+          name: 'default',
+          ownerConfigured: false,
+        },
+      ],
+    };
+    return {
+      ...overview,
+      models: overview.models
+        .map((model) => {
+          const store = getRegisteredDataStore(model.name);
+          const capabilities = store
+            ? Object.entries(store.capabilities)
+                .filter(([, value]) => value === true)
+                .map(([key]) => key)
+                .sort()
+            : [];
+          return { ...model, capabilities, driver: store?.driver };
+        })
+        .sort((a, b) => a.name.localeCompare(b.name)),
+    };
+  }
 
   /** AI availability + a light interaction/usage summary. */
   async getAi(): Promise<HubUnavailable | { available: true; totalInteractions: number }> {

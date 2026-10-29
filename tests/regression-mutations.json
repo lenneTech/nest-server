@@ -215,8 +215,8 @@
     {
       "id": "exclude-schemas-warns-silently",
       "defect": "11.35.0 — a schema that DECLARES tenantId and is listed in multiTenancy.excludeSchemas lost its tenant filter with no signal anywhere. The framework's own docs carried `excludeSchemas: ['User', 'Session']` in a copyable @example, which on a project with per-tenant users switches isolation off for the user collection.",
-      "file": "src/core/common/plugins/mongoose-tenant.plugin.ts",
-      "after": "function shouldBypass(modelName?: string): boolean {",
+      "file": "src/core/common/persistence/policies/tenant.policy.ts",
+      "after": "export function isTenantPolicyBypassed(modelName?: string): boolean {",
       "find": "    warnIsolationDisabled(modelName);\n",
       "replace": "",
       "specs": [
@@ -240,7 +240,7 @@
       "id": "by-name-lookup-unsorted",
       "defect": "11.35.0 — GridFSHelper.findFileByName() read natural order (the OLDEST file of a reused name) while openDownloadStreamByName() defaults to revision -1 (the NEWEST). So getFileInfoByName()/getRawFileInfoByName() authorized against one document and getFileStreamByName()/getBufferByName()/duplicateByName() served another — an ownership rule approved the caller's own file and handed over somebody else's bytes.",
       "file": "src/core/common/helpers/gridfs.helper.ts",
-      "after": "static async findFileByName(bucket: GridFSBucket, filename: string)",
+      "after": "static async findFileByName(bucket: GridFSBucket | undefined, filename: string)",
       "find": "bucket.find({ filename }, { limit: 1, sort: { uploadDate: -1, _id: -1 } })",
       "replace": "bucket.find({ filename })",
       "specs": [
@@ -546,7 +546,7 @@
     {
       "id": "cross-tenant-writes-accepted",
       "defect": "11.35.0 — the tenant plugin stamped tenantId only when absent, and filtered WHERE but not the update payload. So a caller-supplied tenantId survived (planting a row in a foreign tenant) and an update could rewrite tenantId (moving a row out of its own tenant). Both are cross-tenant writes from an ordinary request.",
-      "file": "src/core/common/plugins/mongoose-tenant.plugin.ts",
+      "file": "src/core/common/persistence/policies/tenant.policy.ts",
       "find": "  if (value === undefined || value === null || value === ownTenantId) {\n    return;\n  }",
       "replace": "  return;\n  if (value === undefined || value === null || value === ownTenantId) {\n    return;\n  }",
       "specs": [
@@ -716,8 +716,8 @@
       "defect": "11.37.0 — the legacy->IAM migration wrote the credential account WITHOUT an issuer; better-auth 1.7.0–1.7.2 key accounts by (issuer, accountId), so the migrated user's sign-in answered 401. Since 11.41.8 the issuer is written only while such a better-auth is installed.",
       "file": "src/core/modules/better-auth/core-better-auth-user.mapper.ts",
       "after": "      await accountsCollection.insertOne({",
-      "find": "        ...(credentialIssuer ? { issuer: credentialIssuer } : {}),\n",
-      "replace": "",
+      "find": "        id: this.generateId(),\n        ...(credentialIssuer ? { issuer: credentialIssuer } : {}),\n",
+      "replace": "        id: this.generateId(),\n",
       "specs": [
         "tests/unit/better-auth-account-issuer-writes.spec.ts"
       ],
@@ -2386,7 +2386,7 @@
       "id": "malformed-file-id-500",
       "defect": "11.42.13 — an id that is not a 24-character hex string (a TUS upload id, which clients took for the file id) reached new ObjectId() and threw a BSONError, so GET /files/id/<tus-upload-id> answered 500 instead of the 404 an unknown id gets.",
       "file": "src/core/modules/file/core-file.service.ts",
-      "find": "    return typeof id === 'string' && !(id.length === 24 && Types.ObjectId.isValid(id));",
+      "find": "    return typeof id === 'string' && !isWellFormedId(id);",
       "replace": "    return false;",
       "specs": [
         "tests/file-missing-answers.e2e-spec.ts"
@@ -3167,6 +3167,1473 @@
         "tests/unit/package-format-contracts.spec.ts"
       ],
       "driverSpecific": false
+    },
+    {
+      "id": "id-plugin-stamps-bare-objectid",
+      "defect": "11.42.15 (mongodb 7.7 / bson 7.3) — mongooseIdPlugin's post(/.*/) hook treated the bare ObjectId VALUES a distinct() over an ObjectId field returns as documents (Mongoose gives ObjectId.prototype an _id getter returning itself) and assigned value.id = hex, which is bson's own id setter for the 12-byte buffer. bson >= 7.3 throws there, so every distinct() over an ObjectId field rejected.",
+      "file": "src/core/common/plugins/mongoose-id.plugin.ts",
+      "find": "      if (doc?._bsontype === 'ObjectId') {\n        continue;\n      }\n",
+      "replace": "",
+      "specs": [
+        "tests/mongoose-plugins.e2e-spec.ts"
+      ],
+      "driverSpecific": false
+    },
+    {
+      "id": "user-update-skips-iam-name-sync",
+      "defect": "found in 11.43.1 — CoreUserService.update() synced email and password changes to the Better-Auth side of the shared users document but not firstName/lastName. The Better-Auth `name` stayed stale, and the next IAM sign-in reverse-synced it into firstName/lastName (linkOrCreateUser), silently discarding the user's edit.",
+      "file": "src/core/modules/user/core-user.service.ts",
+      "find": "          const synced = await this.options.betterAuthUserMapper.syncNameChangeFromLegacy(currentEmail, fullName);\n",
+      "replace": "          const synced = false;\n",
+      "specs": [
+        "tests/stories/bidirectional-auth-sync.e2e-spec.ts"
+      ],
+      "driverSpecific": false
+    },
+    {
+      "id": "iam-sign-in-resplits-unchanged-name",
+      "defect": "found in 11.43.1 — linkOrCreateUser() re-split the Better-Auth `name` into firstName/lastName on EVERY sign-in. The split is lossy (first word vs. rest), so a stored \"Anna Maria\" / \"von Berg\" became \"Anna\" / \"Maria von Berg\" although nothing had changed on the Better-Auth side.",
+      "file": "src/core/modules/better-auth/core-better-auth-user.mapper.ts",
+      "find": "    const nameChangedInIam = !!sessionUser.name && sessionUser.name !== existingFullName;\n",
+      "replace": "    const nameChangedInIam = !!sessionUser.name;\n",
+      "specs": [
+        "tests/stories/bidirectional-auth-sync.e2e-spec.ts"
+      ],
+      "driverSpecific": false
+    },
+    {
+      "id": "user-name-sync-reads-filtered-response",
+      "defect": "Found while integrating PR #647 (DEV-3821) — CoreUserService.update() built the Better-Auth name from the response of super.update(), which the output pipeline had already filtered. A caller allowed to edit one name field but not to read the other synced a truncated name to the shared users document.",
+      "file": "src/core/modules/user/core-user.service.ts",
+      "find": "const fullName = [stored?.firstName, stored?.lastName].filter(Boolean).join(' ');",
+      "replace": "const fullName = [updatedUser?.firstName, updatedUser?.lastName].filter(Boolean).join(' ');",
+      "specs": [
+        "tests/unit/user-name-iam-sync.spec.ts"
+      ],
+      "driverSpecific": false
+    },
+    {
+      "id": "user-update-skips-emptied-name-sync",
+      "defect": "Found while integrating PR #647 (DEV-3821) — the name sync skipped an EMPTY result, so clearing firstName and lastName left the old Better-Auth name in place, and the next IAM sign-in reverse-synced it into the fields the user had just cleared.",
+      "file": "src/core/modules/user/core-user.service.ts",
+      "find": "      if (currentEmail) {\n        try {\n          const synced = await this.options.betterAuthUserMapper.syncNameChangeFromLegacy(",
+      "replace": "      if (fullName && currentEmail) {\n        try {\n          const synced = await this.options.betterAuthUserMapper.syncNameChangeFromLegacy(",
+      "specs": [
+        "tests/stories/bidirectional-auth-sync.e2e-spec.ts"
+      ],
+      "driverSpecific": false
+    },
+    {
+      "id": "tenant-row-check-not-registered",
+      "defect": "DEV-3828 (db-agnostic phase 0) — the tenant row check after reads (the after-layer every data store shares) is the tenant plugin's post hooks on MongoDB. Without them a read whose filter was built for the wrong tenant returns that tenant's rows.",
+      "file": "src/core/common/plugins/mongoose-tenant.plugin.ts",
+      "find": "  for (const hookName of rowCheckHooks) {\n    schema.post(hookName, function (result: any) {",
+      "replace": "  for (const hookName of [] as string[]) {\n    schema.post(hookName, function (result: any) {",
+      "specs": [
+        "tests/persistence-tenant-row-check.e2e-spec.ts"
+      ],
+      "driverSpecific": false
+    },
+    {
+      "id": "lock-store-takes-held-lease",
+      "defect": "DEV-3828 (db-agnostic phase 0) — a lease claim that does not compare expiresAt takes over a held, unexpired lease, so two replicas run what exactly one of them may run.",
+      "file": "src/core/common/persistence/mongo-lock-store.ts",
+      "find": "        { [this.keyField]: key, ...expired },",
+      "replace": "        { [this.keyField]: key },",
+      "specs": [
+        "tests/persistence-lock-store.e2e-spec.ts"
+      ],
+      "driverSpecific": false
+    },
+    {
+      "id": "database-mongodb-url-not-connected",
+      "defect": "DEV-3828 (db-agnostic phase 0, review) — a MongoDB URL in `database` passed the boot guard, but Mongoose still connected with the fallback URI (NSC__MONGOOSE__URI or mongodb://localhost/nest-server-default): another database, without an error.",
+      "file": "src/core.module.ts",
+      "find": "      config.mongoose.uri = defaultSource.url;\n",
+      "replace": "",
+      "specs": [
+        "tests/unit/persistence-data-source-config.spec.ts"
+      ],
+      "driverSpecific": false
+    },
+    {
+      "id": "sql-scope-outlives-transaction",
+      "defect": "DEV-3829 (db-agnostic phase 1) — a tenant scope written for the session instead of the transaction outlives its statement, and the next request on that pooled connection reads the previous request's tenant.",
+      "file": "src/core/common/persistence/sql/sql-session.ts",
+      "find": "set_config('app.tenant_id', $2, true)",
+      "replace": "set_config('app.tenant_id', $2, false)",
+      "specs": [
+        "tests/persistence-sql-executor.e2e-spec.ts"
+      ],
+      "driverSpecific": false
+    },
+    {
+      "id": "sql-pool-guard-reuses-dirty-client",
+      "defect": "DEV-3829 (db-agnostic phase 1, A10) — a connection handed back to the pool inside a transaction or with a query in flight is re-used, and the next request runs inside the dead transaction with the previous request's tenant.",
+      "file": "src/core/common/persistence/sql/sql-session.ts",
+      "find": "      return release(error ?? died ?? unhealthy(client));",
+      "replace": "      return release(error ?? died);",
+      "specs": [
+        "tests/persistence-sql-executor.e2e-spec.ts"
+      ],
+      "driverSpecific": false
+    },
+    {
+      "id": "sql-pool-guard-unlistened-checkout-error",
+      "defect": "DEV-3829 (db-agnostic phase 1) — pg-pool listens for `error` only on idle connections; a connection that dies while checked out (server termination, or a pipelined query timeout) emits `error` with nobody listening, and Node ends the process.",
+      "file": "src/core/common/persistence/sql/sql-session.ts",
+      "find": "    client.on?.('error', onError);\n",
+      "replace": "",
+      "specs": [
+        "tests/persistence-sql-executor.e2e-spec.ts"
+      ],
+      "driverSpecific": false
+    },
+    {
+      "id": "sql-where-inlines-values",
+      "defect": "DEV-3829 (db-agnostic phase 1) — a filter value written into the SQL text instead of bound as a parameter turns every filterQuery a client sends into SQL it controls.",
+      "find": "return cast === null ? `${target.expr} IS NULL` : `${target.expr} = ${this.params.add(cast)}`;",
+      "replace": "return cast === null ? `${target.expr} IS NULL` : `${target.expr} = '${String(cast)}'`;",
+      "specs": [
+        "tests/unit/persistence-sql-where.spec.ts"
+      ],
+      "file": "src/core/common/persistence/sql/postgres/postgres-where.compiler.ts",
+      "driverSpecific": false
+    },
+    {
+      "id": "sql-where-inlines-json-path",
+      "defect": "DEV-3829 (db-agnostic phase 1) — JSON path segments spliced into the SQL text instead of bound as a text[] parameter.",
+      "find": "return segments.length ? `(${base} #> ${this.params.add(segments)}::text[])` : base;",
+      "replace": "return segments.length ? `(${base} #> '{${segments.join(',')}}')` : base;",
+      "specs": [
+        "tests/unit/persistence-sql-where.spec.ts"
+      ],
+      "file": "src/core/common/persistence/sql/postgres/postgres-where.compiler.ts",
+      "driverSpecific": false
+    },
+    {
+      "id": "sql-where-drops-unsupported-operator",
+      "defect": "DEV-3829 (db-agnostic phase 1) — an operator the compiler does not know is skipped instead of refused, which widens the query: a condition meant to narrow a read silently disappears.",
+      "find": "        default:\n          throw new UnsupportedQueryError(`${operator} is not supported on SQL`);",
+      "replace": "        default:\n          parts.push('TRUE');",
+      "specs": [
+        "tests/unit/persistence-sql-where.spec.ts"
+      ],
+      "file": "src/core/common/persistence/sql/postgres/postgres-where.compiler.ts",
+      "driverSpecific": false
+    },
+    {
+      "id": "sql-where-ne-excludes-missing",
+      "defect": "DEV-3829 (db-agnostic phase 1) — $ne compiled as NOT (a = $1) is NULL for a missing value, so a record without the field disappears from a $ne read that MongoDB returns.",
+      "find": "          parts.push(`NOT COALESCE(${this.eq(target, value)}, FALSE)`);",
+      "replace": "          parts.push(`NOT (${this.eq(target, value)})`);",
+      "specs": [
+        "tests/persistence-sql-where.e2e-spec.ts"
+      ],
+      "file": "src/core/common/persistence/sql/postgres/postgres-where.compiler.ts",
+      "driverSpecific": false
+    },
+    {
+      "id": "sql-schema-unique-index-automatic",
+      "defect": "DEV-3829 (db-agnostic phase 1) — a new unique index applied at boot can fail on the rows already stored, or change what may be written, without anybody reviewing it.",
+      "file": "src/core/common/persistence/sql/postgres/postgres-schema.migrator.ts",
+      "find": "      kind: index.unique ? 'migration' : 'automatic',",
+      "replace": "      kind: 'automatic',",
+      "specs": [
+        "tests/persistence-sql-schema.e2e-spec.ts"
+      ],
+      "driverSpecific": false
+    },
+    {
+      "id": "sql-rls-guard-allows-missing-scope",
+      "defect": "DEV-3829 (db-agnostic phase 1) — a guard function that reads a missing tenant context as \"no restriction\" turns every query outside the framework's scope into a read of every tenant's rows.",
+      "file": "src/core/common/persistence/sql/postgres/postgres-schema.compiler.ts",
+      "find": "  RAISE EXCEPTION 'tenant-scoped data accessed without a tenant context' USING ERRCODE = 'insufficient_privilege';",
+      "replace": "  RETURN NULL;",
+      "specs": [
+        "tests/persistence-sql-schema.e2e-spec.ts",
+        "tests/persistence-parity.e2e-spec.ts"
+      ],
+      "driverSpecific": false
+    },
+    {
+      "id": "sql-rls-not-forced",
+      "defect": "DEV-3829 (db-agnostic phase 1) — without FORCE, row-level security does not bind the table owner, so any connection as the owner reads every tenant.",
+      "file": "src/core/common/persistence/sql/postgres/postgres-schema.compiler.ts",
+      "find": "    `ALTER TABLE ${quoted} FORCE ROW LEVEL SECURITY`,\n",
+      "replace": "",
+      "specs": [
+        "tests/persistence-sql-schema.e2e-spec.ts"
+      ],
+      "driverSpecific": false
+    },
+    {
+      "id": "sql-role-check-accepts-owner",
+      "defect": "DEV-3829 (db-agnostic phase 1) — an application role that owns a framework table may disable its row-level security from the app's own connection.",
+      "file": "src/core/common/persistence/sql/postgres/postgres-schema.migrator.ts",
+      "find": "  if (role.owned?.length) {\n    problems.push(`owns (or inherits the owner of) ${role.owned.join(', ')}`);\n  }\n",
+      "replace": "",
+      "specs": [
+        "tests/persistence-sql-schema.e2e-spec.ts"
+      ],
+      "driverSpecific": false
+    },
+    {
+      "id": "sql-schema-allows-system-roles",
+      "defect": "DEV-3829 (db-agnostic phase 1) — a roles column without the system-role CHECK stores s_* roles, which satisfy every S_SELF check (11.35.0).",
+      "file": "src/core/common/persistence/sql/postgres/postgres-schema.compiler.ts",
+      "find": "  if (roles?.isArray && (roles.kind === 'string' || roles.kind === 'enum')) {",
+      "replace": "  if (roles?.isArray && roles.kind === 'never') {",
+      "specs": [
+        "tests/persistence-sql-schema.e2e-spec.ts"
+      ],
+      "driverSpecific": false
+    },
+    {
+      "id": "sql-store-drops-tenant-filter",
+      "defect": "DEV-3829 (db-agnostic phase 1) — without the store's own tenant predicate a tenant reads and writes every tenant's rows on any table or database without row-level security.",
+      "file": "src/core/common/persistence/sql/sql-data-store.ts",
+      "find": "      tenantFilter && Object.keys(tenantFilter).length ? { $and: [where ?? {}, tenantFilter] } : (where ?? {});",
+      "replace": "      where ?? {};",
+      "specs": [
+        "tests/persistence-sql-store.e2e-spec.ts"
+      ],
+      "driverSpecific": false
+    },
+    {
+      "id": "sql-store-scope-always-system",
+      "defect": "DEV-3829 (db-agnostic phase 1) — a statement sent with the system scope makes row-level security read every tenant, whatever the request's tenant is.",
+      "file": "src/core/common/persistence/sql/sql-data-store.ts",
+      "find": "      return await this.executor.run<R>(statement, resolveTenantScope());",
+      "replace": "      return await this.executor.run<R>(statement, { kind: 'system' });",
+      "specs": [
+        "tests/persistence-sql-store.e2e-spec.ts"
+      ],
+      "driverSpecific": false
+    },
+    {
+      "id": "sql-store-skips-row-check",
+      "defect": "DEV-3829 (db-agnostic phase 1) — without the after-layer, a read that lost its tenant filter on a database without row-level security answers with a foreign tenant's rows.",
+      "file": "src/core/common/persistence/sql/sql-data-store.ts",
+      "find": "      assertRowsInTenantScope(\n        this.modelName,\n        rows.map((row) => ({ tenantId: row.tenant_id })),\n      );",
+      "replace": "      void rows;",
+      "specs": [
+        "tests/persistence-sql-store.e2e-spec.ts"
+      ],
+      "driverSpecific": false
+    },
+    {
+      "id": "sql-update-drops-unknown-operator",
+      "defect": "DEV-3829 (db-agnostic phase 1) — an update operator the compiler does not know is skipped, so the write silently does something else than asked.",
+      "file": "src/core/common/persistence/sql/postgres/postgres-update.compiler.ts",
+      "find": "          default:\n            throw new UnsupportedQueryError(`${operator} is not supported on SQL`);",
+      "replace": "          default:\n            break;",
+      "specs": [
+        "tests/persistence-sql-store.e2e-spec.ts"
+      ],
+      "driverSpecific": false
+    },
+    {
+      "id": "sql-lock-store-takes-held-lease",
+      "defect": "DEV-3829 (db-agnostic phase 1) — a lease claim on PostgreSQL that does not compare expires_at takes over a held, unexpired lease, so two replicas run what exactly one of them may run.",
+      "file": "src/core/common/persistence/sql/postgres/postgres-lock-store.ts",
+      "find": "          WHERE ${TABLE}.\"expires_at\" <= now()\n",
+      "replace": "",
+      "specs": [
+        "tests/persistence-lock-store.e2e-spec.ts"
+      ],
+      "driverSpecific": false
+    },
+    {
+      "id": "crud-mongoose-api-on-sql-store",
+      "defect": "DEV-3829 (db-agnostic phase 1) — a model routed to PostgreSQL keeps its Mongoose model registered, so a Mongoose-only API on its CrudService reads and writes MongoDB without a word.",
+      "file": "src/core/common/services/crud.service.ts",
+      "find": "  protected assertMongooseStore(method: string): void {\n    if (this.usesNeutralStore) {",
+      "replace": "  protected assertMongooseStore(method: string): void {\n    if (method === \"never\" && this.usesNeutralStore) {",
+      "specs": [
+        "tests/persistence-sql-wiring.e2e-spec.ts"
+      ],
+      "driverSpecific": false
+    },
+    {
+      "id": "sql-runtime-ignores-routing",
+      "defect": "DEV-3829 (db-agnostic phase 1) — a store resolved without the data-source routing serves a model configured for PostgreSQL from MongoDB.",
+      "file": "src/core/common/persistence/data-source.runtime.ts",
+      "find": "    if (!source || source.driver === 'mongodb') {\n      return new MongooseDataStore(mongoModel as any);",
+      "replace": "    if (source || !source) {\n      return new MongooseDataStore(mongoModel as any);",
+      "specs": [
+        "tests/persistence-sql-wiring.e2e-spec.ts"
+      ],
+      "driverSpecific": false
+    },
+    {
+      "id": "sql-runtime-skips-role-check",
+      "defect": "DEV-3829 (db-agnostic phase 1) — booting with an application connection that owns the tables or is a superuser leaves tenant isolation to the application: row-level security does not bind it.",
+      "file": "src/core/common/persistence/data-source.runtime.ts",
+      "find": "    await dialect.assertSafeApplication(app, [tableName(model), tableName(LOCK_MODEL)]);\n",
+      "replace": "",
+      "specs": [
+        "tests/persistence-sql-wiring.e2e-spec.ts"
+      ],
+      "driverSpecific": false
+    },
+    {
+      "id": "sql-schema-drops-rls-automatically",
+      "defect": "DEV-3829 (db-agnostic phase 1) — a table that stops being tenant-isolated by configuration would lose its row-level security without review; a configuration slip must not switch database-level isolation off.",
+      "file": "src/core/common/persistence/sql/postgres/postgres-schema.migrator.ts",
+      "find": "      kind: 'migration',\n      statements: [\n        `DROP POLICY IF EXISTS",
+      "replace": "      kind: 'automatic',\n      statements: [\n        `DROP POLICY IF EXISTS",
+      "specs": [
+        "tests/persistence-sql-schema.e2e-spec.ts"
+      ],
+      "driverSpecific": false
+    },
+    {
+      "id": "redact-url-first-at",
+      "defect": "DEV-3829 (db-agnostic phase 1, review) — credentials cut at the first `@` put the tail of a password with an unencoded `@` into every boot log line and error.",
+      "file": "src/core/common/persistence/data-source.config.ts",
+      "find": "  return `${scheme[1]}//${authority.slice(authority.lastIndexOf('@') + 1)}`;",
+      "replace": "  return `${scheme[1]}//${authority.slice(authority.indexOf('@') + 1)}`;",
+      "specs": [
+        "tests/unit/persistence-data-source-config.spec.ts"
+      ],
+      "driverSpecific": false
+    },
+    {
+      "id": "owner-url-without-url-accepted",
+      "defect": "DEV-3829 (db-agnostic phase 1, review) — an NSC__DATABASE__OWNER_URL merged over a `database` URL string replaced it; the URL was gone and every model fell back to MongoDB without a word.",
+      "file": "src/core/common/persistence/data-source.config.ts",
+      "find": "  if (config.ownerUrl !== undefined && config.url === undefined) {",
+      "replace": "  if (config.ownerUrl !== undefined && config.url === undefined && false) {",
+      "specs": [
+        "tests/unit/persistence-data-source-config.spec.ts"
+      ],
+      "driverSpecific": false
+    },
+    {
+      "id": "sql-update-keeps-undeclared",
+      "defect": "DEV-3829 (db-agnostic phase 1, review) — CrudService.update() merges `updatedBy` into every update with a current user; on a model without that field the SQL store refused the path and answered 500, where MongoDB strict mode drops it.",
+      "file": "src/core/common/persistence/sql/sql-data-store.ts",
+      "find": "    return this.dropUndeclared(await this.beforeUpdate(clone(update), options));",
+      "replace": "    return this.beforeUpdate(clone(update), options);",
+      "specs": [
+        "tests/persistence-sql-wiring.e2e-spec.ts"
+      ],
+      "driverSpecific": false
+    },
+    {
+      "id": "sql-update-clone-loses-object-id",
+      "defect": "DEV-3829 (db-agnostic phase 1, review) — structuredClone turns an ObjectId in an update into a plain object, and the cast refuses the reference CrudService passes.",
+      "file": "src/core/common/persistence/sql/sql-data-store.ts",
+      "find": "function clone<V>(value: V): V {\n  if (Array.isArray(value)) {",
+      "replace": "function clone<V>(value: V): V {\n  return value && typeof value === 'object' ? (structuredClone(value) as V) : value;\n  if (Array.isArray(value)) {",
+      "specs": [
+        "tests/persistence-parity.e2e-spec.ts"
+      ],
+      "driverSpecific": false
+    },
+    {
+      "id": "sql-update-expression-doubles",
+      "defect": "DEV-3829 (db-agnostic phase 1, review) — the running expression of a column was inlined at every reference, so each nested level and each chained $inc doubled the statement (2^n), a request any client could send.",
+      "file": "src/core/common/persistence/sql/postgres/postgres-update.compiler.ts",
+      "find": "    return `(SELECT ${build(`${alias}.v`)} FROM (SELECT ${expr} AS v) AS ${alias})`;",
+      "replace": "    return build(`(${expr})`);",
+      "specs": [
+        "tests/unit/persistence-sql-update.spec.ts"
+      ],
+      "driverSpecific": false
+    },
+    {
+      "id": "persisted-model-needs-model-option",
+      "defect": "DEV-3829 (db-agnostic phase 1, review) — @PersistedModel was read only from a class passed as `model:`; registered as `{ name, schema }` the declaration did nothing and the model landed on the default source.",
+      "file": "src/core/common/persistence/core-persistence.module.ts",
+      "find": "(model.model ? getPersistedModelOptions(model.model) : getPersistedModelOptionsByName(model.name))",
+      "replace": "(model.model ? getPersistedModelOptions(model.model) : undefined)",
+      "specs": [
+        "tests/persistence-sql-wiring.e2e-spec.ts"
+      ],
+      "driverSpecific": false
+    },
+    {
+      "id": "sql-owner-connection-per-model",
+      "defect": "DEV-3829 (db-agnostic phase 1, review) — the schema was migrated through a new owner connection per model while Nest creates the stores concurrently: one privileged connection per table at boot.",
+      "file": "src/core/common/persistence/data-source.runtime.ts",
+      "find": "      this.owners.set(source.name, pending);",
+      "replace": "      this.owners.set(`${source.name}:${this.owners.size}`, pending);",
+      "specs": [
+        "tests/unit/persistence-data-source-runtime.spec.ts"
+      ],
+      "driverSpecific": false
+    },
+    {
+      "id": "sql-owner-held-after-boot",
+      "defect": "DEV-3829 (db-agnostic phase 1, review) — the owner connection must not outlive the boot; held until shutdown it keeps a table-owning session open for the life of the process.",
+      "file": "src/core/common/persistence/core-persistence.lifecycle.ts",
+      "find": "    await runtime?.releaseBootConnections();",
+      "replace": "    // released at shutdown only",
+      "specs": [
+        "tests/persistence-sql-wiring.e2e-spec.ts"
+      ],
+      "driverSpecific": false
+    },
+    {
+      "id": "sql-role-check-accepts-bypassrls",
+      "defect": "DEV-3829 (db-agnostic phase 1, review) — a BYPASSRLS application role reads and writes every tenant’s rows whatever the policies say; nothing pinned its refusal.",
+      "file": "src/core/common/persistence/sql/postgres/postgres-schema.migrator.ts",
+      "find": "  if (role.bypassrls) {",
+      "replace": "  if (role.bypassrls && false) {",
+      "specs": [
+        "tests/persistence-sql-schema.e2e-spec.ts"
+      ],
+      "driverSpecific": false
+    },
+    {
+      "driverSpecific": false,
+      "id": "module-service-ignores-routed-store",
+      "defect": "DEV-3830 (db-agnostic phase 2) — a service written against @InjectModel() kept writing to MongoDB although its model was routed to PostgreSQL.",
+      "file": "src/core/common/services/module.service.ts",
+      "find": "    const routed = getStoreForModel(this.mainDbModel);",
+      "replace": "    const routed = undefined as DataStore<T> | undefined;",
+      "specs": [
+        "tests/persistence-sql-wiring.e2e-spec.ts"
+      ]
+    },
+    {
+      "driverSpecific": false,
+      "id": "lock-store-ignores-legacy-timestamp",
+      "defect": "DEV-3830 (db-agnostic phase 2) — the LockStore read only expiresAt, so a claim an old replica left behind (only claimedAt) was obeyed forever.",
+      "file": "src/core/common/persistence/mongo-lock-store.ts",
+      "find": "    const expired = legacy\n",
+      "replace": "    const expired = false && legacy\n",
+      "specs": [
+        "tests/persistence-lock-formats.e2e-spec.ts"
+      ]
+    },
+    {
+      "driverSpecific": false,
+      "id": "lock-store-skips-legacy-stamp",
+      "defect": "DEV-3830 (db-agnostic phase 2) — a lock without the old timestamp is invisible to the stale rule of an old replica, so it never took over after a new replica died.",
+      "file": "src/core/common/persistence/mongo-lock-store.ts",
+      "find": "    return this.options.legacyTimestamp ? { [this.options.legacyTimestamp.field]: now } : {};",
+      "replace": "    return {};",
+      "specs": [
+        "tests/persistence-lock-formats.e2e-spec.ts"
+      ]
+    },
+    {
+      "driverSpecific": false,
+      "id": "migration-lock-own-document",
+      "defect": "DEV-3830 (db-agnostic phase 2) — keyed on _id, the migration LockStore wrote a second lock document beside the old { lock: 'lock' } one, and an old and a new replica migrated at once.",
+      "file": "src/core/common/persistence/infrastructure-locks.ts",
+      "find": "    keyField: 'lock',\n",
+      "replace": "",
+      "specs": [
+        "tests/persistence-lock-formats.e2e-spec.ts"
+      ]
+    },
+    {
+      "driverSpecific": false,
+      "id": "sql-lock-store-never-sweeps",
+      "defect": "DEV-3830 (db-agnostic phase 2) — cron leases are written per tick and only released by their owner; without a sweep the PostgreSQL lease table grew forever.",
+      "file": "src/core/common/persistence/sql/postgres/postgres-lock-store.ts",
+      "find": "    if (now - this.lastSweep < SWEEP_INTERVAL_MS) {\n",
+      "replace": "    if (now) {\n",
+      "specs": [
+        "tests/persistence-lock-store.e2e-spec.ts"
+      ]
+    },
+    {
+      "driverSpecific": false,
+      "id": "cron-lease-ignores-sql-source",
+      "defect": "DEV-3830 (db-agnostic phase 2) — with a SQL default source the cron lease still went to MongoDB, so replicas sharing only the SQL database ran every tick each.",
+      "file": "src/core/common/services/core-cron-jobs.service.ts",
+      "find": "    const sqlLocks = await defaultSqlLockStore('cron').catch((e) => {",
+      "replace": "    const sqlLocks = await Promise.resolve(undefined).catch((e) => {",
+      "specs": [
+        "tests/persistence-sql-wiring.e2e-spec.ts"
+      ]
+    },
+    {
+      "driverSpecific": false,
+      "id": "system-setup-claim-ignores-sql-source",
+      "defect": "DEV-3830 (db-agnostic phase 2) — with a SQL default source the anonymous setup claim must hold in its lease table; read from MongoDB it decides nothing for a SQL deployment.",
+      "file": "src/core/modules/system-setup/core-system-setup.service.ts",
+      "find": "      (await defaultSqlLockStore('system-setup')) ??",
+      "replace": "      undefined ??",
+      "specs": [
+        "tests/persistence-sql-wiring.e2e-spec.ts"
+      ]
+    },
+    {
+      "driverSpecific": false,
+      "id": "routed-model-not-guarded",
+      "defect": "DEV-3830 (db-agnostic phase 2) — project code calling the Mongoose model of a model routed to PostgreSQL read and wrote MongoDB, splitting the model's data across two databases without an error.",
+      "file": "src/core/common/persistence/core-persistence.module.ts",
+      "find": "          guardRoutedModel(mongooseModel, store);",
+      "replace": "          void guardRoutedModel;",
+      "specs": [
+        "tests/persistence-sql-wiring.e2e-spec.ts"
+      ]
+    },
+    {
+      "driverSpecific": false,
+      "id": "legacy-logout-keeps-refresh-token",
+      "defect": "DEV-3830 (db-agnostic phase 2) — a legacy logout deleted the device key from refreshTokens and wrote the map through update(), which merges into the stored record: the key survived and the logged-out refresh token kept working.",
+      "file": "src/core/modules/auth/services/core-auth.service.ts",
+      "find": "      { refreshTokens: ended([deviceId]), tempTokens: ended([deviceId]) },",
+      "replace": "      { refreshTokens: user.refreshTokens, tempTokens: ended([deviceId]) },",
+      "specs": [
+        "tests/core-module-parity.e2e-spec.ts"
+      ]
+    },
+    {
+      "driverSpecific": false,
+      "id": "user-service-reads-mongo-on-sql",
+      "defect": "DEV-3830 (db-agnostic phase 2) — with the user model routed to PostgreSQL, CoreUserService looked users up through the Mongoose model, i.e. in the wrong database.",
+      "file": "src/core/modules/user/core-user.service.ts",
+      "find": "    return this.usesNeutralStore ? this.dataStore.findOne(where) : this.mainDbModel.findOne(where).exec();",
+      "replace": "    return this.mainDbModel.findOne(where).exec();",
+      "specs": [
+        "tests/core-module-parity.e2e-spec.ts"
+      ]
+    },
+    {
+      "driverSpecific": false,
+      "id": "tenant-guard-before-identification",
+      "defect": "DEV-3830 (db-agnostic phase 2) — with legacy JWTs the tenant guard ran before the role guard had identified anybody (CoreModule registers it first) and answered every tenant route with 401.",
+      "file": "src/core/modules/tenant/core-tenant.guard.ts",
+      "find": "      await this.identifyThroughRoleGuard(context);",
+      "replace": "      void this.identifyThroughRoleGuard;",
+      "specs": [
+        "tests/core-module-parity.e2e-spec.ts"
+      ]
+    },
+    {
+      "driverSpecific": false,
+      "id": "tenant-membership-on-mongo-on-sql",
+      "defect": "DEV-3830 (db-agnostic phase 2) — with the membership model routed to PostgreSQL, the tenant guard and service read and wrote memberships through the Mongoose model.",
+      "file": "src/core/modules/tenant/core-tenant-member.store.ts",
+      "find": "  return store && !store.capabilities.mongoosePopulate ? store : undefined;",
+      "replace": "  return store && false ? store : undefined;",
+      "specs": [
+        "tests/core-module-parity.e2e-spec.ts"
+      ]
+    },
+    {
+      "driverSpecific": false,
+      "id": "tenant-active-hook-without-store",
+      "defect": "DEV-3830 (db-agnostic phase 2) — isTenantActive received only the MongoDB connection, which cannot reach a tenant model stored in PostgreSQL.",
+      "file": "src/core/modules/tenant/core-tenant.guard.ts",
+      "find": "{ connection: this.memberModel.db, store: this.storeOf }",
+      "replace": "{ connection: this.memberModel.db, store: () => undefined }",
+      "specs": [
+        "tests/core-module-parity.e2e-spec.ts"
+      ]
+    },
+    {
+      "driverSpecific": false,
+      "id": "api-token-owner-from-mongo-on-sql",
+      "defect": "DEV-3830 (db-agnostic phase 2) — with the users in PostgreSQL, a user token's owner was loaded from the MongoDB users collection, found nobody, and every user token answered 401.",
+      "file": "src/core/modules/api-token/core-api-token.service.ts",
+      "find": "      store = this.moduleRef?.get(getStoreToken(API_TOKEN_USER_MODEL), { strict: false });",
+      "replace": "      store = undefined;",
+      "specs": [
+        "tests/core-module-parity.e2e-spec.ts"
+      ]
+    },
+    {
+      "driverSpecific": false,
+      "id": "api-token-store-on-mongo-on-sql",
+      "defect": "DEV-3830 (db-agnostic phase 2) — with the token model routed to PostgreSQL, the service kept issuing and looking up tokens through the Mongoose model.",
+      "file": "src/core/modules/api-token/core-api-token.service.ts",
+      "find": "    const store = getStoreForModel(this.apiTokenModel);\n    return store && !store.capabilities.mongoosePopulate ? store : undefined;",
+      "replace": "    const store = getStoreForModel(this.apiTokenModel);\n    return store && false ? store : undefined;",
+      "specs": [
+        "tests/core-module-parity.e2e-spec.ts"
+      ]
+    },
+    {
+      "driverSpecific": false,
+      "id": "sql-update-ignores-timestamps-false",
+      "defect": "DEV-3830 (db-agnostic phase 2) — the SQL store stamped updatedAt on every update, so a token's update time moved with every use, where MongoDB writes the stamp with timestamps: false.",
+      "file": "src/core/common/persistence/sql/sql-data-store.ts",
+      "find": "    if (updatedAt && options.timestamps !== false && !hasOperator(update, updatedAt)) {",
+      "replace": "    if (updatedAt && !hasOperator(update, updatedAt)) {",
+      "specs": [
+        "tests/core-module-parity.e2e-spec.ts",
+        "tests/persistence-parity.e2e-spec.ts"
+      ]
+    },
+    {
+      "driverSpecific": false,
+      "id": "health-check-skips-sql-sources",
+      "defect": "DEV-3830 (db-agnostic phase 2) — the health check pinged MongoDB only, so a replica whose SQL database was unreachable still answered ok.",
+      "file": "src/core/modules/health-check/core-health-check.service.ts",
+      "find": "      for (const source of getPersistenceRuntime()?.sqlSources() ?? []) {",
+      "replace": "      for (const source of [] as { name: string; ping: () => Promise<void> }[]) {",
+      "specs": [
+        "tests/unit/health-check-sql-source.spec.ts"
+      ]
+    },
+    {
+      "driverSpecific": false,
+      "id": "sql-migration-run-unlocked",
+      "defect": "DEV-3830 (db-agnostic phase 2) — without a run lock, two replicas booting together both read the empty migration state on PostgreSQL and both apply the same migration.",
+      "file": "src/core/modules/migrate/sql-state-store.ts",
+      "find": "        await tx.run({ params: [], text: MIGRATION_RUN_LOCK_SQL }, SYSTEM);",
+      "replace": "        void MIGRATION_RUN_LOCK_SQL;",
+      "specs": [
+        "tests/migrate/sql-state-store.e2e-spec.ts"
+      ]
+    },
+    {
+      "driverSpecific": false,
+      "id": "hub-migrations-read-mongo-on-sql",
+      "defect": "DEV-3830 (db-agnostic phase 2) — with the migration state on PostgreSQL, the Hub read the MongoDB migrations collection and showed a project that had run every migration as one that never ran any.",
+      "file": "src/core/modules/hub/services/core-hub-migrations.service.ts",
+      "find": "    const source = getPersistenceRuntime()?.defaultSqlSource();",
+      "replace": "    const source = undefined as undefined | { engine?: string; ownerUrl?: string };",
+      "specs": [
+        "tests/core-module-parity.e2e-spec.ts"
+      ]
+    },
+    {
+      "driverSpecific": false,
+      "id": "legacy-logout-all-keeps-devices",
+      "defect": "DEV-3830 (db-agnostic phase 2) — a legacy logout with allDevices wrote refreshTokens: {} through update(), which merges into the stored map: every device stayed signed in.",
+      "file": "src/core/modules/auth/services/core-auth.service.ts",
+      "find": "        { refreshTokens: ended(deviceIds), tempTokens: ended(Object.keys(user.tempTokens ?? {})) },",
+      "replace": "        { refreshTokens: {}, tempTokens: {} },",
+      "specs": [
+        "tests/server.e2e-spec.ts",
+        "tests/core-module-parity.e2e-spec.ts"
+      ]
+    },
+    {
+      "driverSpecific": false,
+      "id": "routed-model-misses-save-alias",
+      "defect": "DEV-3830 (db-agnostic phase 2) — the routed-model guard replaced save() but not $save(), Mongoose's separate reference to it, so insertOne() and doc.$save() still wrote a SQL-routed model's documents to MongoDB.",
+      "file": "src/core/common/persistence/routed-model.guard.ts",
+      "find": "const DOCUMENT_DATA_METHODS = ['$save', 'deleteOne', 'replaceOne', 'save', 'updateOne'] as const;",
+      "replace": "const DOCUMENT_DATA_METHODS = ['deleteOne', 'replaceOne', 'save', 'updateOne'] as const;",
+      "specs": [
+        "tests/persistence-sql-wiring.e2e-spec.ts"
+      ]
+    },
+    {
+      "driverSpecific": false,
+      "id": "tenant-store-accessor-answers-undefined",
+      "defect": "DEV-3830 (db-agnostic phase 2) — store() in the isTenantActive hook answered undefined for a model not registered with CorePersistenceModule.forFeature(), and the documented hook written with ?. read every deactivated tenant as active.",
+      "file": "src/core/modules/tenant/core-tenant.guard.ts",
+      "find": "    if (!store) {\n      throw new DataSourceConfigError(",
+      "replace": "    if (!store && false) {\n      throw new DataSourceConfigError(",
+      "specs": [
+        "tests/unit/tenant-active-store-accessor.spec.ts"
+      ]
+    },
+    {
+      "driverSpecific": false,
+      "id": "sql-state-store-assumes-typeorm",
+      "defect": "DEV-3830 (db-agnostic phase 2) — SqlStateStore fell back to typeorm when no engine was given, so createMigrationStore(ownerUrl) failed every migrate run of a project on Kysely or Drizzle.",
+      "file": "src/core/modules/migrate/sql-state-store.ts",
+      "find": "      engine: this.engine ?? (await installedSqlEngine()),",
+      "replace": "      engine: this.engine ?? 'typeorm',",
+      "specs": [
+        "tests/unit/sql-state-store-engine.spec.ts"
+      ]
+    },
+    {
+      "driverSpecific": false,
+      "id": "hub-migrations-ignore-state-left-in-mongo",
+      "defect": "DEV-3830 (db-agnostic phase 2) — on a SQL default source the Hub read the empty lt_migrations table while the project's migrate.js still recorded runs in MongoDB: every applied migration showed as pending, and Run would have applied them again.",
+      "file": "src/core/modules/hub/services/core-hub-migrations.service.ts",
+      "find": "    if (sqlCompleted.length || this.config.migrations === false) {\n      return false;\n    }",
+      "replace": "    if (sqlCompleted.length || this.config.migrations === false || true) {\n      return false;\n    }",
+      "specs": [
+        "tests/core-module-parity.e2e-spec.ts"
+      ]
+    },
+    {
+      "driverSpecific": false,
+      "id": "better-auth-ignores-sql-users",
+      "defect": "DEV-3831 (db-agnostic phase 3) — with the user model on PostgreSQL, Better-Auth kept its users in MongoDB: users split across two databases, and the system setup counted Better-Auth's empty users.",
+      "file": "src/core/common/persistence/data-source.runtime.ts",
+      "find": "    if (!registration || !source || source.driver === 'mongodb') {\n      return undefined;\n    }",
+      "replace": "    if (!registration || !source || source.driver === 'mongodb' || true) {\n      return undefined;\n    }",
+      "specs": [
+        "tests/persistence-sql-wiring.e2e-spec.ts"
+      ]
+    },
+    {
+      "driverSpecific": false,
+      "id": "iam-request-path-objectid",
+      "defect": "DEV-3831 (db-agnostic phase 3) — the per-request token service assumed MongoDB ids (Types.ObjectId.isValid/new Types.ObjectId, _id as Types.ObjectId).",
+      "file": "src/core/modules/better-auth/better-auth-token.service.ts",
+      "find": "      id: user._id?.toString() || (user.id as string),",
+      "replace": "      id: (user._id as Types.ObjectId)?.toString() || (user.id as string),",
+      "specs": [
+        "tests/unit/iam-request-path-ids.spec.ts"
+      ]
+    },
+    {
+      "driverSpecific": false,
+      "id": "system-setup-counts-mongo-users-on-sql",
+      "defect": "DEV-3831 (db-agnostic phase 3) — the system setup counted MongoDB users although the users table lives in PostgreSQL.",
+      "file": "src/core/modules/system-setup/core-system-setup.service.ts",
+      "find": "    const users = getBetterAuthSqlStore()?.users ?? (await getPersistenceRuntime()?.iamStorage())?.users;",
+      "replace": "    const users = undefined;",
+      "specs": [
+        "tests/persistence-sql-wiring.e2e-spec.ts"
+      ]
+    },
+    {
+      "driverSpecific": false,
+      "id": "better-auth-sql-camel-columns",
+      "defect": "DEV-3831 (db-agnostic phase 3) — Better-Auth addressed camelCase columns on SQL, splitting the shared user row's values.",
+      "file": "src/core/modules/better-auth/better-auth-sql.helper.ts",
+      "find": "      fields[key] = columnName(field.fieldName ?? key);",
+      "replace": "      fields[key] = field.fieldName ?? key;",
+      "specs": [
+        "tests/unit/better-auth-sql-storage.spec.ts"
+      ]
+    },
+    {
+      "driverSpecific": false,
+      "id": "iam-required-user-column-not-null",
+      "defect": "DEV-3831 (db-agnostic phase 3) — Better-Auth added name as NOT NULL on users; framework-created users failed to insert.",
+      "file": "src/core/modules/better-auth/better-auth-sql.helper.ts",
+      "find": "    if (field.defaultValue === undefined && !existing.has(column) && SQL_TYPES[field.type]) {",
+      "replace": "    if (field.defaultValue === undefined && !existing.has(column) && SQL_TYPES[field.type] && false) {",
+      "specs": [
+        "tests/stories/bidirectional-auth-sync.e2e-spec.ts"
+      ]
+    },
+    {
+      "driverSpecific": false,
+      "id": "iam-mapper-link-on-mongo-on-sql",
+      "defect": "DEV-3831 (db-agnostic phase 3) — the user mapper wrote a signed-up user's app fields into MongoDB while Better-Auth ran on SQL.",
+      "file": "src/core/modules/better-auth/core-better-auth-user.mapper.ts",
+      "find": "      return this.linkOrCreateUserOnSql(sql, sessionUser, additionalData);",
+      "replace": "      void this.linkOrCreateUserOnSql;",
+      "specs": [
+        "tests/persistence-sql-wiring.e2e-spec.ts"
+      ]
+    },
+    {
+      "driverSpecific": false,
+      "id": "iam-session-lookup-on-mongo",
+      "defect": "DEV-3831: the session lookup by token read MongoDB's session collection, so on PostgreSQL a session token sent as a bearer token identified nobody",
+      "file": "src/core/modules/better-auth/core-better-auth.service.ts",
+      "find": "      return this.liveSession(() => sql.findSession(token), 'getSessionByToken');",
+      "replace": "      void this.liveSession;",
+      "specs": [
+        "tests/better-auth-storage-paths.e2e-spec.ts"
+      ]
+    },
+    {
+      "driverSpecific": false,
+      "id": "iam-token-user-on-mongo",
+      "defect": "DEV-3831: the token service loaded the user of a JWT or session from MongoDB, so on PostgreSQL it found nobody",
+      "file": "src/core/modules/better-auth/better-auth-token.service.ts",
+      "find": "    return getBetterAuthSqlStore() ?? (this.connection ? new BetterAuthMongoUsers(this.connection) : undefined);",
+      "replace": "    return this.connection ? new BetterAuthMongoUsers(this.connection) : undefined;",
+      "specs": [
+        "tests/better-auth-storage-paths.e2e-spec.ts"
+      ]
+    },
+    {
+      "driverSpecific": false,
+      "id": "iam-passkey-challenge-on-mongo",
+      "defect": "DEV-3831: passkey challenge mappings went into MongoDB while Better-Auth kept the challenge on PostgreSQL",
+      "file": "src/core/modules/better-auth/core-better-auth-challenge.service.ts",
+      "find": "    if (sql) {\n      // On SQL as one of Better-Auth's verification values",
+      "replace": "    if (sql && !this.collection) {\n      // On SQL as one of Better-Auth's verification values",
+      "specs": [
+        "tests/better-auth-storage-paths.e2e-spec.ts"
+      ]
+    },
+    {
+      "driverSpecific": false,
+      "id": "iam-email-verified-on-mongo",
+      "defect": "DEV-3831: the e-mail-verified hook set verified/verifiedAt in MongoDB, so on PostgreSQL the user stayed unverified",
+      "file": "src/core/modules/better-auth/core-better-auth.module.ts",
+      "find": "          if (sql) {\n            // One row per user on SQL",
+      "replace": "          if (sql && !db) {\n            // One row per user on SQL",
+      "specs": [
+        "tests/better-auth-storage-paths.e2e-spec.ts"
+      ]
+    },
+    {
+      "driverSpecific": false,
+      "id": "passkey-challenge-cookie-unprefixed",
+      "defect": "DEV-3831: the API middleware looked for the passkey challenge cookie without Better-Auth's cookie prefix, so database challenge storage never stored a mapping or returned a challengeId",
+      "file": "src/core/modules/better-auth/core-better-auth-api.middleware.ts",
+      "find": "    return context?.createAuthCookie?.(key)?.name ?? key;",
+      "replace": "    return `better-auth.${key}`;",
+      "specs": [
+        "tests/better-auth-storage-paths.e2e-spec.ts"
+      ]
+    },
+    {
+      "driverSpecific": false,
+      "id": "iam-migration-status-on-mongo",
+      "defect": "DEV-3831: the migration status counted users and credential accounts in MongoDB, so on PostgreSQL it reported an empty user base",
+      "file": "src/core/modules/better-auth/core-better-auth-user.mapper.ts",
+      "find": "      return this.getMigrationStatusOnSql(sql, includePendingEmails);",
+      "replace": "      void this.getMigrationStatusOnSql;",
+      "specs": [
+        "tests/stories/better-auth-migration-status.e2e-spec.ts"
+      ]
+    },
+    {
+      "driverSpecific": false,
+      "id": "iam-mongo-indices-on-sql",
+      "defect": "DEV-3831: with Better-Auth on a SQL source the boot still created the indices of Better-Auth's collections in MongoDB",
+      "file": "src/core/modules/better-auth/core-better-auth.service.ts",
+      "find": "    if (!this.isEnabled() || !this.connection?.db || getBetterAuthSqlStore()) return;",
+      "replace": "    if (!this.isEnabled() || !this.connection?.db) return;",
+      "specs": [
+        "tests/persistence-sql-wiring.e2e-spec.ts"
+      ]
+    },
+    {
+      "driverSpecific": false,
+      "id": "iam-sql-setup-stops-the-run",
+      "defect": "DEV-3831: the IAM SQL projects' global setup threw when PostgreSQL was not running; vitest runs every project's setup before any test and before the root setup, so the whole run stopped and the containers were never started",
+      "file": "tests/iam-sql.global-setup.ts",
+      "find": "    process.env[`LT_TEST_IAM_SQL_${key}_ERROR`] = error instanceof Error ? error.message : String(error);\n    return async () => undefined;",
+      "replace": "    throw error;",
+      "specs": [
+        "tests/unit/iam-sql-setup.spec.ts"
+      ]
+    },
+    {
+      "driverSpecific": false,
+      "id": "iam-migration-status-capped-at-a-page",
+      "defect": "DEV-3831: on SQL the migration status read the credential accounts through Better-Auth's findMany(), which stops at 100 rows without a limit, so it never counted more than 100 migrated users",
+      "file": "src/core/modules/better-auth/core-better-auth-sql.store.ts",
+      "find": "(SELECT count(*) FROM ${users} u WHERE u.${iamId} IS NOT NULL AND ${migrated})::int AS \"fullyMigrated\"",
+      "replace": "(SELECT count(*) FROM (SELECT 1 FROM ${users} u WHERE u.${iamId} IS NOT NULL AND ${migrated} LIMIT 100) page)::int AS \"fullyMigrated\"",
+      "specs": [
+        "tests/stories/better-auth-migration-status.e2e-spec.ts"
+      ]
+    },
+    {
+      "driverSpecific": false,
+      "id": "mcp-oauth-user-on-mongo",
+      "defect": "DEV-3831: the MCP OAuth layer loaded an access token's subject from MongoDB's users collection, so with the users on PostgreSQL it found nobody or a stale copy",
+      "file": "src/core/modules/ai/services/core-ai-mcp-oauth.service.ts",
+      "find": "      if (sql) {\n        const row = await sql.findUser({ id: userId }, ['roles']);",
+      "replace": "      if (sql && !sql) {\n        const row = await sql.findUser({ id: userId }, ['roles']);",
+      "specs": [
+        "tests/better-auth-storage-paths.e2e-spec.ts"
+      ]
+    },
+    {
+      "driverSpecific": false,
+      "id": "mcp-oauth-code-age-unchecked",
+      "defect": "DEV-3832: MCP OAuth accepted an authorization code of any age; only MongoDB's TTL index removed it, eventually (and never when the lazy index creation failed once)",
+      "file": "src/core/modules/ai/services/core-ai-mcp-oauth.service.ts",
+      "find": "    if (!(Date.now() - createdAt <= AI_MCP_OAUTH_CODE_TTL_SECONDS * 1000)) {",
+      "replace": "    if (false && !(Date.now() - createdAt <= AI_MCP_OAUTH_CODE_TTL_SECONDS * 1000)) {",
+      "specs": [
+        "tests/unit/ai-mcp-oauth-code-expiry.spec.ts"
+      ]
+    },
+    {
+      "driverSpecific": false,
+      "id": "mcp-oauth-expired-code-exchanged",
+      "defect": "DEV-3832: an expired MCP OAuth authorization code was exchanged for tokens at the token endpoint for as long as it stayed in the store, on MongoDB and on SQL",
+      "file": "src/core/modules/ai/services/core-ai-mcp-oauth.service.ts",
+      "find": "    if (!(Date.now() - createdAt <= AI_MCP_OAUTH_CODE_TTL_SECONDS * 1000)) {",
+      "replace": "    if (false && !(Date.now() - createdAt <= AI_MCP_OAUTH_CODE_TTL_SECONDS * 1000)) {",
+      "specs": [
+        "tests/ai-mcp-oauth.e2e-spec.ts"
+      ]
+    },
+    {
+      "driverSpecific": false,
+      "id": "sql-ttl-rows-never-swept",
+      "defect": "DEV-3832: a TTL is a plain index on SQL and nothing removed an expired row, so tables of single-use codes and expiring grants grew for as long as the application ran",
+      "file": "src/core/common/persistence/data-source.runtime.ts",
+      "find": "      if (!expired) {",
+      "replace": "      if (expired || !expired) {",
+      "specs": [
+        "tests/persistence-sql-wiring.e2e-spec.ts"
+      ]
+    },
+    {
+      "driverSpecific": false,
+      "id": "iam-expired-sessions-kept",
+      "defect": "DEV-3832: Better-Auth never deletes an expired session, so on SQL the session table grew for as long as the application ran",
+      "file": "src/core/modules/better-auth/core-better-auth-sql.store.ts",
+      "find": "      sessions: Number(await adapter.deleteMany({ model: 'session', where: expired })),",
+      "replace": "      sessions: 0,",
+      "specs": [
+        "tests/better-auth-storage-paths.e2e-spec.ts"
+      ]
+    },
+    {
+      "driverSpecific": false,
+      "id": "file-metadata-routing-ignored",
+      "defect": "DEV-3832: the S3 and filesystem metadata went to MongoDB's collections while database routed the file metadata models to PostgreSQL",
+      "file": "src/core/modules/file/file-metadata.store.ts",
+      "find": "  if (dataStore && !dataStore.capabilities.mongoosePopulate) {",
+      "replace": "  if (false && dataStore && !dataStore.capabilities.mongoosePopulate) {",
+      "specs": [
+        "tests/file-storage-parity.e2e-spec.ts",
+        "tests/file-storage-http-parity.e2e-spec.ts"
+      ]
+    },
+    {
+      "driverSpecific": false,
+      "id": "gridfs-derived-for-sql-metadata",
+      "defect": "DEV-3832: with the file metadata routed to a SQL source, GridFS was still derived and every upload went into MongoDB",
+      "file": "src/core/modules/file/file-storage.helper.ts",
+      "find": "  if (sqlSource) {",
+      "replace": "  if (false && sqlSource) {",
+      "specs": [
+        "tests/unit/file-storage-resolver.spec.ts"
+      ]
+    },
+    {
+      "driverSpecific": false,
+      "id": "sql-ttl-partial-filter-ignored",
+      "defect": "DEV-3832 review: the SQL expiry sweep dropped a TTL index's partialFilterExpression and deleted every old row, also those MongoDB keeps",
+      "file": "src/core/common/persistence/expiry-sweep.ts",
+      "find": "      return partial ? { $and: [expired, partial] } : expired;",
+      "replace": "      return expired;",
+      "specs": [
+        "tests/unit/expiry-sweep.spec.ts"
+      ]
+    },
+    {
+      "driverSpecific": false,
+      "id": "ai-prompt-tenant-written-as-null",
+      "defect": "DEV-3832 review: creating a personal AI prompt inside a tenant wrote tenantId undefined, which a SQL store writes as NULL; row-level security refused it with 403 and left an orphan row",
+      "file": "src/core/modules/ai/services/core-ai-prompt.service.ts",
+      "find": "      $set: { ownerId: String(user.id), scope, ...(tenantId !== undefined ? { tenantId } : {}) },",
+      "replace": "      $set: { ownerId: String(user.id), scope, tenantId },",
+      "specs": [
+        "tests/ai-mcp-oauth-tenant.e2e-spec.ts"
+      ]
+    },
+    {
+      "driverSpecific": false,
+      "id": "iam-expired-verification-kept",
+      "defect": "DEV-3832 review: on SQL nothing removed expired Better-Auth verification values (reset links, passkey challenges) unless one was looked up",
+      "file": "src/core/modules/better-auth/core-better-auth-sql.store.ts",
+      "find": "      verificationValues: Number(await adapter.deleteMany({ model: 'verification', where: expired })),",
+      "replace": "      verificationValues: 0,",
+      "specs": [
+        "tests/better-auth-storage-paths.e2e-spec.ts"
+      ]
+    },
+    {
+      "driverSpecific": false,
+      "id": "sql-store-ignores-sample",
+      "defect": "DEV-3833: findAndCount() with samples was refused on a SQL store, and the store port had no sample option",
+      "file": "src/core/common/persistence/sql/sql-data-store.ts",
+      "find": "    if (sample !== undefined) {\n      // The page first, then the draw",
+      "replace": "    if (false && sample !== undefined) {\n      // The page first, then the draw",
+      "specs": [
+        "tests/persistence-parity.e2e-spec.ts"
+      ]
+    },
+    {
+      "driverSpecific": false,
+      "id": "mongodb-connected-without-source",
+      "defect": "DEV-3833: CoreModule opened a MongoDB connection (the fallback URI) although no data source used MongoDB, so a project on PostgreSQL alone needed MongoDB's libraries and a reachable MongoDB",
+      "file": "src/core.module.ts",
+      "find": "    const mongoPackages = usesMongoDb(dataSources)",
+      "replace": "    const mongoPackages = true",
+      "specs": [
+        "tests/persistence-without-database.e2e-spec.ts"
+      ]
+    },
+    {
+      "driverSpecific": false,
+      "id": "no-database-store-on-mongoose",
+      "defect": "DEV-3833: with database: false a registered model got a Mongoose store over a stand-in instead of a store that names the reason",
+      "file": "src/core/common/persistence/core-persistence.module.ts",
+      "find": "          : isStandInModel(mongooseModel)",
+      "replace": "          : false && isStandInModel(mongooseModel)",
+      "specs": [
+        "tests/persistence-without-database.e2e-spec.ts"
+      ]
+    },
+    {
+      "driverSpecific": false,
+      "id": "stand-in-reason-overwritten",
+      "defect": "DEV-3833: the routing guard overwrote a stand-in model's refusal with 'is stored on none', hiding that no database is configured",
+      "file": "src/core/common/persistence/core-persistence.module.ts",
+      "find": "        if (!store.capabilities.mongoosePopulate && !isStandInModel(mongooseModel)) {",
+      "replace": "        if (!store.capabilities.mongoosePopulate) {",
+      "specs": [
+        "tests/persistence-without-database.e2e-spec.ts"
+      ]
+    },
+    {
+      "driverSpecific": false,
+      "id": "declared-view-ignores-expires",
+      "defect": "DEV-3833: the Mongoose-free model description lost a field's TTL (expires), so a SQL table of a project without Mongoose got no expiry sweep for it",
+      "file": "src/core/common/persistence/mongo/declared-schema.view.ts",
+      "find": "    } else if (key === 'expires' && instance === 'Date') {",
+      "replace": "    } else if (false) {",
+      "specs": [
+        "tests/unit/persistence-model-descriptor.spec.ts"
+      ]
+    },
+    {
+      "driverSpecific": false,
+      "id": "compat-prop-skips-mongoose",
+      "defect": "DEV-3833: the framework's @Prop recorded the declaration but did not apply @nestjs/mongoose's decorator, so a MongoDB schema lost every field declared through the core",
+      "file": "src/core/common/persistence/mongo/mongoose-compat.ts",
+      "find": "    optionalMongoPackages()?.nestMongoose.Prop(options as any)(target, propertyKey);",
+      "replace": "    void optionalMongoPackages;",
+      "specs": [
+        "tests/unit/mongoose-compat.spec.ts"
+      ]
+    },
+    {
+      "driverSpecific": false,
+      "id": "file-metadata-store-needs-connection",
+      "defect": "DEV-3833: fileMetadataCollection() looked the store up through connection.models only, so a project without MongoDB failed every upload",
+      "file": "src/core/modules/file/file-metadata.store.ts",
+      "find": "      getRegisteredDataStore(model);",
+      "replace": "      undefined;",
+      "specs": [
+        "tests/unit/file-metadata-without-connection.spec.ts"
+      ]
+    },
+    {
+      "driverSpecific": false,
+      "id": "sql-update-writes-undefined",
+      "defect": "DEV-3833: the SQL update compiler wrote NULL for a field given as undefined, where MongoDB leaves it unchanged — an update with an optional field erased it on PostgreSQL alone",
+      "file": "src/core/common/persistence/sql/postgres/postgres-update.compiler.ts",
+      "find": "        if (value === undefined) {\n          continue;\n        }",
+      "replace": "        if (false) {\n          continue;\n        }",
+      "specs": [
+        "tests/persistence-parity.e2e-spec.ts"
+      ]
+    },
+    {
+      "driverSpecific": false,
+      "id": "jwks-verify-needs-connection",
+      "defect": "DEV-3833 review: verifyJwtToken() reached the JWKS only with a MongoDB connection, so every Better-Auth JWT answered 401 on PostgreSQL alone",
+      "file": "src/core/modules/better-auth/core-better-auth.service.ts",
+      "find": "      if (kid) {",
+      "replace": "      if (kid && this.connection) {",
+      "specs": [
+        "tests/unit/sql-paths-without-connection.spec.ts"
+      ]
+    },
+    {
+      "driverSpecific": false,
+      "id": "passkey-challenge-needs-connection",
+      "defect": "DEV-3833 review: the challenge service switched itself off without a MongoDB connection, dropping the passkey challenge mapping on PostgreSQL alone",
+      "file": "src/core/modules/better-auth/core-better-auth-challenge.service.ts",
+      "find": "        // call through getBetterAuthSqlStore() — isEnabled() answers from it",
+      "replace": "        this.enabled = false;",
+      "specs": [
+        "tests/unit/sql-paths-without-connection.spec.ts"
+      ]
+    },
+    {
+      "driverSpecific": false,
+      "id": "model-store-needs-connection",
+      "defect": "DEV-3833 review: the AI budget, MCP OAuth and conversation services found their SQL store only through connection.models, so without MongoDB every AI usage and MCP OAuth step answered 500",
+      "file": "src/core/common/persistence/persistence-runtime.registry.ts",
+      "find": "    return getRegisteredDataStore(name);",
+      "replace": "    return undefined;",
+      "specs": [
+        "tests/unit/sql-paths-without-connection.spec.ts"
+      ]
+    },
+    {
+      "driverSpecific": false,
+      "id": "declared-default-not-computed",
+      "defect": "DEV-3833 review: without Mongoose a declared schema had no path().getDefault(), so every insert of a model with a computed default failed",
+      "file": "src/core/common/persistence/mongo/declared-schema.view.ts",
+      "find": "  return defaultValue === Date.now ? Date.now() : defaultValue.call(doc, doc);",
+      "replace": "  return undefined;",
+      "specs": [
+        "tests/unit/sql-paths-without-connection.spec.ts"
+      ]
+    },
+    {
+      "driverSpecific": false,
+      "id": "declared-view-drops-compound-indexes",
+      "defect": "DEV-3833 review: no test compared the compound indexes a module adds after createForClass(); a view that lost them left SQL tables without their unique constraints",
+      "file": "src/core/common/persistence/mongo/declared-schema.view.ts",
+      "find": "    ...compound.map(([fields, indexOptions]) => [{ ...fields }, { ...indexOptions }] as (typeof compound)[number]),",
+      "replace": "    // compound indexes dropped",
+      "specs": [
+        "tests/unit/persistence-model-descriptor.spec.ts"
+      ]
+    },
+    {
+      "driverSpecific": false,
+      "id": "system-role-plugin-skips-updateone",
+      "defect": "DEV-3833 review: porting server.e2e to the store left mongooseSystemRolePlugin's updateOne hook without a test",
+      "file": "src/core/common/plugins/mongoose-system-role.plugin.ts",
+      "find": "  for (const op of ['findOneAndUpdate', 'updateOne', 'replaceOne', 'findOneAndReplace']) {",
+      "replace": "  for (const op of ['findOneAndUpdate', 'replaceOne', 'findOneAndReplace']) {",
+      "specs": [
+        "tests/server.e2e-spec.ts"
+      ]
+    },
+    {
+      "driverSpecific": false,
+      "id": "role-guard-skips-updateone",
+      "defect": "DEV-3833 review: porting api-token-security to the store left mongooseRoleGuardPlugin's updateOne hook without a test",
+      "file": "src/core/common/plugins/mongoose-role-guard.plugin.ts",
+      "find": "  schema.pre('updateOne', function () {",
+      "replace": "  schema.pre('updateOneNever' as any, function () {",
+      "specs": [
+        "tests/api-token-security.e2e-spec.ts"
+      ]
+    },
+    {
+      "driverSpecific": false,
+      "id": "mysql-where-exists-semijoin",
+      "defect": "DEV-3848 (db-agnostic phase 6): MySQL 8.4 turns EXISTS over a JSON_TABLE reading the outer row into a semi-join that finds nothing, so every 'any array item matches' filter silently returned no rows",
+      "file": "src/core/common/persistence/sql/mysql/mysql-where.compiler.ts",
+      "find": "return `((SELECT COUNT(*) FROM ${mysqlArrayItems(arrayExpr, alias)} WHERE ${condition(`${alias}.v`)}) > 0)`;",
+      "replace": "return `EXISTS (SELECT 1 FROM ${mysqlArrayItems(arrayExpr, alias)} WHERE ${condition(`${alias}.v`)})`;",
+      "specs": [
+        "tests/persistence-sql-where.e2e-spec.ts"
+      ]
+    },
+    {
+      "driverSpecific": false,
+      "id": "mysql-drizzle-datetime-local",
+      "defect": "DEV-3848 (db-agnostic phase 6): Drizzle's mysql2 session reads DATETIME as text, which JavaScript parses as local time — a record read inside a store transaction (updateById, insert) carried its timestamps shifted by the process's UTC offset",
+      "file": "src/core/common/persistence/sql/mysql/mysql-data-store.ts",
+      "find": "    if (!field.isArray && field.kind === 'date' && typeof value === 'string') {",
+      "replace": "    if (!field.isArray && field.kind === 'date' && typeof value === 'string' && false) {",
+      "specs": [
+        "tests/persistence-parity.e2e-spec.ts"
+      ]
+    },
+    {
+      "driverSpecific": false,
+      "id": "mysql-migrations-without-run-lock",
+      "defect": "DEV-3848 (db-agnostic phase 6): without the named run lock on MySQL / MariaDB, replicas booting together each read the empty migration state and apply the same migration",
+      "file": "src/core/modules/migrate/sql-state-store.ts",
+      "find": "            text: `SELECT GET_LOCK(${MYSQL_RUN_LOCK_NAME}, $1) AS locked`,",
+      "replace": "            text: 'SELECT 1 AS locked',",
+      "specs": [
+        "tests/migrate/sql-state-store.e2e-spec.ts"
+      ]
+    },
+    {
+      "driverSpecific": false,
+      "id": "mysql-unique-index-automatic",
+      "defect": "DEV-3848 (db-agnostic phase 6): a new unique index on an existing MySQL / MariaDB table can fail on the stored rows and changes what may be written; applied at boot it would skip the reviewed migration",
+      "file": "src/core/common/persistence/sql/mysql/mysql-schema.migrator.ts",
+      "find": "      kind: index.unique ? 'migration' : 'automatic',",
+      "replace": "      kind: 'automatic',",
+      "specs": [
+        "tests/persistence-mysql-schema.e2e-spec.ts"
+      ]
+    },
+    {
+      "driverSpecific": false,
+      "id": "mysql-unique-null-distinct",
+      "defect": "DEV-3848 (db-agnostic phase 6): MySQL and MariaDB admit any number of NULLs under a unique index, so a non-sparse unique field stored several records without a value where MongoDB and PostgreSQL admit one",
+      "file": "src/core/common/persistence/sql/mysql/mysql-schema.compiler.ts",
+      "find": "    if (unique && !sparse && !column.primaryKey && STRING_KINDS.has(field.kind) && !field.isArray) {",
+      "replace": "    if (false) {",
+      "specs": [
+        "tests/persistence-mysql-schema.e2e-spec.ts"
+      ]
+    },
+    {
+      "driverSpecific": false,
+      "id": "mysql-roles-check-missing",
+      "defect": "DEV-3848 (db-agnostic phase 6): without the roles CHECK a write that leaves the store (native, raw, a connection of its own) could store a system role on MySQL / MariaDB",
+      "file": "src/core/common/persistence/sql/mysql/mysql-schema.compiler.ts",
+      "find": "  if (roles?.isArray && (roles.kind === 'string' || roles.kind === 'enum')) {",
+      "replace": "  if (false) {",
+      "specs": [
+        "tests/persistence-mysql-schema.e2e-spec.ts"
+      ]
+    },
+    {
+      "driverSpecific": false,
+      "id": "mysql-app-account-ddl-accepted",
+      "defect": "DEV-3848 (db-agnostic phase 6): an application account that may alter or drop the framework's tables and constraints would boot, although without row-level security they are what the store's policies rely on",
+      "file": "src/core/common/persistence/sql/mysql/mysql-schema.migrator.ts",
+      "find": "  if (problems.size) {",
+      "replace": "  if (false) {",
+      "specs": [
+        "tests/persistence-mysql-schema.e2e-spec.ts"
+      ]
+    },
+    {
+      "driverSpecific": false,
+      "id": "mysql-text-index-bounds-string",
+      "defect": "DEV-3848 (db-agnostic phase 6): a declared text index (never created on MySQL) made its field varchar(255), refusing values over 255 characters for an index that does not exist",
+      "file": "src/core/common/persistence/sql/mysql/mysql-schema.compiler.ts",
+      "find": "    if (entries.every(([path, direction]) => typeof direction === 'number' && !path.includes('.'))) {",
+      "replace": "    if (true) {",
+      "specs": [
+        "tests/persistence-mysql-schema.e2e-spec.ts"
+      ]
+    },
+    {
+      "driverSpecific": false,
+      "id": "mysql-isolation-warning-missing",
+      "defect": "DEV-3848 (db-agnostic phase 6): MySQL and MariaDB have no row-level security; without the boot warning a project would not learn that native access to a tenant table is not stopped by the database",
+      "file": "src/core/common/persistence/data-source.runtime.ts",
+      "find": "    if (isolated && source.driver !== 'postgres' && !this.isolationReported.has(source.name)) {",
+      "replace": "    if (false) {",
+      "specs": [
+        "tests/persistence-mysql-wiring.e2e-spec.ts"
+      ]
+    },
+    {
+      "driverSpecific": false,
+      "id": "mysql-iam-not-refused",
+      "defect": "DEV-3848 (db-agnostic phase 6): Better-Auth is not wired for MySQL / MariaDB; with the user model routed there the boot must refuse instead of running Better-Auth against a database it cannot serve",
+      "file": "src/core/common/persistence/data-source.runtime.ts",
+      "find": "    if (source.driver !== 'postgres') {",
+      "replace": "    if (false) {",
+      "specs": [
+        "tests/persistence-mysql-wiring.e2e-spec.ts"
+      ]
+    },
+    {
+      "driverSpecific": false,
+      "id": "mysql-long-index-not-prefixed",
+      "defect": "DEV-3848 (db-agnostic phase 6): a lookup index over four text fields exceeds InnoDB's 3072-byte key limit; created over the full columns it stopped the boot of every application with the AI module (ai_slots)",
+      "file": "src/core/common/persistence/sql/mysql/mysql-schema.compiler.ts",
+      "find": "    prefix = `(${Math.floor((MAX_INDEX_BYTES - fixed) / (4 * textParts.length))})`;",
+      "replace": "    prefix = '';",
+      "specs": [
+        "tests/persistence-mysql-schema.e2e-spec.ts"
+      ]
+    },
+    {
+      "driverSpecific": false,
+      "id": "mysql-placeholders-inside-literals",
+      "defect": "DEV-3848 (db-agnostic phase 6): a $n inside a quoted literal (a JSON path, quoted text of a native caller) would be bound as a value where the statement says a constant",
+      "file": "src/core/common/persistence/sql/mysql/mysql-session.ts",
+      "find": "    if (char === \"'\" || char === '\"' || char === '`') {",
+      "replace": "    if (false) {",
+      "specs": [
+        "tests/unit/mysql-statement.spec.ts"
+      ]
+    },
+    {
+      "driverSpecific": false,
+      "id": "mysql-session-backslash-escapes",
+      "defect": "DEV-3848 (db-agnostic phase 6): with NO_BACKSLASH_ESCAPES in the session the server reads the driver's escaping backslash literally, a quote ends the string and the rest of a value becomes SQL",
+      "file": "src/core/common/persistence/sql/mysql/mysql-session.ts",
+      "find": "  \"SET SESSION sql_mode = 'STRICT_ALL_TABLES,",
+      "replace": "  \"SET SESSION sql_mode = 'NO_BACKSLASH_ESCAPES,STRICT_ALL_TABLES,",
+      "specs": [
+        "tests/persistence-mysql-executor.e2e-spec.ts"
+      ]
+    },
+    {
+      "driverSpecific": false,
+      "id": "mysql-engine-error-wrapped",
+      "defect": "DEV-3848 (db-agnostic phase 6): TypeORM and Drizzle wrap the driver's error; the store maps duplicate keys, too-long values and failed checks by the error number the wrapper hides",
+      "file": "src/core/common/persistence/sql/mysql/mysql-executor.ts",
+      "find": "      return inner;",
+      "replace": "      return error;",
+      "specs": [
+        "tests/persistence-mysql-executor.e2e-spec.ts"
+      ]
+    },
+    {
+      "driverSpecific": false,
+      "id": "sql-path-accepts-prototype-names",
+      "defect": "DEV-3848 (db-agnostic phase 6, review): a path segment __proto__ / constructor / prototype reached the MySQL update compiler, which built its parent skeleton from the segments and wrote into Object.prototype — bypassTenantGuard inherited by every request context, tenant isolation off process-wide",
+      "file": "src/core/common/persistence/sql/sql-naming.ts",
+      "find": "  return IDENTIFIER.test(segment) && !RESERVED_SEGMENTS.has(segment);",
+      "replace": "  return IDENTIFIER.test(segment);",
+      "specs": [
+        "tests/unit/mysql-update-compiler.spec.ts"
+      ]
+    },
+    {
+      "driverSpecific": false,
+      "id": "mysql-unknown-update-operator-dropped",
+      "defect": "DEV-3848 (db-agnostic phase 6, review): an update operator the MySQL compiler cannot express would be dropped: $max answered success and changed nothing",
+      "file": "src/core/common/persistence/sql/mysql/mysql-update.compiler.ts",
+      "find": "            throw new UnsupportedQueryError(`${operator} is not supported on SQL`);",
+      "replace": "            break;",
+      "specs": [
+        "tests/unit/mysql-update-compiler.spec.ts"
+      ]
+    },
+    {
+      "driverSpecific": false,
+      "id": "mysql-update-conflict-accepted",
+      "defect": "DEV-3848 (db-agnostic phase 6, review): two operators on one path would compile to one expression reading the stored value, so the second silently wins ($inc lost to $set) where MongoDB refuses",
+      "file": "src/core/common/persistence/sql/mysql/mysql-update.compiler.ts",
+      "find": "        throw new UnsupportedQueryError(`Updating the path \"${path}\" would create a conflict at \"${other}\"`);",
+      "replace": "        break;",
+      "specs": [
+        "tests/unit/mysql-update-compiler.spec.ts"
+      ]
+    },
+    {
+      "driverSpecific": false,
+      "id": "mysql-unique-migration-without-sentinel",
+      "defect": "DEV-3848 (db-agnostic phase 6, review): the null sentinel of a new unique index was left out of its migration, so the suggested CREATE UNIQUE INDEX named a missing column and every boot stayed refused",
+      "file": "src/core/common/persistence/sql/mysql/mysql-schema.migrator.ts",
+      "find": "        ...sentinels.map(",
+      "replace": "        ...[].map(",
+      "specs": [
+        "tests/persistence-mysql-schema.e2e-spec.ts"
+      ]
+    },
+    {
+      "driverSpecific": false,
+      "id": "mysql-unique-lookup-scans",
+      "defect": "DEV-3848 (db-agnostic phase 6, review): a unique index on null sentinels cannot serve a filter on the column: every lookup by such a field scanned the table and updateOne/deleteOne locked all of it",
+      "file": "src/core/common/persistence/sql/mysql/mysql-schema.compiler.ts",
+      "find": "    result.push({",
+      "replace": "    void ({",
+      "specs": [
+        "tests/persistence-mysql-schema.e2e-spec.ts"
+      ]
+    },
+    {
+      "driverSpecific": false,
+      "id": "mysql-push-stages-nested",
+      "defect": "DEV-3848 (db-agnostic phase 6, review): pushToArray() with two or three of position, sort and slice nested every stage into a JSON_TABLE argument that reads the row being updated, which MySQL 8.4 refuses (ER_BAD_FIELD_ERROR)",
+      "file": "src/core/common/persistence/sql/mysql/mysql-data-store.ts",
+      "find": "    if (stages.length === 1) {",
+      "replace": "    if (stages.length >= 1) {",
+      "specs": [
+        "tests/persistence-parity.e2e-spec.ts"
+      ]
+    },
+    {
+      "driverSpecific": false,
+      "id": "mysql-count-without-tenant-filter",
+      "defect": "DEV-3848 (db-agnostic phase 6, review): count() on MySQL with the caller's filter alone counted every tenant's rows — aggregates pass no row check and MySQL has no row-level security",
+      "file": "src/core/common/persistence/sql/mysql/mysql-data-store.ts",
+      "find": "      text: `SELECT COUNT(*) AS n FROM ${this.table} WHERE ${this.where(where, params)}`,",
+      "replace": "      text: `SELECT COUNT(*) AS n FROM ${this.table} WHERE ${this.compileWhere((where ?? {}) as Where, params)}`,",
+      "specs": [
+        "tests/persistence-parity.e2e-spec.ts"
+      ]
+    },
+    {
+      "driverSpecific": false,
+      "id": "mysql-distinct-without-tenant-filter",
+      "defect": "DEV-3848 (db-agnostic phase 6, review): distinct() on MySQL with the caller's filter alone returned every tenant's values",
+      "file": "src/core/common/persistence/sql/mysql/mysql-data-store.ts",
+      "find": "    const condition = this.where(where, params);",
+      "replace": "    const condition = this.compileWhere((where ?? {}) as Where, params);",
+      "specs": [
+        "tests/persistence-parity.e2e-spec.ts"
+      ]
+    },
+    {
+      "driverSpecific": false,
+      "id": "sql-array-update-without-tenant-filter",
+      "defect": "DEV-3848 (db-agnostic phase 6, review): pushToArray()/pullFromArray() write without reading the row back; with the id filter alone a tenant could change another tenant's array on MySQL",
+      "file": "src/core/common/persistence/sql/sql-data-store.ts",
+      "find": "      text: `UPDATE ${this.table} SET ${assignments.join(', ')} WHERE ${this.where({ id } as Where<T>, params)}`,\n    });\n  }",
+      "replace": "      text: `UPDATE ${this.table} SET ${assignments.join(', ')} WHERE ${this.compileWhere({ id } as Where, params)}`,\n    });\n  }",
+      "specs": [
+        "tests/persistence-parity.e2e-spec.ts"
+      ]
+    },
+    {
+      "driverSpecific": false,
+      "id": "mysql-push-roles-unguarded",
+      "defect": "DEV-3848 (db-agnostic phase 6, review): without the role guard in pushToArray() a caller without the right to change roles could push admin into a roles array on MySQL",
+      "file": "src/core/common/persistence/sql/mysql/mysql-data-store.ts",
+      "find": "      if (this.roleGuardEnabled() && !isRoleChangeAllowed()) {",
+      "replace": "      if (false) {",
+      "specs": [
+        "tests/persistence-parity.e2e-spec.ts"
+      ]
+    },
+    {
+      "driverSpecific": false,
+      "id": "suppression-unnamed-fix-not-looked-up",
+      "defect": "12.0.x — an advisory without a named `first_patched_version` was skipped with a bare `continue`, so its suppression passed every run while a release outside the vulnerable range sat on the registry (node-forge 1.4.1 against GHSA-86w9-cpqp-85rv). The mutation restores the skip: the registry is never asked.",
+      "file": "scripts/check-overrides.mjs",
+      "find": "      const verdict = await registryFix(info);",
+      "replace": "      const verdict = { kind: 'none' };",
+      "specs": [
+        "tests/unit/check-overrides.guard.spec.ts"
+      ]
+    },
+    {
+      "driverSpecific": false,
+      "id": "suppression-unnamed-fix-ignores-release-age",
+      "defect": "12.0.x — a registry fix younger than the workspace's `minimumReleaseAge` is one pnpm still refuses; failing on it would order a `minimumReleaseAgeExclude` entry nobody decided on. The mutation takes the smallest candidate whatever its publish time.",
+      "file": "scripts/check-overrides.mjs",
+      "find": "    const mature = candidates.find((v) => now - Date.parse(time[v] ?? '') >= gateMs);",
+      "replace": "    const mature = candidates[0];",
+      "specs": [
+        "tests/unit/check-overrides.guard.spec.ts"
+      ]
+    },
+    {
+      "driverSpecific": false,
+      "id": "suppression-unnamed-fix-takes-vulnerable-release",
+      "defect": "12.0.x — a registry fix must leave EVERY range the advisory lists for the package; a release inside a later vulnerable line is no way out. The mutation drops that filter, so a still-vulnerable release is named as the fix.",
+      "file": "scripts/check-overrides.mjs",
+      "find": "      .filter((v) => ranges.every((range) => inVulnerableRange(v, range) === false))\n",
+      "replace": "",
+      "specs": [
+        "tests/unit/check-overrides.guard.spec.ts"
+      ]
+    },
+    {
+      "driverSpecific": false,
+      "id": "suppression-unnamed-fix-ignores-tree",
+      "defect": "12.0.x — once no version the lockfile resolves is in the vulnerable range, the suppression hides nothing (nuxt-base-starter's image-size suppressions outlived the package by a release cycle). The mutation drops the NOT IN TREE verdict, so the entry passes.",
+      "file": "scripts/check-overrides.mjs",
+      "find": "        obsoleteSuppressions.push({ id, ...info, absent: verdict.detail });",
+      "replace": "",
+      "specs": [
+        "tests/unit/check-overrides.guard.spec.ts"
+      ]
+    },
+    {
+      "driverSpecific": false,
+      "id": "suppression-unnamed-fix-rules-out-deprecated",
+      "defect": "12.0.x — a registry fix may be a deprecated release when every release outside the vulnerable range is deprecated (node-sass deprecated all 132 of its stable releases; GHSA-r8f7-9pfq-mjmv is fixed in 7.0.0). The mutation rules deprecated releases out, so such a package reads as having no fix and its suppression holds for good.",
+      "file": "scripts/check-overrides.mjs",
+      "find": "    const candidates = supported.length > 0 ? supported : outside;\n",
+      "replace": "    const candidates = supported;\n",
+      "specs": [
+        "tests/unit/check-overrides.guard.spec.ts"
+      ]
+    },
+    {
+      "driverSpecific": false,
+      "id": "suppression-unnamed-fix-prefers-deprecated",
+      "defect": "12.0.x — a deprecated release is only the fallback: where a supported release leaves the vulnerable range too, that one is the fix to name. The mutation treats deprecated releases like any other, so a smaller deprecated release is named.",
+      "file": "scripts/check-overrides.mjs",
+      "find": "    const candidates = supported.length > 0 ? supported : outside;\n",
+      "replace": "    const candidates = outside;\n",
+      "specs": [
+        "tests/unit/check-overrides.guard.spec.ts"
+      ]
+    },
+    {
+      "driverSpecific": false,
+      "id": "legacy-rate-limit-keyed-on-url",
+      "defect": "11.43.4 / 12.1.0 — the legacy REST rate-limit bucket was keyed on the last segment of request.url, query string included: /auth/signin?n=1, ?n=2, … each got a fresh bucket, so password guessing never reached the limit. The mutation keys the endpoint on the URL again.",
+      "file": "src/core/modules/auth/guards/legacy-auth-rate-limit.guard.ts",
+      "find": "    const endpoint = context.getHandler()?.name || 'unknown';\n",
+      "replace": "    const endpoint = (request.url || request.path || '').split('/').pop() || 'unknown';\n",
+      "specs": [
+        "tests/unit/legacy-auth-rate-limit-guard.spec.ts"
+      ]
     }
   ]
 }

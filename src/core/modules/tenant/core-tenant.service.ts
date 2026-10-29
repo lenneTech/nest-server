@@ -1,11 +1,13 @@
 import { BadRequestException, Injectable, Logger, NotFoundException, Optional } from '@nestjs/common';
-import { InjectModel } from '@nestjs/mongoose';
-import { Model } from 'mongoose';
+import { InjectModel } from '../../common/persistence/mongo/mongoose-compat.js';
+import type { Model } from 'mongoose';
 
 import { looksLikeGlobalOnlyRole, looksLikeSystemRole, SYSTEM_ROLE_PREFIX } from '../../common/enums/role.enum.js';
+import type { DataStore } from '../../common/persistence/data-store.interface.js';
 import { ConfigService } from '../../common/services/config.service.js';
 import { RequestContext } from '../../common/services/request-context.service.js';
 import { CoreTenantMemberModel } from './core-tenant-member.model.js';
+import { routedMemberStore } from './core-tenant-member.store.js';
 import { DEFAULT_ROLE_HIERARCHY, TENANT_MEMBER_MODEL_TOKEN, TenantMemberStatus } from './core-tenant.enums.js';
 import { CoreTenantGuard } from './core-tenant.guard.js';
 
@@ -36,6 +38,11 @@ export class CoreTenantService {
     @InjectModel(TENANT_MEMBER_MODEL_TOKEN) protected readonly memberModel: Model<CoreTenantMemberModel>,
     @Optional() protected readonly tenantGuard?: CoreTenantGuard,
   ) {}
+
+  /** The membership store when the model is routed to SQL; `undefined` keeps the Mongoose path (MongoDB) */
+  protected get memberStore(): DataStore<any> | undefined {
+    return routedMemberStore(this.memberModel);
+  }
 
   /**
    * Get the configured role hierarchy.
@@ -68,6 +75,11 @@ export class CoreTenantService {
    * Find all active tenant memberships for a user.
    */
   async findMemberships(userId: string): Promise<CoreTenantMemberModel[]> {
+    if (this.memberStore) {
+      return this.memberStore.find({ status: TenantMemberStatus.ACTIVE, user: userId }) as Promise<
+        CoreTenantMemberModel[]
+      >;
+    }
     return this.memberModel.find({ status: TenantMemberStatus.ACTIVE, user: userId }).lean().exec() as Promise<
       CoreTenantMemberModel[]
     >;
@@ -92,6 +104,9 @@ export class CoreTenantService {
    * For an authorization check use {@link getActiveMembership}.
    */
   async getMembership(tenantId: string, userId: string): Promise<CoreTenantMemberModel | null> {
+    if (this.memberStore) {
+      return this.memberStore.findOne({ tenant: tenantId, user: userId }) as Promise<CoreTenantMemberModel | null>;
+    }
     return this.memberModel
       .findOne({ tenant: tenantId, user: userId })
       .lean()
@@ -111,10 +126,11 @@ export class CoreTenantService {
       return null;
     }
 
-    return this.memberModel
-      .findOne({ status: TenantMemberStatus.ACTIVE, tenant: tenantId, user: userId })
-      .lean()
-      .exec() as Promise<CoreTenantMemberModel | null>;
+    const where = { status: TenantMemberStatus.ACTIVE, tenant: tenantId, user: userId };
+    if (this.memberStore) {
+      return this.memberStore.findOne(where) as Promise<CoreTenantMemberModel | null>;
+    }
+    return this.memberModel.findOne(where).lean().exec() as Promise<CoreTenantMemberModel | null>;
   }
 
   /**
@@ -146,33 +162,40 @@ export class CoreTenantService {
       }
       // Reactivate suspended/invited membership
       return RequestContext.runWithBypassTenantGuard(async () => {
-        const result = (await this.memberModel
-          .findOneAndUpdate(
-            { tenant: tenantId, user: userId },
-            {
-              invitedBy: invitedById,
-              joinedAt: new Date(),
-              role: effectiveRole,
-              status: TenantMemberStatus.ACTIVE,
-            },
-            { returnDocument: 'after' },
-          )
-          .lean()
-          .exec()) as CoreTenantMemberModel;
+        const reactivation = {
+          invitedBy: invitedById,
+          joinedAt: new Date(),
+          role: effectiveRole,
+          status: TenantMemberStatus.ACTIVE,
+        };
+        const result = (
+          this.memberStore
+            ? await this.memberStore.updateOne({ tenant: tenantId, user: userId }, reactivation)
+            : await this.memberModel
+                .findOneAndUpdate({ tenant: tenantId, user: userId }, reactivation, { returnDocument: 'after' })
+                .lean()
+                .exec()
+        ) as CoreTenantMemberModel;
         this.tenantGuard?.invalidateUser(userId);
         return result;
       });
     }
 
     return RequestContext.runWithBypassTenantGuard(async () => {
-      const doc = await this.memberModel.create({
+      const member = {
         invitedBy: invitedById,
         joinedAt: new Date(),
         role: effectiveRole,
         status: TenantMemberStatus.ACTIVE,
         tenant: tenantId,
         user: userId,
-      });
+      };
+      if (this.memberStore) {
+        const created = await this.memberStore.insert(member);
+        this.tenantGuard?.invalidateUser(userId);
+        return created as CoreTenantMemberModel;
+      }
+      const doc = await this.memberModel.create(member);
       this.tenantGuard?.invalidateUser(userId);
       return doc.toObject() as CoreTenantMemberModel;
     });
@@ -192,14 +215,13 @@ export class CoreTenantService {
     await this.assertNotLastOwner(tenantId, userId);
 
     return RequestContext.runWithBypassTenantGuard(async () => {
-      const result = await this.memberModel
-        .findOneAndUpdate(
-          { status: TenantMemberStatus.ACTIVE, tenant: tenantId, user: userId },
-          { status: TenantMemberStatus.SUSPENDED },
-          { returnDocument: 'after' },
-        )
-        .lean()
-        .exec();
+      const where = { status: TenantMemberStatus.ACTIVE, tenant: tenantId, user: userId };
+      const result = this.memberStore
+        ? await this.memberStore.updateOne(where, { status: TenantMemberStatus.SUSPENDED })
+        : await this.memberModel
+            .findOneAndUpdate(where, { status: TenantMemberStatus.SUSPENDED }, { returnDocument: 'after' })
+            .lean()
+            .exec();
 
       if (!result) {
         throw new NotFoundException('Membership not found');
@@ -237,14 +259,10 @@ export class CoreTenantService {
     }
 
     return RequestContext.runWithBypassTenantGuard(async () => {
-      const result = await this.memberModel
-        .findOneAndUpdate(
-          { status: TenantMemberStatus.ACTIVE, tenant: tenantId, user: userId },
-          { role },
-          { returnDocument: 'after' },
-        )
-        .lean()
-        .exec();
+      const where = { status: TenantMemberStatus.ACTIVE, tenant: tenantId, user: userId };
+      const result = this.memberStore
+        ? await this.memberStore.updateOne(where, { role })
+        : await this.memberModel.findOneAndUpdate(where, { role }, { returnDocument: 'after' }).lean().exec();
 
       if (!result) {
         throw new NotFoundException('Active membership not found');
@@ -267,11 +285,10 @@ export class CoreTenantService {
     const highestRole = this.getHighestRole();
 
     return RequestContext.runWithBypassTenantGuard(async () => {
-      const ownerCount = await this.memberModel.countDocuments({
-        role: highestRole,
-        status: TenantMemberStatus.ACTIVE,
-        tenant: tenantId,
-      });
+      const owners = { role: highestRole, status: TenantMemberStatus.ACTIVE, tenant: tenantId };
+      const ownerCount = this.memberStore
+        ? await this.memberStore.count(owners)
+        : await this.memberModel.countDocuments(owners);
 
       if (ownerCount <= 1) {
         const membership = await this.getActiveMembership(tenantId, userId);

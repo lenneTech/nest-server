@@ -9,18 +9,23 @@ import {
   Optional,
   UnauthorizedException,
 } from '@nestjs/common';
-import { Reflector } from '@nestjs/core';
+import { ModuleRef, Reflector } from '@nestjs/core';
 import { GqlExecutionContext } from '@nestjs/graphql';
-import { InjectModel } from '@nestjs/mongoose';
-import { Model } from 'mongoose';
+import { InjectModel } from '../../common/persistence/mongo/mongoose-compat.js';
+import type { Model } from 'mongoose';
+import { firstValueFrom, isObservable } from 'rxjs';
 
 import { RoleEnum } from '../../common/enums/role.enum.js';
+import { ROLE_GUARD } from '../auth/guards/role-guard.token.js';
 import { resolveGuardRequest } from '../../common/helpers/execution-context-request.helper.js';
 import {
   revalidateAllWsConnections,
   revalidateWsConnectionsForTenant,
   revalidateWsConnectionsOf,
 } from '../../common/helpers/graphql-ws-connection.helper.js';
+import { DataSourceConfigError } from '../../common/persistence/data-source.config.js';
+import type { DataStore } from '../../common/persistence/data-store.interface.js';
+import { getStoreToken } from '../../common/persistence/persistence.tokens.js';
 import { ConfigService } from '../../common/services/config.service.js';
 import { ResolvedTenantContext, setTenantContextResolver } from '../../common/services/core-tenant-context.registry.js';
 import { CoreRedisService } from '../../common/services/core-redis.service.js';
@@ -33,6 +38,7 @@ import {
 } from '../api-token/core-api-token.helpers.js';
 import { ErrorCode } from '../error-code/error-codes.js';
 import { CoreTenantMemberModel } from './core-tenant-member.model.js';
+import { routedMemberStore } from './core-tenant-member.store.js';
 import { registerActiveTenantGuard } from './core-tenant-guard.registry.js';
 import { SKIP_TENANT_CHECK_KEY } from './core-tenant.decorators.js';
 import { TENANT_MEMBER_MODEL_TOKEN, TenantMemberStatus } from './core-tenant.enums.js';
@@ -171,6 +177,7 @@ export class CoreTenantGuard implements CanActivate, OnApplicationBootstrap, OnM
     private readonly reflector: Reflector,
     @InjectModel(TENANT_MEMBER_MODEL_TOKEN) private readonly memberModel: Model<CoreTenantMemberModel>,
     @Optional() protected readonly redisService?: CoreRedisService,
+    @Optional() protected readonly moduleRef?: ModuleRef,
   ) {
     // Clean up expired cache entries every 60 seconds
     this.cleanupInterval = setInterval(() => this.evictExpired(), 60_000);
@@ -188,6 +195,31 @@ export class CoreTenantGuard implements CanActivate, OnApplicationBootstrap, OnM
     // Lets the role guards delegate non-system roles to this guard — only while it exists.
     this.releaseTenantGuard = registerActiveTenantGuard();
   }
+
+  /**
+   * The data store of a model registered with `CorePersistenceModule.forFeature()` in THIS application, for the
+   * `isTenantActive` hook — the tenant model may live in a SQL database, where `connection` cannot reach it.
+   *
+   * Throws for a model that is not registered that way, never answers `undefined`: the hook decides whether a
+   * deactivated tenant stays locked, and `store('Tenant')?.findById(id)` on an unregistered model would read as
+   * "active" — every tenant open, without a log line. A thrown error refuses the request instead.
+   */
+  protected readonly storeOf = (modelName: string): DataStore<any> => {
+    let store: DataStore<any> | undefined;
+    try {
+      store = this.moduleRef?.get(getStoreToken(modelName), { strict: false });
+    } catch {
+      store = undefined;
+    }
+    if (!store) {
+      throw new DataSourceConfigError(
+        `multiTenancy.isTenantActive asked for the store of '${modelName}', which is not registered with ` +
+          'CorePersistenceModule.forFeature() in this application — register it there, or look the tenant up ' +
+          'through context.connection',
+      );
+    }
+    return store;
+  };
 
   /** Releases this guard's registration (see core-tenant-guard.registry.ts). */
   private releaseTenantGuard?: () => void;
@@ -458,6 +490,14 @@ export class CoreTenantGuard implements CanActivate, OnApplicationBootstrap, OnM
       return true;
     }
 
+    // Global guards run in registration order, and CoreModule registers this module AHEAD of a project's AuthModule:
+    // with legacy JWTs (no middleware identifies them) the role guard has not run yet and nobody is on the request.
+    // The documented order is role guard, then tenant guard — so let this application's role guard identify the
+    // caller first. It decides exactly what it would decide right after this guard, so its 401/403 is the answer.
+    if (!request.user) {
+      await this.identifyThroughRoleGuard(context);
+    }
+
     const user = request.user;
     const adminBypass = config.adminBypass !== false;
     const isAdmin = adminBypass && user?.roles?.includes(RoleEnum.ADMIN);
@@ -679,14 +719,11 @@ export class CoreTenantGuard implements CanActivate, OnApplicationBootstrap, OnM
       }
     }
 
-    const memberships = await this.memberModel
-      .find({
-        status: TenantMemberStatus.ACTIVE,
-        user: userId,
-      })
-      .select('tenant role')
-      .lean()
-      .exec();
+    const active = { status: TenantMemberStatus.ACTIVE, user: userId };
+    const memberStore = routedMemberStore(this.memberModel);
+    const memberships = memberStore
+      ? await memberStore.find(active, { select: ['tenant', 'role'] })
+      : await this.memberModel.find(active).select('tenant role').lean().exec();
 
     let ids: string[];
     if (minLevel !== undefined) {
@@ -824,6 +861,32 @@ export class CoreTenantGuard implements CanActivate, OnApplicationBootstrap, OnM
   }
 
   /**
+   * Run this application's role guard when no caller is identified yet — see canActivate(). A no-op without one (a
+   * custom guard chain) and when the role guard is this guard.
+   */
+  protected async identifyThroughRoleGuard(context: ExecutionContext): Promise<void> {
+    let roleGuard: CanActivate | undefined;
+    try {
+      roleGuard = this.moduleRef?.get<CanActivate>(ROLE_GUARD, { strict: false });
+    } catch {
+      return;
+    }
+    if (roleGuard && roleGuard !== (this as CanActivate)) {
+      const result = roleGuard.canActivate(context);
+      await (isObservable(result) ? firstValueFrom(result) : result);
+    }
+  }
+
+  /** The active membership, from the membership store of the database the model is routed to */
+  private async findActiveMembership(userId: string, tenantId: string): Promise<CoreTenantMemberModel | null> {
+    const where = { status: TenantMemberStatus.ACTIVE, tenant: tenantId, user: userId };
+    const memberStore = routedMemberStore(this.memberModel);
+    return (
+      memberStore ? await memberStore.findOne(where) : await this.memberModel.findOne(where).lean().exec()
+    ) as CoreTenantMemberModel | null;
+  }
+
+  /**
    * Look up a membership with process-level TTL cache.
    * Avoids repeated DB queries when the same user accesses the same tenant repeatedly.
    */
@@ -832,10 +895,7 @@ export class CoreTenantGuard implements CanActivate, OnApplicationBootstrap, OnM
 
     // Cache disabled (ttl = 0): always query DB
     if (ttl <= 0) {
-      return this.memberModel
-        .findOne({ status: TenantMemberStatus.ACTIVE, tenant: tenantId, user: userId })
-        .lean()
-        .exec() as Promise<CoreTenantMemberModel | null>;
+      return this.findActiveMembership(userId, tenantId);
     }
 
     const key = `${userId}:${tenantId}`;
@@ -846,14 +906,7 @@ export class CoreTenantGuard implements CanActivate, OnApplicationBootstrap, OnM
       return cached.result;
     }
 
-    const result = (await this.memberModel
-      .findOne({
-        status: TenantMemberStatus.ACTIVE,
-        tenant: tenantId,
-        user: userId,
-      })
-      .lean()
-      .exec()) as CoreTenantMemberModel | null;
+    const result = await this.findActiveMembership(userId, tenantId);
 
     // Only cache positive results (active membership found).
     // Negative results (null) are NOT cached to ensure that:
@@ -928,7 +981,7 @@ export class CoreTenantGuard implements CanActivate, OnApplicationBootstrap, OnM
         return cached.active;
       }
     }
-    const active = (await hook(tenantId, { connection: this.memberModel.db })) !== false;
+    const active = (await hook(tenantId, { connection: this.memberModel.db, store: this.storeOf })) !== false;
     if (ttl > 0) {
       this.evictIfOverCapacity(this.tenantActiveCache);
       this.tenantActiveCache.set(tenantId, { active, expiresAt: now + ttl });

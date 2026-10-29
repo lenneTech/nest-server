@@ -17,7 +17,6 @@
 
 import { Test, TestingModule } from '@nestjs/testing';
 import { PubSub } from 'graphql-subscriptions';
-import { MongoClient, ObjectId } from 'mongodb';
 import { vi } from 'vitest';
 
 import {
@@ -30,6 +29,7 @@ import {
 } from '../../src';
 import envConfig from '../../src/config.env';
 import { ServerModule } from '../../src/server/server.module';
+import { type IamTestDb, openIamTestDb } from '../helpers/iam-test-db';
 
 describe('Story: BetterAuth Email Verification and Sign-Up Checks', () => {
   // Test environment properties
@@ -41,12 +41,11 @@ describe('Story: BetterAuth Email Verification and Sign-Up Checks', () => {
   let isBetterAuthEnabled: boolean;
 
   // Database
-  let mongoClient: MongoClient;
-  let db;
+  // The database the run routes the users to (MongoDB, or PostgreSQL in the iam-sql projects)
+  let iamDb: IamTestDb;
 
   // Test data tracking
   const testUserIds: string[] = [];
-  const testIamUserIds: string[] = [];
   const testEmails: string[] = [];
 
   // ===================================================================================================================
@@ -77,8 +76,7 @@ describe('Story: BetterAuth Email Verification and Sign-Up Checks', () => {
       signUpValidator = moduleFixture.get(CoreBetterAuthSignUpValidatorService);
       isBetterAuthEnabled = betterAuthService.isEnabled();
 
-      mongoClient = await MongoClient.connect(envConfig.mongoose.uri);
-      db = mongoClient.db();
+      iamDb = await openIamTestDb(envConfig.mongoose.uri);
     } catch (e) {
       console.error('beforeAllError', e);
       throw e;
@@ -87,36 +85,12 @@ describe('Story: BetterAuth Email Verification and Sign-Up Checks', () => {
 
   afterAll(async () => {
     // Cleanup test users
-    if (db) {
-      for (const userId of testUserIds) {
-        try {
-          await db.collection('users').deleteOne({ _id: new ObjectId(userId) });
-        } catch {
-          // Ignore cleanup errors
-        }
-      }
-      // Cleanup Better-Auth users and sessions
-      for (const iamId of testIamUserIds) {
-        try {
-          await db.collection('iam_user').deleteOne({ _id: iamId });
-          await db.collection('iam_session').deleteMany({ userId: iamId });
-          await db.collection('iam_account').deleteMany({ userId: iamId });
-        } catch {
-          // Ignore cleanup errors
-        }
-      }
-      // Cleanup by email
+    if (iamDb) {
+      await iamDb.deleteUsers({ ids: testUserIds });
       for (const email of testEmails) {
-        try {
-          await db.collection('users').deleteMany({ email });
-          await db.collection('iam_user').deleteMany({ email });
-        } catch {
-          // Ignore cleanup errors
-        }
+        await iamDb.deleteUsers({ email });
       }
-    }
-    if (mongoClient) {
-      await mongoClient.close();
+      await iamDb.close();
     }
     if (app) {
       await app.close();
@@ -426,9 +400,9 @@ describe('Story: BetterAuth Email Verification and Sign-Up Checks', () => {
       expect(response.success).toBe(true);
       if (response.user?.id) {
         // Find the corresponding user in our database
-        const user = await db.collection('users').findOne({ email });
+        const user = await iamDb.findUser({ email });
         if (user) {
-          testUserIds.push(user._id.toString());
+          testUserIds.push(user.id);
         }
       }
     });
@@ -454,14 +428,14 @@ describe('Story: BetterAuth Email Verification and Sign-Up Checks', () => {
 
       if (response.success) {
         // Check if termsAndPrivacyAcceptedAt was stored
-        const user = await db.collection('users').findOne({ email });
+        const user = await iamDb.findUser({ email });
         expect(user).toBeDefined();
         expect(user?.termsAndPrivacyAcceptedAt).toBeDefined();
         expect(user?.termsAndPrivacyAcceptedAt instanceof Date).toBe(true);
 
         // Track for cleanup
         if (user) {
-          testUserIds.push(user._id.toString());
+          testUserIds.push(user.id);
         }
       }
     });
@@ -478,18 +452,18 @@ describe('Story: BetterAuth Email Verification and Sign-Up Checks', () => {
       testEmails.push(email);
 
       const now = new Date();
-      const result = await db.collection('users').insertOne({
+      const insertedId = await iamDb.insertUser({
         createdAt: now,
         email,
         termsAndPrivacyAcceptedAt: now,
         updatedAt: now,
       });
 
-      expect(result.insertedId).toBeDefined();
-      testUserIds.push(result.insertedId.toString());
+      expect(insertedId).toBeDefined();
+      testUserIds.push(insertedId);
 
       // Verify the field was stored correctly
-      const user = await db.collection('users').findOne({ _id: result.insertedId });
+      const user = await iamDb.findUser({ id: insertedId });
       expect(user?.termsAndPrivacyAcceptedAt).toEqual(now);
     });
   });
@@ -567,8 +541,7 @@ describe('Story: BetterAuth Email Verification and Sign-Up Checks', () => {
       await new Promise<void>((resolve) => setTimeout(resolve, 200));
 
       // Explicitly mark as NOT verified in both DBs
-      await db.collection('users').updateOne({ email }, { $set: { emailVerified: false, verified: false } });
-      await db.collection('iam_user').updateOne({ email }, { $set: { emailVerified: false } });
+      await iamDb.updateUser({ email }, { emailVerified: false, verified: false });
 
       await new Promise<void>((resolve) => setTimeout(resolve, 200));
 
@@ -601,8 +574,7 @@ describe('Story: BetterAuth Email Verification and Sign-Up Checks', () => {
       await new Promise<void>((resolve) => setTimeout(resolve, 200));
 
       // Explicitly mark as NOT verified in both DBs
-      await db.collection('users').updateOne({ email }, { $set: { emailVerified: false, verified: false } });
-      await db.collection('iam_user').updateOne({ email }, { $set: { emailVerified: false } });
+      await iamDb.updateUser({ email }, { emailVerified: false, verified: false });
 
       await new Promise<void>((resolve) => setTimeout(resolve, 200));
 
@@ -644,8 +616,7 @@ describe('Story: BetterAuth Email Verification and Sign-Up Checks', () => {
       await new Promise<void>((resolve) => setTimeout(resolve, 200));
 
       // Explicitly mark as NOT verified
-      await db.collection('users').updateOne({ email }, { $set: { emailVerified: false, verified: false } });
-      await db.collection('iam_user').updateOne({ email }, { $set: { emailVerified: false } });
+      await iamDb.updateUser({ email }, { emailVerified: false, verified: false });
 
       await new Promise<void>((resolve) => setTimeout(resolve, 200));
 

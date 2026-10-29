@@ -3,7 +3,8 @@ import { ModuleRef } from '@nestjs/core';
 import { FileStore } from '@tus/file-store';
 import { Server, Upload } from '@tus/server';
 import * as fs from 'fs';
-import { type Connection, mongo } from 'mongoose';
+import type { Connection } from 'mongoose';
+import type { mongo } from 'mongoose';
 import * as path from 'path';
 import { Readable } from 'stream';
 
@@ -14,13 +15,10 @@ import { ConfigService } from '../../common/services/config.service.js';
 import { CoreRedisService } from '../../common/services/core-redis.service.js';
 import { CoreS3Service } from '../../common/services/core-s3.service.js';
 import { getTenantContextResolver } from '../../common/services/core-tenant-context.registry.js';
+import { fileMetadataCollection } from '../file/file-metadata.store.js';
 import { resolveFileStorage } from '../file/file-storage.helper.js';
-import {
-  DEFAULT_FILESYSTEM_DIR,
-  FILESYSTEM_FILES_COLLECTION,
-  FilesystemFileHelper,
-} from '../file/filesystem-file.helper.js';
-import { S3_FILES_COLLECTION, S3FileHelper } from '../file/s3-file.helper.js';
+import { DEFAULT_FILESYSTEM_DIR, FilesystemFileHelper } from '../file/filesystem-file.helper.js';
+import { S3FileHelper } from '../file/s3-file.helper.js';
 import { TUS_FILE_ID_HEADER, TUS_OWNER_METADATA_KEY, TUS_TENANT_METADATA_KEY } from './tus.constants.js';
 import { TusRedisLocker } from './tus-redis-locker.js';
 import {
@@ -29,6 +27,7 @@ import {
   normalizeTusConfig,
   parseExpirationTime,
 } from './interfaces/tus-config.interface.js';
+import { createGridFsBucket } from '../../common/persistence/mongo/mongoose-compat.js';
 
 /**
  * Optional dependencies of CoreTusService.
@@ -141,8 +140,8 @@ export class CoreTusService implements OnModuleDestroy, OnModuleInit {
       return;
     }
 
-    // Initialize GridFS bucket
-    this.files = new mongo.GridFSBucket(this.connection.db, { bucketName: 'fs' });
+    // Initialize GridFS bucket — where MongoDB is connected; finished uploads go to GridFS only on that driver
+    this.files = this.connection?.db ? createGridFsBucket(this.connection.db, { bucketName: 'fs' }) : undefined;
 
     // Ensure upload directory exists
     const uploadDir = this.config.uploadDir || DEFAULT_TUS_CONFIG.uploadDir;
@@ -233,7 +232,7 @@ export class CoreTusService implements OnModuleDestroy, OnModuleInit {
       if (this.canCopyWithinS3(upload)) {
         const fileInfo = await S3FileHelper.copyFile(
           this.options.s3Service,
-          this.connection.db.collection(S3_FILES_COLLECTION),
+          fileMetadataCollection(this.connection, 's3'),
           {
             contentLength: upload.size,
             contentType,
@@ -260,14 +259,14 @@ export class CoreTusService implements OnModuleDestroy, OnModuleInit {
       if (this.fileStorageDriver === 'filesystem') {
         fileInfo = await FilesystemFileHelper.writeFile(
           this.fileStorageDir,
-          this.connection.db.collection(FILESYSTEM_FILES_COLLECTION),
+          fileMetadataCollection(this.connection, 'filesystem'),
           { body: readStream, contentType, filename, metadata: fileMetadata },
         );
         this.logger.debug(`Upload ${upload.id} migrated to the filesystem as ${fileInfo._id} (filename: ${filename})`);
       } else if (this.s3FileStorage) {
         fileInfo = await S3FileHelper.writeFile(
           this.options.s3Service,
-          this.connection.db.collection(S3_FILES_COLLECTION),
+          fileMetadataCollection(this.connection, 's3'),
           // Streamed with the length TUS already knows, so a multi-GB resumable upload is never
           // materialised in memory.
           { body: readStream, contentLength: upload.size, contentType, filename, metadata: fileMetadata },

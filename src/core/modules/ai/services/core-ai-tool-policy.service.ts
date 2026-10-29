@@ -1,6 +1,6 @@
 import { Inject, Injectable, Logger } from '@nestjs/common';
-import { InjectModel } from '@nestjs/mongoose';
-import { Model } from 'mongoose';
+import { InjectModel } from '../../../common/persistence/mongo/mongoose-compat.js';
+import type { Model } from 'mongoose';
 
 import { CrudService } from '../../../common/services/crud.service.js';
 import type { CoreModelConstructor } from '../../../common/types/core-model-constructor.type.js';
@@ -77,14 +77,11 @@ export class CoreAiToolPolicyService extends CrudService<CoreAiToolPolicy, CoreA
 
     let policies: CoreAiToolPolicy[] = [];
     try {
-      policies = await this.mainDbModel
-        .find({
-          $or: refCandidates.map((c) => ({ refId: c.refId ?? null, scope: c.scope })),
-          enabled: { $ne: false },
-          tool,
-        })
-        .lean<CoreAiToolPolicy[]>()
-        .exec();
+      policies = (await this.dataStore.find({
+        $or: refCandidates.map((c) => ({ refId: c.refId ?? null, scope: c.scope })),
+        enabled: { $ne: false },
+        tool,
+      })) as CoreAiToolPolicy[];
     } catch {
       return undefined;
     }

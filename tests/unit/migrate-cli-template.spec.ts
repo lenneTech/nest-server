@@ -25,7 +25,17 @@ import {
   vendoredFrameworkSpecifier,
 } from '../../src/core/modules/migrate/cli/migrate-cli';
 
-const TEMPLATE = join(__dirname, '..', '..', 'src', 'core', 'modules', 'migrate', 'templates', 'migration-project.template.ts');
+const TEMPLATE = join(
+  __dirname,
+  '..',
+  '..',
+  'src',
+  'core',
+  'modules',
+  'migrate',
+  'templates',
+  'migration-project.template.ts',
+);
 
 const dirs: string[] = [];
 function tempProject(): string {
@@ -85,6 +95,20 @@ describe('migrate create — framework import in vendor-mode projects', () => {
         "import { y } from '@lenne.tech/nest-server/dist/whatever';",
       ].join('\n'),
     );
+  });
+
+  it('writes a SQL migration (--sql) that runs as the owner, importing the vendored core', async () => {
+    const { coreRoot, root } = vendorProject();
+    const migrationsDir = join(root, 'migrations');
+    await createMigration('widen-budget', { migrationsDir, sql: true }, coreRoot);
+
+    const [file] = readdirSync(migrationsDir);
+    const written = readFileSync(join(migrationsDir, file), 'utf-8');
+    expect(file).toMatch(/^\d+-widen-budget\.ts$/);
+    expect(written).toContain("import { runSqlMigration } from '../src/core';");
+    expect(written).toContain('process.env.NSC__DATABASE__OWNER_URL');
+    expect(written).toMatch(/export const up = async \(\) => \{\n\s+await runSqlMigration\(ownerUrl, \[/);
+    expect(written).toMatch(/export const down = async/);
   });
 
   it('writes a migration from the shipped template that imports the vendored core', async () => {

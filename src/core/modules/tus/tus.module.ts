@@ -1,7 +1,7 @@
 import { DynamicModule, Global, Logger, Module, OnModuleInit, Type } from '@nestjs/common';
 import { PATH_METADATA } from '@nestjs/common/constants';
 import { ModuleRef } from '@nestjs/core';
-import { getConnectionToken } from '@nestjs/mongoose';
+import { getConnectionToken } from '../../common/persistence/mongo/mongoose-compat.js';
 import type { Connection } from 'mongoose';
 
 import { ITusConfig } from '../../common/interfaces/server-options.interface.js';

@@ -24,6 +24,7 @@ import {
   containsCastValue,
   MongooseCastErrorFilter,
 } from '../../src/core/common/filters/mongoose-cast-error.filter';
+import { QueryCastError } from '../../src/core/common/persistence/sql/sql-errors';
 import { ErrorCode } from '../../src/core/modules/error-code/error-codes';
 import { captureExpectedLogs } from '../helpers/expected-log-output';
 
@@ -250,6 +251,17 @@ describe('MongooseCastErrorFilter', () => {
     expect(response.statusCode).toBe(HttpStatus.BAD_REQUEST);
     expect((response.body as any).message).toBe(`${ErrorCode.INVALID_FIELD_FORMAT} [owner]`);
     expect(JSON.stringify(response.body)).not.toContain('SecretProbeModelName');
+  });
+
+  it('answers the SQL store’s QueryCastError by the same rule (route 404, body 400, never the model)', () => {
+    const route = httpHost({ body: {}, params: { id: 'upcoming-birthdays' }, query: {} });
+    filter.catch(new QueryCastError('id', 'ObjectId', 'upcoming-birthdays'), route.host);
+    expect(route.response.statusCode).toBe(HttpStatus.NOT_FOUND);
+
+    const body = httpHost({ body: { owner: 'bad' }, params: {} });
+    filter.catch(new QueryCastError('owner', 'ObjectId', 'bad'), body.host);
+    expect(body.response.statusCode).toBe(HttpStatus.BAD_REQUEST);
+    expect((body.response.body as any).message).toBe(`${ErrorCode.INVALID_FIELD_FORMAT} [owner]`);
   });
 
   it('answers a malformed body value with 400 even when the body also carries a huge padding array', () => {

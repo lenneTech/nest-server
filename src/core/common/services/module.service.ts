@@ -1,17 +1,23 @@
 import _ from 'lodash';
-import { Document, Model, Types } from 'mongoose';
+import type { Document, Model } from 'mongoose';
+import type { Types } from 'mongoose';
 
 import { ProcessType } from '../enums/process-type.enum.js';
-import { getStringIds, popAndMap } from '../helpers/db.helper.js';
+import { getStringIds, popAndMap, toPopulateOptions } from '../helpers/db.helper.js';
 import { check } from '../helpers/input.helper.js';
 import { prepareInput, prepareOutput } from '../helpers/service.helper.js';
 import { getTranslatablePropertyKeys, updateLanguage } from '../decorators/translatable.decorator.js';
 import { ServiceOptions } from '../interfaces/service-options.interface.js';
 import { CoreModel } from '../models/core-model.model.js';
+import type { DataStore } from '../persistence/data-store.interface.js';
+import { MongooseDataStore } from '../persistence/mongoose-data-store.js';
+import { populateNeutral } from '../persistence/neutral-populate.js';
+import { getStoreForModel } from '../persistence/persistence-runtime.registry.js';
 import { FieldSelection } from '../types/field-selection.type.js';
 import { ConfigService } from './config.service.js';
 import { ModelRegistry } from './model-registry.service.js';
 import { RequestContext } from './request-context.service.js';
+import { isObjectIdLike } from '../helpers/id.helper.js';
 
 /**
  * Mongoose Model with native driver access paths removed to prevent
@@ -51,21 +57,76 @@ export abstract class ModuleService<T extends CoreModel = any> {
    */
   protected mainDbModel: SafeModel<Document & T>;
 
+  /** Store passed explicitly to the constructor */
+  private explicitDataStore?: DataStore<T>;
+
+  /** Store derived from `mainDbModel`, rebuilt when the model is replaced */
+  private derivedDataStore?: { model: unknown; store: DataStore<T> };
+
+  /**
+   * Database-neutral data store of the main model.
+   *
+   * Derived from `mainDbModel` when none is passed — at access time, not in the constructor, because a
+   * subclass may assign `mainDbModel` after `super()`. Operations whose semantics are identical on every
+   * database run through it already; the Mongoose-document path of the CRUD pipeline stays behind the
+   * store's `mongoosePopulate` capability until a SQL store provides the neutral one.
+   */
+  protected get dataStore(): DataStore<T> | undefined {
+    if (this.explicitDataStore) {
+      return this.explicitDataStore;
+    }
+    if (!this.mainDbModel) {
+      return undefined;
+    }
+    // A model registered with `CorePersistenceModule.forFeature()` is served by the store of its data source — also for
+    // a service that only received the Mongoose model, which is how every existing service is written
+    const routed = getStoreForModel(this.mainDbModel);
+    if (routed) {
+      return routed as DataStore<T>;
+    }
+    if (this.derivedDataStore?.model !== this.mainDbModel) {
+      this.derivedDataStore = {
+        model: this.mainDbModel,
+        store: new MongooseDataStore<T>(this.mainDbModel as unknown as Model<any>),
+      };
+    }
+    return this.derivedDataStore.store;
+  }
+
+  /**
+   * Whether the main model is stored without Mongoose documents (a SQL store): the CRUD pipeline then reads and
+   * writes plain records through `dataStore` and populates references through the stores of their models.
+   */
+  protected get usesNeutralStore(): boolean {
+    const store = this.dataStore;
+    return !!store && !store.capabilities.mongoosePopulate;
+  }
+
   /**
    * Set main properties
    */
   protected constructor(options?: {
     configService?: ConfigService;
+    dataStore?: DataStore<T>;
     mainDbModel?: Model<Document & T>;
     mainModelConstructor?: new (...args: any[]) => T;
   }) {
     this.configService = options?.configService;
     this.mainDbModel = options?.mainDbModel as SafeModel<Document & T>;
+    this.explicitDataStore = options?.dataStore;
+    // A service written against the store alone (`@InjectStore()`) runs on MongoDB too: the Mongoose path of the
+    // pipeline takes the model behind the store
+    if (!this.mainDbModel && options?.dataStore?.capabilities.mongoosePopulate) {
+      this.mainDbModel = options.dataStore.native<SafeModel<Document & T>>(
+        'CrudService pipeline: the Mongoose model behind this data store',
+      );
+    }
     this.mainModelConstructor = options?.mainModelConstructor;
 
     // Auto-register model class for ResponseModelInterceptor lookups
-    if (options?.mainModelConstructor && options?.mainDbModel?.modelName) {
-      ModelRegistry.register(options.mainDbModel.modelName, options.mainModelConstructor);
+    const modelName = this.mainDbModel?.modelName ?? options?.dataStore?.modelName;
+    if (options?.mainModelConstructor && modelName) {
+      ModelRegistry.register(modelName, options.mainModelConstructor);
     }
   }
 
@@ -209,8 +270,15 @@ export abstract class ModuleService<T extends CoreModel = any> {
     // S_CREATOR and S_SELF checks. The full process() pipeline would remove
     // restricted fields, potentially breaking these checks.
     if (config.dbObject && config.checkRights && this.checkRights) {
-      if (typeof config.dbObject === 'string' || config.dbObject instanceof Types.ObjectId) {
-        if (this.mainDbModel) {
+      if (typeof config.dbObject === 'string' || isObjectIdLike(config.dbObject)) {
+        if (this.usesNeutralStore) {
+          const record = await this.dataStore.findById(getStringIds(config.dbObject));
+          if (record) {
+            config.dbObject = (this.mainModelConstructor as any)?.map
+              ? (this.mainModelConstructor as any).map(record)
+              : record;
+          }
+        } else if (this.mainDbModel) {
           const rawDoc = await this.mainDbModel.findById(getStringIds(config.dbObject)).lean().exec();
           if (rawDoc) {
             config.dbObject = (this.mainModelConstructor as any)?.map
@@ -429,6 +497,10 @@ export abstract class ModuleService<T extends CoreModel = any> {
       model?: new (...args: any[]) => T;
     } = {},
   ) {
+    if (this.usesNeutralStore && !options.dbModel) {
+      await populateNeutral(data, toPopulateOptions(fieldsSelection) as any, this.dataStore.modelName);
+      return data;
+    }
     const config = {
       dbModel: this.mainDbModel,
       model: this.mainModelConstructor,

@@ -1,10 +1,16 @@
 import os from 'node:os';
 
 import swc from 'unplugin-swc';
-import { defineConfig } from 'vitest/config';
+import { configDefaults, defineConfig } from 'vitest/config';
 
 import { countOtherActiveRuns } from './tests/e2e-run-slots.mjs';
-import { E2E_TEST_INCLUDE } from './vitest.include-globs.mjs';
+import {
+  E2E_TEST_INCLUDE,
+  IAM_SQL_ENGINES,
+  IAM_SQL_TEST_INCLUDE,
+  POSTGRES_E2E_ENGINE,
+  POSTGRES_E2E_EXCLUDED,
+} from './vitest.include-globs.mjs';
 
 // Low-resource mode — caps parallel forks and raises timeouts so many e2e suites can share one
 // machine's CPU and mongod without starving each other. The failure mode it prevents is real and
@@ -42,8 +48,7 @@ const ACTIVE_E2E_RUNS = countOtherActiveRuns();
 const LOW_RESOURCE_RAW = process.env.CHECK_LOW_RESOURCE;
 const LOW_RESOURCE_FORCED_OFF = LOW_RESOURCE_RAW === '0' || LOW_RESOURCE_RAW === 'false';
 const LOW_RESOURCE_FORCED_ON = !!LOW_RESOURCE_RAW && !LOW_RESOURCE_FORCED_OFF;
-const LOW_RESOURCE_AUTO =
-  LOW_RESOURCE_RAW === undefined && (ACTIVE_E2E_RUNS > 0 || NORMALISED_LOAD >= LOAD_THRESHOLD);
+const LOW_RESOURCE_AUTO = LOW_RESOURCE_RAW === undefined && (ACTIVE_E2E_RUNS > 0 || NORMALISED_LOAD >= LOAD_THRESHOLD);
 const LOW_RESOURCE = LOW_RESOURCE_FORCED_ON || LOW_RESOURCE_AUTO;
 
 // On a GitHub-hosted runner, Signal 2 measures this job, not the machine. Such a runner runs ONE
@@ -85,7 +90,7 @@ if (LOW_RESOURCE) {
   // when no cap is set at all.
   const effect = CAP_WORKERS
     ? `maxWorkers=${LOW_RESOURCE_FORKS}, timeouts raised`
-    : 'timeouts raised, workers not capped (on a GitHub-hosted runner the load is this job\'s own previous step)';
+    : "timeouts raised, workers not capped (on a GitHub-hosted runner the load is this job's own previous step)";
   process.stderr.write(`[e2e] low-resource mode: ${why} -> ${effect}\n`);
 }
 
@@ -139,15 +144,6 @@ export default defineConfig({
     // BEFORE each attempt, so a `beforeAll`-installed spy does not survive) and for
     // why a leaked spy is worse than it looks.
     restoreMocks: true,
-    // Suites that need the mongod + globalSetup this config provides: e2e specs and story
-    // tests. Naming the patterns explicitly (instead of `tests/**/*.ts`) keeps helpers,
-    // setup and reporters out — and, crucially, keeps `tests/unit/**` out: those are plain
-    // unit tests, run by vitest.config.mts, against a database they neither need nor use.
-    // The patterns live in vitest.include-globs.mts, shared with
-    // `tests/unit/test-file-routing.spec.ts`, which asserts that every *.spec.ts / *.test.ts file
-    // in the repo is claimed by exactly one of the two runners — so narrowing them can never
-    // silently drop a suite.
-    include: E2E_TEST_INCLUDE,
     // Runs in every test worker before test files are imported (filters expected log/warn noise)
     setupFiles: ['tests/setup.ts'],
     // PARALLEL CONFIGURATION: files run in parallel, each in its own process. `isolate` is stated rather than
@@ -201,5 +197,42 @@ export default defineConfig({
     testTimeout: LOW_RESOURCE ? 60000 : 30000,
     // Optimize file watching (not needed in CI)
     watch: false,
+    projects: [
+      // Suites that need the mongod + globalSetup this config provides: e2e specs and story
+      // tests. Naming the patterns explicitly (instead of `tests/**/*.ts`) keeps helpers,
+      // setup and reporters out — and, crucially, keeps `tests/unit/**` out: those are plain
+      // unit tests, run by vitest.config.mts, against a database they neither need nor use.
+      // The patterns live in vitest.include-globs.mts, shared with
+      // `tests/unit/test-file-routing.spec.ts`, which asserts that every *.spec.ts / *.test.ts file
+      // in the repo is claimed by exactly one of the two runners — so narrowing them can never
+      // silently drop a suite. The include lives in the projects only: one at the root would be
+      // MERGED into every project's own (`extends: true`), and the IAM projects would run everything.
+      { extends: true, test: { include: E2E_TEST_INCLUDE, name: 'e2e' } },
+      // The whole suite once more with PostgreSQL as the default data source (DEV-3833): one database per test file,
+      // because suites differ in `multiTenancy` and a table's tenant isolation is part of its schema. The suites in
+      // POSTGRES_E2E_EXCLUDED say why they do not run here.
+      {
+        extends: true as const,
+        test: {
+          env: { LT_LOG_AUTH_URLS: '0', LT_TEST_SQL_ENGINE: POSTGRES_E2E_ENGINE },
+          exclude: [...configDefaults.exclude, ...Object.keys(POSTGRES_E2E_EXCLUDED)],
+          include: E2E_TEST_INCLUDE,
+          name: 'postgres',
+          setupFiles: ['tests/postgres-file.setup.ts', 'tests/setup.ts'],
+        },
+      },
+      // The IAM suites once more per SQL engine, with PostgreSQL as the default data source (DEV-3831). Each project
+      // gets a database of its own; the root setup still runs once for the whole run.
+      ...IAM_SQL_ENGINES.map((engine) => ({
+        extends: true as const,
+        test: {
+          env: { LT_LOG_AUTH_URLS: '0', LT_TEST_IAM_SQL_ENGINE: engine },
+          globalSetup: ['tests/iam-sql.global-setup.ts'],
+          include: IAM_SQL_TEST_INCLUDE,
+          name: `iam-sql-${engine}`,
+          setupFiles: ['tests/iam-sql.setup.ts', 'tests/setup.ts'],
+        },
+      })),
+    ],
   },
 });

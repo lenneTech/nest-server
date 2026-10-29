@@ -32,11 +32,12 @@ auditConfig:
   ignoreGhsas: []
 
 peerDependencyRules:
-  # graphql-upload 15.0.2 declares the optional peer `@types/express: ^4.0.29`; this repo is on Express 5
-  # and its types, which graphql-upload's middleware signature is compatible with. Goes with
-  # graphql-upload 17 (12.1.0), which peers `^4.0.29 || ^5.0.0`.
   allowedVersions:
-    '@types/express': '5'
+    # typeorm 1.1.2 declares the OPTIONAL peer `ioredis: ^5.0.4` for its own Redis query-result cache, which
+    # the framework never enables (the SQL store compiles its own queries and caches nothing in TypeORM).
+    # This repo is on ioredis 6 for CoreRedisService. Parent-scoped, so no other consumer of ioredis is
+    # affected. Remove once typeorm's peer range includes 6.
+    'typeorm>ioredis': '6'
   # vis-network (via @compodoc/compodoc) declares peers compodoc never installs; without this,
   # `pnpm peers check` reports four missing peers on every run.
   ignoreMissing:
@@ -45,36 +46,25 @@ peerDependencyRules:
     - 'vis-data'
     - 'vis-util'
 
-# Security overrides — ONLY entries that change the resolved tree.
+# Security overrides — ONLY entries that change the resolved tree. EMPTY since 12.1.0, and written as
+# `{}` so `check:overrides` reads it as a decision rather than as a parse failure.
 #
 # They do NOT reach consumers of the published package: `overrides:` is honoured only for the ROOT
 # project of an install. A green `pnpm audit` here says nothing about a consumer's tree, which is why
 # docs/security-overrides.md (shipped via `docs/**`) tells projects which entries to mirror.
 #
-# Verified 2026-10-24 (nest-server 12.0.0) with two FRESH resolves — one with the full former block of
-# 18 entries, one with only the two below: identical audit (0 advisories), identical peers check, and
-# the same package set except that the former `minimatch@>=9.0.0 <10.2.6` entry forced minimatch-9
-# requesters across a major onto 10.2.6 (9.0.9, brace-expansion 2.1.7 and balanced-match 1.0.2 return
-# without it, all patched). The other 15 entries resolved identically with and without them, so they
-# were removed. Re-run that comparison on every maintenance run: comparing against the committed
-# lockfile hides every effect, because it already carries the pinned versions.
+# The last two entries left on 2026-10-29 (nest-server 12.1.0), because both upstream exact pins they
+# lifted moved past their advisories: @nestjs/graphql 14.1.0 pins @graphql-tools/utils 12.1.0
+# (GHSA-c4qx-w738-7hr3, patched >=12.0.2) and @nestjs/platform-express 12.3.2 pins multer 2.5.0
+# (GHSA-q7qp-rjg7-q26m, patched >=2.5.0). Two FRESH resolves of the final dependency set, one with
+# and one without the two entries, produced the identical package set and the same audit
+# (0 advisories). Re-run that comparison before adding an entry, and on every maintenance run that
+# still finds one here: comparing against the committed lockfile hides every effect, because it
+# already carries the pinned versions.
 #
 # Targets are FIXED versions inside the requested major, and key and target move together — see
 # .claude/rules/package-management.md ("Override Targets MUST Be Fixed Versions", "Overrides AGE").
-overrides:
-  # @graphql-tools/utils — GHSA-c4qx-w738-7hr3 (high, prototype pollution in mergeIncrementalResult,
-  # covers >=10.10.1 <=12.0.1, patched >=12.0.2). @nestjs/graphql 14.0.3 — the newest 14.x —
-  # EXACT-pins 12.0.1, so no update reaches the fix. RUNTIME: the GraphQL schema is assembled with it.
-  # The key matches that exact request and lifts it to the target; it also keeps ONE copy, because the
-  # @apollo/server path (@graphql-tools/schema 10.1.5 / merge 9.2.8) requests `^12.1.0`.
-  # Remove once @nestjs/graphql pins >=12.0.2 and a fresh resolve without the entry lands on one copy.
-  '@graphql-tools/utils@>=12.0.0 <12.1.0': '12.1.0'
-  # multer — GHSA-q7qp-rjg7-q26m (high, DoS via a pending asynchronous fileFilter after request
-  # teardown, covers >=2.0.0 <2.5.0, patched >=2.5.0). @nestjs/platform-express 12.2.0 — the newest
-  # 12.x — EXACT-pins 2.4.0. RUNTIME: multer parses every multipart upload through FileInterceptor.
-  # Target in LOCKSTEP with the direct `multer` dependency, so hoisting leaves one copy.
-  # Remove once @nestjs/platform-express pins >=2.5.0 itself.
-  'multer@>=2.0.0 <2.5.0': '2.5.0'
+overrides: {}
 
 # Supply-chain hold-back: never resolve a version published less than a day ago, so a compromised
 # release has time to be detected and unpublished. pnpm 11's own default, set explicitly so the policy

@@ -171,8 +171,10 @@ Package overrides live in the `overrides:` section of **`pnpm-workspace.yaml`** 
 **Keep the set minimal.** On the pnpm 11 upgrade the list was pruned from 36 to the 9 then still
 load-bearing (it has since grown back to as many as 20, mostly as new advisories landed). On
 2026-10-24 (nest-server 12.0.0) two fresh resolves showed that 16 of the remaining 18 changed nothing,
-and they were removed: **two entries remain** (`@graphql-tools/utils`, `multer`), both on an upstream
-EXACT pin with an open advisory. An override is only necessary if removing it lets the package resolve
+and they were removed, leaving `@graphql-tools/utils` and `multer`, both on an upstream EXACT pin with
+an open advisory. Those two left on 2026-10-29 (nest-server 12.1.0), once `@nestjs/graphql` 14.1.0 and
+`@nestjs/platform-express` 12.3.2 moved their pins past the fixes: **the set is empty** (`overrides: {}`,
+written explicitly so `check:overrides` reads it as a decision). An override is only necessary if removing it lets the package resolve
 back INTO its vulnerable range (verify with a with/without lockfile diff; `pnpm audit` is the arbiter).
 "Cheap insurance against a parent re-pinning downwards" is not a reason to keep one: `pnpm audit` and
 `check:overrides` run on every `check` and report such a regression the day it happens. Each surviving entry carries its CVE rationale as a comment. Remove an entry once its parent dependency ships a fixed version.
@@ -336,6 +338,26 @@ nothing in the repo could have said so.
 on `FIX AVAILABLE` (a `first_patched_version` now exists) or on a withdrawn advisory. An unreachable
 API is reported as `UNVERIFIED` and tolerated locally — but **fails under `CI`**, because a skip
 nobody reads is indistinguishable from a check that ran.
+
+**A fix nobody named is still a fix.** GitHub leaves `first_patched_version` null on some advisories
+after a release outside the vulnerable range shipped: GHSA-86w9-cpqp-85rv (node-forge) read
+`<= 1.4.0` / null a day after 1.4.1 was published. Until 12.0.x the guard skipped such an advisory,
+so its suppression passed every run. It now reads the package's packument from the registry pnpm
+installs from and, per vulnerable copy in the lockfile, looks for a stable release above it that
+lies outside **every** range the advisory lists. A deprecated release is held back, not ruled out: it
+counts only when every such release is deprecated, because some packages deprecate all of them
+(node-sass: 132 of 132 stable releases), and ruling them out reads a published fix as "no fix" for good.
+
+| Finding | Verdict |
+|---------|---------|
+| every copy has such a release, past `minimumReleaseAge` | `FIX AVAILABLE`, naming it — `unusableFixConsumers` applies as for a named fix |
+| one is published but younger than `minimumReleaseAge` | passes, printed as `pending` with the date the gate clears (pnpm would refuse it, so failing would order a `minimumReleaseAgeExclude` nobody decided on) |
+| some copy has none | passes — the suppression is still justified |
+| no version the lockfile resolves is in the range any more | `NOT IN TREE` — the entry hides nothing |
+| registry or lockfile unreadable | `UNVERIFIED`, with the reason (fails under `CI`) |
+
+`--advisory-file` runs stay offline: they take packuments from `--packument-file` and never ask the
+registry.
 
 One consequence worth knowing before you reach for this mechanism: the guard fires when the advisory
 has a patched version for **any** affected range. For most findings that is the honest outcome — a

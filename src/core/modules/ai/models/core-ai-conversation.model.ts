@@ -1,6 +1,10 @@
 import { ObjectType } from '@nestjs/graphql';
-import { Schema as MongooseSchema, SchemaFactory } from '@nestjs/mongoose';
-import { Document, Schema } from 'mongoose';
+import {
+  objectIdType,
+  Schema as MongooseSchema,
+  SchemaFactory,
+} from '../../../common/persistence/mongo/mongoose-compat.js';
+import type { Document } from 'mongoose';
 
 import { Restricted } from '../../../common/decorators/restricted.decorator.js';
 import { UnifiedField } from '../../../common/decorators/unified-field.decorator.js';
@@ -40,7 +44,7 @@ export class CoreAiConversation extends CorePersistenceModel {
   @UnifiedField({
     description: 'Id of the user who created the conversation',
     isOptional: true,
-    mongoose: { index: true, ref: 'User', type: Schema.Types.ObjectId },
+    mongoose: { index: true, ref: 'User', type: objectIdType() },
     roles: RoleEnum.S_USER,
     type: () => String,
   })
@@ -69,7 +73,7 @@ export class CoreAiConversation extends CorePersistenceModel {
     description: 'Conversation messages',
     isArray: true,
     isOptional: true,
-    mongoose: { default: [], type: [Schema.Types.Mixed] },
+    mongoose: { default: [], type: [Object] },
     roles: RoleEnum.S_USER,
     type: () => CoreAiMessage,
   })

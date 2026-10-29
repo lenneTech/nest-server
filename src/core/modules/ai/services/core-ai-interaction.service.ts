@@ -1,6 +1,6 @@
 import { Inject, Injectable } from '@nestjs/common';
-import { InjectModel } from '@nestjs/mongoose';
-import { Model } from 'mongoose';
+import { InjectModel } from '../../../common/persistence/mongo/mongoose-compat.js';
+import type { Model } from 'mongoose';
 
 import { CrudService } from '../../../common/services/crud.service.js';
 import type { CoreModelConstructor } from '../../../common/types/core-model-constructor.type.js';
@@ -39,7 +39,7 @@ export class CoreAiInteractionService extends CrudService<CoreAiInteraction> {
    * passed through explicitly when known for robustness.
    */
   async record(rec: AiInteractionRecord): Promise<void> {
-    await this.mainDbModel.create({
+    await this.dataStore.insert({
       actions: rec.actions,
       completionTokens: rec.usage?.completionTokens,
       connectionId: rec.connectionId,

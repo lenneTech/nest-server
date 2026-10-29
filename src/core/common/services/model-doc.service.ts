@@ -1,5 +1,5 @@
 import { Injectable, OnApplicationBootstrap } from '@nestjs/common';
-import { InjectConnection } from '@nestjs/mongoose';
+import { InjectConnection } from '../persistence/mongo/mongoose-compat.js';
 import * as fs from 'fs';
 import type { Connection } from 'mongoose';
 import YumlDiagram from 'yuml-diagram';

@@ -1,5 +1,4 @@
 import { DynamicModule, Global, Module, Type } from '@nestjs/common';
-import { MongooseModule } from '@nestjs/mongoose';
 
 import { CoreAiMcpOAuthInitializer } from './core-ai-mcp-oauth.initializer.js';
 import { CoreAiMcpController } from './core-ai-mcp.controller.js';
@@ -7,7 +6,18 @@ import { CoreAiController } from './core-ai.controller.js';
 import { CoreAiResolver } from './core-ai.resolver.js';
 import { CoreAiMcpOAuthService } from './services/core-ai-mcp-oauth.service.js';
 import { CoreAiMcpService } from './services/core-ai-mcp.service.js';
+import { CorePersistenceModule } from '../../common/persistence/core-persistence.module.js';
+import {
+  AI_MCP_OAUTH_CLIENT_MODEL,
+  AI_MCP_OAUTH_CODE_MODEL,
+  AI_MCP_OAUTH_REFRESH_TOKEN_MODEL,
+} from './core-ai.constants.js';
 import { AiBudgetLimitSchema, CoreAiBudgetLimit } from './models/core-ai-budget-limit.model.js';
+import {
+  AiMcpOAuthClientSchema,
+  AiMcpOAuthCodeSchema,
+  AiMcpOAuthRefreshTokenSchema,
+} from './models/core-ai-mcp-oauth.models.js';
 import {
   AiConnectionPreferenceSchema,
   CoreAiConnectionPreference,
@@ -184,6 +194,25 @@ export class CoreAiModule {
     const SlotServiceClass = options.slotService || CoreAiSlotService;
     const ResolverClass = options.resolver || CoreAiResolver;
     const ServiceClass = options.service || CoreAiService;
+    // Registered through the persistence layer, so `database` routes them like every other model (db-agnostic phase 4);
+    // `@InjectModel()` keeps working, and each service reaches its routed store through `dataStore`
+    const aiModels = CorePersistenceModule.forFeature([
+      { model: CoreAiBudgetLimit, name: AI_BUDGET_LIMIT_MODEL, schema: AiBudgetLimitSchema },
+      { model: CoreAiConnection, name: AI_CONNECTION_MODEL, schema: AiConnectionSchema },
+      { model: CoreAiConnectionPreference, name: AI_CONNECTION_PREFERENCE_MODEL, schema: AiConnectionPreferenceSchema },
+      { model: CoreAiConversation, name: AI_CONVERSATION_MODEL, schema: AiConversationSchema },
+      { model: CoreAiInteraction, name: AI_INTERACTION_MODEL, schema: AiInteractionSchema },
+      { model: CoreAiPromptHint, name: AI_PROMPT_HINT_MODEL, schema: AiPromptHintSchema },
+      { model: CoreAiPrompt, name: AI_PROMPT_MODEL, schema: AiPromptSchema },
+      { model: CoreAiSlot, name: AI_SLOT_MODEL, schema: AiSlotSchema },
+      { model: CoreAiToolGrant, name: AI_TOOL_GRANT_MODEL, schema: AiToolGrantSchema },
+      { model: CoreAiToolPolicy, name: AI_TOOL_POLICY_MODEL, schema: AiToolPolicySchema },
+      { model: CoreAiMode, name: AI_MODE_MODEL, schema: AiModeSchema },
+      // Stored natively on MongoDB; the models give them their tables on a SQL source
+      { name: AI_MCP_OAUTH_CLIENT_MODEL, schema: AiMcpOAuthClientSchema },
+      { name: AI_MCP_OAUTH_CODE_MODEL, schema: AiMcpOAuthCodeSchema },
+      { name: AI_MCP_OAUTH_REFRESH_TOKEN_MODEL, schema: AiMcpOAuthRefreshTokenSchema },
+    ]);
     const ToolGrantServiceClass = options.toolGrantService || CoreAiToolGrantService;
     const ToolPolicyServiceClass = options.toolPolicyService || CoreAiToolPolicyService;
     const ModeServiceClass = options.modeService || CoreAiModeService;
@@ -224,23 +253,9 @@ export class CoreAiModule {
         CoreAiModeService,
         CoreAiMcpClientService,
         LlmProviderFactory,
-        MongooseModule,
+        aiModels,
       ],
-      imports: [
-        MongooseModule.forFeature([
-          { name: AI_BUDGET_LIMIT_MODEL, schema: AiBudgetLimitSchema },
-          { name: AI_CONNECTION_MODEL, schema: AiConnectionSchema },
-          { name: AI_CONNECTION_PREFERENCE_MODEL, schema: AiConnectionPreferenceSchema },
-          { name: AI_CONVERSATION_MODEL, schema: AiConversationSchema },
-          { name: AI_INTERACTION_MODEL, schema: AiInteractionSchema },
-          { name: AI_PROMPT_HINT_MODEL, schema: AiPromptHintSchema },
-          { name: AI_PROMPT_MODEL, schema: AiPromptSchema },
-          { name: AI_SLOT_MODEL, schema: AiSlotSchema },
-          { name: AI_TOOL_GRANT_MODEL, schema: AiToolGrantSchema },
-          { name: AI_TOOL_POLICY_MODEL, schema: AiToolPolicySchema },
-          { name: AI_MODE_MODEL, schema: AiModeSchema },
-        ]),
-      ],
+      imports: [aiModels],
       module: CoreAiModule,
       providers: [
         AiCryptoService,

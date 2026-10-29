@@ -37,7 +37,7 @@ import {
   FOLDED_IN,
   getParityCase,
   PARITY_CASES,
-  PARITY_DRIVERS,
+  PARITY_COLUMNS,
   PARITY_EXCLUSIONS,
   ParityLayer,
 } from '../helpers/file-storage-matrix';
@@ -65,12 +65,26 @@ describe('file-storage parity matrix', () => {
       expect(ids).toEqual([...new Set(ids)]);
     });
 
-    it('names only known drivers', () => {
+    it('names only known columns', () => {
       for (const entry of PARITY_CASES) {
         expect(entry.drivers.length, `${entry.id} must run somewhere`).toBeGreaterThan(0);
         for (const driver of entry.drivers) {
-          expect(PARITY_DRIVERS, `${entry.id}`).toContain(driver);
+          expect(PARITY_COLUMNS, `${entry.id}`).toContain(driver);
         }
+      }
+    });
+
+    it('runs every case with its metadata on PostgreSQL wherever the driver can keep it there', () => {
+      // The database dimension is the point of the PostgreSQL columns: a case that runs for a driver on MongoDB and
+      // not on PostgreSQL would be exactly the "works on one, untested on the other" gap the matrix exists to close.
+      // Only GridFS may be missing there, and only as IMPOSSIBLE.
+      for (const entry of PARITY_CASES) {
+        for (const driver of entry.drivers.filter(column => !column.includes('@') && column !== 'gridfs')) {
+          expect(entry.drivers, `${entry.id} runs under '${driver}' but not under '${driver}@postgres'`)
+            .toContain(`${driver}@postgres`);
+        }
+        const gridfs = PARITY_EXCLUSIONS.find(exclusion => exclusion.case === entry.id && exclusion.driver === 'gridfs@postgres');
+        expect(gridfs?.reason, `${entry.id} × gridfs@postgres`).toMatch(/^IMPOSSIBLE: /);
       }
     });
 
@@ -88,7 +102,7 @@ describe('file-storage parity matrix', () => {
   });
 
   describe('every cell is declared — an untested cell and an impossible cell must look different', () => {
-    const cells = PARITY_CASES.flatMap(entry => PARITY_DRIVERS.map(driver => ({ driver, entry })));
+    const cells = PARITY_CASES.flatMap(entry => PARITY_COLUMNS.map(driver => ({ driver, entry })));
 
     it.each(cells.map(cell => [cell.entry.id, cell.driver] as const))(
       '%s × %s is EXECUTED, IMPOSSIBLE or DIFFERENT-BY-DESIGN',
@@ -186,14 +200,14 @@ describe('file-storage parity matrix', () => {
 
     it('covers every driver for the behaviours the folded-in suites only covered for one', () => {
       // The point of folding: each origin suite asserted its cases for exactly ONE driver. Every
-      // target must now run for all three, or the fold traded breadth for tidiness.
+      // target must now cover every column, or the fold traded breadth for tidiness.
       for (const entry of new Set(FOLDED_IN.map(item => item.into))) {
         const spec = getParityCase(entry);
         const covered = new Set([
           ...spec.drivers,
           ...PARITY_EXCLUSIONS.filter(exclusion => exclusion.case === entry).map(exclusion => exclusion.driver),
         ]);
-        expect([...covered].sort(), `${entry}`).toEqual([...PARITY_DRIVERS].sort());
+        expect([...covered].sort(), `${entry}`).toEqual([...PARITY_COLUMNS].sort());
       }
     });
   });

@@ -48,6 +48,14 @@
  *
  * They are separate FILES so vitest can run them in parallel (the HTTP one boots a Nest app per
  * driver), and they read from this one matrix so they cannot drift apart.
+ *
+ * THE DATABASE DIMENSION (db-agnostic phase 4)
+ * --------------------------------------------
+ * The S3 and filesystem drivers keep their metadata wherever `database` routes it — MongoDB's
+ * `s3-files` / `filesystem-files`, or the tables `s3_files` / `filesystem_files` on a SQL source. So
+ * a column is a driver WITH a metadata database: `s3` (MongoDB, as before) and `s3@postgres`. The
+ * PostgreSQL columns run every case against the same contract; `gridfs@postgres` cannot exist and is
+ * declared IMPOSSIBLE case by case, which keeps it visible in this file instead of absent from it.
  */
 import { expect, it } from 'vitest';
 
@@ -55,6 +63,34 @@ import { expect, it } from 'vitest';
 export type ParityDriver = 'filesystem' | 'gridfs' | 's3';
 
 export const PARITY_DRIVERS: readonly ParityDriver[] = ['filesystem', 'gridfs', 's3'] as const;
+
+/** Where the file METADATA lives (db-agnostic phase 4): MongoDB, or PostgreSQL through `database` */
+export type ParityDatabase = 'mongodb' | 'postgres';
+
+export const PARITY_DATABASES: readonly ParityDatabase[] = ['mongodb', 'postgres'] as const;
+
+/**
+ * A column of the matrix: a driver with its metadata on a database. The bare driver name is MongoDB — every column the
+ * matrix had before PostgreSQL keeps its name, so no existing declaration changed meaning.
+ */
+export type ParityColumn = ParityDriver | `${ParityDriver}@postgres`;
+
+export const PARITY_COLUMNS: readonly ParityColumn[] = [
+  ...PARITY_DRIVERS,
+  ...PARITY_DRIVERS.map(driver => `${driver}@postgres` as const),
+];
+
+/** The driver and the metadata database of a column */
+export function splitColumn(column: ParityColumn): { database: ParityDatabase; driver: ParityDriver } {
+  const [driver, database = 'mongodb'] = column.split('@') as [ParityDriver, ParityDatabase?];
+  return { database, driver };
+}
+
+/**
+ * Every column a case can run in. GridFS on PostgreSQL is not one of them: GridFS keeps bytes AND metadata in MongoDB's
+ * `fs.files`, so "GridFS with its metadata in PostgreSQL" does not exist — declared IMPOSSIBLE for every case below.
+ */
+const EVERY_COLUMN: readonly ParityColumn[] = PARITY_COLUMNS.filter(column => column !== 'gridfs@postgres');
 
 /** Which surface a case is executed against. */
 export type ParityLayer = 'http' | 'service';
@@ -64,8 +100,8 @@ export interface ParityCase {
   id: string;
   /** Which executor registers it. */
   layer: ParityLayer;
-  /** Drivers this case is EXECUTED for. Every driver not listed needs an exclusion entry. */
-  drivers: readonly ParityDriver[];
+  /** Columns this case is EXECUTED for. Every column not listed needs an exclusion entry. */
+  drivers: readonly ParityColumn[];
   /** The `it()` title. Kept here so the two executors cannot describe the same case differently. */
   title: string;
 }
@@ -73,7 +109,7 @@ export interface ParityCase {
 export interface ParityExclusion {
   /** {@link ParityCase.id} this exclusion applies to. */
   case: string;
-  driver: ParityDriver;
+  driver: ParityColumn;
   /**
    * Must start with `IMPOSSIBLE:` or `DIFFERENT-BY-DESIGN:` — see the docblock above. The prefix is
    * not decoration: it decides whether a complementary assertion is REQUIRED.
@@ -98,37 +134,37 @@ export const PARITY_CASES: readonly ParityCase[] = [
   // Service layer — the contract every project's FileService inherits.
   // -------------------------------------------------------------------------------------------
   {
-    drivers: PARITY_DRIVERS,
+    drivers: EVERY_COLUMN,
     id: 'service.driverResolution',
     layer: 'service',
     title: 'resolves the configured driver and reports it as explicit',
   },
   {
-    drivers: PARITY_DRIVERS,
+    drivers: EVERY_COLUMN,
     id: 'service.writesToActiveStoreOnly',
     layer: 'service',
     title: 'writes new bytes to the active store and to no other',
   },
   {
-    drivers: PARITY_DRIVERS,
+    drivers: EVERY_COLUMN,
     id: 'service.readByIdRoundTrip',
     layer: 'service',
     title: 'reads a file back by id — info, buffer and stream agree',
   },
   {
-    drivers: PARITY_DRIVERS,
+    drivers: EVERY_COLUMN,
     id: 'service.readByNameRoundTrip',
     layer: 'service',
     title: 'reads a file back by name — info, buffer and stream agree',
   },
   {
-    drivers: PARITY_DRIVERS,
+    drivers: EVERY_COLUMN,
     id: 'service.byNameAuthorizesWhatItServes',
     layer: 'service',
     title: 'by-name reads authorize and serve the SAME document when a filename is reused',
   },
   {
-    drivers: PARITY_DRIVERS,
+    drivers: EVERY_COLUMN,
     id: 'service.metadataRoundTrip',
     layer: 'service',
     title: 'round-trips custom metadata into BOTH raw lookups (by id and by name)',
@@ -137,86 +173,86 @@ export const PARITY_CASES: readonly ParityCase[] = [
   // their length, so "unknown" is the common case, not a fallback for the known one. Large enough
   // for several multipart parts on S3, where the unknown-length path uploads in parts.
   {
-    drivers: PARITY_DRIVERS,
+    drivers: EVERY_COLUMN,
     id: 'service.unknownLengthStreamRoundTrip',
     layer: 'service',
     title: 'stores a large stream of UNKNOWN length completely, and records its real size',
   },
   {
-    drivers: PARITY_DRIVERS,
+    drivers: EVERY_COLUMN,
     id: 'service.knownSizeStreamRoundTrip',
     layer: 'service',
     title: 'stores a large stream whose exact size the caller passes, and records that size',
   },
   {
-    drivers: PARITY_DRIVERS,
+    drivers: EVERY_COLUMN,
     id: 'service.deleteById',
     layer: 'service',
     title: 'deletes by id — bytes and bookkeeping both gone',
   },
   {
-    drivers: PARITY_DRIVERS,
+    drivers: EVERY_COLUMN,
     id: 'service.deleteByName',
     layer: 'service',
     title: 'deletes by name — bytes and bookkeeping both gone',
   },
   {
-    drivers: PARITY_DRIVERS,
+    drivers: EVERY_COLUMN,
     id: 'service.deleteByNameForwardsContext',
     layer: 'service',
     title: 'deleteFileByName forwards the caller context to its inner lookup',
   },
   {
-    drivers: PARITY_DRIVERS,
+    drivers: EVERY_COLUMN,
     id: 'service.checkRightsRefusalIsUniform',
     layer: 'service',
     title: 'a refused read answers like a missing file on every read path',
   },
   {
-    drivers: PARITY_DRIVERS,
+    drivers: EVERY_COLUMN,
     id: 'service.writeRefusalWritesNothing',
     layer: 'service',
     title: 'a refused upload writes no bytes and no bookkeeping',
   },
   {
-    drivers: PARITY_DRIVERS,
+    drivers: EVERY_COLUMN,
     id: 'service.findFilterByName',
     layer: 'service',
     title: 'findFileInfo filters on a whole filename value',
   },
   {
-    drivers: PARITY_DRIVERS,
+    drivers: EVERY_COLUMN,
     id: 'service.findSorts',
     layer: 'service',
     title: 'findFileInfo honours a sort spec across the WHOLE result, not per store',
   },
   {
-    drivers: PARITY_DRIVERS,
+    drivers: EVERY_COLUMN,
     id: 'service.findPages',
     layer: 'service',
     title: 'findFileInfo pages without duplicating or dropping rows',
   },
   {
-    drivers: PARITY_DRIVERS,
+    drivers: EVERY_COLUMN,
     id: 'service.crossDriverRead',
     layer: 'service',
     title: 'files written under either OTHER driver stay readable by id and by name',
   },
   {
-    drivers: PARITY_DRIVERS,
+    drivers: EVERY_COLUMN,
     id: 'service.crossDriverDelete',
     layer: 'service',
     title: 'deletes a file that lives in another store',
   },
   {
     // GridFS excluded — see PARITY_EXCLUSIONS.
-    drivers: ['filesystem', 's3'],
+    drivers: ['filesystem', 's3', 'filesystem@postgres', 's3@postgres'],
     id: 'service.findMergesOtherStores',
     layer: 'service',
     title: 'findFileInfo merges rows from the other stores into one page',
   },
   {
-    drivers: PARITY_DRIVERS,
+    drivers: EVERY_COLUMN,
     id: 'service.downloadUrlWithoutPresigning',
     layer: 'service',
     title: 'getDownloadUrl answers undefined (never throws) while presigned downloads are off',
@@ -226,49 +262,49 @@ export const PARITY_CASES: readonly ParityCase[] = [
   // HTTP layer — the two inherited download routes, through the real app.
   // -------------------------------------------------------------------------------------------
   {
-    drivers: PARITY_DRIVERS,
+    drivers: EVERY_COLUMN,
     id: 'http.ownerDownloadsById',
     layer: 'http',
     title: 'GET /files/id/:id serves the owner their own bytes',
   },
   {
-    drivers: PARITY_DRIVERS,
+    drivers: EVERY_COLUMN,
     id: 'http.ownerDownloadsByName',
     layer: 'http',
     title: 'GET /files/:filename serves the owner their own bytes',
   },
   {
-    drivers: PARITY_DRIVERS,
+    drivers: EVERY_COLUMN,
     id: 'http.deliveryHeaders',
     layer: 'http',
     title: 'delivers identical Content-Type / Content-Disposition / Cache-Control headers',
   },
   {
-    drivers: PARITY_DRIVERS,
+    drivers: EVERY_COLUMN,
     id: 'http.nonOwnerGets404LikeUnknownId',
     layer: 'http',
     title: 'refuses a non-owner by id with a 404 byte-identical to an unknown id',
   },
   {
-    drivers: PARITY_DRIVERS,
+    drivers: EVERY_COLUMN,
     id: 'http.nonOwnerGets404LikeUnknownName',
     layer: 'http',
     title: 'refuses a non-owner by name with a 404 byte-identical to an unknown filename',
   },
   {
-    drivers: PARITY_DRIVERS,
+    drivers: EVERY_COLUMN,
     id: 'http.anonymousGets401',
     layer: 'http',
     title: 'refuses an anonymous caller with 401 on both routes',
   },
   {
-    drivers: PARITY_DRIVERS,
+    drivers: EVERY_COLUMN,
     id: 'http.adminDownloads',
     layer: 'http',
     title: 'lets ADMIN through on both routes',
   },
   {
-    drivers: PARITY_DRIVERS,
+    drivers: EVERY_COLUMN,
     id: 'http.crossDriverDownload',
     layer: 'http',
     title: 'downloads a file written under another driver, by id and by name',
@@ -293,7 +329,16 @@ export const PARITY_EXCLUSIONS: readonly ParityExclusion[] = [
       + 'appear in a LISTING, while remaining fully readable by id and by name. The complement is '
       + 'asserted by parityComplement() in the service executor.',
   },
-] as const;
+  // One per case: there is no GridFS whose metadata lives in PostgreSQL (see EVERY_COLUMN)
+  ...PARITY_CASES.map(entry => ({
+    case: entry.id,
+    driver: 'gridfs@postgres' as const,
+    reason:
+      'IMPOSSIBLE: GridFS keeps the bytes and their metadata together in MongoDB (`fs.files` / `fs.chunks`), so it '
+      + 'has no metadata a SQL source could hold. Without `file.storage` a project whose file metadata is routed '
+      + 'to SQL gets the filesystem driver; `file.storage: \'gridfs\'` keeps working on MongoDB (gridfs column).',
+  })),
+];
 
 /**
  * Cases folded in from the suites this matrix replaced — the receipt that consolidating did not
@@ -337,7 +382,7 @@ export function getParityCase(id: string): ParityCase {
   return found;
 }
 
-export function getParityExclusion(id: string, driver: ParityDriver): ParityExclusion | undefined {
+export function getParityExclusion(id: string, driver: ParityColumn): ParityExclusion | undefined {
   return PARITY_EXCLUSIONS.find(entry => entry.case === id && entry.driver === driver);
 }
 
@@ -348,7 +393,7 @@ export function getParityExclusion(id: string, driver: ParityDriver): ParityExcl
  * silently add coverage the guard does not know about, and the matrix would stop being the
  * description of what runs.
  */
-export function parityIt(id: string, driver: ParityDriver, body: () => Promise<void> | void): void {
+export function parityIt(id: string, driver: ParityColumn, body: () => Promise<void> | void): void {
   const spec = getParityCase(id);
   if (!spec.drivers.includes(driver)) {
     const exclusion = getParityExclusion(id, driver);
@@ -369,7 +414,7 @@ export function parityIt(id: string, driver: ParityDriver, body: () => Promise<v
  * is not actually excluded, or when it is excluded as `IMPOSSIBLE:` — an impossible cell has no
  * complement to assert, and pretending otherwise is how a vacuous test is born.
  */
-export function parityComplement(id: string, driver: ParityDriver, body: () => Promise<void> | void): void {
+export function parityComplement(id: string, driver: ParityColumn, body: () => Promise<void> | void): void {
   const exclusion = getParityExclusion(id, driver);
   if (!exclusion) {
     throw new Error(`Parity case '${id}' is not excluded for driver '${driver}' — use parityIt().`);
@@ -390,13 +435,18 @@ export function parityComplement(id: string, driver: ParityDriver, body: () => P
  * `.claude/rules/testing.md` applies to the Redis/S3 suites, restated here because this matrix is
  * the one place where "one driver could not run today" would be least visible.
  */
-export function failMissingInfrastructure(driver: ParityDriver, error: unknown): never {
+export function failMissingInfrastructure(driver: ParityColumn, error: unknown): never {
   const detail = error instanceof Error ? error.message : String(error);
   throw new Error(
-    `The file-storage parity matrix could not run against the '${driver}' driver: ${detail}\n`
-      + 'Start the test infrastructure with `pnpm run test:infra` (Redis 6380 + RustFS 9102).',
+    `The file-storage parity matrix could not run against the '${driver}' column: ${detail}\n`
+      + 'Start the test infrastructure with `pnpm run test:infra` (Redis 6380, RustFS 9102, PostgreSQL 5440).',
     { cause: error },
   );
+}
+
+/** Whether any case of a layer runs in a column — an executor builds nothing for a column that cannot exist */
+export function columnRuns(column: ParityColumn, layer: ParityLayer): boolean {
+  return PARITY_CASES.some(entry => entry.layer === layer && entry.drivers.includes(column));
 }
 
 /**

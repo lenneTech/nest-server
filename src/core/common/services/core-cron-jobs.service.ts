@@ -4,6 +4,7 @@ import { CronJob } from 'cron';
 
 import { CronJobConfigWithTimeZone } from '../interfaces/cron-job-config-with-time-zone.interface.js';
 import { CronJobConfigWithUtcOffset } from '../interfaces/cron-job-config-with-utc-offset.interface.js';
+import { CRON_LOCK_COLLECTION, cronMongoLocks, defaultSqlLockStore } from '../persistence/infrastructure-locks.js';
 import { Falsy } from '../types/falsy.type.js';
 import { getCronJobsInfrastructure } from './core-cron-jobs.registry.js';
 
@@ -20,14 +21,6 @@ const cronLogger = new Logger('CronJobs');
 
 const errorMessage = (error: unknown): string => (error instanceof Error ? error.message : String(error));
 const errorStack = (error: unknown): string | undefined => (error instanceof Error ? error.stack : undefined);
-
-/**
- * Collection holding the per-tick cron leases.
- *
- * It has no Mongoose schema, so the native driver is the correct access path here
- * (see docs/native-driver-security.md).
- */
-const CRON_LOCK_COLLECTION = 'cron-locks';
 
 /**
  * Lifetime of a cron lease: long enough to outlive any tick, short enough to keep
@@ -119,6 +112,13 @@ export abstract class CoreCronJobs implements OnApplicationBootstrap, OnApplicat
 
   /** Cached creation of the TTL index on the lock collection */
   protected leaseIndexReady?: Promise<void>;
+
+  /**
+   * Owner of the leases this instance takes. Per-tick keys are unique, so the owner only names who ran a tick; the
+   * lease collection (`cron-locks`, no Mongoose schema — native access is correct, see
+   * docs/native-driver-security.md) keeps the 12.0.0 document so older replicas dedupe against it
+   */
+  protected readonly leaseOwner = `cron:${process.pid}:${Math.random().toString(36).slice(2)}`;
 
   // ===================================================================================================================
   // Initializations
@@ -303,27 +303,38 @@ export abstract class CoreCronJobs implements OnApplicationBootstrap, OnApplicat
       }
     }
 
-    const connection = this.getConnection();
-    if (!connection) {
+    const sqlLocks = await defaultSqlLockStore('cron').catch((e) => {
+      cronLogger.error(`Cron lease store unavailable, running the tick anyway: ${errorMessage(e)}`, errorStack(e));
+      return null;
+    });
+    if (sqlLocks === null) {
+      return true;
+    }
+    const connection = sqlLocks ? undefined : this.getConnection();
+    if (!sqlLocks && !connection) {
       this.warnDedupInactive();
       return true;
     }
 
-    await this.ensureLeaseIndex(connection);
     try {
-      await connection.db.collection(CRON_LOCK_COLLECTION).insertOne({
-        _id: leaseKey as any,
-        createdAt: new Date(),
-        // Per-document expiry, so the short init window and the long tick window can
-        // share one collection (a fixed expireAfterSeconds could only express one).
-        expiresAt: new Date(Date.now() + ttlSeconds * 1000),
-      });
-      return true;
-    } catch (e: any) {
-      if (e?.code === 11000) {
-        this.logSkippedTick(leaseKey);
-        return false;
+      let acquired: boolean;
+      if (sqlLocks) {
+        acquired = await sqlLocks.tryAcquire(leaseKey, this.leaseOwner, ttlSeconds);
+      } else {
+        // The TTL index only collects old leases — for this version and for older replicas, which still claim with a
+        // plain insert. Whether a lease is free is decided by its expiresAt (LockStore), never by the TTL monitor.
+        await this.ensureLeaseIndex(connection);
+        acquired = await cronMongoLocks(connection.db.collection(CRON_LOCK_COLLECTION)).tryAcquire(
+          leaseKey,
+          this.leaseOwner,
+          ttlSeconds,
+        );
       }
+      if (!acquired) {
+        this.logSkippedTick(leaseKey);
+      }
+      return acquired;
+    } catch (e) {
       cronLogger.error(`Cron lease for ${leaseKey} failed, running the tick anyway: ${errorMessage(e)}`, errorStack(e));
       return true;
     }

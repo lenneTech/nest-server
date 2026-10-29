@@ -1,7 +1,8 @@
 import { Inject, Injectable } from '@nestjs/common';
-import { InjectModel } from '@nestjs/mongoose';
-import { Model } from 'mongoose';
+import { InjectModel } from '../../../common/persistence/mongo/mongoose-compat.js';
+import type { Model } from 'mongoose';
 
+import { upsertRecord } from '../../../common/persistence/store-upsert.js';
 import { CrudService } from '../../../common/services/crud.service.js';
 import type { CoreModelConstructor } from '../../../common/types/core-model-constructor.type.js';
 import { CoreAiConnectionPreferenceInput } from '../inputs/core-ai-connection-preference.input.js';
@@ -45,7 +46,7 @@ export class CoreAiConnectionPreferenceService extends CrudService<
     scope: 'tenant' | 'user',
     refId: string,
   ): Promise<{ connectionId: string; enforced?: boolean } | null> {
-    const doc = await this.mainDbModel.findOne({ refId, scope }).lean().exec();
+    const doc = (await this.dataStore.findOne({ refId, scope })) as Partial<CoreAiConnectionPreference> | null;
     return doc ? { connectionId: doc.connectionId, enforced: doc.enforced } : null;
   }
 
@@ -54,8 +55,7 @@ export class CoreAiConnectionPreferenceService extends CrudService<
    * removed, to avoid dangling tenant/user preferences). Returns the deleted count.
    */
   async deleteByConnectionId(connectionId: string): Promise<number> {
-    const result = await this.mainDbModel.deleteMany({ connectionId }).exec();
-    return result.deletedCount ?? 0;
+    return this.dataStore.deleteMany({ connectionId });
   }
 
   /**
@@ -69,14 +69,7 @@ export class CoreAiConnectionPreferenceService extends CrudService<
     connectionId: string,
     enforced = false,
   ): Promise<CoreAiConnectionPreference> {
-    const doc = await this.mainDbModel
-      .findOneAndUpdate(
-        { refId, scope },
-        { $set: { connectionId, enforced } },
-        { returnDocument: 'after', upsert: true },
-      )
-      .lean()
-      .exec();
+    const doc = await upsertRecord(this.dataStore, { refId, scope }, { connectionId, enforced });
     return this.mainModelConstructor.map(doc);
   }
 }

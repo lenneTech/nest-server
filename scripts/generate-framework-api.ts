@@ -410,7 +410,7 @@ ${exceptions.join('\n')}
 | \`src/core/common/interceptors/\` | CheckResponse, CheckSecurity, ResponseModel |
 | \`src/core/common/helpers/process-diagnostics.helper.ts\` | installProcessDiagnostics() / handleFatalBootstrapError — opt-in, wire into your own main.ts |
 | \`docs/REQUEST-LIFECYCLE.md\` | Complete request lifecycle |
-| \`docs/security-overrides.md\` | pnpm overrides are NOT inherited — two entries your project needs |
+| \`docs/security-overrides.md\` | pnpm overrides are NOT inherited — which entries your project still needs |
 | \`.claude/rules/\` | Detailed rules for architecture, security, testing |
 `;
 

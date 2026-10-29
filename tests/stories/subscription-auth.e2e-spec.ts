@@ -20,7 +20,6 @@ import { Module } from '@nestjs/common';
 import { ScheduleModule } from '@nestjs/schedule';
 import { Test, TestingModule } from '@nestjs/testing';
 import { PubSub } from 'graphql-subscriptions';
-import { Db, MongoClient } from 'mongodb';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 
 import { CoreBetterAuthModule, CoreBetterAuthService, CoreModule, HttpExceptionLogFilter, TestGraphQLType, TestHelper } from '../../src';
@@ -35,6 +34,7 @@ import { AuthModule } from '../../src/server/modules/auth/auth.module';
 import { BetterAuthModule } from '../../src/server/modules/better-auth/better-auth.module';
 import { FileModule } from '../../src/server/modules/file/file.module';
 import { ServerController } from '../../src/server/server.controller';
+import { type IamTestDb, openIamTestDb } from '../helpers/iam-test-db';
 
 /**
  * Test Module for Subscription Authentication (Scenario 2: Legacy + IAM)
@@ -62,8 +62,7 @@ class SubscriptionTestModule {}
 describe('Story: GraphQL Subscription Authentication', () => {
   let app;
   let testHelper: TestHelper;
-  let mongoClient: MongoClient;
-  let db: Db;
+  let iamDb: IamTestDb;
   let betterAuthService: CoreBetterAuthService;
   let isBetterAuthEnabled: boolean;
   let httpServer;
@@ -110,27 +109,18 @@ describe('Story: GraphQL Subscription Authentication', () => {
     isBetterAuthEnabled = betterAuthService?.isEnabled() ?? false;
 
     // Connect to MongoDB for cleanup
-    mongoClient = await MongoClient.connect(envConfig.mongoose.uri);
-    db = mongoClient.db();
+    iamDb = await openIamTestDb(envConfig.mongoose.uri);
   });
 
   afterAll(async () => {
     // Clean up test users and their associated data
-    if (db && testEmails.length > 0) {
-      // Get user IDs before deletion for cleaning up related collections
-      const testUsers = await db.collection('users').find({ email: { $in: testEmails } }).toArray();
-      const testIamIds = testUsers.map((u) => u.iamId).filter(Boolean);
-
-      // Delete users
-      await db.collection('users').deleteMany({ email: { $in: testEmails } });
-
-      // Delete only test user's accounts and sessions (not all data!)
-      if (testIamIds.length > 0) {
-        await db.collection('account').deleteMany({ userId: { $in: testIamIds } });
-        await db.collection('session').deleteMany({ userId: { $in: testIamIds } });
+    if (iamDb) {
+      // Sessions and accounts go with the users
+      for (const email of testEmails) {
+        await iamDb.deleteUsers({ email });
       }
+      await iamDb.close();
     }
-    if (mongoClient) await mongoClient.close();
     if (httpServer) {
       await new Promise<void>((resolve) => httpServer.close(() => resolve()));
     }
@@ -258,10 +248,10 @@ describe('Story: GraphQL Subscription Authentication', () => {
       expect(signInResult.success).toBe(true);
 
       // Verify session was created in database
-      const dbUser = await db.collection('users').findOne({ email });
+      const dbUser = await iamDb.findUser({ email: email });
       expect(dbUser).toBeDefined();
-      const session = await db.collection('session').findOne({ userId: dbUser!._id });
-      expect(session).toBeDefined();
+      const session = await iamDb.findUserSession(dbUser!.id);
+      expect(session).toBeTruthy();
     });
   });
 
@@ -330,10 +320,10 @@ describe('Story: GraphQL Subscription Authentication', () => {
       expect(iamSignIn.user).toBeDefined();
 
       // Verify session was created in database
-      const dbUser = await db.collection('users').findOne({ email });
+      const dbUser = await iamDb.findUser({ email: email });
       expect(dbUser).toBeDefined();
-      const session = await db.collection('session').findOne({ userId: dbUser!._id });
-      expect(session).toBeDefined();
+      const session = await iamDb.findUserSession(dbUser!.id);
+      expect(session).toBeTruthy();
     });
   });
 

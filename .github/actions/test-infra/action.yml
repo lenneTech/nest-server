@@ -1,4 +1,4 @@
-name: Test infrastructure (Redis + S3)
+name: Test infrastructure (Redis + S3 + PostgreSQL + MySQL + MariaDB)
 description: >-
   Provision the Redis and S3-compatible (RustFS) containers the distributed-feature
   e2e suites need (DEV-2985: rate limiting, cron dedup, pubsub, S3 file storage),
@@ -35,6 +35,30 @@ inputs:
     description: Published host port for RustFS. Must match the port in S3_ENDPOINT.
     required: false
     default: '9102'
+  postgres-name:
+    description: Container name for PostgreSQL.
+    required: false
+    default: ci-postgres
+  postgres-port:
+    description: Published host port for PostgreSQL. Must match PG_PORT in the suites.
+    required: false
+    default: '5440'
+  mysql-name:
+    description: Container name for MySQL.
+    required: false
+    default: ci-mysql
+  mysql-port:
+    description: Published host port for MySQL. Must match MYSQL_PORT in the suites.
+    required: false
+    default: '3316'
+  mariadb-name:
+    description: Container name for MariaDB.
+    required: false
+    default: ci-mariadb
+  mariadb-port:
+    description: Published host port for MariaDB. Must match MARIADB_PORT in the suites.
+    required: false
+    default: '3317'
 
 runs:
   using: composite
@@ -111,3 +135,66 @@ runs:
         echo "::error::RustFS did not become ready within 60s (last HTTP status: ${code:-none})"
         docker logs ${{ inputs.rustfs-name }}
         exit 1
+
+    # Same roles as scripts/test-infra.mjs and every deployed environment (plan §3.9): the owner owns the
+    # schema, the application role owns nothing and has neither BYPASSRLS nor superuser, so RLS holds.
+    - name: Start PostgreSQL
+      shell: bash
+      run: >-
+        docker run -d
+        --name ${{ inputs.postgres-name }}
+        -p ${{ inputs.postgres-port }}:5432
+        -e POSTGRES_USER=nest_owner
+        -e POSTGRES_PASSWORD=nest-owner-secret
+        -e POSTGRES_DB=nest_server_e2e
+        postgres:18.6-alpine3.24
+
+    - name: Wait for PostgreSQL and create the application role
+      shell: bash
+      run: |
+        for i in $(seq 1 60); do
+          # TCP, not the unix socket: the image's init phase serves the socket only.
+          if docker exec -e PGPASSWORD=nest-owner-secret ${{ inputs.postgres-name }} psql -h 127.0.0.1 -U nest_owner -d nest_server_e2e -v ON_ERROR_STOP=1 \
+            -c "DO \$\$ BEGIN IF NOT EXISTS (SELECT 1 FROM pg_roles WHERE rolname = 'nest_app') THEN CREATE ROLE nest_app LOGIN PASSWORD 'nest-app-secret' NOSUPERUSER NOBYPASSRLS NOCREATEDB NOCREATEROLE; END IF; END \$\$;" >/dev/null 2>&1; then
+            echo "PostgreSQL ready after ${i}s"
+            exit 0
+          fi
+          sleep 1
+        done
+        echo "::error::PostgreSQL did not become ready within 60s"
+        docker logs ${{ inputs.postgres-name }}
+        exit 1
+
+    # MySQL and MariaDB for the MySQL dialect suites (plan phase 6), with the roles scripts/test-infra.mjs creates:
+    # the owner creates databases and tables and grants, the application user starts with no privilege and gets data
+    # access table by table from the schema runner. Both started first, then waited for — their init takes a while.
+    - name: Start MySQL and MariaDB
+      shell: bash
+      run: |
+        docker run -d --name ${{ inputs.mysql-name }} -p ${{ inputs.mysql-port }}:3306 \
+          -e MYSQL_ROOT_PASSWORD=nest-root-secret mysql:8.4.10
+        docker run -d --name ${{ inputs.mariadb-name }} -p ${{ inputs.mariadb-port }}:3306 \
+          -e MARIADB_ROOT_PASSWORD=nest-root-secret mariadb:11.8.8
+
+    - name: Wait for MySQL and MariaDB and create the users
+      shell: bash
+      run: |
+        SQL="CREATE USER IF NOT EXISTS 'nest_owner'@'%' IDENTIFIED BY 'nest-owner-secret'; GRANT ALL PRIVILEGES ON *.* TO 'nest_owner'@'%' WITH GRANT OPTION; CREATE USER IF NOT EXISTS 'nest_app'@'%' IDENTIFIED BY 'nest-app-secret';"
+        for target in "${{ inputs.mysql-name }}:mysql" "${{ inputs.mariadb-name }}:mariadb"; do
+          name="${target%%:*}"; client="${target##*:}"
+          ready=""
+          for i in $(seq 1 120); do
+            # TCP, not the unix socket: both images serve only the socket while they initialise.
+            if docker exec "$name" "$client" -h 127.0.0.1 -uroot -pnest-root-secret -e "$SQL" >/dev/null 2>&1; then
+              echo "$name ready after ${i}s"
+              ready=1
+              break
+            fi
+            sleep 1
+          done
+          if [ -z "$ready" ]; then
+            echo "::error::$name did not become ready within 120s"
+            docker logs "$name"
+            exit 1
+          fi
+        done

@@ -1,3 +1,3 @@
-import { Types } from 'mongoose';
+import type { ObjectIdLike } from './object-id-like.type.js';
 
-export type IdType = string | Types.ObjectId | { _id?: string | Types.ObjectId; id?: string | Types.ObjectId };
+export type IdType = ObjectIdLike | string | { _id?: ObjectIdLike | string; id?: ObjectIdLike | string };

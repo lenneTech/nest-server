@@ -9,15 +9,35 @@ import { CoreCronJobs, CoreCronJobsOptions } from '../../src/core/common/service
  * Minimal stand-in for the `cron-locks` collection, shared between the simulated replicas
  */
 class FakeLockCollection {
-  createIndex = vi.fn(async () => 'createdAt_1');
-  ids = new Set<string>();
+  createIndex = vi.fn(async () => 'expiresAt_1');
+  docs = new Map<string, Record<string, any>>();
 
-  async insertOne(doc: { _id: string }) {
-    if (this.ids.has(doc._id)) {
-      throw Object.assign(new Error('E11000 duplicate key error'), { code: 11000 });
+  get ids(): Set<string> {
+    return new Set(this.docs.keys());
+  }
+
+  /** The claim of `MongoLockStore`: `{ _id, expiresAt: { $lte: now } }` with an upsert */
+  async updateOne(
+    filter: { _id: string; expiresAt?: { $lte: Date } },
+    update: { $set: Record<string, any> },
+    options?: { upsert?: boolean },
+  ) {
+    const doc = this.docs.get(filter._id);
+    if (doc && filter.expiresAt && doc.expiresAt <= filter.expiresAt.$lte) {
+      this.docs.set(filter._id, { ...doc, ...update.$set });
+      return { matchedCount: 1, upsertedCount: 0 };
     }
-    this.ids.add(doc._id);
-    return { insertedId: doc._id };
+    if (doc) {
+      if (options?.upsert) {
+        throw Object.assign(new Error('E11000 duplicate key error'), { code: 11000 });
+      }
+      return { matchedCount: 0, upsertedCount: 0 };
+    }
+    if (options?.upsert) {
+      this.docs.set(filter._id, { ...update.$set });
+      return { matchedCount: 0, upsertedCount: 1 };
+    }
+    return { matchedCount: 0, upsertedCount: 0 };
   }
 }
 
@@ -206,7 +226,7 @@ describe('CoreCronJobs multi-replica deduplication', () => {
       await flush();
 
       // Second replica boots measurably later, as a rolling deploy does
-      await new Promise(resolve => setTimeout(resolve, 1100));
+      await new Promise((resolve) => setTimeout(resolve, 1100));
 
       const replicaB = new TestCronJobs(
         { job1: { cronTime: NEVER, distributed: true, runOnInit: true } },
@@ -236,7 +256,7 @@ describe('CoreCronJobs multi-replica deduplication', () => {
 
       await service.onApplicationBootstrap();
       await flush();
-      await new Promise(resolve => setImmediate(resolve));
+      await new Promise((resolve) => setImmediate(resolve));
 
       process.off('unhandledRejection', onRejection);
       expect(rejections).toEqual([]);
@@ -407,7 +427,9 @@ describe('CoreCronJobs multi-replica deduplication', () => {
 
       expect(Logger.prototype.warn).toHaveBeenCalledTimes(1);
       // The warning names the load error, so a bullmq that is installed but fails to load is not misreported as missing.
-      expect(Logger.prototype.warn).toHaveBeenCalledWith(expect.stringContaining('"bullmq" could not be loaded (Cannot find module)'));
+      expect(Logger.prototype.warn).toHaveBeenCalledWith(
+        expect.stringContaining('"bullmq" could not be loaded (Cannot find module)'),
+      );
       expect([...collection.ids]).toEqual(['job1:2026-08-07T10:00:00.000Z']);
       expect(service.calls).toEqual(['job1']);
     });

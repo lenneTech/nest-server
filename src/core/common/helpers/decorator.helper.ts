@@ -1,6 +1,6 @@
 import { ExecutionContext } from '@nestjs/common';
 import { GqlContextType, GqlExecutionContext } from '@nestjs/graphql';
-import { PopulateOptions } from 'mongoose';
+import type { PopulateOptions } from 'mongoose';
 
 import { getPopulateOptions } from './db.helper.js';
 import { removePropertiesDeep } from './input.helper.js';

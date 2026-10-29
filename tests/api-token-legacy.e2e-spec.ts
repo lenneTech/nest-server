@@ -11,7 +11,7 @@ import { InjectModel, MongooseModule, Prop, Schema, SchemaFactory } from '@nestj
 import { ScheduleModule } from '@nestjs/schedule';
 import { Test, TestingModule } from '@nestjs/testing';
 import { PubSub } from 'graphql-subscriptions';
-import { Db, MongoClient, ObjectId } from 'mongodb';
+import { ObjectId } from 'mongodb';
 import { Model } from 'mongoose';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 
@@ -42,6 +42,7 @@ import { AuthModule } from '../src/server/modules/auth/auth.module';
 import { UserModule } from '../src/server/modules/user/user.module';
 import { UserService } from '../src/server/modules/user/user.service';
 import { deriveTestDbUri } from './db-lifecycle.reporter';
+import { type IamTestDb, openIamTestDb } from './helpers/iam-test-db';
 
 @Schema({ timestamps: true })
 class ApiTokenNote {
@@ -112,8 +113,7 @@ const ENCRYPTION_KEY = 'e2e-api-token-encryption-key-of-32-plus-chars';
 describe('API tokens — legacy RolesGuard stack without Better-Auth', () => {
   let app: any;
   let helper: TestHelper;
-  let mongo: MongoClient;
-  let db: Db;
+  let iamDb: IamTestDb;
   let previousConfig: any;
   const tenantId = `tenant-legacy-${Date.now()}`;
 
@@ -146,9 +146,9 @@ describe('API tokens — legacy RolesGuard stack without Better-Auth', () => {
     app = fixture.createNestApplication();
     await app.init();
     helper = new TestHelper(app);
-    mongo = await MongoClient.connect(config.mongoose.uri);
-    db = mongo.db();
-    await db.collection('apitokennotes').insertMany([
+    iamDb = await openIamTestDb(config.mongoose.uri);
+    // The notes model is registered with MongooseModule alone: it stays on MongoDB
+    await iamDb.mongo.collection('apitokennotes').insertMany([
       { tenantId, text: 'legacy-1' },
       { tenantId: `${tenantId}-other`, text: 'other-1' },
     ]);
@@ -156,7 +156,7 @@ describe('API tokens — legacy RolesGuard stack without Better-Auth', () => {
 
   afterAll(async () => {
     await app?.close();
-    await mongo?.close();
+    await iamDb?.close();
     CoreBetterAuthModule.reset();
     if (previousConfig) {
       ConfigService.setConfig(previousConfig, { reInit: true, warn: false });
@@ -178,9 +178,7 @@ describe('API tokens — legacy RolesGuard stack without Better-Auth', () => {
   });
 
   it('lets a user token act as its user', async () => {
-    const userId = (
-      await db.collection('users').insertOne({ email: `legacy-${Date.now()}@test.com`, roles: [RoleEnum.ADMIN] })
-    ).insertedId.toString();
+    const userId = await iamDb.insertUser({ email: `legacy-${Date.now()}@test.com`, roles: [RoleEnum.ADMIN] });
     await app.get(CoreTenantService).addMember(tenantId, userId, 'member');
     const created = await app
       .get(CoreApiTokenService)
@@ -203,9 +201,7 @@ describe('API tokens — legacy RolesGuard stack without Better-Auth', () => {
    *   mutation `auth-guard-reauthenticates-api-token-e2e` in tests/regression-mutations.json.
    */
   it('lets a user token pass an explicit AuthGuard(JWT) on a released route', async () => {
-    const userId = (
-      await db.collection('users').insertOne({ email: `legacy-guarded-${Date.now()}@test.com`, roles: [] })
-    ).insertedId.toString();
+    const userId = await iamDb.insertUser({ email: `legacy-guarded-${Date.now()}@test.com`, roles: [] });
     const created = await app
       .get(CoreApiTokenService)
       .createUserToken({ name: 'legacy-guarded', scopes: ['read'] }, { id: userId, roles: [] });
@@ -220,13 +216,13 @@ describe('API tokens — legacy RolesGuard stack without Better-Auth', () => {
 
   it('a legacy password reset revokes the user’s tokens — it ends every legacy session anyway', async () => {
     const email = `legacy-reset-${Date.now()}@test.com`;
-    const userId = (await db.collection('users').insertOne({ email, roles: [] })).insertedId.toString();
+    const userId = await iamDb.insertUser({ email, roles: [] });
     const created = await app.get(CoreApiTokenService).createUserToken({ name: 'reset' }, { id: userId, roles: [] });
     await helper.rest('/api-token-probe/whoami', { statusCode: 200, token: created.token });
 
     const users = app.get(UserService);
     await users.setPasswordResetTokenForEmail(email);
-    const resetToken = (await db.collection('users').findOne({ email }))!.passwordResetToken;
+    const resetToken = (await iamDb.findUser({ email }))!.passwordResetToken;
     expect(resetToken, 'the legacy reset request must produce a token').toBeTruthy();
     await users.resetPassword(resetToken, 'NewLegacyPassword123!');
 

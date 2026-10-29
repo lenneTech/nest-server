@@ -1,5 +1,5 @@
-import { CollationOptions } from 'mongodb';
-import { Model, PopulateOptions } from 'mongoose';
+import type { CollationOptions } from 'mongodb';
+import type { Model, PopulateOptions } from 'mongoose';
 
 import { FieldSelection } from '../types/field-selection.type.js';
 import { PrepareInputOptions } from './prepare-input-options.interface.js';

@@ -1,9 +1,12 @@
 import * as fs from 'fs';
-import { Db, GridFSBucket, MongoClient, ObjectId } from 'mongodb';
+import type { Db, MongoClient, ObjectId } from 'mongodb';
 import * as path from 'path';
 
 import { callerDirectory } from '../../common/helpers/module-location.helper.js';
+import type { MigrationStateStore } from './migration-state-store.interface.js';
 import { MongoStateStore } from './mongo-state-store.js';
+import { SqlStateStore } from './sql-state-store.js';
+import { requireMongoPackages } from '../../common/persistence/mongo/mongo-packages.js';
 
 /**
  * Migration helper functions for database operations
@@ -60,7 +63,7 @@ export const _endMigration = async () => {
  * ```
  */
 export const getDb = async (mongoUrl: string): Promise<Db> => {
-  const client: MongoClient = await MongoClient.connect(mongoUrl);
+  const client: MongoClient = await mongoDriver().MongoClient.connect(mongoUrl);
 
   // Track connection for auto-cleanup in migrations
   if (inMigrationContext) {
@@ -187,14 +190,14 @@ export const uploadFileToGridFS = async (
     ...options,
   };
 
-  const client = await MongoClient.connect(mongoUrl);
+  const client = await mongoDriver().MongoClient.connect(mongoUrl);
   // Registered unconditionally — unlike `getDb()`, which only registers inside a
   // migration context. This client is always ours to close, so `_endMigration()`
   // stays a backstop for the case where the upload throws before `settle()` runs.
   activeConnections.add(client);
 
   const db = client.db();
-  const bucket = new GridFSBucket(db, { bucketName });
+  const bucket = new (mongoDriver().GridFSBucket)(db, { bucketName });
   const writeStream = bucket.openUploadStream(filename);
 
   const readStream = fs.createReadStream(sourcePath);
@@ -276,10 +279,10 @@ export const uploadFileToGridFS = async (
  * the same time serializes instead of applying the same migration twice (the container
  * entrypoint runs migrations on every boot). Pass an empty string to opt out.
  *
- * @param mongoUrl - MongoDB connection URI
- * @param collectionName - Optional collection name (default: 'migrations')
+ * @param databaseUrl - MongoDB connection URI, or the PostgreSQL / MySQL / MariaDB URL of the table owner (`database.ownerUrl`)
+ * @param collectionName - Optional collection name (default: 'migrations'; on SQL the table `lt_migrations`)
  * @param lockCollectionName - Lock collection name (default: 'migrations_lock'); `''` disables locking
- * @returns MongoStateStore class that can be used with migrate CLI
+ * @returns A state store class (MongoStateStore or SqlStateStore) that can be used with the migrate CLI
  *
  * @example
  * ```typescript
@@ -288,23 +291,45 @@ export const uploadFileToGridFS = async (
  * const config = require('../src/config.env');
  *
  * module.exports = createMigrationStore(config.default.mongoose.uri);
+ * // A project whose default source is PostgreSQL:
+ * // module.exports = createMigrationStore(process.env.NSC__DATABASE__OWNER_URL);
  * ```
  */
 export const createMigrationStore = (
-  mongoUrl: string,
+  databaseUrl: string,
   collectionName: string = 'migrations',
   lockCollectionName: string = 'migrations_lock',
   // Explicit return type: the returned class is anonymous to the declaration emitter, and
   // MongoStateStore has private members, so an inferred type cannot be written to the .d.ts
   // (TS4094).
-): new () => MongoStateStore => {
+  // MongoStateStore's own fields stay in the type (optional: a SQL store has none), so code reading them keeps compiling
+): new () => MigrationStateStore & Partial<Pick<MongoStateStore, 'lockCollectionName' | 'mongodbHost'>> => {
+  // A SQL URL (the OWNER's, `database.ownerUrl`) keeps the state in a table and serialises runs with a database lock;
+  // `lockCollectionName` set to '' disables that lock there too. The names default to the framework's own
+  // `lt_migrations` table, a custom `collectionName` is used as the table name
+  if (/^(postgres(ql)?|mysql|mariadb):/i.test(databaseUrl ?? '')) {
+    return class SqlMigrationStateStore extends SqlStateStore {
+      constructor() {
+        super({
+          lock: !!lockCollectionName,
+          tableName: collectionName === 'migrations' ? 'lt_migrations' : collectionName,
+          url: databaseUrl,
+        });
+      }
+    };
+  }
   return class MigrationStateStore extends MongoStateStore {
     constructor() {
       super({
         collectionName,
         lockCollectionName: lockCollectionName || undefined,
-        uri: mongoUrl,
+        uri: databaseUrl,
       });
     }
   };
 };
+
+/** The MongoDB driver — a MongoDB migration needs it, a project without MongoDB never reaches this */
+function mongoDriver() {
+  return requireMongoPackages('A MongoDB migration (store or helper)').mongodb;
+}

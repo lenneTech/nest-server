@@ -15,12 +15,13 @@
 import { Controller, Get } from '@nestjs/common';
 import { NestExpressApplication } from '@nestjs/platform-express';
 import { exportJWK, generateKeyPair, SignJWT } from 'jose';
-import { Db, MongoClient } from 'mongodb';
+import type { Db } from 'mongodb';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 
 import { CoreBetterAuthModule, CoreBetterAuthService, CurrentUser, RoleEnum, Roles, TestHelper } from '../src';
 import { ConfigService } from '../src/core/common/services/config.service';
 import { apiTokenIamConfig, bootApiTokenIamApp, signUpAndSignIn } from './helpers/api-token-e2e.helpers';
+import { type IamTestDb, openIamTestDb } from './helpers/iam-test-db';
 
 /**
  * The shape `lt dev up` exports as `NSC__BASE_URL`, and the same URL with a trailing slash — Better-Auth
@@ -52,7 +53,7 @@ describe.each(SERVER_BASE_URLS)('Bearer JWT with only the server baseUrl $server
   let app: NestExpressApplication;
   let db: Db;
   let helper: TestHelper;
-  let mongo: MongoClient;
+  let iamDb: IamTestDb;
   let previousConfig: any;
 
   beforeAll(async () => {
@@ -62,13 +63,14 @@ describe.each(SERVER_BASE_URLS)('Bearer JWT with only the server baseUrl $server
     expect(base.betterAuth?.baseUrl).toBeUndefined();
     app = await bootApiTokenIamApp(base, { controllers: [JwtIssuerProbeController] });
     helper = new TestHelper(app);
-    mongo = await MongoClient.connect(base.mongoose.uri);
-    db = mongo.db();
+    // CoreModule.forRoot() alone registers no user model: users and Better-Auth stay on MongoDB
+    iamDb = await openIamTestDb(base.mongoose.uri, { users: 'mongodb' });
+    db = iamDb.mongo;
   });
 
   afterAll(async () => {
     await app?.close();
-    await mongo?.close();
+    await iamDb?.close();
     CoreBetterAuthModule.reset();
     if (previousConfig) {
       ConfigService.setConfig(previousConfig, { reInit: true, warn: false });
@@ -95,7 +97,7 @@ describe.each(SERVER_BASE_URLS)('Bearer JWT with only the server baseUrl $server
    *   instead of its origin turns the trailing-slash variant red — mutation `jwt-issuer-raw-base-url`.
    */
   it('accepts a JWT Better-Auth issued under the server baseUrl as Bearer token', async () => {
-    const user = await signUpAndSignIn(helper, db, dbSuffix);
+    const user = await signUpAndSignIn(helper, iamDb, dbSuffix);
     expect(user.token.split('.'), 'the sign-in must yield a JWT, or this case proves nothing').toHaveLength(3);
     const payload = decodePayload(user.token);
     expect(payload.iss).toBe(issuer);
@@ -112,7 +114,7 @@ describe.each(SERVER_BASE_URLS)('Bearer JWT with only the server baseUrl $server
    * refuses the other — not the key, the signature or the user.
    */
   it('refuses a JWT signed with a registered key that names another issuer', async () => {
-    const user = await signUpAndSignIn(helper, db, `${dbSuffix}-foreign`);
+    const user = await signUpAndSignIn(helper, iamDb, `${dbSuffix}-foreign`);
     const claims = decodePayload(user.token);
     const kid = `jwt-issuer-spec-${Date.now()}`;
     const { privateKey, publicKey } = await generateKeyPair('EdDSA', { extractable: true });

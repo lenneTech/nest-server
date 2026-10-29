@@ -11,10 +11,17 @@ import {
   Optional,
   UnauthorizedException,
 } from '@nestjs/common';
-import { InjectConnection, InjectModel } from '@nestjs/mongoose';
-import { type Connection, Model, Types } from 'mongoose';
+import { ModuleRef } from '@nestjs/core';
+import { InjectConnection, InjectModel } from '../../common/persistence/mongo/mongoose-compat.js';
+import type { Connection, Model } from 'mongoose';
+import type { Types } from 'mongoose';
 
 import { RoleEnum } from '../../common/enums/role.enum.js';
+import type { DataStore } from '../../common/persistence/data-store.interface.js';
+import { isWellFormedId } from '../../common/persistence/id-format.js';
+import { getModelDescriptor } from '../../common/persistence/model-metadata.registry.js';
+import { getStoreForModel } from '../../common/persistence/persistence-runtime.registry.js';
+import { getStoreToken } from '../../common/persistence/persistence.tokens.js';
 import { ConfigService } from '../../common/services/config.service.js';
 import { CoreRedisService } from '../../common/services/core-redis.service.js';
 import { InMemoryRateLimitStore, RateLimitStore, RedisRateLimitStore } from '../../common/services/rate-limit-store.js';
@@ -44,6 +51,7 @@ import {
 } from './core-api-token.helpers.js';
 import { CoreApiTokenModel } from './core-api-token.model.js';
 import { ApiTokenOwnerIdentity, setApiTokenRevoker } from './core-api-token.registry.js';
+import { newObjectId } from '../../common/persistence/mongo/mongoose-compat.js';
 
 /** Fields a caller can never set through a create/update input. */
 const PROTECTED_FIELDS = new Set([
@@ -65,6 +73,24 @@ const PROTECTED_FIELDS = new Set([
 ]);
 
 /** User fields never loaded onto a token-authenticated request user. */
+/** Name of the user model whose store a token owner is loaded from on a SQL database */
+const API_TOKEN_USER_MODEL = 'User';
+
+/** A filter built for MongoDB (`_id`) as the neutral filter of a data store (`id`) */
+function toNeutralFilter(filter: Record<string, unknown>): Record<string, unknown> {
+  const { _id, ...rest } = filter;
+  return _id === undefined ? rest : { ...rest, id: String(_id) };
+}
+
+/** A user record without the fields `USER_SECRET_PROJECTION` keeps out of a request user */
+function withoutSecrets(record: Record<string, any>): Record<string, any> {
+  const copy = { ...record };
+  for (const field of Object.keys(USER_SECRET_PROJECTION)) {
+    delete copy[field];
+  }
+  return copy;
+}
+
 const USER_SECRET_PROJECTION = {
   password: 0,
   passwordResetToken: 0,
@@ -161,7 +187,29 @@ export class CoreApiTokenService implements OnModuleDestroy, OnModuleInit {
     @Optional() @InjectConnection() protected readonly connection?: Connection,
     @Optional() protected readonly tenantService?: CoreTenantService,
     @Optional() protected readonly redisService?: CoreRedisService,
+    @Optional() protected readonly moduleRef?: ModuleRef,
   ) {}
+
+  /** The token store when the token model is routed to SQL; `undefined` keeps the Mongoose path (MongoDB) */
+  protected get tokenStore(): DataStore<any> | undefined {
+    const store = getStoreForModel(this.apiTokenModel);
+    return store && !store.capabilities.mongoosePopulate ? store : undefined;
+  }
+
+  /**
+   * The users' store when the user model (`User`) is routed to SQL: a token's owner is loaded from where the users
+   * live. `undefined` keeps the `users` collection, the document Better-Auth and the legacy strategy resolve on MongoDB.
+   * `protected` so a project whose user model has another name can return its store.
+   */
+  protected userStore(): DataStore<any> | undefined {
+    let store: DataStore<any> | undefined;
+    try {
+      store = this.moduleRef?.get(getStoreToken(API_TOKEN_USER_MODEL), { strict: false });
+    } catch {
+      return undefined;
+    }
+    return store && !store.capabilities.mongoosePopulate ? store : undefined;
+  }
 
   onModuleInit(): void {
     assertApiTokenConfigIsUsable();
@@ -262,10 +310,13 @@ export class CoreApiTokenService implements OnModuleDestroy, OnModuleInit {
       this.lastUsedWrites.clear();
     }
     this.lastUsedWrites.set(tokenId, now);
-    this.apiTokenModel
-      .updateOne({ _id: tokenId }, { $set: { lastUsedAt: new Date(now) } }, { timestamps: false })
-      .exec()
-      .catch((error: Error) => this.logger.debug(`lastUsedAt update failed: ${error.message}`));
+    const tokens = this.tokenStore;
+    const write = tokens
+      ? tokens.updateById(tokenId, { $set: { lastUsedAt: new Date(now) } }, { timestamps: false })
+      : this.apiTokenModel
+          .updateOne({ _id: tokenId }, { $set: { lastUsedAt: new Date(now) } }, { timestamps: false })
+          .exec();
+    write.catch((error: Error) => this.logger.debug(`lastUsedAt update failed: ${error.message}`));
   }
 
   /** A token that may authenticate right now: known, not revoked, not expired, kind enabled. */
@@ -273,11 +324,14 @@ export class CoreApiTokenService implements OnModuleDestroy, OnModuleInit {
     publicId: string,
     config: IResolvedApiTokenConfig,
   ): Promise<CoreApiTokenModel | null> {
-    const token = (await this.apiTokenModel
-      .findOne({ publicId })
-      .select('+secretHash +signingKeyEncrypted')
-      .lean()
-      .exec()) as (CoreApiTokenModel & { _id: Types.ObjectId }) | null;
+    const tokens = this.tokenStore;
+    const token = (
+      tokens
+        ? await tokens
+            .findOne({ publicId }, { select: Object.keys(getModelDescriptor(tokens.modelName)?.fields ?? {}) })
+            .then((record) => record && { ...record, _id: record.id })
+        : await this.apiTokenModel.findOne({ publicId }).select('+secretHash +signingKeyEncrypted').lean().exec()
+    ) as (CoreApiTokenModel & { _id: Types.ObjectId | string }) | null;
     if (!token || token.revokedAt || (token.expiresAt && new Date(token.expiresAt).getTime() <= Date.now())) {
       return null;
     }
@@ -323,12 +377,15 @@ export class CoreApiTokenService implements OnModuleDestroy, OnModuleInit {
    * `protected` so a project with a different user store can override it.
    */
   protected async loadTokenUser(userId: string): Promise<null | Record<string, any>> {
-    if (!this.connection || !userId || !Types.ObjectId.isValid(userId)) {
+    const users = this.userStore();
+    if ((!users && !this.connection) || !userId || !isWellFormedId(userId)) {
       return null;
     }
-    const doc = await this.connection
-      .collection('users')
-      .findOne({ _id: new Types.ObjectId(userId) }, { projection: USER_SECRET_PROJECTION });
+    const doc = users
+      ? await users.findById(userId).then((record) => record && withoutSecrets({ ...record, _id: record.id }))
+      : await this.connection
+          .collection('users')
+          .findOne({ _id: newObjectId(userId) }, { projection: USER_SECRET_PROJECTION });
     if (!doc) {
       return null;
     }
@@ -425,12 +482,11 @@ export class CoreApiTokenService implements OnModuleDestroy, OnModuleInit {
    * or when the user is blocked. Returns the number of tokens revoked.
    */
   async revokeAllForUser(userId: string): Promise<number> {
-    const result = await this.apiTokenModel
-      .updateMany(
-        { kind: ApiTokenKind.USER, revokedAt: null, user: String(userId) },
-        { $set: { revokedAt: new Date() } },
-      )
-      .exec();
+    const active = { kind: ApiTokenKind.USER, revokedAt: null, user: String(userId) };
+    if (this.tokenStore) {
+      return this.tokenStore.updateMany(active, { $set: { revokedAt: new Date() } });
+    }
+    const result = await this.apiTokenModel.updateMany(active, { $set: { revokedAt: new Date() } }).exec();
     return result.modifiedCount ?? 0;
   }
 
@@ -441,19 +497,25 @@ export class CoreApiTokenService implements OnModuleDestroy, OnModuleInit {
    */
   async revokeAllForOwner(identity: ApiTokenOwnerIdentity): Promise<number> {
     let userId = identity?.userId;
-    if (!userId && this.connection && (identity?.email || identity?.iamId)) {
+    const users = this.userStore();
+    if (!userId && (users || this.connection) && (identity?.email || identity?.iamId)) {
       const or: Record<string, string>[] = [];
       if (identity.email) or.push({ email: identity.email });
       if (identity.iamId) or.push({ iamId: identity.iamId });
-      const doc = await this.connection.collection('users').findOne({ $or: or }, { projection: { _id: 1 } });
-      userId = doc?._id?.toString();
+      userId = users
+        ? (await users.findOne({ $or: or }, { select: ['id'] }))?.id
+        : (await this.connection.collection('users').findOne({ $or: or }, { projection: { _id: 1 } }))?._id?.toString();
     }
     return userId ? this.revokeAllForUser(userId) : 0;
   }
 
   /** Delete every token of a user (system operation, no rights check) — call it when deleting the user. */
   async deleteAllForUser(userId: string): Promise<number> {
-    const result = await this.apiTokenModel.deleteMany({ kind: ApiTokenKind.USER, user: String(userId) }).exec();
+    const owned = { kind: ApiTokenKind.USER, user: String(userId) };
+    if (this.tokenStore) {
+      return this.tokenStore.deleteMany(owned);
+    }
+    const result = await this.apiTokenModel.deleteMany(owned).exec();
     return result.deletedCount ?? 0;
   }
 
@@ -535,6 +597,9 @@ export class CoreApiTokenService implements OnModuleDestroy, OnModuleInit {
   async deleteAllForTenant(tenantId: string): Promise<number> {
     if (!tenantId?.trim()) {
       throw new BadRequestException('tenantId must not be empty');
+    }
+    if (this.tokenStore) {
+      return this.tokenStore.deleteMany({ tenant: tenantId });
     }
     const result = await this.apiTokenModel.deleteMany({ tenant: tenantId }).exec();
     return result.deletedCount ?? 0;
@@ -632,7 +697,7 @@ export class CoreApiTokenService implements OnModuleDestroy, OnModuleInit {
     const config = getApiTokenConfig();
     const { publicId, secret, token } = generateApiToken(config.prefix);
     const signingKey = generateApiTokenSigningKey();
-    const created = await this.apiTokenModel.create({
+    const record = {
       ...document,
       createdBy: String(currentUser.id),
       publicId,
@@ -640,12 +705,18 @@ export class CoreApiTokenService implements OnModuleDestroy, OnModuleInit {
       secretHash: hashApiTokenSecret(secret),
       signingKeyEncrypted: this.encryptSigningKey(signingKey),
       updatedBy: String(currentUser.id),
-    });
+    };
+    if (this.tokenStore) {
+      return { apiToken: this.toInfo(await this.tokenStore.insert(record)), signingKey, token };
+    }
+    const created = await this.apiTokenModel.create(record);
     return { apiToken: this.toInfo(created.toObject()), signingKey, token };
   }
 
   protected async list(filter: Record<string, unknown>): Promise<ApiTokenInfo[]> {
-    const tokens = await this.apiTokenModel.find(filter).sort({ createdAt: -1 }).lean().exec();
+    const tokens = this.tokenStore
+      ? await this.tokenStore.find(toNeutralFilter(filter), { sort: { createdAt: -1 } })
+      : await this.apiTokenModel.find(filter).sort({ createdAt: -1 }).lean().exec();
     return tokens.map((token) => this.toInfo(token));
   }
 
@@ -654,10 +725,10 @@ export class CoreApiTokenService implements OnModuleDestroy, OnModuleInit {
     $set: Record<string, unknown>,
     currentUser: any,
   ): Promise<ApiTokenInfo> {
-    const updated = await this.apiTokenModel
-      .findOneAndUpdate(filter, { $set: { ...$set, updatedBy: String(currentUser.id) } }, { returnDocument: 'after' })
-      .lean()
-      .exec();
+    const update = { $set: { ...$set, updatedBy: String(currentUser.id) } };
+    const updated = this.tokenStore
+      ? await this.tokenStore.updateOne(toNeutralFilter(filter), update)
+      : await this.apiTokenModel.findOneAndUpdate(filter, update, { returnDocument: 'after' }).lean().exec();
     if (!updated) {
       throw new NotFoundException('API token not found');
     }
@@ -665,19 +736,21 @@ export class CoreApiTokenService implements OnModuleDestroy, OnModuleInit {
   }
 
   protected async applyRevoke(filter: Record<string, unknown>, currentUser: any): Promise<ApiTokenInfo> {
-    const revoked = await this.apiTokenModel
-      .findOneAndUpdate(
-        { ...filter, revokedAt: null },
-        { $set: { revokedAt: new Date(), updatedBy: String(currentUser.id) } },
-        { returnDocument: 'after' },
-      )
-      .lean()
-      .exec();
+    const revocation = { $set: { revokedAt: new Date(), updatedBy: String(currentUser.id) } };
+    const tokens = this.tokenStore;
+    const revoked = tokens
+      ? await tokens.updateOne(toNeutralFilter({ ...filter, revokedAt: null }), revocation)
+      : await this.apiTokenModel
+          .findOneAndUpdate({ ...filter, revokedAt: null }, revocation, { returnDocument: 'after' })
+          .lean()
+          .exec();
     if (revoked) {
       return this.toInfo(revoked);
     }
     // Already revoked: answer with the current state rather than an error.
-    const existing = await this.apiTokenModel.findOne(filter).lean().exec();
+    const existing = tokens
+      ? await tokens.findOne(toNeutralFilter(filter))
+      : await this.apiTokenModel.findOne(filter).lean().exec();
     if (!existing) {
       throw new NotFoundException('API token not found');
     }
@@ -685,7 +758,9 @@ export class CoreApiTokenService implements OnModuleDestroy, OnModuleInit {
   }
 
   protected async applyDelete(filter: Record<string, unknown>): Promise<ApiTokenInfo> {
-    const deleted = await this.apiTokenModel.findOneAndDelete(filter).lean().exec();
+    const deleted = this.tokenStore
+      ? await this.tokenStore.deleteOne(toNeutralFilter(filter))
+      : await this.apiTokenModel.findOneAndDelete(filter).lean().exec();
     if (!deleted) {
       throw new NotFoundException('API token not found');
     }
@@ -705,7 +780,7 @@ export class CoreApiTokenService implements OnModuleDestroy, OnModuleInit {
     if (typeof tokenId !== 'string' || !/^[0-9a-f]{24}$/i.test(tokenId)) {
       throw new NotFoundException('API token not found');
     }
-    return new Types.ObjectId(tokenId);
+    return newObjectId(tokenId);
   }
 
   protected commonUpdate(input: IUpdateApiTokenInput, config: IResolvedApiTokenConfig): Record<string, unknown> {

@@ -90,3 +90,13 @@ export const AI_TOOL_GRANT_MODEL = 'AiToolGrant';
 export const AI_TOOL_POLICY_CLASS = 'AI_TOOL_POLICY_CLASS';
 /** Mongoose injection token. */
 export const AI_TOOL_POLICY_MODEL = 'AiToolPolicy';
+
+// ---- MCP OAuth (stored natively on MongoDB; these models give them their tables on a SQL source) ----
+/** Mongoose model name of the registered OAuth clients (`aiMcpOAuthClients`). */
+export const AI_MCP_OAUTH_CLIENT_MODEL = 'AiMcpOAuthClient';
+/** Mongoose model name of the authorization codes (`aiMcpOAuthCodes`). */
+export const AI_MCP_OAUTH_CODE_MODEL = 'AiMcpOAuthCode';
+/** Mongoose model name of the refresh tokens (`aiMcpOAuthRefreshTokens`). */
+export const AI_MCP_OAUTH_REFRESH_TOKEN_MODEL = 'AiMcpOAuthRefreshToken';
+/** How long an authorization code may be exchanged — checked on every read, not left to a TTL index. */
+export const AI_MCP_OAUTH_CODE_TTL_SECONDS = 600;

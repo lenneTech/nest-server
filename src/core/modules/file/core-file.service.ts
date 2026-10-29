@@ -1,5 +1,6 @@
 import { Logger, NotFoundException } from '@nestjs/common';
-import { type Connection, mongo, Types } from 'mongoose';
+import type { Connection } from 'mongoose';
+import type { mongo, Types } from 'mongoose';
 import { Readable } from 'stream';
 
 import { FilterArgs } from '../../common/args/filter.args.js';
@@ -9,6 +10,7 @@ import { convertFilterArgsToQuery } from '../../common/helpers/filter.helper.js'
 import { GridFSHelper } from '../../common/helpers/gridfs.helper.js';
 import { check } from '../../common/helpers/input.helper.js';
 import { prepareOutput } from '../../common/helpers/service.helper.js';
+import { isWellFormedId } from '../../common/persistence/id-format.js';
 import { ConfigService } from '../../common/services/config.service.js';
 import { RequestContext } from '../../common/services/request-context.service.js';
 import { CoreS3Service } from '../../common/services/core-s3.service.js';
@@ -25,13 +27,11 @@ import {
   logFileStorage,
   resolveFileStorage,
 } from './file-storage.helper.js';
-import {
-  DEFAULT_FILESYSTEM_DIR,
-  FILESYSTEM_FILES_COLLECTION,
-  FilesystemFileHelper,
-  FilesystemFileInfo,
-} from './filesystem-file.helper.js';
-import { S3_FILES_COLLECTION, S3FileHelper, S3FileInfo } from './s3-file.helper.js';
+import type { FileCollection } from './file-metadata.helper.js';
+import { fileMetadataCollection } from './file-metadata.store.js';
+import { DEFAULT_FILESYSTEM_DIR, FilesystemFileHelper, FilesystemFileInfo } from './filesystem-file.helper.js';
+import { S3FileHelper, S3FileInfo } from './s3-file.helper.js';
+import { createGridFsBucket } from '../../common/persistence/mongo/mongoose-compat.js';
 
 /**
  * Type for checking input
@@ -56,11 +56,18 @@ export abstract class CoreFileService {
   // Use the native MongoDB driver's types (accessed via Mongoose's exports) to avoid BSON version conflicts
   files: mongo.GridFSBucket;
 
-  /** Metadata collection for files stored in S3 (no Mongoose schema) */
-  protected s3Files: mongo.Collection<any>;
+  /**
+   * Metadata of the files stored in S3: the `s3-files` collection, or the table of its model when `database` routes it
+   * to a SQL source (`fileMetadataCollection()`)
+   */
+  protected get s3Files(): FileCollection {
+    return fileMetadataCollection(this.connection, 's3');
+  }
 
-  /** Metadata collection for files stored on the local filesystem (no Mongoose schema) */
-  protected filesystemFiles: mongo.Collection<any>;
+  /** Metadata of the files stored on the local filesystem: `filesystem-files`, or its table on a SQL source */
+  protected get filesystemFiles(): FileCollection {
+    return fileMetadataCollection(this.connection, 'filesystem');
+  }
 
   protected readonly logger = new Logger(CoreFileService.name);
 
@@ -75,10 +82,9 @@ export abstract class CoreFileService {
     bucketName = 'fs',
     protected readonly options?: CoreFileServiceOptions,
   ) {
-    // Use the native MongoDB driver's GridFSBucket via Mongoose's mongo export to avoid BSON version conflicts
-    this.files = new mongo.GridFSBucket(connection.db, { bucketName });
-    this.s3Files = connection.db.collection(S3_FILES_COLLECTION);
-    this.filesystemFiles = connection.db.collection(FILESYSTEM_FILES_COLLECTION);
+    // GridFS needs MongoDB: without a connection (a project on PostgreSQL alone) there is no bucket, the GridFS reads
+    // find nothing, and `file.storage: 'gridfs'` fails the boot below as unavailable
+    this.files = connection?.db ? createGridFsBucket(connection.db, { bucketName }) : undefined;
 
     // Resolve from the global config rather than the optional injected
     // ConfigService: a project on the pre-11.33 constructor (`super(connection)`)
@@ -123,6 +129,9 @@ export abstract class CoreFileService {
    * library and the service wired through `super()`.
    */
   protected isStorageAvailable(driver: FileStorageDriver): boolean {
+    if (driver === 'gridfs') {
+      return !!this.files;
+    }
     return driver === 's3' ? !!this.options?.s3Service?.enabled : true;
   }
 
@@ -144,14 +153,14 @@ export abstract class CoreFileService {
    *
    * Every store keys files by an ObjectId, so a string that is not 24 hex characters — a TUS upload
    * id (which clients took for the file id), a filename, a typo in a URL — names no file. It is
-   * answered exactly like an unknown id. Handed to `new ObjectId()` it threw a BSONError instead,
+   * answered exactly like an unknown id. Handed to `new Types.ObjectId()` it threw a BSONError instead,
    * and `GET /files/id/<tus-upload-id>` answered 500 where an unknown id gets 404.
    *
    * Only strings are judged: anything else keeps its previous path, so an ObjectId from a second
    * copy of `bson` (where `instanceof` fails) is not suddenly reported as missing.
    */
   protected isMalformedFileId(id: unknown): boolean {
-    return typeof id === 'string' && !(id.length === 24 && Types.ObjectId.isValid(id));
+    return typeof id === 'string' && !isWellFormedId(id);
   }
 
   /**

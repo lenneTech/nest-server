@@ -17,6 +17,7 @@
         "$__",
         "__args",
         "__schema",
+        "_activeQuery",
         "_authenticatedViaBetterAuth",
         "_bsontype",
         "_configSubject$",
@@ -27,6 +28,8 @@
         "_instance",
         "_model",
         "_objectAlreadyCheckedForRestrictions",
+        "_queryQueue",
+        "_sentQueryQueue",
         "_startMigration",
         "_translations",
         "_typeTestConfigs"

@@ -1,4 +1,10 @@
-import { RequestContext } from '../services/request-context.service.js';
+import {
+  type AuditFieldPresence,
+  resolveAuditActorId,
+  stampAuditOnReplace,
+  stampAuditOnUpdate,
+  stampAuditOnWrite,
+} from '../persistence/policies/audit.policy.js';
 
 /**
  * Mongoose plugin that automatically sets createdBy/updatedBy fields.
@@ -16,36 +22,35 @@ import { RequestContext } from '../services/request-context.service.js';
  * - Bulk operations: sets createdBy/updatedBy per document/operation
  *
  * Only activates on schemas that have createdBy and/or updatedBy fields defined.
+ *
+ * The stamping decisions live in the audit policy (`persistence/policies/audit.policy.ts`), which every
+ * data store shares; this plugin only applies them to Mongoose's hook shapes.
  */
 export function mongooseAuditFieldsPlugin(schema) {
-  const hasCreatedBy = !!schema.path('createdBy');
-  const hasUpdatedBy = !!schema.path('updatedBy');
+  const fields: AuditFieldPresence = {
+    createdBy: !!schema.path('createdBy'),
+    updatedBy: !!schema.path('updatedBy'),
+  };
 
   // Skip schemas without audit fields (e.g. BetterAuth sessions, third-party schemas)
-  if (!hasCreatedBy && !hasUpdatedBy) {
+  if (!fields.createdBy && !fields.updatedBy) {
     return;
   }
 
   // Pre-save hook
   schema.pre('save', function () {
-    const currentUser = RequestContext.getCurrentUser();
-    if (!currentUser?.id) {
+    const actorId = resolveAuditActorId();
+    if (!actorId) {
       return;
     }
-
-    if (hasCreatedBy && this.isNew && !this['createdBy']) {
-      this['createdBy'] = currentUser.id;
-    }
-    if (hasUpdatedBy) {
-      this['updatedBy'] = currentUser.id;
-    }
+    stampAuditOnWrite(this, actorId, fields, this.isNew);
   });
 
   // Pre-update hooks (only needed for updatedBy)
-  if (hasUpdatedBy) {
+  if (fields.updatedBy) {
     const updateHook = function () {
-      const currentUser = RequestContext.getCurrentUser();
-      if (!currentUser?.id) {
+      const actorId = resolveAuditActorId();
+      if (!actorId) {
         return;
       }
 
@@ -54,22 +59,7 @@ export function mongooseAuditFieldsPlugin(schema) {
         return;
       }
 
-      // Handle both flat updates and $set operator
-      update['updatedBy'] = currentUser.id;
-      if (update.$set) {
-        update.$set['updatedBy'] = currentUser.id;
-      }
-
-      // Handle upsert: set createdBy on insert via $setOnInsert
-      // Only add if createdBy is not already in the update (avoids MongoDB path conflict)
-      if (hasCreatedBy && !update['createdBy'] && !update.$set?.['createdBy']) {
-        if (!update.$setOnInsert) {
-          update.$setOnInsert = {};
-        }
-        if (!update.$setOnInsert['createdBy']) {
-          update.$setOnInsert['createdBy'] = currentUser.id;
-        }
-      }
+      stampAuditOnUpdate(update, actorId, fields);
     };
 
     schema.pre('findOneAndUpdate', updateHook);
@@ -78,8 +68,8 @@ export function mongooseAuditFieldsPlugin(schema) {
 
     // Replace hooks: flat replacement doc (no $set/$setOnInsert)
     const replaceHook = function () {
-      const currentUser = RequestContext.getCurrentUser();
-      if (!currentUser?.id) {
+      const actorId = resolveAuditActorId();
+      if (!actorId) {
         return;
       }
 
@@ -88,12 +78,7 @@ export function mongooseAuditFieldsPlugin(schema) {
         return;
       }
 
-      replacement['updatedBy'] = currentUser.id;
-
-      // For upsert replacements: set createdBy if not already present
-      if (hasCreatedBy && !replacement['createdBy']) {
-        replacement['createdBy'] = currentUser.id;
-      }
+      stampAuditOnReplace(replacement, actorId, fields);
     };
 
     schema.pre('replaceOne', replaceHook);
@@ -103,55 +88,29 @@ export function mongooseAuditFieldsPlugin(schema) {
   // Bulk operation hooks (needed when either createdBy or updatedBy is present)
   // Pre-insertMany hook (Mongoose 9: first arg is docs array)
   schema.pre('insertMany', function (docs) {
-    const currentUser = RequestContext.getCurrentUser();
-    if (!currentUser?.id) return;
+    const actorId = resolveAuditActorId();
+    if (!actorId) return;
     if (!Array.isArray(docs)) return;
 
     for (const doc of docs) {
-      if (hasCreatedBy && !doc.createdBy) {
-        doc.createdBy = currentUser.id;
-      }
-      if (hasUpdatedBy) {
-        doc.updatedBy = currentUser.id;
-      }
+      stampAuditOnWrite(doc, actorId, fields, true);
     }
   });
 
   // Pre-bulkWrite hook
   schema.pre('bulkWrite', function (ops) {
-    const currentUser = RequestContext.getCurrentUser();
-    if (!currentUser?.id) return;
+    const actorId = resolveAuditActorId();
+    if (!actorId) return;
 
     for (const op of ops) {
       if ('insertOne' in op) {
-        if (hasCreatedBy && !op.insertOne.document.createdBy) {
-          op.insertOne.document.createdBy = currentUser.id;
-        }
-        if (hasUpdatedBy) {
-          op.insertOne.document.updatedBy = currentUser.id;
-        }
+        stampAuditOnWrite(op.insertOne.document, actorId, fields, true);
       } else if ('updateOne' in op || 'updateMany' in op) {
         const update = 'updateOne' in op ? op.updateOne.update : op.updateMany.update;
         if (!update) continue;
-        if (hasUpdatedBy) {
-          update['updatedBy'] = currentUser.id;
-          if (update.$set) {
-            update.$set['updatedBy'] = currentUser.id;
-          }
-        }
-        if (hasCreatedBy && !update['createdBy'] && !update.$set?.['createdBy']) {
-          if (!update.$setOnInsert) update.$setOnInsert = {};
-          if (!update.$setOnInsert['createdBy']) {
-            update.$setOnInsert['createdBy'] = currentUser.id;
-          }
-        }
+        stampAuditOnUpdate(update, actorId, fields);
       } else if ('replaceOne' in op) {
-        if (hasUpdatedBy) {
-          op.replaceOne.replacement['updatedBy'] = currentUser.id;
-        }
-        if (hasCreatedBy && !op.replaceOne.replacement['createdBy']) {
-          op.replaceOne.replacement['createdBy'] = currentUser.id;
-        }
+        stampAuditOnReplace(op.replaceOne.replacement, actorId, fields);
       }
     }
   });

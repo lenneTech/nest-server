@@ -1,12 +1,12 @@
 import { ObjectType } from '@nestjs/graphql';
 import { ApiExtraModels } from '@nestjs/swagger';
-import { Types } from 'mongoose';
-import mongoose from 'mongoose';
+import type { Types } from 'mongoose';
 
 import { Restricted } from '../../../core/common/decorators/restricted.decorator.js';
 import { UnifiedField } from '../../../core/common/decorators/unified-field.decorator.js';
 import { RoleEnum } from '../../../core/common/enums/role.enum.js';
 import { CorePersistenceModel } from '../../../core/common/models/core-persistence.model.js';
+import { objectIdType } from '../../../core/common/persistence/mongo/mongoose-compat.js';
 import { User } from '../../modules/user/user.model.js';
 
 /**
@@ -33,7 +33,7 @@ export abstract class PersistenceModel extends CorePersistenceModel {
   @UnifiedField({
     description: 'ID of the user who created the object',
     isOptional: true,
-    mongoose: { ref: 'User', type: mongoose.Schema.Types.ObjectId },
+    mongoose: { ref: 'User', type: objectIdType() },
     roles: RoleEnum.ADMIN,
     swaggerApiOptions: { type: String },
     type: () => User,
@@ -48,7 +48,7 @@ export abstract class PersistenceModel extends CorePersistenceModel {
   @UnifiedField({
     description: 'ID of the user who updated the object',
     isOptional: true,
-    mongoose: { ref: 'User', type: mongoose.Schema.Types.ObjectId },
+    mongoose: { ref: 'User', type: objectIdType() },
     roles: RoleEnum.ADMIN,
     swaggerApiOptions: { type: User },
     type: () => User,

@@ -1,7 +1,6 @@
 import bcrypt from 'bcrypt';
 import { sha256 } from 'js-sha256';
 import _ from 'lodash';
-import { Types } from 'mongoose';
 
 import { RoleEnum } from '../enums/role.enum.js';
 import { accessDeniedException } from '../exceptions/access-denied.exception.js';
@@ -12,6 +11,7 @@ import { ServiceOptions } from '../interfaces/service-options.interface.js';
 import { ConfigService } from '../services/config.service.js';
 import { getStringIds } from './db.helper.js';
 import { clone, plainToInstanceClean, processDeep } from './input.helper.js';
+import { isObjectIdLike } from './id.helper.js';
 
 // Secret field names for recursive removal in prepareOutput — allocated once, never change.
 // Only fields that are NEVER needed internally (hashed passwords, one-time tokens).
@@ -136,7 +136,7 @@ export async function prepareInput<T = any>(
     input = processDeep(
       input,
       (property) => {
-        if (property instanceof Types.ObjectId) {
+        if (isObjectIdLike(property)) {
           property = getStringIds(property);
         }
         return property;
@@ -272,7 +272,7 @@ export async function prepareOutput<T = { [key: string]: any; map: (...args: any
     output = processDeep(
       output,
       (property) => {
-        if (doObjectIds && property instanceof Types.ObjectId) {
+        if (doObjectIds && isObjectIdLike(property)) {
           return property.toHexString();
         }
         if (doSecrets && property && typeof property === 'object' && !Array.isArray(property)) {

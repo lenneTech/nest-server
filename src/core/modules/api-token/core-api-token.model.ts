@@ -1,5 +1,5 @@
 import { ObjectType } from '@nestjs/graphql';
-import { Schema } from '@nestjs/mongoose';
+import { Schema } from '../../common/persistence/mongo/mongoose-compat.js';
 
 import { Restricted } from '../../common/decorators/restricted.decorator.js';
 import { UnifiedField } from '../../common/decorators/unified-field.decorator.js';

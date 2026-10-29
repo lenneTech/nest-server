@@ -13,7 +13,7 @@ import { Module } from '@nestjs/common';
 import { ScheduleModule } from '@nestjs/schedule';
 import { Test, TestingModule } from '@nestjs/testing';
 import { PubSub } from 'graphql-subscriptions';
-import { Db, MongoClient } from 'mongodb';
+import { Db } from 'mongodb';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 
 import { CoreModule, HttpExceptionLogFilter, TestGraphQLType, TestHelper } from '../../src';
@@ -27,6 +27,7 @@ import { AuthController } from '../../src/server/modules/auth/auth.controller';
 import { AuthModule } from '../../src/server/modules/auth/auth.module';
 import { FileModule } from '../../src/server/modules/file/file.module';
 import { ServerController } from '../../src/server/server.controller';
+import { type IamTestDb, openIamTestDb } from '../helpers/iam-test-db';
 
 // Test Data
 const testEmails: string[] = [];
@@ -66,8 +67,7 @@ class TestServerModule {}
 describe('Story: User Enumeration - Default Behavior (specific error messages)', () => {
   let app;
   let testHelper: TestHelper;
-  let mongoClient: MongoClient;
-  let db: Db;
+  let iamDb: IamTestDb;
 
   beforeAll(async () => {
     const moduleFixture: TestingModule = await Test.createTestingModule({
@@ -82,15 +82,16 @@ describe('Story: User Enumeration - Default Behavior (specific error messages)',
     await app.init();
     testHelper = new TestHelper(app);
 
-    mongoClient = await MongoClient.connect(testConfig.mongoose.uri);
-    db = mongoClient.db();
+    iamDb = await openIamTestDb(testConfig.mongoose.uri);
   });
 
   afterAll(async () => {
-    if (db && testEmails.length > 0) {
-      await db.collection('users').deleteMany({ email: { $in: testEmails } });
+    if (iamDb) {
+      for (const email of testEmails) {
+        await iamDb.deleteUsers({ email });
+      }
+      await iamDb.close();
     }
-    if (mongoClient) await mongoClient.close();
     if (app) await app.close();
   });
 
@@ -138,7 +139,7 @@ describe('Story: User Enumeration - Default Behavior (specific error messages)',
     const email = generateTestEmail('social-only');
 
     // Create a user without password (simulating social login)
-    await db.collection('users').insertOne({
+    await iamDb.insertUser({
       email,
       emailVerified: true,
       roles: [],

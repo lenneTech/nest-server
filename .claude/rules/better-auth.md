@@ -504,6 +504,51 @@ this protection must set `betterAuth.options.advanced.disableOriginCheck: false`
 removed. `tests/better-auth-signin-csrf.e2e-spec.ts` does; mutations `iam-signin-csrf-check-skipped` /
 `iam-signup-csrf-check-skipped`.
 
+## 11. Better-Auth on a SQL source — it follows the users table (db-agnostic phase 3)
+
+Better-Auth keeps its data where the user model lives. `DataSourceRuntime.iamStorage()` finds the persisted model whose
+table is `users`; when that model is routed to a SQL source, `CoreBetterAuthModule.createInstance()` hands Better-Auth
+the application role's `pg` pool of that source, and Better-Auth runs its own Kysely adapter on it (it recognises a pool
+by its `connect` method — the core imports no Kysely). On MongoDB nothing changes.
+
+| Piece | Where | Rule |
+|---|---|---|
+| Naming | `withSqlStorage()` in `better-auth-sql.helper.ts` | `user` → `users`, every table and field snake_case — the plugins' too, on copies, never the plugin objects; ids are ObjectId hex (`generateId`), so a Better-Auth user id IS the framework's id and `iamId` equals it |
+| One row per user | the same helper + `registerForeignColumns('users', …)` | Better-Auth's own columns (`name`, `email_verified`, `image`) live in the framework's `users` table; its required ones are added nullable first, so a row the user model writes alone stays valid, and the framework's schema planner does not report them as undeclared |
+| Schema | `applyBetterAuthSchema()` | Better-Auth validates its schema when the instance is created, so its migrations run BEFORE, as the owner, under the framework's schema lock, followed by the grants and the safe-role check. Without an owner connection the boot stops while anything is pending — the application role never runs DDL |
+| Framework access | `BetterAuthSqlStore` (`core-better-auth-sql.store.ts`), reached through the import-free leaf `core-better-auth-sql.registry.ts` | framework fields of the user row go through the user model's `DataStore` (its policies apply); Better-Auth's own fields and tables go through Better-Auth's `internalAdapter` / `adapter` (its hooks run — a deleted session reaches `wsSessionRevocationPlugin()`). Every MongoDB path keeps its code; the SQL branch sits beside it (`*OnSql` in the user mapper) |
+| Passkey challenges | `storeChallenge()` | Better-Auth verification values with the identifier prefix `lt-passkey-challenge:` — no table of the framework's own, expiry checked on read, expired ones removed as new ones arrive |
+| Expired rows | `BetterAuthSqlStore.deleteExpired()`, scheduled by `CoreBetterAuthService.startExpirySweep()` | Better-Auth never deletes an expired session and clears expired verification values only when one is looked up; on MongoDB the verification TTL index does it. On SQL the expiry sweep (`scheduleExpirySweep()`, every 15 min, one replica per interval) removes both — through Better-Auth's adapter, so its naming applies. Stopped in `onModuleDestroy()`, before the data sources close (mutation `iam-expired-sessions-kept`) |
+| Per-request path | token service, middlewares, guard, web and cookie helpers | ids are strings; only `BetterAuthMongoUsers` (`core-better-auth-mongo.users.ts`) knows what an ObjectId is. Pinned by `tests/unit/iam-request-path-ids.spec.ts` |
+| Boot steps | `CoreBetterAuthService.onModuleInit()` | `ensureIndices()` and the account-issuer backfill concern MongoDB's collections and are skipped on SQL |
+| Counting | `BetterAuthSqlStore.migrationCounts()` | counts in SQL (`count(*)`, `EXISTS` over `account`), names from `$context.tables`. **Never read a whole table through Better-Auth's `adapter.findMany()`**: without a `limit` it stops at 100 rows (`defaultFindManyLimit`), which capped the migration status at 100 migrated users (mutation `iam-migration-status-capped-at-a-page`) |
+| Readers outside the module | `CoreAiMcpOAuthService.loadUser()` | every native read of `users` needs the SQL branch too — an OAuth subject's roles came from MongoDB, i.e. nobody or a stale copy (mutation `mcp-oauth-user-on-mongo`). Find candidates with `grep -rn "collection('users')" src/core` |
+
+**Sign-up holds a pool connection while it hashes (accepted).** Better-Auth runs its Kysely adapter with transactions
+on a `pg` pool, and `/sign-up/email` hashes the password inside its transaction — on the framework's application pool
+(10 connections). A burst of concurrent sign-ups therefore makes other queries wait (measured: ~0.16 s at 20, ~1.3 s
+at 100). Kept on purpose: it is Better-Auth's standard behaviour on PostgreSQL, it makes user and account creation
+atomic, and switching it off would need a Kysely instance the core cannot rely on (`kysely` is an optional peer).
+`betterAuth.rateLimit` bounds it.
+
+**Not on SQL, and why that is no gap:** the account-issuer backfill (§8) repairs account documents better-auth 1.6
+wrote to MongoDB before the field existed. On a SQL source every account row is written with what the installed line
+expects — by Better-Auth itself, and by the framework's own writes through the issuer helper (`migrateAccountToIamOnSql()`,
+the system setup) — so there is nothing to backfill. Nothing is copied from MongoDB when a project routes its users to
+SQL.
+
+**The challenge cookie is named by Better-Auth.** The API middleware reads the passkey challenge token from the cookie
+Better-Auth sets and asks the instance for its name (`createAuthCookie(<key>).name`, `iam.better-auth-passkey` by
+default) — a hard-coded `better-auth.` prefix missed it after the cookie prefix began to follow the base path, so no
+mapping was stored and no `challengeId` returned, on every database (mutation `passkey-challenge-cookie-unprefixed`).
+`passkey.webAuthnChallengeCookie` is the KEY; it reaches the plugin as `advanced.webAuthnChallengeCookie`, the only
+place the plugin reads it.
+
+Tests: every IAM suite runs on MongoDB and on PostgreSQL with each engine (`.claude/rules/testing.md` → the IAM
+projects); `tests/better-auth-storage-paths.e2e-spec.ts` covers the four paths the stories pass either way (session
+token as bearer, token service, passkey challenge, e-mail verified), `tests/persistence-sql-wiring.e2e-spec.ts` the
+boot (one row, ownership, a second boot, the system setup).
+
 ## Summary
 
 | Principle | Requirement |
@@ -518,3 +563,4 @@ removed. `tests/better-auth-signin-csrf.e2e-spec.ts` does; mutations `iam-signin
 | `account` reads / writes | Reads filter on `providerId` alone, never `issuer`. Writes set `issuer` only on better-auth 1.7.0–1.7.2, via the helper (§8) |
 | `openAPI()` plugin | Registered internally for `setupSwagger()`, kept off the router (`SERVER_ONLY`) unless the project registered it — never by a path check (§9) |
 | Direct `api.*` calls | Hand Better-Auth the request (CSRF headers only) + `asResponse: false`, or its login-CSRF check is skipped (§10) |
+| SQL source | Better-Auth follows the users table; the framework reaches its data through `BetterAuthSqlStore`, ids stay strings (§11) |

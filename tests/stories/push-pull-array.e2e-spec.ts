@@ -1,12 +1,13 @@
 import { Test, TestingModule } from '@nestjs/testing';
 import { PubSub } from 'graphql-subscriptions';
-import { MongoClient, ObjectId } from 'mongodb';
+import { ObjectId } from 'mongodb';
 import { describe, expect, it, beforeAll, afterAll } from 'vitest';
 
 import { HttpExceptionLogFilter, RequestContext, TestGraphQLType, TestHelper } from '../../src';
 import envConfig from '../../src/config.env';
 import { ServerModule } from '../../src/server/server.module';
 import { UserService } from '../../src/server/modules/user/user.service';
+import { type IamTestDb, openIamTestDb } from '../helpers/iam-test-db';
 
 /**
  * E2E tests for CrudService.pushToArray() and CrudService.pullFromArray()
@@ -24,8 +25,7 @@ describe('Story: CrudService pushToArray / pullFromArray', () => {
   let app;
   let testHelper: TestHelper;
   let userService: UserService;
-  let mongoClient: MongoClient;
-  let db;
+  let iamDb: IamTestDb;
 
   let adminUserId: string;
   const testUserIds: string[] = [];
@@ -47,8 +47,7 @@ describe('Story: CrudService pushToArray / pullFromArray', () => {
       testHelper = new TestHelper(app);
       userService = moduleFixture.get(UserService);
 
-      mongoClient = await MongoClient.connect(envConfig.mongoose.uri);
-      db = mongoClient.db();
+      iamDb = await openIamTestDb(envConfig.mongoose.uri);
 
       // Create admin user
       const adminEmail = `push-pull-admin-${Date.now()}@test.com`;
@@ -63,10 +62,7 @@ describe('Story: CrudService pushToArray / pullFromArray', () => {
       testUserIds.push(adminUserId);
 
       // Make admin
-      await db.collection('users').updateOne(
-        { _id: new ObjectId(adminUserId) },
-        { $set: { roles: ['admin'], verified: true } },
-      );
+      await iamDb.updateUser({ id: adminUserId }, { roles: ['admin'], verified: true });
     } catch (e) {
       console.error('beforeAll error', e);
       throw e;
@@ -74,17 +70,9 @@ describe('Story: CrudService pushToArray / pullFromArray', () => {
   });
 
   afterAll(async () => {
-    if (db) {
-      for (const userId of testUserIds) {
-        try {
-          await db.collection('users').deleteOne({ _id: new ObjectId(userId) });
-        } catch {
-          // Ignore cleanup errors
-        }
-      }
-    }
-    if (mongoClient) {
-      await mongoClient.close();
+    if (iamDb) {
+      await iamDb.deleteUsers({ ids: testUserIds });
+      await iamDb.close();
     }
     if (app) {
       await app.close();
@@ -106,7 +94,7 @@ describe('Story: CrudService pushToArray / pullFromArray', () => {
 
   // Helper: get raw user from DB
   async function getRawUser(userId: string) {
-    return db.collection('users').findOne({ _id: new ObjectId(userId) });
+    return iamDb.findUser({ id: userId });
   }
 
   // ===========================================================================================
@@ -118,14 +106,9 @@ describe('Story: CrudService pushToArray / pullFromArray', () => {
       const userId = await createTestUser('push-single');
 
       // Clear roles first, then push
-      await db.collection('users').updateOne(
-        { _id: new ObjectId(userId) },
-        { $set: { roles: [] } },
-      );
+      await iamDb.updateUser({ id: userId }, { roles: [] });
 
-      await RequestContext.runWithBypassRoleGuard(() =>
-        userService.pushToArray(userId, 'roles', 'editor'),
-      );
+      await RequestContext.runWithBypassRoleGuard(() => userService.pushToArray(userId, 'roles', 'editor'));
 
       const user = await getRawUser(userId);
       expect(user.roles).toEqual(['editor']);
@@ -134,10 +117,7 @@ describe('Story: CrudService pushToArray / pullFromArray', () => {
     it('should append multiple items via $each', async () => {
       const userId = await createTestUser('push-multi');
 
-      await db.collection('users').updateOne(
-        { _id: new ObjectId(userId) },
-        { $set: { roles: [] } },
-      );
+      await iamDb.updateUser({ id: userId }, { roles: [] });
 
       await RequestContext.runWithBypassRoleGuard(() =>
         userService.pushToArray(userId, 'roles', ['editor', 'viewer', 'moderator']),
@@ -150,14 +130,9 @@ describe('Story: CrudService pushToArray / pullFromArray', () => {
     it('should append to existing array without overwriting', async () => {
       const userId = await createTestUser('push-existing');
 
-      await db.collection('users').updateOne(
-        { _id: new ObjectId(userId) },
-        { $set: { roles: ['existing-role'] } },
-      );
+      await iamDb.updateUser({ id: userId }, { roles: ['existing-role'] });
 
-      await RequestContext.runWithBypassRoleGuard(() =>
-        userService.pushToArray(userId, 'roles', 'new-role'),
-      );
+      await RequestContext.runWithBypassRoleGuard(() => userService.pushToArray(userId, 'roles', 'new-role'));
 
       const user = await getRawUser(userId);
       expect(user.roles).toEqual(['existing-role', 'new-role']);
@@ -166,10 +141,7 @@ describe('Story: CrudService pushToArray / pullFromArray', () => {
     it('should support $slice to cap array length', async () => {
       const userId = await createTestUser('push-slice');
 
-      await db.collection('users').updateOne(
-        { _id: new ObjectId(userId) },
-        { $set: { roles: ['a', 'b', 'c'] } },
-      );
+      await iamDb.updateUser({ id: userId }, { roles: ['a', 'b', 'c'] });
 
       // Push new item but keep only last 3
       await RequestContext.runWithBypassRoleGuard(() =>
@@ -184,14 +156,9 @@ describe('Story: CrudService pushToArray / pullFromArray', () => {
     it('should handle empty array push gracefully', async () => {
       const userId = await createTestUser('push-empty');
 
-      await db.collection('users').updateOne(
-        { _id: new ObjectId(userId) },
-        { $set: { roles: ['keep'] } },
-      );
+      await iamDb.updateUser({ id: userId }, { roles: ['keep'] });
 
-      await RequestContext.runWithBypassRoleGuard(() =>
-        userService.pushToArray(userId, 'roles', []),
-      );
+      await RequestContext.runWithBypassRoleGuard(() => userService.pushToArray(userId, 'roles', []));
 
       const user = await getRawUser(userId);
       expect(user.roles).toEqual(['keep']);
@@ -200,17 +167,11 @@ describe('Story: CrudService pushToArray / pullFromArray', () => {
     it('should set updatedBy via Mongoose Audit plugin', async () => {
       const userId = await createTestUser('push-audit');
 
-      await db.collection('users').updateOne(
-        { _id: new ObjectId(userId) },
-        { $set: { roles: [] } },
-      );
+      await iamDb.updateUser({ id: userId }, { roles: [] });
 
       // Run with a user context so the audit plugin can set updatedBy
-      await RequestContext.run(
-        { currentUser: { id: adminUserId } as any },
-        () => RequestContext.runWithBypassRoleGuard(() =>
-          userService.pushToArray(userId, 'roles', 'audited'),
-        ),
+      await RequestContext.run({ currentUser: { id: adminUserId } as any }, () =>
+        RequestContext.runWithBypassRoleGuard(() => userService.pushToArray(userId, 'roles', 'audited')),
       );
 
       const user = await getRawUser(userId);
@@ -230,14 +191,9 @@ describe('Story: CrudService pushToArray / pullFromArray', () => {
     it('should remove a single item by exact match', async () => {
       const userId = await createTestUser('pull-single');
 
-      await db.collection('users').updateOne(
-        { _id: new ObjectId(userId) },
-        { $set: { roles: ['keep', 'remove-me', 'also-keep'] } },
-      );
+      await iamDb.updateUser({ id: userId }, { roles: ['keep', 'remove-me', 'also-keep'] });
 
-      await RequestContext.runWithBypassRoleGuard(() =>
-        userService.pullFromArray(userId, 'roles', 'remove-me'),
-      );
+      await RequestContext.runWithBypassRoleGuard(() => userService.pullFromArray(userId, 'roles', 'remove-me'));
 
       const user = await getRawUser(userId);
       expect(user.roles).toEqual(['keep', 'also-keep']);
@@ -246,14 +202,9 @@ describe('Story: CrudService pushToArray / pullFromArray', () => {
     it('should remove all matching items', async () => {
       const userId = await createTestUser('pull-all');
 
-      await db.collection('users').updateOne(
-        { _id: new ObjectId(userId) },
-        { $set: { roles: ['a', 'b', 'a', 'c', 'a'] } },
-      );
+      await iamDb.updateUser({ id: userId }, { roles: ['a', 'b', 'a', 'c', 'a'] });
 
-      await RequestContext.runWithBypassRoleGuard(() =>
-        userService.pullFromArray(userId, 'roles', 'a'),
-      );
+      await RequestContext.runWithBypassRoleGuard(() => userService.pullFromArray(userId, 'roles', 'a'));
 
       const user = await getRawUser(userId);
       expect(user.roles).toEqual(['b', 'c']);
@@ -262,14 +213,9 @@ describe('Story: CrudService pushToArray / pullFromArray', () => {
     it('should handle no match gracefully (no-op)', async () => {
       const userId = await createTestUser('pull-noop');
 
-      await db.collection('users').updateOne(
-        { _id: new ObjectId(userId) },
-        { $set: { roles: ['keep-a', 'keep-b'] } },
-      );
+      await iamDb.updateUser({ id: userId }, { roles: ['keep-a', 'keep-b'] });
 
-      await RequestContext.runWithBypassRoleGuard(() =>
-        userService.pullFromArray(userId, 'roles', 'nonexistent'),
-      );
+      await RequestContext.runWithBypassRoleGuard(() => userService.pullFromArray(userId, 'roles', 'nonexistent'));
 
       const user = await getRawUser(userId);
       expect(user.roles).toEqual(['keep-a', 'keep-b']);
@@ -278,14 +224,9 @@ describe('Story: CrudService pushToArray / pullFromArray', () => {
     it('should result in empty array when all items removed', async () => {
       const userId = await createTestUser('pull-all-empty');
 
-      await db.collection('users').updateOne(
-        { _id: new ObjectId(userId) },
-        { $set: { roles: ['only'] } },
-      );
+      await iamDb.updateUser({ id: userId }, { roles: ['only'] });
 
-      await RequestContext.runWithBypassRoleGuard(() =>
-        userService.pullFromArray(userId, 'roles', 'only'),
-      );
+      await RequestContext.runWithBypassRoleGuard(() => userService.pullFromArray(userId, 'roles', 'only'));
 
       const user = await getRawUser(userId);
       expect(user.roles).toEqual([]);
@@ -300,31 +241,22 @@ describe('Story: CrudService pushToArray / pullFromArray', () => {
     it('should support push then pull sequence', async () => {
       const userId = await createTestUser('combined');
 
-      await db.collection('users').updateOne(
-        { _id: new ObjectId(userId) },
-        { $set: { roles: [] } },
-      );
+      await iamDb.updateUser({ id: userId }, { roles: [] });
 
       // Push several items
-      await RequestContext.runWithBypassRoleGuard(() =>
-        userService.pushToArray(userId, 'roles', ['a', 'b', 'c', 'd']),
-      );
+      await RequestContext.runWithBypassRoleGuard(() => userService.pushToArray(userId, 'roles', ['a', 'b', 'c', 'd']));
 
       let user = await getRawUser(userId);
       expect(user.roles).toEqual(['a', 'b', 'c', 'd']);
 
       // Pull one
-      await RequestContext.runWithBypassRoleGuard(() =>
-        userService.pullFromArray(userId, 'roles', 'b'),
-      );
+      await RequestContext.runWithBypassRoleGuard(() => userService.pullFromArray(userId, 'roles', 'b'));
 
       user = await getRawUser(userId);
       expect(user.roles).toEqual(['a', 'c', 'd']);
 
       // Push another
-      await RequestContext.runWithBypassRoleGuard(() =>
-        userService.pushToArray(userId, 'roles', 'e'),
-      );
+      await RequestContext.runWithBypassRoleGuard(() => userService.pushToArray(userId, 'roles', 'e'));
 
       user = await getRawUser(userId);
       expect(user.roles).toEqual(['a', 'c', 'd', 'e']);
@@ -333,10 +265,7 @@ describe('Story: CrudService pushToArray / pullFromArray', () => {
     it('should support push with $slice to maintain bounded array', async () => {
       const userId = await createTestUser('bounded');
 
-      await db.collection('users').updateOne(
-        { _id: new ObjectId(userId) },
-        { $set: { roles: [] } },
-      );
+      await iamDb.updateUser({ id: userId }, { roles: [] });
 
       // Push 5 items but keep only last 3
       for (let i = 1; i <= 5; i++) {
@@ -359,10 +288,7 @@ describe('Story: CrudService pushToArray / pullFromArray', () => {
     it('should accept ObjectId instances as id parameter', async () => {
       const userId = await createTestUser('objectid');
 
-      await db.collection('users').updateOne(
-        { _id: new ObjectId(userId) },
-        { $set: { roles: [] } },
-      );
+      await iamDb.updateUser({ id: userId }, { roles: [] });
 
       // Pass ObjectId instead of string
       await RequestContext.runWithBypassRoleGuard(() =>
@@ -385,16 +311,12 @@ describe('Story: CrudService pushToArray / pullFromArray', () => {
       const fakeId = new ObjectId().toHexString();
 
       // Should not throw — findByIdAndUpdate returns null for missing docs
-      await RequestContext.runWithBypassRoleGuard(() =>
-        userService.pushToArray(fakeId, 'roles', 'ghost'),
-      );
+      await RequestContext.runWithBypassRoleGuard(() => userService.pushToArray(fakeId, 'roles', 'ghost'));
 
-      await RequestContext.runWithBypassRoleGuard(() =>
-        userService.pullFromArray(fakeId, 'roles', 'ghost'),
-      );
+      await RequestContext.runWithBypassRoleGuard(() => userService.pullFromArray(fakeId, 'roles', 'ghost'));
 
       // No document should have been created
-      const user = await db.collection('users').findOne({ _id: new ObjectId(fakeId) });
+      const user = await iamDb.findUser({ id: fakeId });
       expect(user).toBeNull();
     });
 
@@ -402,25 +324,18 @@ describe('Story: CrudService pushToArray / pullFromArray', () => {
       const userId = await createTestUser('invalid-field');
 
       await expect(
-        RequestContext.runWithBypassRoleGuard(() =>
-          userService.pushToArray(userId, '$where', 'malicious'),
-        ),
+        RequestContext.runWithBypassRoleGuard(() => userService.pushToArray(userId, '$where', 'malicious')),
       ).rejects.toThrow('pushToArray: invalid field name');
 
       await expect(
-        RequestContext.runWithBypassRoleGuard(() =>
-          userService.pullFromArray(userId, '$where', 'malicious'),
-        ),
+        RequestContext.runWithBypassRoleGuard(() => userService.pullFromArray(userId, '$where', 'malicious')),
       ).rejects.toThrow('pullFromArray: invalid field name');
     });
 
     it('should support $position to insert at specific index', async () => {
       const userId = await createTestUser('position');
 
-      await db.collection('users').updateOne(
-        { _id: new ObjectId(userId) },
-        { $set: { roles: ['first', 'last'] } },
-      );
+      await iamDb.updateUser({ id: userId }, { roles: ['first', 'last'] });
 
       // Insert at position 1 (between first and last)
       await RequestContext.runWithBypassRoleGuard(() =>
@@ -438,15 +353,10 @@ describe('Story: CrudService pushToArray / pullFromArray', () => {
       // For primitive string arrays, MongoDB requires $sort: 1 (not an object).
       // The CrudService options type uses Record<string, 1|-1> which targets subdocument arrays.
       // We verify the option is correctly passed through by using $slice + $sort together.
-      await db.collection('users').updateOne(
-        { _id: new ObjectId(userId) },
-        { $set: { roles: ['c', 'a', 'b'] } },
-      );
+      await iamDb.updateUser({ id: userId }, { roles: ['c', 'a', 'b'] });
 
       // Push with $slice only (no $sort — $sort on string arrays needs different API)
-      await RequestContext.runWithBypassRoleGuard(() =>
-        userService.pushToArray(userId, 'roles', 'd', { $slice: -3 }),
-      );
+      await RequestContext.runWithBypassRoleGuard(() => userService.pushToArray(userId, 'roles', 'd', { $slice: -3 }));
 
       const user = await getRawUser(userId);
       expect(user.roles).toHaveLength(3);
@@ -462,16 +372,12 @@ describe('Story: CrudService pushToArray / pullFromArray', () => {
     it('should strip unauthorized $push on roles field when RoleGuard is active', async () => {
       const userId = await createTestUser('roleguard-push');
 
-      await db.collection('users').updateOne(
-        { _id: new ObjectId(userId) },
-        { $set: { roles: [] } },
-      );
+      await iamDb.updateUser({ id: userId }, { roles: [] });
 
       // Call pushToArray WITHOUT runWithBypassRoleGuard and WITHOUT admin context
       // The RoleGuard plugin should strip the roles change
-      await RequestContext.run(
-        { currentUser: { id: userId, roles: [] } as any },
-        () => userService.pushToArray(userId, 'roles', 'admin'),
+      await RequestContext.run({ currentUser: { id: userId, roles: [] } as any }, () =>
+        userService.pushToArray(userId, 'roles', 'admin'),
       );
 
       const user = await getRawUser(userId);
@@ -482,15 +388,11 @@ describe('Story: CrudService pushToArray / pullFromArray', () => {
     it('should strip unauthorized $pull on roles field when RoleGuard is active', async () => {
       const userId = await createTestUser('roleguard-pull');
 
-      await db.collection('users').updateOne(
-        { _id: new ObjectId(userId) },
-        { $set: { roles: ['admin'] } },
-      );
+      await iamDb.updateUser({ id: userId }, { roles: ['admin'] });
 
       // Call pullFromArray WITHOUT bypass — non-admin trying to remove admin role
-      await RequestContext.run(
-        { currentUser: { id: userId, roles: [] } as any },
-        () => userService.pullFromArray(userId, 'roles', 'admin'),
+      await RequestContext.run({ currentUser: { id: userId, roles: [] } as any }, () =>
+        userService.pullFromArray(userId, 'roles', 'admin'),
       );
 
       const user = await getRawUser(userId);
@@ -501,15 +403,11 @@ describe('Story: CrudService pushToArray / pullFromArray', () => {
     it('should allow role changes when user has allowed role', async () => {
       const userId = await createTestUser('roleguard-allowed');
 
-      await db.collection('users').updateOne(
-        { _id: new ObjectId(userId) },
-        { $set: { roles: [] } },
-      );
+      await iamDb.updateUser({ id: userId }, { roles: [] });
 
       // Call pushToArray WITH admin context — should be allowed
-      await RequestContext.run(
-        { currentUser: { id: adminUserId, roles: ['admin'] } as any },
-        () => userService.pushToArray(userId, 'roles', 'editor'),
+      await RequestContext.run({ currentUser: { id: adminUserId, roles: ['admin'] } as any }, () =>
+        userService.pushToArray(userId, 'roles', 'editor'),
       );
 
       const user = await getRawUser(userId);

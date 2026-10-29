@@ -1,6 +1,6 @@
 ---
 name: nest-server-override-status
-description: Where nest-server pnpm overrides live, why a range-floored key does NOT prevent downgrades, the two-fresh-resolve test, and the current state — since 2026-10-24 (12.0.0) only TWO entries (utils + multer, both on NestJS 12 exact pins); inert entries are removed, not kept as insurance
+description: Where nest-server pnpm overrides live, why a range-floored key does NOT prevent downgrades, the two-fresh-resolve test, and the current state — since 2026-10-29 (12.1.0) the set is EMPTY (`overrides: {}`); inert entries are removed, not kept as insurance
 metadata:
   type: project
 ---
@@ -49,17 +49,19 @@ So an entry whose package is still in the tree (e.g. multer, pulled directly) ca
 reported UNUSED even when the entry itself fires on nothing. Under the coordinator's rule
 "remove only if UNUSED + no lockfile change", such an entry gets RAISED in lockstep instead.
 
-## Current state (2026-10-24, nest-server 12.0.0): two entries
+## Current state (2026-10-29, nest-server 12.1.0): NO entries
 
-- `'@graphql-tools/utils@>=12.0.0 <12.1.0': '12.1.0'` — GHSA-c4qx-w738-7hr3 (high, <=12.0.1); @nestjs/graphql
-  14.0.3 exact-pins 12.0.1. Also keeps one copy (Apollo path requests `^12.1.0`). Raise key + target with each
-  new 12.x.
-- `'multer@>=2.0.0 <2.5.0': '2.5.0'` — GHSA-q7qp-rjg7-q26m (high); @nestjs/platform-express 12.2.0 exact-pins
-  2.4.0. Target in lockstep with the direct `multer`.
+`overrides: {}` — written explicitly so `check:overrides` reads it as a decision (it warns on a declared key
+that parses to 0 entries unless the block is literally `{}` / `[]`; it then prints "no overrides and no
+suppressions declared"). The last two left together on 2026-10-29: `@nestjs/graphql` 14.1.0 exact-pins
+`@graphql-tools/utils` 12.1.0 (GHSA-c4qx fixed >=12.0.2) and `@nestjs/platform-express` 12.3.2 exact-pins
+`multer` 2.5.0 (GHSA-q7qp fixed 2.5.0). Two fresh resolves of the FINAL dependency set, with and without both
+entries: identical package set, audit 0 in both. Living docs updated in the same run: `.claude/rules/package-management.md`,
+`docs/security-overrides.md` (shipped — "Status since 12.1.0", tells consumers to drop both once their
+`@nestjs/*` pins match), `CLAUDE.md` doc table row, `scripts/generate-framework-api.ts` (FRAMEWORK-API.md row).
 
-Re-verified 2026-10-27 with the final dependency set (two fresh resolves): without the block, utils 12.0.1 and
-multer 2.4.0 return (plus a second `@whatwg-node/promise-helpers` 1.3.2) — both still load-bearing, both targets
-still the newest in their line, nothing to raise.
+Before 2026-10-29 the two entries were `'@graphql-tools/utils@>=12.0.0 <12.1.0': '12.1.0'` and
+`'multer@>=2.0.0 <2.5.0': '2.5.0'` (history in git).
 
 Removed on 2026-10-24 after two fresh resolves (full former block vs. only these two): axios, body-parser,
 brace-expansion x3, fast-uri, hono, ip-address, js-yaml x2, minimatch, nanoid, postcss, qs, undici, ws. Same

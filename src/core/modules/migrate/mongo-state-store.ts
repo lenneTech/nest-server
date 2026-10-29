@@ -1,25 +1,25 @@
 import { randomUUID } from 'crypto';
-import { Db, MongoClient } from 'mongodb';
+import type { Db, MongoClient } from 'mongodb';
 import { hostname } from 'os';
 import { promisify } from 'util';
+
+import type { MigrationSet, MigrationStateStore } from './migration-state-store.interface.js';
+import {
+  MIGRATION_LOCK_KEY,
+  MIGRATION_LOCK_STALE_AFTER_MS,
+  migrationMongoLocks,
+} from '../../common/persistence/infrastructure-locks.js';
+import { requireMongoPackages } from '../../common/persistence/mongo/mongo-packages.js';
 
 /**
  * Migration options interface (compatible with migrate package)
  */
 export interface MigrationOptions {
   [key: string]: unknown;
-  stateStore: MongoStateStore;
+  stateStore: MigrationStateStore;
 }
 
-/**
- * Migration set interface (compatible with migrate package)
- */
-export interface MigrationSet {
-  down?: (done?: (err?: Error) => void) => void;
-  lastRun?: string;
-  migrations: Array<{ timestamp?: number; title: string }>;
-  up: (done?: (err?: Error) => void) => void;
-}
+export type { MigrationSet, MigrationStateStore };
 
 /**
  * Options for MongoStateStore configuration
@@ -58,7 +58,7 @@ export interface MongoStateStoreOptions {
  * });
  * ```
  */
-export class MongoStateStore {
+export class MongoStateStore implements MigrationStateStore {
   /** Collection name for storing migration state */
   private readonly collectionName: string;
 
@@ -173,6 +173,12 @@ export async function synchronizedMigration(
 
   const stateStore = opts.stateStore;
 
+  // A store with its own lock (SqlStateStore) serialises the run itself
+  if (!(stateStore instanceof MongoStateStore) && typeof stateStore?.withLock === 'function') {
+    await stateStore.withLock(async () => callback(await stateStore.loadAsync()));
+    return;
+  }
+
   if (!(stateStore instanceof MongoStateStore)) {
     throw new Error('Given `stateStore` is not `MongoStateStore`');
   }
@@ -238,7 +244,11 @@ export async function synchronizedUp(opts: MigrationOptions): Promise<void> {
  * @param fn - Work to execute under the lock
  * @returns Promise with the result of `fn`
  */
-export async function withMigrationLock<T>(stateStore: MongoStateStore, fn: () => Promise<T>): Promise<T> {
+export async function withMigrationLock<T>(stateStore: MigrationStateStore, fn: () => Promise<T>): Promise<T> {
+  if (!(stateStore instanceof MongoStateStore)) {
+    // Another database's store brings its own lock; without one, fn runs unsynchronized
+    return typeof stateStore.withLock === 'function' ? stateStore.withLock(fn) : fn();
+  }
   const lockCollectionName = stateStore.lockCollectionName;
 
   if (!lockCollectionName) {
@@ -262,7 +272,7 @@ export async function withMigrationLock<T>(stateStore: MongoStateStore, fn: () =
  * on migration runtime — a migration running for hours keeps its lock as long as the
  * process lives.
  */
-const LOCK_STALE_AFTER_MS = 60_000;
+const LOCK_STALE_AFTER_MS = MIGRATION_LOCK_STALE_AFTER_MS;
 
 /** Heartbeat interval — comfortably below {@link LOCK_STALE_AFTER_MS} */
 const LOCK_HEARTBEAT_INTERVAL_MS = 15_000;
@@ -271,11 +281,12 @@ const LOCK_HEARTBEAT_INTERVAL_MS = 15_000;
 const LOCK_WAIT_TIMEOUT_MS = 15 * 60_000;
 
 /**
- * Keep refreshing `acquiredAt` while the migration runs.
+ * Keep renewing the lease while the migration runs.
  *
  * This is what makes lock-breaking safe: a lock is only ever taken over when its holder
- * stopped refreshing it, which for a live process cannot happen. Without the heartbeat,
- * breaking a stale lock and a long-running migration would be indistinguishable.
+ * stopped renewing it, which for a live process cannot happen. Without the heartbeat,
+ * breaking a stale lock and a long-running migration would be indistinguishable. The renewal
+ * also refreshes `acquiredAt`, the heartbeat an older replica's waiter reads.
  */
 function startLockHeartbeat(url: string, lockCollectionName: string, token: string): { stop: () => void } {
   // ONE connection for the whole heartbeat, rather than `dbRequest()`'s connect-and-close per
@@ -284,13 +295,14 @@ function startLockHeartbeat(url: string, lockCollectionName: string, token: stri
   // on the first tick (so a heartbeat that never fires costs nothing) and closed by stop().
   let client: MongoClient | undefined;
   let stopped = false;
+  let lostReported = false;
 
   const beat = async (): Promise<void> => {
     if (stopped) {
       return;
     }
     if (!client) {
-      const connected = await MongoClient.connect(url);
+      const connected = await mongoDriver().MongoClient.connect(url);
       if (stopped) {
         // stop() ran while we were connecting — nothing would ever close this one.
         await connected.close();
@@ -298,12 +310,20 @@ function startLockHeartbeat(url: string, lockCollectionName: string, token: stri
       }
       client = connected;
     }
-    // Scoped: once our lock has been broken and re-taken, our heartbeat must not keep the NEW
-    // holder's lock alive on our behalf.
-    await client
-      .db()
-      .collection(lockCollectionName)
-      .updateOne({ lock: 'lock', owner: token }, { $set: { acquiredAt: new Date() } });
+    // Scoped to our token: once our lock has been broken and re-taken, our heartbeat must not
+    // keep the NEW holder's lock alive on our behalf.
+    const renewed = await migrationMongoLocks(client.db().collection(lockCollectionName)).renew(
+      MIGRATION_LOCK_KEY,
+      token,
+      LOCK_STALE_AFTER_MS / 1000,
+    );
+    if (!renewed && !lostReported) {
+      lostReported = true;
+      console.warn(
+        `Migration lock in "${lockCollectionName}" was taken over by another replica while this one was migrating ` +
+          '(missed heartbeats). The migration continues, but no longer exclusively.',
+      );
+    }
   };
 
   const timer = setInterval(() => {
@@ -333,62 +353,34 @@ function startLockHeartbeat(url: string, lockCollectionName: string, token: stri
 /**
  * Acquires a lock in MongoDB to ensure only one migration runs at a time
  *
+ * A lease (`LockStore`) on the 12.0.0 document `{ lock: 'lock', owner, acquiredAt }`, so a replica
+ * still running an older version waits for this one and vice versa (`infrastructure-locks.ts`).
+ *
  * @param url - MongoDB connection URI
  * @param lockCollectionName - Name of the collection to use for locking
  */
 async function acquireLock(url: string, lockCollectionName: string): Promise<string> {
   return dbRequest(url, async (db) => {
     const collection = db.collection(lockCollectionName);
-
-    // Create unique index for atomicity
-    // https://docs.mongodb.com/manual/reference/method/db.collection.update/#use-unique-indexes
-    // https://groups.google.com/forum/#!topic/mongodb-user/-fucdS-7kIU
-    // https://stackoverflow.com/questions/33346175/mongodb-upsert-operation-seems-not-atomic-which-throws-duplicatekeyexception/34784533
-    await collection.createIndex({ lock: 1 }, { unique: true });
-
+    const locks = migrationMongoLocks(collection);
     const token = lockOwnerId();
     const deadline = Date.now() + LOCK_WAIT_TIMEOUT_MS;
     let showMessage = true;
 
     for (;;) {
-      // Use updateOne with upsert for atomic lock acquisition (same as original package).
-      // `$setOnInsert` stamps the acquisition time only for the winner, so a loser's
-      // update never refreshes the holder's staleness clock.
-      const result = await collection.updateOne(
-        { lock: 'lock' },
-        { $set: { lock: 'lock' }, $setOnInsert: { acquiredAt: new Date(), owner: token } },
-        { upsert: true },
-      );
-
-      if (result.upsertedCount > 0) {
-        return token;
-      }
-
+      const holder = await collection.findOne({ lock: MIGRATION_LOCK_KEY });
       // The holder may be gone: migrations run on every container boot, so a replica
       // SIGKILLed mid-migration (OOM, node drain, failed deploy) would otherwise leave a
-      // lock nobody holds — and every future boot of every replica would wait on it
-      // forever. Only a lock that stopped heart-beating is broken; see LOCK_STALE_AFTER_MS.
-      const holder = await collection.findOne({ lock: 'lock' });
-      if (holder) {
-        const acquiredAt = holder.acquiredAt instanceof Date ? holder.acquiredAt : undefined;
-        if (!acquiredAt) {
-          // Written by a version that did not stamp the lock. Start its clock now rather
-          // than breaking it immediately — the holder may well be alive.
-          await collection.updateOne(
-            { _id: holder._id, acquiredAt: { $exists: false } },
-            { $set: { acquiredAt: new Date() } },
-          );
-        } else if (Date.now() - acquiredAt.getTime() > LOCK_STALE_AFTER_MS) {
+      // lock nobody holds. The lease breaks only a lock that stopped heart-beating.
+      if (await locks.tryAcquire(MIGRATION_LOCK_KEY, token, LOCK_STALE_AFTER_MS / 1000)) {
+        if (holder) {
+          const lastBeat = holder.acquiredAt instanceof Date ? holder.acquiredAt.toISOString() : 'never';
           console.warn(
-            `Breaking stale migration lock in "${lockCollectionName}" (last heartbeat ${acquiredAt.toISOString()}, ` +
+            `Broke stale migration lock in "${lockCollectionName}" (last heartbeat ${lastBeat}, ` +
               `owner ${holder.owner ?? 'unknown'}) — its holder is gone.`,
           );
-          // Matching on acquiredAt makes the break safe under concurrency: if another
-          // waiter already broke and re-acquired the lock, the timestamp differs and this
-          // deletes nothing.
-          await collection.deleteOne({ _id: holder._id, acquiredAt });
-          continue;
         }
+        return token;
       }
 
       if (Date.now() > deadline) {
@@ -429,7 +421,7 @@ function lockOwnerId(): string {
 async function dbRequest<T>(url: string, callback: (db: Db) => Promise<T> | T): Promise<T> {
   let client: MongoClient | undefined;
   try {
-    client = await MongoClient.connect(url);
+    client = await mongoDriver().MongoClient.connect(url);
     const db = client.db();
     return await callback(db);
   } finally {
@@ -447,5 +439,12 @@ async function releaseLock(url: string, lockCollectionName: string, token: strin
   // Scoped to OUR token. An unscoped delete removes whatever lock exists — so after a missed
   // heartbeat let another replica break and re-take the lock, the original holder's `finally`
   // would delete the NEW holder's lock and let a third replica start a concurrent migration.
-  await dbRequest(url, (db) => db.collection(lockCollectionName).deleteOne({ lock: 'lock', owner: token }));
+  await dbRequest(url, (db) =>
+    migrationMongoLocks(db.collection(lockCollectionName)).release(MIGRATION_LOCK_KEY, token),
+  );
+}
+
+/** The MongoDB driver — a MongoDB migration needs it, a project without MongoDB never reaches this */
+function mongoDriver() {
+  return requireMongoPackages('A MongoDB migration (store or helper)').mongodb;
 }

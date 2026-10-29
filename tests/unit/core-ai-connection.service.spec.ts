@@ -24,7 +24,10 @@ describe('CoreAiConnectionService (unit)', () => {
     const state: { count: number; findDocs: any[] } = { count: 0, findDocs: [] };
     const model = {
       countDocuments: vi.fn(() => ({ exec: () => Promise.resolve(state.count) })),
-      create: vi.fn((doc: any) => Promise.resolve({ ...doc, _id: 'seeded' })),
+      // A Mongoose document: the data store reads it back through `toObject()`
+      create: vi.fn((doc: any) =>
+        Promise.resolve({ ...doc, _id: 'seeded', toObject: () => ({ ...doc, _id: 'seeded' }) }),
+      ),
       find: vi.fn(() => ({ lean: () => ({ exec: () => Promise.resolve(state.findDocs) }) })),
       findByIdAndUpdate: vi.fn(() => ({ exec: () => Promise.resolve({}) })),
     } as any;
@@ -155,7 +158,9 @@ describe('CoreAiConnectionService (unit)', () => {
       ConfigService.setConfig({ ai: { capabilityDriftCheck: true } } as any, { reInit: true });
       const providerFactory = providerFactoryReturning({ nativeTools: true });
       const { model, service, warn } = buildService({ providerFactory });
-      (model.find as any).mockImplementation(() => ({ lean: () => ({ exec: () => Promise.reject(new Error('db gone')) }) }));
+      (model.find as any).mockImplementation(() => ({
+        lean: () => ({ exec: () => Promise.reject(new Error('db gone')) }),
+      }));
 
       await expect((service as any).warnOnCapabilityDrift()).resolves.toBeUndefined();
       expect(warn).toHaveBeenCalledTimes(1);
@@ -166,7 +171,9 @@ describe('CoreAiConnectionService (unit)', () => {
   describe('seedDefaultConnection', () => {
     it('maps a configured contextWindow into the created connection and encrypts the key', async () => {
       ConfigService.setConfig(
-        { ai: { defaultConnection: { apiKey: 'sk', baseUrl: 'http://x', contextWindow: 32768, model: 'm', name: 'C' } } } as any,
+        {
+          ai: { defaultConnection: { apiKey: 'sk', baseUrl: 'http://x', contextWindow: 32768, model: 'm', name: 'C' } },
+        } as any,
         { reInit: true },
       );
       const { model, service, state } = buildService();

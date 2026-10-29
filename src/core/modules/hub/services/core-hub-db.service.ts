@@ -1,7 +1,6 @@
 import { Inject, Injectable, Logger, Optional } from '@nestjs/common';
-import { InjectConnection } from '@nestjs/mongoose';
-import * as mongo from 'mongodb';
-import { type Connection, Types } from 'mongoose';
+import type * as mongo from 'mongodb';
+import type { Connection } from 'mongoose';
 
 import { ConfigService } from '../../../common/services/config.service.js';
 import { CoreS3Service } from '../../../common/services/core-s3.service.js';
@@ -11,6 +10,7 @@ import {
   FILESYSTEM_FILES_COLLECTION,
   FilesystemFileHelper,
 } from '../../file/filesystem-file.helper.js';
+import { fileMetadataCollection } from '../../file/file-metadata.store.js';
 import { S3_FILES_COLLECTION, S3FileHelper } from '../../file/s3-file.helper.js';
 import { HubActionMessage } from '../hub-action-messages.js';
 import { HUB_CONFIG } from '../hub.constants.js';
@@ -24,6 +24,12 @@ import {
   HubUnavailable,
 } from '../interfaces/hub-panels.interface.js';
 import type { ResolvedHubConfig } from '../interfaces/hub-config.interface.js';
+import {
+  createGridFsBucket,
+  InjectConnection,
+  isValidObjectId,
+  newObjectId,
+} from '../../../common/persistence/mongo/mongoose-compat.js';
 
 /**
  * Read-only MongoDB introspection for the DB, Models/ERD and Files panels.
@@ -123,10 +129,10 @@ export class CoreHubDbService {
     if (!db) {
       throw new Error(HubActionMessage.mongoUnavailable);
     }
-    if (!Types.ObjectId.isValid(id)) {
+    if (!isValidObjectId(id)) {
       throw new Error(HubActionMessage.invalidFileId);
     }
-    const objectId = new Types.ObjectId(id);
+    const objectId = newObjectId(id);
 
     // Same probe order as `CoreFileService.deleteFile()`: S3, then filesystem, then GridFS as the
     // fallthrough. Keeping the two in step matters — a Hub that resolved a file differently from the
@@ -134,7 +140,7 @@ export class CoreHubDbService {
     let store: HubFileStore | undefined;
     let doc: any;
     for (const candidate of this.fileStores(bucket)) {
-      const [found] = await db.collection(candidate.collection).find({ _id: objectId }, { limit: 1 }).toArray();
+      const [found] = await this.fileCollection(candidate).find({ _id: objectId }, { limit: 1 }).toArray();
       if (found) {
         doc = found;
         store = candidate.store;
@@ -150,7 +156,11 @@ export class CoreHubDbService {
 
     switch (store) {
       case 'filesystem': {
-        await FilesystemFileHelper.deleteFile(this.filesystemDir, db.collection(FILESYSTEM_FILES_COLLECTION), objectId);
+        await FilesystemFileHelper.deleteFile(
+          this.filesystemDir,
+          fileMetadataCollection(this.connection, 'filesystem'),
+          objectId,
+        );
         break;
       }
       case 's3': {
@@ -158,11 +168,11 @@ export class CoreHubDbService {
         if (!this.s3Service?.enabled) {
           throw new Error(HubActionMessage.s3Unavailable);
         }
-        await S3FileHelper.deleteFile(this.s3Service, db.collection(S3_FILES_COLLECTION), objectId);
+        await S3FileHelper.deleteFile(this.s3Service, fileMetadataCollection(this.connection, 's3'), objectId);
         break;
       }
       default: {
-        const gridFs = new mongo.GridFSBucket(db as unknown as mongo.Db, { bucketName: bucket });
+        const gridFs = createGridFsBucket(db as unknown as mongo.Db, { bucketName: bucket });
         await gridFs.delete(objectId as unknown as mongo.ObjectId);
       }
     }
@@ -173,9 +183,9 @@ export class CoreHubDbService {
   /**
    * File inventory across ALL THREE metadata stores.
    *
-   * Metadata always lives in MongoDB whichever store holds the bytes (`fs.files` / `s3-files` /
-   * `filesystem-files`), so one connection can see everything — which is exactly what
-   * `CoreFileService.findFileInfo()` does, and what this panel now mirrors.
+   * Metadata is queryable whichever store holds the bytes (`fs.files` / `s3-files` /
+   * `filesystem-files`, the latter two as tables when `database` routes them to a SQL source), so the
+   * panel reads all three the way `CoreFileService.findFileInfo()` does (`fileCollection()`).
    *
    * It used to read `fs.files` alone. Under `file.storage: 's3'` or `'filesystem'` that made the
    * panel report **0 files** — not "this panel does not cover your driver", but a confident wrong
@@ -209,11 +219,9 @@ export class CoreHubDbService {
 
     for (const source of this.fileStores(bucket)) {
       try {
-        const docs = await db
-          .collection(source.collection)
-          .find({}, { limit: window, sort: { uploadDate: -1 } })
-          .toArray();
-        const count = await db.collection(source.collection).countDocuments();
+        const collection = this.fileCollection(source);
+        const docs = await collection.find({}, { limit: window, sort: { uploadDate: -1 } }).toArray();
+        const count = await collection.countDocuments();
         stores.push({ collection: source.collection, count, store: source.store });
         for (const doc of docs) {
           rows.push({
@@ -255,6 +263,16 @@ export class CoreHubDbService {
    * GridFS is last because it is the fallthrough: its collection name depends on the bucket, and a
    * document there carries no `storage` marker to identify it by.
    */
+  /**
+   * The metadata of one store as `CoreFileService` reads it: S3 and filesystem metadata follow `database` to a SQL
+   * table when their model is routed there; GridFS keeps `<bucket>.files` in MongoDB
+   */
+  protected fileCollection(source: { collection: string; store: HubFileStore }): mongo.Collection<any> {
+    return source.store === 'gridfs'
+      ? this.connection.db.collection(source.collection)
+      : fileMetadataCollection(this.connection, source.store);
+  }
+
   protected fileStores(bucket: string): { collection: string; store: HubFileStore }[] {
     return [
       { collection: S3_FILES_COLLECTION, store: 's3' },

@@ -1,6 +1,7 @@
 import { DynamicModule, Global, MiddlewareConsumer, Module, NestModule, Type } from '@nestjs/common';
-import { MongooseModule, SchemaFactory } from '@nestjs/mongoose';
+import { SchemaFactory } from '../../common/persistence/mongo/mongoose-compat.js';
 
+import { CorePersistenceModule } from '../../common/persistence/core-persistence.module.js';
 import { API_TOKEN_MODEL_TOKEN } from './core-api-token.constants.js';
 import { CoreApiTokenMiddleware } from './core-api-token.middleware.js';
 import { CoreApiTokenModel } from './core-api-token.model.js';
@@ -36,7 +37,8 @@ export class CoreApiTokenModule implements NestModule {
     return {
       exports: [CoreApiTokenService],
       global: true,
-      imports: [MongooseModule.forFeature([{ name: API_TOKEN_MODEL_TOKEN, schema }])],
+      // Database-neutral registration: the token model follows `database` like every other model
+      imports: [CorePersistenceModule.forFeature([{ name: API_TOKEN_MODEL_TOKEN, schema }])],
       module: CoreApiTokenModule,
       providers: [{ provide: CoreApiTokenService, useClass: options.service || CoreApiTokenService }],
     };

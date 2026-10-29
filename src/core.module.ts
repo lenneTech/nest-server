@@ -10,10 +10,8 @@ import {
 } from '@nestjs/common';
 import { APP_FILTER, APP_INTERCEPTOR, APP_PIPE, DiscoveryModule } from '@nestjs/core';
 import { GraphQLModule } from '@nestjs/graphql';
-import { MongooseModule } from '@nestjs/mongoose';
 import type { Context } from 'graphql-ws';
-import graphqlUploadExpress from 'graphql-upload/graphqlUploadExpress.js';
-import mongoose from 'mongoose';
+import graphqlUploadExpress from 'graphql-upload/graphqlUploadExpress.mjs';
 
 import { MongooseCastErrorFilter } from './core/common/filters/mongoose-cast-error.filter.js';
 import { merge } from './core/common/helpers/config.helper.js';
@@ -40,6 +38,19 @@ import {
 } from './core/common/interfaces/server-options.interface.js';
 import { RequestContextMiddleware } from './core/common/middleware/request-context.middleware.js';
 import { SecurityHeadersMiddleware } from './core/common/middlewares/security-headers.middleware.js';
+import { CorePersistenceLifecycle } from './core/common/persistence/core-persistence.lifecycle.js';
+import { CorePersistenceModule } from './core/common/persistence/core-persistence.module.js';
+import {
+  assertDataSourcesSupported,
+  DataSourceConfigError,
+  hasSqlSource,
+  usesMongoDb,
+  resolveDataSources,
+} from './core/common/persistence/data-source.config.js';
+import { DataSourceRuntime } from './core/common/persistence/data-source.runtime.js';
+import { requireMongoPackages } from './core/common/persistence/mongo/mongo-packages.js';
+import { NoMongoConnectionModule } from './core/common/persistence/mongo/no-mongo-connection.module.js';
+import { setPersistenceRuntime } from './core/common/persistence/persistence-runtime.registry.js';
 import { MapAndValidatePipe } from './core/common/pipes/map-and-validate.pipe.js';
 import { ComplexityPlugin } from './core/common/plugins/complexity.plugin.js';
 import { mongooseIdPlugin } from './core/common/plugins/mongoose-id.plugin.js';
@@ -65,6 +76,7 @@ import { CoreBetterAuthModule } from './core/modules/better-auth/core-better-aut
 import { CoreBetterAuthService } from './core/modules/better-auth/core-better-auth.service.js';
 import { ErrorCodeModule } from './core/modules/error-code/error-code.module.js';
 import { CoreFileAccessAuditInitializer } from './core/modules/file/core-file-access-audit.initializer.js';
+import { FILE_METADATA_MODELS } from './core/modules/file/file-metadata.models.js';
 import { applyFileRoles, warnOnPresignedDownloadsWithRestrictedRoles } from './core/modules/file/file-roles.helper.js';
 import { CoreHealthCheckModule } from './core/modules/health-check/core-health-check.module.js';
 import { CoreHubModule } from './core/modules/hub/core-hub.module.js';
@@ -267,6 +279,25 @@ export class CoreModule implements NestModule {
       options,
     );
 
+    // Resolve where models are stored, and refuse what this version cannot wire before anything connects.
+    // `explicitMongoose` separates a project's own mongoose config from the fallback URI merged in above.
+    const dataSources = resolveDataSources({
+      database: options?.database,
+      explicitMongoose: !!options?.mongoose,
+      mongooseUri: config.mongoose?.uri,
+    });
+    assertDataSourcesSupported(dataSources);
+    // A MongoDB default source set through `database` is the database Mongoose connects to. Without this the
+    // URL passed the guard and the connection still used the fallback URI — another database, silently.
+    const defaultSource = dataSources.defaultSource ? dataSources.sources[dataSources.defaultSource] : undefined;
+    if (defaultSource?.driver === 'mongodb') {
+      config.mongoose.uri = defaultSource.url;
+    }
+    // A SQL source routes the models registered with CorePersistenceModule.forFeature() to it; without one, nothing
+    // is installed and every model keeps its Mongoose store
+    const sqlSources = hasSqlSource(dataSources);
+    setPersistenceRuntime(sqlSources ? new DataSourceRuntime(dataSources) : undefined);
+
     // Wrap connectionFactory to add security plugins (password hashing, role guard)
     const originalConnectionFactory = config.mongoose?.options?.connectionFactory;
     config.mongoose.options = config.mongoose.options || {};
@@ -345,6 +376,9 @@ export class CoreModule implements NestModule {
       TemplateService,
       MailjetService,
     ];
+    if (sqlSources) {
+      providers.push(CorePersistenceLifecycle);
+    }
 
     // Add ComplexityPlugin only if not in Vitest (Vitest has dual GraphQL loading issue) and GraphQL is enabled
     if (!process.env.VITEST && isGraphQlEnabled) {
@@ -410,10 +444,17 @@ export class CoreModule implements NestModule {
       providers.push(ModelDocService);
     }
 
+    // MongoDB is connected only where a source uses it — the `mongoose` configuration, or `database` naming MongoDB (or
+    // absent, which keeps today's single MongoDB). A project on PostgreSQL alone connects to no MongoDB and needs none
+    // of its libraries (optional peers since 12.1.0); configured without them, the boot fails with what to install.
+    const mongoPackages = usesMongoDb(dataSources)
+      ? requireMongoPackages('The MongoDB data source (the `mongoose` configuration, or `database` naming MongoDB)')
+      : undefined;
+
     // Set strict query to false by default
     // See: https://github.com/Automattic/mongoose/issues/10763
     // and: https://mongoosejs.com/docs/guide.html#strictQuery
-    mongoose.set('strictQuery', config.mongoose.strictQuery || false);
+    mongoPackages?.mongoose.set('strictQuery', config.mongoose.strictQuery || false);
 
     // Opt the MongoDB driver into command monitoring only when the Hub query profiler is enabled
     // (zero cost otherwise). An explicit `monitorCommands: false` by the consumer wins — the profiler
@@ -427,7 +468,14 @@ export class CoreModule implements NestModule {
 
     // DiscoveryModule: CoreFileAccessAuditInitializer needs the registered controller/resolver
     // classes, which only exist once Nest has built its route table.
-    const imports: any[] = [DiscoveryModule, MongooseModule.forRoot(config.mongoose.uri, config.mongoose.options)];
+    const imports: any[] = [
+      DiscoveryModule,
+      mongoPackages
+        ? mongoPackages.nestMongoose.MongooseModule.forRoot(config.mongoose.uri, config.mongoose.options)
+        : NoMongoConnectionModule,
+      // The metadata of S3 and filesystem files, routed like every model: on a SQL default source it lives in tables
+      CorePersistenceModule.forFeature(FILE_METADATA_MODELS),
+    ];
 
     if (isGraphQlEnabled && config.graphQl) {
       imports.push(
@@ -518,6 +566,13 @@ export class CoreModule implements NestModule {
     // IAM-only mode: enabled unless explicitly disabled
     // Legacy mode: enabled only if explicitly enabled
     const isBetterAuthEnabled = isIamOnlyMode ? !isExplicitlyDisabled : isExplicitlyEnabled;
+    // Better-Auth keeps its users in a database; `database: false` has none to give it
+    if (dataSources.disabled && isBetterAuthEnabled) {
+      throw new DataSourceConfigError(
+        '`database: false` runs without a database, and Better-Auth keeps its users in one — set `betterAuth: false` ' +
+          'or configure a data source',
+      );
+    }
 
     const isAutoRegister = typeof betterAuthConfig === 'object' && betterAuthConfig?.autoRegister === true;
     // autoRegister: false means the project imports its own BetterAuthModule separately

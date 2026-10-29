@@ -14,19 +14,19 @@
 
 import { Test, TestingModule } from '@nestjs/testing';
 import { PubSub } from 'graphql-subscriptions';
-import { Db, MongoClient } from 'mongodb';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 
 import { CoreBetterAuthService, HttpExceptionLogFilter, TestGraphQLType, TestHelper } from '../../src';
 import envConfig from '../../src/config.env';
 import { ServerModule } from '../../src/server/server.module';
+import { type IamTestDb, openIamTestDb } from '../helpers/iam-test-db';
 
 describe('Story: BetterAuth Migration Status', () => {
   // Test environment
   let app;
   let testHelper: TestHelper;
-  let mongoClient: MongoClient;
-  let db: Db;
+  // The database the run routes the users to (MongoDB, or PostgreSQL in the iam-sql projects)
+  let iamDb: IamTestDb;
   let betterAuthService: CoreBetterAuthService;
   let isBetterAuthEnabled: boolean;
   let adminToken: string;
@@ -66,8 +66,7 @@ describe('Story: BetterAuth Migration Status', () => {
       betterAuthService = moduleFixture.get(CoreBetterAuthService);
       isBetterAuthEnabled = betterAuthService.isEnabled();
 
-      mongoClient = await MongoClient.connect(envConfig.mongoose.uri);
-      db = mongoClient.db();
+      iamDb = await openIamTestDb(envConfig.mongoose.uri);
 
       // Create admin user and get token
       await testHelper.graphQl({
@@ -78,7 +77,7 @@ describe('Story: BetterAuth Migration Status', () => {
       });
 
       // Make user admin
-      await db.collection('users').updateOne({ email: adminEmail }, { $set: { roles: ['admin'] } });
+      await iamDb.updateUser({ email: adminEmail }, { roles: ['admin'] });
 
       // Sign in to get token with admin role
       const adminSignIn = await testHelper.graphQl({
@@ -94,9 +93,7 @@ describe('Story: BetterAuth Migration Status', () => {
       // cryptic "Invalid token" or "totalUsers is undefined" errors. Surface the root
       // cause here instead.
       if (!adminToken) {
-        throw new Error(
-          `beforeAll: adminSignIn returned no token. Response: ${JSON.stringify(adminSignIn)}`,
-        );
+        throw new Error(`beforeAll: adminSignIn returned no token. Response: ${JSON.stringify(adminSignIn)}`);
       }
     } catch (e) {
       console.error('beforeAllError', e);
@@ -106,25 +103,14 @@ describe('Story: BetterAuth Migration Status', () => {
 
   afterAll(async () => {
     // Cleanup
-    if (db) {
-      for (const email of testEmails) {
-        const user = await db.collection('users').findOne({ email });
-        if (user) {
-          await db.collection('account').deleteMany({ userId: user._id });
-          await db.collection('session').deleteMany({ userId: user._id });
-          await db.collection('users').deleteOne({ email });
-        }
+    // Users and everything Better-Auth keeps for them (sessions, accounts)
+    if (iamDb) {
+      for (const email of [...testEmails, adminEmail]) {
+        await iamDb.deleteUsers({ email });
       }
-      // Cleanup admin
-      const admin = await db.collection('users').findOne({ email: adminEmail });
-      if (admin) {
-        await db.collection('account').deleteMany({ userId: admin._id });
-        await db.collection('session').deleteMany({ userId: admin._id });
-        await db.collection('users').deleteOne({ email: adminEmail });
-      }
+      await iamDb.close();
     }
 
-    if (mongoClient) await mongoClient.close();
     if (app) await app.close();
   });
 
@@ -133,6 +119,13 @@ describe('Story: BetterAuth Migration Status', () => {
   // ===================================================================================================================
 
   describe('1. Structure, Counts, and Percentage (single query)', () => {
+    /**
+     * @regression   DEV-3831 (db-agnostic phase 3) — the migration status counted users and credential accounts with
+     *   MongoDB aggregations, so with the users on PostgreSQL it reported an empty user base.
+     * @seen-failing Skip the SQL branch of CoreBetterAuthUserMapper.getMigrationStatus() in
+     *   src/core/modules/better-auth/core-better-auth-user.mapper.ts — registered as mutation
+     *   `iam-migration-status-on-mongo` in tests/regression-mutations.json.
+     */
     it('should return correct structure, counts, and percentage for unmigrated users', async () => {
       if (!isBetterAuthEnabled) {
         console.debug('Better-Auth is not enabled, skipping test');
@@ -149,7 +142,7 @@ describe('Story: BetterAuth Migration Status', () => {
       });
 
       // Verify user was created without iamId (unmigrated)
-      const user = await db.collection('users').findOne({ email: legacyEmail });
+      const user = await iamDb.findUser({ email: legacyEmail });
       expect(user).toBeDefined();
       expect(user?.iamId).toBeUndefined();
 
@@ -198,6 +191,43 @@ describe('Story: BetterAuth Migration Status', () => {
     });
   });
 
+  describe('1b. Counts beyond one page', () => {
+    /**
+     * @regression   DEV-3831 (db-agnostic phase 3) — on SQL the status read the credential accounts through
+     *   Better-Auth's `findMany()`, which stops at 100 rows without a limit: never more than 100 migrated users,
+     *   `canDisableLegacyAuth` never true, and a boot warning telling operators to keep legacy auth open.
+     * @seen-failing Count over one page of 100 rows in BetterAuthSqlStore.migrationCounts() in
+     *   src/core/modules/better-auth/core-better-auth-sql.store.ts — registered as mutation
+     *   `iam-migration-status-capped-at-a-page` in tests/regression-mutations.json.
+     */
+    it('counts every migrated user, not a page of them', async () => {
+      if (!isBetterAuthEnabled) {
+        return;
+      }
+      const prefix = `migration-bulk-${uniqueSuffix}`;
+      for (let index = 0; index < 101; index++) {
+        const email = `${prefix}-${index}@test.com`;
+        testEmails.push(email);
+        const id = await iamDb.insertUser({ email, roles: [] });
+        await iamDb.updateUser({ id }, { iamId: id });
+        await iamDb.insertCredentialAccount(id);
+      }
+
+      const res = await testHelper.graphQl(
+        {
+          fields: ['fullyMigratedUsers', 'usersWithIamAccount', 'pendingUserEmails'],
+          name: 'betterAuthMigrationStatus',
+          type: TestGraphQLType.QUERY,
+        },
+        { token: adminToken },
+      );
+
+      expect(res.fullyMigratedUsers).toBeGreaterThanOrEqual(101);
+      expect(res.usersWithIamAccount).toBeGreaterThanOrEqual(101);
+      expect(res.pendingUserEmails.filter((email: string) => email.startsWith(prefix))).toEqual([]);
+    });
+  });
+
   describe('2. Migration via IAM Sign-In', () => {
     it('should update counts after user migrates via IAM sign-in', async () => {
       if (!isBetterAuthEnabled) {
@@ -217,7 +247,7 @@ describe('Story: BetterAuth Migration Status', () => {
       });
 
       // Verify user starts without iamId
-      const userBefore = await db.collection('users').findOne({ email: migratingEmail });
+      const userBefore = await iamDb.findUser({ email: migratingEmail });
       expect(userBefore?.iamId).toBeUndefined();
 
       // Migrate user via IAM sign-in
@@ -227,13 +257,13 @@ describe('Story: BetterAuth Migration Status', () => {
       });
 
       // Verify user now has iamId after migration
-      const userAfter = await db.collection('users').findOne({ email: migratingEmail });
+      const userAfter = await iamDb.findUser({ email: migratingEmail });
       expect(userAfter?.iamId).toBeDefined();
       expect(typeof userAfter?.iamId).toBe('string');
 
       // Verify IAM account exists
-      const iamAccount = await db.collection('account').findOne({ userId: userAfter?.iamId });
-      expect(iamAccount).toBeDefined();
+      const iamAccount = await iamDb.credentialAccount(userAfter?.iamId);
+      expect(iamAccount).not.toBeNull();
     });
   });
 

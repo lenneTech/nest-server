@@ -4,10 +4,11 @@ import {
   Injectable,
   Logger,
   OnApplicationBootstrap,
+  OnModuleDestroy,
   OnModuleInit,
   Optional,
 } from '@nestjs/common';
-import { InjectConnection } from '@nestjs/mongoose';
+import { InjectConnection } from '../../common/persistence/mongo/mongoose-compat.js';
 import {
   freshSessionMiddleware,
   requestOnlySessionMiddleware,
@@ -19,6 +20,7 @@ import { importJWK, jwtVerify } from 'jose';
 import type { Connection } from 'mongoose';
 
 import { shouldConvertSessionTokenToJwt } from '../../common/helpers/cookies.helper.js';
+import { type ExpirySweep, scheduleExpirySweep } from '../../common/persistence/expiry-sweep.js';
 import { maskEmail, maskToken } from '../../common/helpers/logging.helper.js';
 import { type IBetterAuth, ICookiesConfig } from '../../common/interfaces/server-options.interface.js';
 import { ConfigService } from '../../common/services/config.service.js';
@@ -47,6 +49,7 @@ import {
   DEFAULT_ACCOUNT_ISSUER_FIELD,
   DEFAULT_ACCOUNT_MODEL_NAME,
 } from './core-better-auth.constants.js';
+import { getBetterAuthSqlStore } from './core-better-auth-sql.registry.js';
 
 /**
  * Result of a session validation
@@ -103,8 +106,9 @@ export { BETTER_AUTH_CONFIG, BETTER_AUTH_COOKIE_DOMAIN } from './core-better-aut
  * ```
  */
 @Injectable()
-export class CoreBetterAuthService implements OnApplicationBootstrap, OnModuleInit {
+export class CoreBetterAuthService implements OnApplicationBootstrap, OnModuleDestroy, OnModuleInit {
   private readonly logger = new Logger(CoreBetterAuthService.name);
+  protected expirySweep?: ExpirySweep;
   private readonly config: IBetterAuth;
   private openApiSchema: IBetterAuthOpenApiDocument | undefined;
   private unavailableOperations: Set<string> | undefined;
@@ -145,7 +149,8 @@ export class CoreBetterAuthService implements OnApplicationBootstrap, OnModuleIn
    * better-auth pin yet therefore keeps working exactly as before.
    */
   async onModuleInit(): Promise<void> {
-    if (!this.isEnabled() || !this.connection?.db) return;
+    // Both steps concern MongoDB's collections: on a SQL source Better-Auth's migrator created the tables and indices
+    if (!this.isEnabled() || !this.connection?.db || getBetterAuthSqlStore()) return;
 
     await this.ensureIndices();
     if (usesLegacyAccountIssuer()) {
@@ -164,6 +169,34 @@ export class CoreBetterAuthService implements OnApplicationBootstrap, OnModuleIn
    */
   async onApplicationBootstrap(): Promise<void> {
     await this.prepareOpenApiSchema();
+    this.startExpirySweep();
+  }
+
+  async onModuleDestroy(): Promise<void> {
+    // Before the data sources close their connections (onApplicationShutdown)
+    await this.expirySweep?.stop();
+  }
+
+  /**
+   * On a SQL source, removes expired sessions and verification values periodically (`scheduleExpirySweep()`): there is
+   * no TTL index, and Better-Auth deletes neither an expired session nor, unless one is looked up, an expired
+   * verification value. MongoDB keeps its TTL index and gets no sweep.
+   */
+  protected startExpirySweep(): void {
+    const sql = getBetterAuthSqlStore();
+    if (!this.isEnabled() || !sql || this.expirySweep) {
+      return;
+    }
+    this.expirySweep = scheduleExpirySweep(
+      'iam',
+      async () => {
+        const { sessions, verificationValues } = await sql.deleteExpired();
+        if (sessions || verificationValues) {
+          this.logger.debug(`Removed ${sessions} expired session(s) and ${verificationValues} verification value(s)`);
+        }
+      },
+      { logger: this.logger },
+    );
   }
 
   /**
@@ -1087,7 +1120,14 @@ export class CoreBetterAuthService implements OnApplicationBootstrap, OnModuleIn
    * @returns Session and user data, or null if not found/expired
    */
   async getSessionByToken(token: string): Promise<SessionResult> {
-    if (!this.isEnabled() || !this.connection?.db) {
+    if (!this.isEnabled()) {
+      return { session: null, user: null };
+    }
+    const sql = getBetterAuthSqlStore();
+    if (sql) {
+      return this.liveSession(() => sql.findSession(token), 'getSessionByToken');
+    }
+    if (!this.connection?.db) {
       return { session: null, user: null };
     }
 
@@ -1183,7 +1223,14 @@ export class CoreBetterAuthService implements OnApplicationBootstrap, OnModuleIn
    * @returns Session result with token, or null if no active session exists
    */
   async getActiveSessionForUser(userId: string): Promise<SessionResult> {
-    if (!this.isEnabled() || !this.connection?.db) {
+    if (!this.isEnabled()) {
+      return { session: null, user: null };
+    }
+    const sql = getBetterAuthSqlStore();
+    if (sql) {
+      return this.liveSession(() => sql.findActiveSession(userId), 'getActiveSessionForUser');
+    }
+    if (!this.connection?.db) {
       return { session: null, user: null };
     }
 
@@ -1255,6 +1302,23 @@ export class CoreBetterAuthService implements OnApplicationBootstrap, OnModuleIn
       };
     } catch (error) {
       this.logger.debug(`getActiveSessionForUser error: ${error instanceof Error ? error.message : 'Unknown error'}`);
+      return { session: null, user: null };
+    }
+  }
+
+  /**
+   * A session from the SQL store, refused once expired — the check the MongoDB lookups make on the document
+   */
+  protected async liveSession(lookup: () => Promise<null | SessionResult>, caller: string): Promise<SessionResult> {
+    try {
+      const found = await lookup();
+      if (!found?.session || (found.session.expiresAt && new Date(found.session.expiresAt) < new Date())) {
+        this.logger.debug(`${caller}: no live session`);
+        return { session: null, user: null };
+      }
+      return found;
+    } catch (error) {
+      this.logger.debug(`${caller} error: ${error instanceof Error ? error.message : 'Unknown error'}`);
       return { session: null, user: null };
     }
   }
@@ -1353,8 +1417,8 @@ export class CoreBetterAuthService implements OnApplicationBootstrap, OnModuleIn
         return this.verifyHs256Token(token);
       }
 
-      // For asymmetric algorithms (EdDSA, RS256, ES256), use JWKS
-      if (kid && this.connection) {
+      // For asymmetric algorithms (EdDSA, RS256, ES256), use JWKS — from MongoDB or the SQL source, whichever holds them
+      if (kid) {
         return this.verifyJwksToken(token, kid, alg);
       }
 
@@ -1412,17 +1476,22 @@ export class CoreBetterAuthService implements OnApplicationBootstrap, OnModuleIn
     email?: string;
     sub: string;
   }> {
-    if (!this.connection) {
+    const sql = getBetterAuthSqlStore();
+    if (!this.connection && !sql) {
       this.logger.debug('JWKS verification failed: no database connection');
       return null;
     }
 
     try {
-      // Fetch the JWKS public key from database
-      const jwksCollection = this.connection.collection('jwks');
-      let keyRecord = await jwksCollection.findOne({ id: kid });
+      // Fetch the JWKS public key from database (on SQL through Better-Auth's adapter, by its logical names)
+      const jwksCollection = this.connection?.collection('jwks');
+      let keyRecord = sql ? await sql.findJwk(kid) : await jwksCollection?.findOne({ id: kid });
 
-      if (!keyRecord) {
+      if (!keyRecord && sql) {
+        this.logger.debug(`No JWKS key found for kid: ${kid}`);
+        return null;
+      }
+      if (!keyRecord && jwksCollection) {
         // Try with _id as fallback (MongoDB ObjectId)
         const allKeys = await jwksCollection.find({}).toArray();
         const matchingKey = allKeys.find((k) => k.id === kid || k._id?.toString() === kid);

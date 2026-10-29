@@ -1,6 +1,6 @@
 import { Inject, Injectable, Logger } from '@nestjs/common';
-import { InjectModel } from '@nestjs/mongoose';
-import { Model } from 'mongoose';
+import { InjectModel } from '../../../common/persistence/mongo/mongoose-compat.js';
+import type { Model } from 'mongoose';
 
 import { CrudService } from '../../../common/services/crud.service.js';
 import type { CoreModelConstructor } from '../../../common/types/core-model-constructor.type.js';
@@ -36,10 +36,7 @@ export class CoreAiModeService extends CrudService<CoreAiMode, CoreAiMode, CoreA
       return null;
     }
     try {
-      const row = await this.mainDbModel
-        .findOne({ enabled: { $ne: false }, name })
-        .lean<CoreAiMode>()
-        .exec();
+      const row = (await this.dataStore.findOne({ enabled: { $ne: false }, name })) as CoreAiMode | null;
       return row || null;
     } catch (err) {
       this.logger.warn(`Failed to load mode "${name}": ${(err as Error).message}`);

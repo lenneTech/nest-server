@@ -1,4 +1,5 @@
-import { mongo, Types } from 'mongoose';
+import type { mongo, Types } from 'mongoose';
+import { newObjectId } from '../../common/persistence/mongo/mongoose-compat.js';
 
 /**
  * The metadata shape every non-GridFS storage driver writes, and the queries against it.
@@ -25,7 +26,10 @@ import { mongo, Types } from 'mongoose';
  * `.claude/rules/architecture.md` → "DI Token Placement (SWC-Safe)".
  */
 
-/** Metadata collection handle (no Mongoose schema — these collections are driver-managed) */
+/**
+ * Metadata collection handle — the MongoDB collection, or its table on a SQL source behind the same operations
+ * (`fileMetadataCollection()` decides which)
+ */
 export type FileCollection = mongo.Collection<any>;
 
 /**
@@ -70,7 +74,7 @@ export async function findMetadataById(
   collection: FileCollection,
   id: string | Types.ObjectId,
 ): Promise<FileMetadataInfo | null> {
-  return (await collection.findOne({ _id: new Types.ObjectId(id) })) as FileMetadataInfo | null;
+  return (await collection.findOne({ _id: newObjectId(id) })) as FileMetadataInfo | null;
 }
 
 /**

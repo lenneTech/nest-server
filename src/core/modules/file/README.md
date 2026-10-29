@@ -57,6 +57,16 @@ and pages over them, `checkRights()` reads them per request. A directory listing
 that, and sidecar files would reinvent an index the database already is. So `'filesystem'` moves the
 bytes off the database, not the bookkeeping.
 
+**Which database holds it follows `database`** (db-agnostic phase 4). The S3 and filesystem metadata
+are two framework models, `CoreS3File` and `CoreFilesystemFile`: on MongoDB the collections `s3-files`
+and `filesystem-files` as before, on a SQL default source (or with `database.models` naming another
+source) the tables `s3_files` and `filesystem_files`. Nothing changes in a project's `FileModule`.
+Code of your own that reads that metadata uses `fileMetadataCollection(connection, 's3' | 'filesystem')`
+— it answers the collection or the table behind the same operations — never `connection.db.collection('s3-files')`,
+which would look at MongoDB while the files are in the table. GridFS keeps bytes and metadata in MongoDB
+(`fs.files`), so without `file.storage` a project whose file metadata is on SQL gets `'filesystem'`
+instead of `'gridfs'`; an explicit `'gridfs'` keeps working while MongoDB is connected.
+
 ### How an upload reaches S3
 
 No upload is read into memory on its way to S3. Which request carries it depends on whether its
@@ -98,11 +108,14 @@ operator did not believe they were in. Afterwards nobody can tell which file wen
 **Leave it unset and it is derived**, most capable first:
 
 1. `'s3'` — when `s3.bucket` is configured
-2. `'gridfs'` — when a database is configured
-3. `'filesystem'` — when neither is
+2. `'filesystem'` — when `database` routes the file metadata to a SQL source (a PostgreSQL default source
+   does): GridFS would put bytes and metadata into MongoDB. The directory is pod-local — mount
+   `storageDir` as a volume or configure `s3`, or the files are gone after the next restart
+3. `'gridfs'` — when a database is configured
+4. `'filesystem'` — when none is
 
 A configured-but-**unreachable** database is an error in its own right (Mongoose fails the boot), never
-a reason to fall through to the disk. Only a database that is not configured **at all** reaches step 3 —
+a reason to fall through to the disk. Only a database that is not configured **at all** reaches step 4 —
 which today is theoretical, since `CoreModule` always registers Mongoose.
 
 A derived driver is enforced too: `s3.bucket` in the config makes S3 the default, but the bytes still

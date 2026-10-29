@@ -1,7 +1,7 @@
 import { ObjectType } from '@nestjs/graphql';
-import { Schema as MongooseSchema, Prop, raw } from '@nestjs/mongoose';
+import { Prop, raw, Schema as MongooseSchema } from '../../common/persistence/mongo/mongoose-compat.js';
 import { ApiExtraModels, ApiProperty } from '@nestjs/swagger';
-import { Document } from 'mongoose';
+import type { Document } from 'mongoose';
 
 import { Restricted } from '../../common/decorators/restricted.decorator.js';
 import { UnifiedField } from '../../common/decorators/unified-field.decorator.js';

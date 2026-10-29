@@ -26,12 +26,12 @@ process.env.COOKIE_PREFIX = 'acme';
 import { Test, TestingModule } from '@nestjs/testing';
 import cookieParser = require('cookie-parser');
 import { PubSub } from 'graphql-subscriptions';
-import { MongoClient, ObjectId } from 'mongodb';
 
 import { CoreBetterAuthService, HttpExceptionLogFilter, TestHelper } from '../../src';
 import envConfig from '../../src/config.env';
 import { resolveBetterAuthSessionCookieName } from '../../src/core/modules/better-auth/better-auth-cookie-prefix.helper';
 import { ServerModule } from '../../src/server/server.module';
+import { type IamTestDb, openIamTestDb } from '../helpers/iam-test-db';
 
 describe('Story: BetterAuth COOKIE_PREFIX end-to-end lockstep', () => {
   let app: any;
@@ -39,11 +39,10 @@ describe('Story: BetterAuth COOKIE_PREFIX end-to-end lockstep', () => {
   let betterAuthService: CoreBetterAuthService;
   let isBetterAuthEnabled: boolean;
 
-  let mongoClient: MongoClient;
-  let db: any;
+  // The database the run routes the users to (MongoDB, or PostgreSQL in the iam-sql projects)
+  let iamDb: IamTestDb;
 
   const testUserIds: string[] = [];
-  const testIamUserIds: any[] = [];
 
   const overriddenCookieName = 'acme.session_token';
 
@@ -71,29 +70,14 @@ describe('Story: BetterAuth COOKIE_PREFIX end-to-end lockstep', () => {
     betterAuthService = moduleFixture.get(CoreBetterAuthService);
     isBetterAuthEnabled = betterAuthService.isEnabled();
 
-    mongoClient = await MongoClient.connect(envConfig.mongoose.uri);
-    db = mongoClient.db();
+    iamDb = await openIamTestDb(envConfig.mongoose.uri);
   });
 
   afterAll(async () => {
-    if (db) {
-      for (const userId of testUserIds) {
-        try {
-          await db.collection('users').deleteOne({ _id: new ObjectId(userId) });
-        } catch {
-          // Cleanup-only, ignore.
-        }
-      }
-      for (const iamId of testIamUserIds) {
-        try {
-          await db.collection('iam_user').deleteOne({ _id: iamId });
-          await db.collection('iam_session').deleteMany({ userId: iamId });
-        } catch {
-          // Cleanup-only, ignore.
-        }
-      }
+    if (iamDb) {
+      await iamDb.deleteUsers({ ids: testUserIds });
+      await iamDb.close();
     }
-    if (mongoClient) await mongoClient.close();
     if (app) await app.close();
     // The forked worker exits after this file completes, so the env mutation
     // does not leak — but reset anyway for fast-fail debuggability.
@@ -127,10 +111,8 @@ describe('Story: BetterAuth COOKIE_PREFIX end-to-end lockstep', () => {
       .post('/iam/sign-up/email')
       .send({ email, name: 'Cookie Prefix Test User', password, termsAndPrivacyAccepted: true });
 
-    const iamUser = await db.collection('iam_user').findOne({ email });
-    if (iamUser) testIamUserIds.push(iamUser._id);
-    const user = await db.collection('users').findOne({ email });
-    if (user) testUserIds.push(user._id.toString());
+    const user = await iamDb.findUser({ email });
+    if (user) testUserIds.push(user.id);
 
     const setCookieHeaders: string[] = Array.isArray(signUpRes.headers['set-cookie'])
       ? signUpRes.headers['set-cookie']
@@ -162,10 +144,8 @@ describe('Story: BetterAuth COOKIE_PREFIX end-to-end lockstep', () => {
       statusCode: 201,
     });
 
-    const iamUser = await db.collection('iam_user').findOne({ email });
-    if (iamUser) testIamUserIds.push(iamUser._id);
-    const user = await db.collection('users').findOne({ email });
-    if (user) testUserIds.push(user._id.toString());
+    const user = await iamDb.findUser({ email });
+    if (user) testUserIds.push(user.id);
 
     // Sign-in to materialize a fresh `session` row. The token field in the
     // response body may have been converted to a JWT by the BetterAuth JWT
@@ -177,20 +157,8 @@ describe('Story: BetterAuth COOKIE_PREFIX end-to-end lockstep', () => {
       payload: { email, password },
       statusCode: 200,
     });
-    // Better-Auth stores the userId on the session row sometimes as ObjectId,
-    // sometimes as string (depends on the IAM user shape) — query both.
-    const sessionRow = await db.collection('session').findOne(
-      {
-        $or: [
-          { userId: iamUser?._id },
-          { userId: iamUser?._id?.toString() },
-          ...(user?._id ? [{ userId: user._id }, { userId: user._id.toString() }] : []),
-        ],
-      },
-      { sort: { createdAt: -1 } },
-    );
-    expect(sessionRow?.token).toBeTruthy();
-    const rawSessionToken: string = sessionRow.token;
+    const rawSessionToken = await iamDb.latestSessionToken(user.id);
+    expect(rawSessionToken).toBeTruthy();
 
     // testHelper.rest with a plain token auto-builds Better-Auth cookies via
     // `buildBetterAuthCookies()` which goes through the SAME resolver as the
@@ -219,10 +187,8 @@ describe('Story: BetterAuth COOKIE_PREFIX end-to-end lockstep', () => {
       .post('/iam/sign-up/email')
       .send({ email, name: 'Sign-Out Test User', password, termsAndPrivacyAccepted: true });
 
-    const iamUser = await db.collection('iam_user').findOne({ email });
-    if (iamUser) testIamUserIds.push(iamUser._id);
-    const user = await db.collection('users').findOne({ email });
-    if (user) testUserIds.push(user._id.toString());
+    const user = await iamDb.findUser({ email });
+    if (user) testUserIds.push(user.id);
 
     const setCookieFromSignUp: string[] = Array.isArray(signUpRes.headers['set-cookie'])
       ? signUpRes.headers['set-cookie']
@@ -234,9 +200,7 @@ describe('Story: BetterAuth COOKIE_PREFIX end-to-end lockstep', () => {
     const cookiePair = sessionCookieHeader!.split(';')[0];
 
     // The custom controller exposes POST /iam/sign-out
-    const signOutRes = await supertest(app.getHttpServer())
-      .post('/iam/sign-out')
-      .set('Cookie', cookiePair);
+    const signOutRes = await supertest(app.getHttpServer()).post('/iam/sign-out').set('Cookie', cookiePair);
 
     const setCookieHeaders: string[] = Array.isArray(signOutRes.headers['set-cookie'])
       ? signOutRes.headers['set-cookie']

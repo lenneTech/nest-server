@@ -62,11 +62,28 @@
  * a token the quota is 1000/hour for the repository. A rate-limited run says so explicitly.
  *
  *   ✗ FIX AVAILABLE  the advisory now has a `first_patched_version`, or was
- *                    withdrawn. The suppression is obsolete — take the fix and
- *                    drop the entry.
+ *                    withdrawn, or names no fix while the registry already
+ *                    carries one (below). The suppression is obsolete — take the
+ *                    fix and drop the entry.
+ *   ✗ NOT IN TREE    the advisory names no fix, and no version the lockfile
+ *                    resolves is in its vulnerable range any more. The entry
+ *                    hides nothing.
  *
- * This is a network call, so it is skipped (with a WARN naming the unverified
- * GHSAs) when the API cannot be reached, exactly like the audit itself.
+ * A fix does not have to be NAMED. GitHub leaves `first_patched_version` null on
+ * some advisories long after a release outside the vulnerable range shipped:
+ * GHSA-86w9-cpqp-85rv (node-forge) still read `<= 1.4.0` / null on 2026-10-28, a
+ * day after 1.4.1 and 1.4.2 were published. Reading only the named field kept such
+ * an entry "no fix" for good, and a tree still on 1.4.0 never heard of the fix.
+ * So for an advisory without a named fix the guard reads the package's version
+ * list from the registry pnpm installs from: every vulnerable copy in the lockfile
+ * needs a stable release above it that lies outside EVERY range the advisory
+ * lists, a non-deprecated one where there is any (node-sass deprecated all of
+ * its releases). A release younger than the workspace's `minimumReleaseAge`
+ * is not one pnpm would install yet, so it keeps the entry and is named on the
+ * green path instead.
+ *
+ * These are network calls, so they are skipped (with a WARN naming the unverified
+ * GHSAs) when the API or the registry cannot be reached, exactly like the audit.
  *
  * A note against a tempting shortcut: `pnpm audit --ignore-unfixable` looks like
  * it solves this without any list at all. Both observations below were MEASURED
@@ -97,14 +114,17 @@
  * Usage:
  *   node scripts/check-overrides.mjs
  *   node scripts/check-overrides.mjs --audit-file <report.json>
- *   node scripts/check-overrides.mjs --advisory-file <advisories.json>
+ *   node scripts/check-overrides.mjs --advisory-file <advisories.json> [--packument-file <packuments.json>]
  *
  * `--audit-file` reads a previously captured `pnpm audit --json` instead of
  * running one — useful in CI, where the chain already produces a report, and to
  * inspect a colleague's findings without their tree. `--advisory-file` does the
  * same for the GHSA lookups: a JSON object mapping each GHSA id to
  * `{ first_patched_version, withdrawn }`, so the suppression check is
- * reproducible offline.
+ * reproducible offline. An advisory that names no fix also needs its
+ * `vulnerabilities` in the API's shape, and `--packument-file` maps each affected
+ * package to `{ versions, time }` from its registry entry; the registry is never
+ * asked behind an `--advisory-file`, so without them that entry is UNVERIFIED.
  *
  * Exit code: 0 when no override and no suppression is failing its job, 1 otherwise.
  */
@@ -800,20 +820,31 @@ const uncheckedSuppressions = [];
  * Old captured fixtures carry only `first_patched_version`, so that spelling is
  * accepted as a one-element list — a fixture must not have to be rewritten to
  * keep meaning what it meant.
+ *
+ * `vulnerabilities` keeps each npm package WITH its vulnerable range: an
+ * advisory that names no fix is decided from those ranges and the registry (see
+ * `registryFix()`), and a fixture may give them in the API's own shape.
  */
 function normaliseAdvisory(raw) {
   if (!raw) {
     return null;
   }
+  const listed = Array.isArray(raw.vulnerabilities) ? raw.vulnerabilities : [];
   const patchedVersions = Array.isArray(raw.patchedVersions)
     ? raw.patchedVersions.filter(Boolean)
     : raw.first_patched_version
       ? [raw.first_patched_version]
-      : [];
+      : listed.map((v) => v?.first_patched_version).filter(Boolean);
+  const vulnerabilities = listed
+    .filter((v) => (v?.package?.ecosystem ?? 'npm') === 'npm' && typeof v?.package?.name === 'string' && v.package.name)
+    .map((v) => ({ name: v.package.name, range: String(v.vulnerable_version_range ?? '') }));
   return {
-    affectedPackages: Array.isArray(raw.affectedPackages) ? raw.affectedPackages.filter(Boolean) : [],
+    affectedPackages: Array.isArray(raw.affectedPackages)
+      ? raw.affectedPackages.filter(Boolean)
+      : vulnerabilities.map((v) => v.name),
     first_patched_version: patchedVersions[0] ?? null,
     patchedVersions,
+    vulnerabilities,
     withdrawn: Boolean(raw.withdrawn),
   };
 }
@@ -880,6 +911,7 @@ async function advisoryStatus(ids) {
           normaliseAdvisory({
             affectedPackages: vulnerabilities.map((v) => v.package?.name),
             patchedVersions: vulnerabilities.map((v) => v.first_patched_version),
+            vulnerabilities,
             withdrawn: Boolean(body.withdrawn_at),
           }),
         ];
@@ -1045,6 +1077,230 @@ function dependentsOf(name) {
   return { parents: [...parents], scanned };
 }
 
+// ---------------------------------------------------------------------------
+// An advisory that names no fix: the lockfile and the registry decide
+// ---------------------------------------------------------------------------
+
+/** pnpm 11's built-in `minimumReleaseAge` when the workspace sets none: 1440 minutes, 24h. */
+const DEFAULT_MINIMUM_RELEASE_AGE_MINUTES = 1440;
+
+/**
+ * The workspace's release-age gate, in minutes. A fix younger than the gate is not one this
+ * repo can take yet: pnpm refuses it, or installs it only through a `minimumReleaseAgeExclude`
+ * entry nobody decided on — and failing on it would order exactly that entry.
+ */
+const releaseAgeMinutes = Number(
+  workspaceYaml.match(/^minimumReleaseAge\s*:\s*(\d+)\s*(?:#.*)?$/m)?.[1] ?? DEFAULT_MINIMUM_RELEASE_AGE_MINUTES,
+);
+
+/** `[major, minor, patch]`, or null for anything that is not a plain version. A pre-release reads as its release. */
+function parseVersion(text) {
+  const core = String(text).trim().replace(/^v/, '').split(/[-+]/)[0];
+  const parts = core.split('.').map((n) => (/^\d+$/.test(n) ? Number(n) : Number.NaN));
+  if (parts.length > 3 || parts.some((n) => Number.isNaN(n))) {
+    return null;
+  }
+  while (parts.length < 3) {
+    parts.push(0);
+  }
+  return parts;
+}
+
+/** Sort order of two versions; NaN when either cannot be read, so every comparison with it fails. */
+function compareVersions(a, b) {
+  const x = parseVersion(a);
+  const y = parseVersion(b);
+  if (!x || !y) {
+    return Number.NaN;
+  }
+  const at = x.findIndex((n, i) => n !== y[i]);
+  return at === -1 ? 0 : Math.sign(x[at] - y[at]);
+}
+
+/**
+ * Whether `version` lies in a GitHub `vulnerable_version_range` (`<= 1.4.0`, `>= 2.0.0, < 2.1.4`).
+ * Null when either cannot be read, so the caller reports "unverified" instead of guessing. A
+ * pre-release reads as its release, which is the conservative direction: it keeps the entry.
+ */
+function inVulnerableRange(version, range) {
+  const constraints = String(range)
+    .split(',')
+    .map((c) => c.trim())
+    .filter(Boolean);
+  if (!parseVersion(version) || constraints.length === 0) {
+    return null;
+  }
+  let inside = true;
+  for (const constraint of constraints) {
+    const m = constraint.match(/^(<=|>=|<|>|=)?\s*(\S+)$/);
+    const cmp = m ? compareVersions(version, m[2]) : Number.NaN;
+    if (Number.isNaN(cmp)) {
+      return null;
+    }
+    const op = m[1] ?? '=';
+    inside &&=
+      op === '<' ? cmp < 0 : op === '<=' ? cmp <= 0 : op === '>' ? cmp > 0 : op === '>=' ? cmp >= 0 : cmp === 0;
+  }
+  return inside;
+}
+
+/**
+ * The registry the packuments come from: the one the bulk probe above asks, i.e. the one pnpm
+ * installs from (or the loopback stand-in a test configured). A private registry answers for its
+ * own copies; asking npmjs.org there would judge versions this repo can never install.
+ */
+const NPM_REGISTRY_ROOT = NPM_ADVISORY_BULK.replace(/\/-\/npm\/v1\/security\/advisories\/bulk$/, '');
+
+const packumentFlag = process.argv.indexOf('--packument-file');
+const capturedPackuments = packumentFlag === -1 ? null : readJson(process.argv[packumentFlag + 1] ?? '');
+if (packumentFlag !== -1 && !capturedPackuments) {
+  console.error(`${TAG} FAIL — cannot read packument file at ${process.argv[packumentFlag + 1] ?? '<missing path>'}`);
+  process.exit(1);
+}
+const packuments = new Map();
+
+/**
+ * A package's FULL packument — every version with its `deprecated` notice, and `time`, which the
+ * release-age gate needs (the abbreviated install document carries no `time`). `{ packument }`
+ * with an empty one when the registry says the package does not exist, `{ reason }` when it could
+ * not be asked: an unread registry is "unverified", never "no fix".
+ */
+function npmPackument(name) {
+  if (!packuments.has(name)) {
+    packuments.set(name, readPackument(name));
+  }
+  return packuments.get(name);
+}
+
+async function readPackument(name) {
+  const shaped = (body) =>
+    body?.versions && typeof body.versions === 'object'
+      ? { packument: { time: body.time && typeof body.time === 'object' ? body.time : {}, versions: body.versions } }
+      : null;
+  if (capturedPackuments) {
+    return shaped(capturedPackuments[name]) ?? { reason: `no registry entry for ${name} in the packument file` };
+  }
+  if (process.argv.includes('--advisory-file')) {
+    // An offline run stays offline: the registry is not asked behind the caller's back.
+    return { reason: `an offline run (--advisory-file) needs --packument-file to look up ${name}` };
+  }
+  const url = `${NPM_REGISTRY_ROOT}/${name.replace('/', '%2F')}`;
+  try {
+    const res = await fetch(url, { headers: { accept: 'application/json' }, signal: AbortSignal.timeout(20_000) });
+    if (res.status === 404) {
+      return { packument: { time: {}, versions: {} } };
+    }
+    if (!res.ok) {
+      return { reason: `the registry answered HTTP ${res.status} for ${name}` };
+    }
+    return shaped(await res.json()) ?? { reason: `the registry entry of ${name} carries no version list` };
+  } catch (err) {
+    return { reason: `could not reach the registry for ${name} (${err?.cause?.code ?? err?.name ?? 'error'})` };
+  }
+}
+
+function formatGate(minutes) {
+  if (minutes >= 2880 && minutes % 1440 === 0) {
+    return `${minutes / 1440}d`;
+  }
+  return minutes % 60 === 0 ? `${minutes / 60}h` : `${minutes}min`;
+}
+
+/**
+ * Decides an advisory that names no patched version, from the lockfile and the registry.
+ *
+ * Every copy of an affected package that the lockfile resolves inside a vulnerable range needs a
+ * way out of its own: a stable release above it that lies outside EVERY range the advisory lists
+ * for that package — a later line can be vulnerable too. A deprecated release counts only when
+ * every such release is deprecated. The smallest one past the release-age gate is that copy's fix.
+ * One copy without a way out keeps the suppression justified, so the answer is "fixed" only when
+ * every copy has one.
+ */
+async function registryFix(info) {
+  if (info.vulnerabilities.length === 0) {
+    return { kind: 'unverified', reason: 'the advisory names no npm package and range to look up' };
+  }
+  if (!lockText) {
+    return { kind: 'unverified', reason: 'there is no pnpm-lock.yaml to find the vulnerable copies in' };
+  }
+  const copies = new Map();
+  const locked = new Set();
+  for (const { name, range } of info.vulnerabilities) {
+    for (const version of resolvedVersions(name)) {
+      const inside = inVulnerableRange(version, range);
+      if (inside === null) {
+        return { kind: 'unverified', reason: `cannot compare ${name}@${version} with the range "${range}"` };
+      }
+      locked.add(`${name}@${version}`);
+      if (inside) {
+        copies.set(`${name}@${version}`, { name, version });
+      }
+    }
+  }
+  if (copies.size === 0) {
+    const where =
+      locked.size > 0 ? `the lockfile resolves only ${[...locked].join(', ')}` : 'the package no longer resolves';
+    return { detail: `nothing in the tree is in the vulnerable range any more: ${where}`, kind: 'absent' };
+  }
+
+  const gateMs = releaseAgeMinutes * 60_000;
+  const now = Date.now();
+  const fixes = [];
+  const maturing = [];
+  let unread = null;
+  for (const { name, version } of copies.values()) {
+    const answer = await npmPackument(name);
+    if (!answer.packument) {
+      // Not returned yet: a later copy without a way out justifies the entry whatever this
+      // registry would have said, and that answer must not depend on the lockfile's order.
+      unread ??= answer.reason;
+      continue;
+    }
+    const { time, versions } = answer.packument;
+    const ranges = info.vulnerabilities.filter((v) => v.name === name).map((v) => v.range);
+    const outside = Object.keys(versions)
+      .filter((v) => /^\d+\.\d+\.\d+$/.test(v) && compareVersions(v, version) > 0)
+      .filter((v) => ranges.every((range) => inVulnerableRange(v, range) === false))
+      .sort(compareVersions);
+    // A deprecated release is held back, not ruled out: node-sass deprecated all 132 of its stable
+    // releases, and ruling them out read the published fix of GHSA-r8f7-9pfq-mjmv as "no fix" for good.
+    const supported = outside.filter((v) => !versions[v]?.deprecated);
+    const candidates = supported.length > 0 ? supported : outside;
+    if (candidates.length === 0) {
+      return { kind: 'none' };
+    }
+    // A release without a publish time cannot be held against the gate, so it does not pass it.
+    const mature = candidates.find((v) => now - Date.parse(time[v] ?? '') >= gateMs);
+    if (mature) {
+      fixes.push({ deprecated: supported.length === 0, name, version: mature });
+      continue;
+    }
+    const published = Date.parse(time[candidates[0]] ?? '');
+    maturing.push(
+      Number.isNaN(published)
+        ? `${name}@${candidates[0]} is published, but the registry gives no publish time to hold against the ${formatGate(releaseAgeMinutes)} minimumReleaseAge gate`
+        : `${name}@${candidates[0]} is published, but inside the ${formatGate(releaseAgeMinutes)} minimumReleaseAge gate until ` +
+            `${new Date(published + gateMs).toISOString().slice(0, 16).replace('T', ' ')} UTC`,
+    );
+  }
+  if (unread) {
+    return { kind: 'unverified', reason: unread };
+  }
+  if (maturing.length > 0) {
+    return { detail: maturing.join('; '), kind: 'maturing' };
+  }
+  return {
+    detail: `${fixes.map((f) => `${f.name}@${f.version}${f.deprecated ? ' (deprecated, like every release outside the vulnerable range)' : ''}`).join(', ')} is published and outside the vulnerable range (the advisory names no patched version)`,
+    kind: 'fixed',
+    versions: [...new Set(fixes.map((f) => f.version))],
+  };
+}
+
+/** Why each unverified suppression could not be checked, by GHSA id. */
+const uncheckedReasons = new Map();
+/** Suppressions whose fix is published but still inside the release-age gate (named, never failed). */
+const maturingSuppressions = [];
+
 /** Suppressions accepted because the published fix is provably unusable (reported, never silent). */
 const trackedResiduals = [];
 /** Declared-unusable suppressions whose justification may have expired — each fails the run. */
@@ -1065,7 +1321,32 @@ if (suppressed.length > 0) {
       continue;
     }
     if (info.patchedVersions.length === 0) {
-      continue;
+      // GitHub naming no fix is not the same as there being none (see the header), so this
+      // used to `continue` — and a suppression stayed "justified" while the fix sat on npm.
+      const verdict = await registryFix(info);
+      if (verdict.kind === 'none') {
+        continue;
+      }
+      if (verdict.kind === 'unverified') {
+        uncheckedSuppressions.push(id);
+        uncheckedReasons.set(id, verdict.reason);
+        continue;
+      }
+      if (verdict.kind === 'absent') {
+        obsoleteSuppressions.push({ id, ...info, absent: verdict.detail });
+        continue;
+      }
+      if (verdict.kind === 'maturing') {
+        maturingSuppressions.push({ detail: verdict.detail, id });
+        continue;
+      }
+      // A fix found on the registry is a fix like a named one: obsolete, unless a declaration
+      // says the consumer cannot use it — which the checks below then keep honest.
+      Object.assign(info, {
+        first_patched_version: verdict.versions[0],
+        patchedVersions: verdict.versions,
+        unnamed: verdict.detail,
+      });
     }
     const raw = residualDeclarations[id];
     if (!raw) {
@@ -1194,9 +1475,13 @@ if (unused.length > 0) {
 
 if (uncheckedSuppressions.length > 0) {
   console.warn(
-    `${TAG} WARN — could not reach the GitHub Advisory API for ` +
-      `${uncheckedSuppressions.length} suppressed advisory/advisories:\n` +
-      uncheckedSuppressions.map((id) => `  ! ${id} — UNVERIFIED, a fix may exist by now`).join('\n') +
+    `${TAG} WARN — could not verify ${uncheckedSuppressions.length} suppressed advisory/advisories:\n` +
+      uncheckedSuppressions
+        .map(
+          (id) =>
+            `  ! ${id} — UNVERIFIED (${uncheckedReasons.get(id) ?? 'the GitHub Advisory API could not be reached'}), a fix may exist by now`,
+        )
+        .join('\n') +
       `\n  These are invisible to \`pnpm audit\` by design, so nothing else will mention them.\n` +
       (advisoryRateLimited
         ? '  CAUSE: the Advisory API quota is exhausted for this IP (60/hour unauthenticated).\n' +
@@ -1216,7 +1501,7 @@ const ciUnverified = Boolean(process.env.CI) && uncheckedSuppressions.length > 0
 if (ciUnverified) {
   console.error(
     `${TAG} FAIL — running under CI with ${uncheckedSuppressions.length} suppression(s) that could not be ` +
-      'verified against the GitHub Advisory API.\n' +
+      'verified against the GitHub Advisory API and the registry.\n' +
       '      A suppressed advisory is invisible to `pnpm audit`, so an unchecked one is not "probably\n' +
       '      still fine" — it is unknown. Re-run, or pass --advisory-file with captured metadata.' +
       (advisoryRateLimited
@@ -1245,7 +1530,17 @@ if (
     );
   }
   for (const entry of obsoleteSuppressions) {
-    const why = entry.withdrawn ? 'the advisory was WITHDRAWN' : `a fix exists: ${entry.first_patched_version}`;
+    if (entry.absent) {
+      console.error(
+        `  ✗ NOT IN TREE  ${entry.id} — ${entry.absent}.\n` +
+          `      The suppression in auditConfig.ignoreGhsas hides nothing: remove the entry.\n` +
+          `      https://github.com/advisories/${entry.id}\n`,
+      );
+      continue;
+    }
+    const why = entry.withdrawn
+      ? 'the advisory was WITHDRAWN'
+      : `a fix exists: ${entry.unnamed ?? entry.first_patched_version}`;
     console.error(
       `  ✗ FIX AVAILABLE ${entry.id} — ${why}.\n` +
         `      The suppression in auditConfig.ignoreGhsas is obsolete: take the fix\n` +
@@ -1316,6 +1611,10 @@ for (const entry of trackedResiduals) {
       `${entry.consumer}@${entry.version} cannot use it; re-checked every run ` +
       `(consumer version, newly published fixes, second consumer).`,
   );
+}
+// Named for the same reason: this entry turns red by itself once the gate clears.
+for (const entry of maturingSuppressions) {
+  console.log(`${TAG} pending ${entry.id} — ${entry.detail}; the suppression holds until then.`);
 }
 
 if (auditUnavailable) {

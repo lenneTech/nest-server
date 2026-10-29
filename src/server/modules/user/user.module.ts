@@ -1,7 +1,7 @@
 import { forwardRef, Module } from '@nestjs/common';
-import { MongooseModule } from '@nestjs/mongoose';
 import { PubSub } from 'graphql-subscriptions';
 
+import { CorePersistenceModule } from '../../../core/common/persistence/core-persistence.module.js';
 import { ConfigService } from '../../../core/common/services/config.service.js';
 import { CoreRedisPubSub } from '../../../core/common/services/core-redis-pubsub.js';
 import { CoreRedisService } from '../../../core/common/services/core-redis.service.js';
@@ -13,14 +13,20 @@ import { UserResolver } from './user.resolver.js';
 import { UserService } from './user.service.js';
 
 /**
+ * The user model, registered database-neutrally: `@InjectModel()` keeps working, and `database` in the configuration
+ * decides whether users are stored in MongoDB or a SQL database (`CorePersistenceModule`)
+ */
+const UserPersistence = CorePersistenceModule.forFeature([{ model: User, name: User.name, schema: UserSchema }]);
+
+/**
  * User module
  */
 @Module({
   controllers: [AvatarController, UserController],
-  exports: [MongooseModule, UserResolver, UserService, 'USER_CLASS'],
+  exports: [UserPersistence, UserResolver, UserService, 'USER_CLASS'],
   // forwardRef: FileModule already imports UserModule, and the avatar upload now
   // needs FileService to reach the central storage — so the two reference each other.
-  imports: [MongooseModule.forFeature([{ name: User.name, schema: UserSchema }]), forwardRef(() => FileModule)],
+  imports: [UserPersistence, forwardRef(() => FileModule)],
   providers: [
     UserResolver,
     ConfigService,

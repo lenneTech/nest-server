@@ -1,6 +1,8 @@
 import { Logger } from '@nestjs/common';
 
 import { IServerOptions } from '../../common/interfaces/server-options.interface.js';
+import { resolveDataSources, resolveModelSource } from '../../common/persistence/data-source.config.js';
+import { FILESYSTEM_FILE_MODEL } from './file-metadata.models.js';
 
 const logger = new Logger('CoreFileStorage');
 
@@ -59,6 +61,28 @@ export function hasDatabaseConfig(config?: Partial<IServerOptions>): boolean {
 }
 
 /**
+ * The SQL data source `database` routes the file metadata to, or `undefined` when it stays on MongoDB. Answers from the
+ * configuration alone, so the driver is known before any store exists; a configuration that cannot be resolved has
+ * already stopped the boot in `CoreModule.forRoot()`, so it reads as "MongoDB" here.
+ */
+export function fileMetadataSqlSource(config?: Partial<IServerOptions>): string | undefined {
+  if (!config?.database) {
+    return undefined;
+  }
+  try {
+    const resolved = resolveDataSources({
+      database: config.database,
+      explicitMongoose: !!config.mongoose,
+      mongooseUri: config.mongoose?.uri,
+    });
+    const source = resolveModelSource(resolved, FILESYSTEM_FILE_MODEL);
+    return source && resolved.sources[source]?.driver !== 'mongodb' ? source : undefined;
+  } catch {
+    return undefined;
+  }
+}
+
+/**
  * Decide which storage driver to use.
  *
  * An EXPLICIT `file.storage` always wins and is never second-guessed here —
@@ -69,8 +93,10 @@ export function hasDatabaseConfig(config?: Partial<IServerOptions>): boolean {
  * Without an explicit value the default is derived, most capable first:
  *
  *   1. `s3`         — when the S3 config names a bucket
- *   2. `gridfs`     — when a database is configured
- *   3. `filesystem` — when neither is (today a theoretical case: `CoreModule`
+ *   2. `filesystem` — when `database` routes the file metadata to a SQL source:
+ *                     GridFS would put bytes and metadata into MongoDB
+ *   3. `gridfs`     — when a database is configured
+ *   4. `filesystem` — when none is (today a theoretical case: `CoreModule`
  *                     always registers Mongoose, so a project without a database
  *                     does not boot at all)
  *
@@ -95,6 +121,25 @@ export function resolveFileStorage(config?: Partial<IServerOptions>): FileStorag
 
   if (hasUsableS3Config(config)) {
     return { driver: 's3', explicit: false, reason: 's3.bucket is configured' };
+  }
+
+  if (config?.database === false) {
+    return {
+      driver: 'filesystem',
+      explicit: false,
+      reason: 'the project runs without a database (`database: false`) — file metadata has nowhere to go',
+    };
+  }
+
+  const sqlSource = fileMetadataSqlSource(config);
+  if (sqlSource) {
+    // GridFS keeps bytes AND metadata in MongoDB; a project that routes the file metadata to SQL does not get its
+    // files put into MongoDB without asking for it (`file.storage: 'gridfs'` still does)
+    return {
+      driver: 'filesystem',
+      explicit: false,
+      reason: `no S3 bucket is configured and the file metadata lives in the SQL source "${sqlSource}"`,
+    };
   }
 
   if (hasDatabaseConfig(config)) {

@@ -1,8 +1,10 @@
 import { Injectable, Logger, Optional } from '@nestjs/common';
-import { InjectConnection } from '@nestjs/mongoose';
-import { type Connection, Types } from 'mongoose';
+import { InjectConnection } from '../../common/persistence/mongo/mongoose-compat.js';
+import type { Connection } from 'mongoose';
 
 import { BetterAuthenticatedUser } from './better-auth.types.js';
+import { BetterAuthMongoUsers, type IamUserLookup } from './core-better-auth-mongo.users.js';
+import { getBetterAuthSqlStore } from './core-better-auth-sql.registry.js';
 import { CoreBetterAuthService } from './core-better-auth.service.js';
 
 /**
@@ -95,7 +97,7 @@ export class BetterAuthTokenService {
    * @returns User object with hasRole method, or null if verification fails
    */
   async verifyAndLoadUser(token: string): Promise<BetterAuthenticatedUser | null> {
-    if (!this.betterAuthService || !this.connection) {
+    if (!this.betterAuthService || !this.users()) {
       return null;
     }
 
@@ -152,8 +154,17 @@ export class BetterAuthTokenService {
         }
         return roles.some((role) => userRoles.includes(role));
       },
-      id: (user._id as Types.ObjectId)?.toString() || (user.id as string),
+      // The row's id as a string, whatever the database: MongoDB's `_id`, the column `id` on SQL
+      id: user._id?.toString() || (user.id as string),
     } as BetterAuthenticatedUser;
+  }
+
+  /**
+   * Where the app user is looked up: the SQL store when Better-Auth runs on SQL, MongoDB otherwise. Ids stay strings
+   * here — only the MongoDB lookup knows what an ObjectId is.
+   */
+  protected users(): IamUserLookup | undefined {
+    return getBetterAuthSqlStore() ?? (this.connection ? new BetterAuthMongoUsers(this.connection) : undefined);
   }
 
   /**
@@ -166,23 +177,14 @@ export class BetterAuthTokenService {
     [key: string]: unknown;
     sub: string;
   }): Promise<BetterAuthenticatedUser | null> {
-    if (!this.connection) {
+    const users = this.users();
+    if (!users) {
       return null;
     }
 
     try {
-      const usersCollection = this.connection.collection('users');
-      let user: null | Record<string, unknown> = null;
-
-      // Try to find by MongoDB _id first
-      if (Types.ObjectId.isValid(payload.sub)) {
-        user = await usersCollection.findOne({ _id: new Types.ObjectId(payload.sub) });
-      }
-
-      // If not found, try by iamId
-      if (!user) {
-        user = await usersCollection.findOne({ iamId: payload.sub });
-      }
+      // By the row's id first, then by iamId
+      const user = (await users.findUser({ id: payload.sub })) ?? (await users.findUser({ iamId: payload.sub }));
 
       if (!user) {
         return null;
@@ -207,28 +209,17 @@ export class BetterAuthTokenService {
     email?: string;
     id?: string;
   }): Promise<BetterAuthenticatedUser | null> {
-    if (!this.connection || !sessionUser) {
+    const users = this.users();
+    if (!users || !sessionUser) {
       return null;
     }
 
     try {
-      const usersCollection = this.connection.collection('users');
-      let user: null | Record<string, unknown> = null;
-
-      // Try to find by email (most reliable)
-      if (sessionUser.email) {
-        user = await usersCollection.findOne({ email: sessionUser.email });
-      }
-
-      // If not found by email, try by iamId
-      if (!user && sessionUser.id) {
-        user = await usersCollection.findOne({ iamId: sessionUser.id });
-      }
-
-      // If still not found, try by _id (if the ID looks like a MongoDB ObjectId)
-      if (!user && sessionUser.id && Types.ObjectId.isValid(sessionUser.id)) {
-        user = await usersCollection.findOne({ _id: new Types.ObjectId(sessionUser.id) });
-      }
+      // By email (most reliable), then by iamId, then by the row's id
+      const user =
+        (await users.findUser({ email: sessionUser.email })) ??
+        (await users.findUser({ iamId: sessionUser.id })) ??
+        (await users.findUser({ id: sessionUser.id }));
 
       if (!user) {
         return null;

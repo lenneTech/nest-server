@@ -25,12 +25,13 @@
 import { Test, TestingModule } from '@nestjs/testing';
 import { createHash } from 'crypto';
 import { PubSub } from 'graphql-subscriptions';
-import { Db, MongoClient } from 'mongodb';
+import { Db } from 'mongodb';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 
 import { CoreBetterAuthService, HttpExceptionLogFilter, TestGraphQLType, TestHelper } from '../../src';
 import envConfig from '../../src/config.env';
 import { ServerModule } from '../../src/server/server.module';
+import { type IamTestDb, openIamTestDb } from '../helpers/iam-test-db';
 
 // Helper to create SHA256 hash (simulates client-side hashing)
 function sha256(password: string): string {
@@ -41,8 +42,7 @@ describe('Story: Authentication Scenarios', () => {
   // Test environment
   let app;
   let testHelper: TestHelper;
-  let mongoClient: MongoClient;
-  let db: Db;
+  let iamDb: IamTestDb;
   let betterAuthService: CoreBetterAuthService;
   let isBetterAuthEnabled: boolean;
 
@@ -85,8 +85,7 @@ describe('Story: Authentication Scenarios', () => {
       isBetterAuthEnabled = betterAuthService.isEnabled();
 
       // Connection to database
-      mongoClient = await MongoClient.connect(envConfig.mongoose.uri);
-      db = mongoClient.db();
+      iamDb = await openIamTestDb(envConfig.mongoose.uri);
     } catch (e) {
       console.error('beforeAllError', e);
       throw e;
@@ -94,27 +93,16 @@ describe('Story: Authentication Scenarios', () => {
   });
 
   afterAll(async () => {
-    // Clean up test users (filtered by userId to avoid interfering with parallel tests)
-    if (db) {
+    // Clean up test users (by address, to avoid interfering with parallel tests); their sessions and accounts go with them
+    if (iamDb) {
       for (const email of testEmails) {
-        const user = await db.collection('users').findOne({ email });
-        if (user) {
-          const userIds: any[] = [user._id, user._id.toString()];
-          if (user.iamId) userIds.push(user.iamId);
-          await db.collection('users').deleteOne({ _id: user._id });
-          await db.collection('account').deleteMany({ userId: { $in: userIds } });
-          await db.collection('session').deleteMany({ userId: { $in: userIds } });
-        }
+        await iamDb.deleteUsers({ email });
       }
-      for (const iamId of testIamUserIds) {
-        await db.collection('users').deleteOne({ id: iamId });
-        await db.collection('account').deleteMany({ userId: iamId });
-        await db.collection('session').deleteMany({ userId: iamId });
-      }
+      await iamDb.deleteUsers({ ids: testIamUserIds });
     }
 
-    if (mongoClient) {
-      await mongoClient.close();
+    if (iamDb) {
+      await iamDb.close();
     }
 
     if (app) {
@@ -469,7 +457,7 @@ describe('Story: Authentication Scenarios', () => {
       }
 
       // Verify password was synced to users.password (bcrypt hash)
-      const dbUser = await db.collection('users').findOne({ email });
+      const dbUser = await iamDb.findUser({ email: email });
       expect(dbUser).toBeDefined();
       expect(dbUser!.password).toBeDefined();
       expect(typeof dbUser!.password).toBe('string');

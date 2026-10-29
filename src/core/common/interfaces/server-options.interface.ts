@@ -3,12 +3,12 @@ import { Type } from '@nestjs/common';
 import { GqlModuleAsyncOptions } from '@nestjs/graphql';
 import { JwtModuleOptions } from '@nestjs/jwt';
 import type { JwtSignOptions } from '@nestjs/jwt';
-import { MongooseModuleOptions } from '@nestjs/mongoose';
+import type { MongooseModuleOptions } from '@nestjs/mongoose';
 import { ServeStaticOptions } from '@nestjs/platform-express/interfaces/serve-static-options.interface';
 import { CronExpression } from '@nestjs/schedule';
 import type { DiskHealthIndicatorOptions, MongoosePingCheckSettings } from '@nestjs/terminus';
 import compression from 'compression';
-import { CollationOptions } from 'mongodb';
+import type { CollationOptions } from 'mongodb';
 import type { Connection } from 'mongoose';
 import type * as JSONTransport from 'nodemailer/lib/json-transport';
 import type * as SendmailTransport from 'nodemailer/lib/sendmail-transport';
@@ -17,6 +17,7 @@ import type * as SMTPPool from 'nodemailer/lib/smtp-pool';
 import * as SMTPTransport from 'nodemailer/lib/smtp-transport';
 import type * as StreamTransport from 'nodemailer/lib/stream-transport';
 
+import type { DataStore } from '../persistence/data-store.interface.js';
 import { Falsy } from '../types/falsy.type.js';
 import { IHubConfig } from '../../modules/hub/interfaces/hub-config.interface.js';
 import { IPermissions } from '../../modules/permissions/interfaces/permissions.interface.js';
@@ -799,8 +800,9 @@ export interface IBetterAuthPasskeyConfig {
   userVerification?: 'discouraged' | 'preferred' | 'required';
 
   /**
-   * Custom cookie name for WebAuthn challenge storage.
-   * Only used when challengeStorage is 'cookie'.
+   * Key of Better-Auth's WebAuthn challenge cookie. Better-Auth puts its cookie prefix in front of it
+   * (`iam.better-auth-passkey` by default); with database challenge storage the server reads the token from that
+   * cookie and maps it to the `challengeId` it returns instead.
    * @default 'better-auth-passkey'
    */
   webAuthnChallengeCookie?: string;
@@ -1262,8 +1264,10 @@ export interface IFileConfig {
    *
    * **Left unset, it is derived**, most capable first:
    * 1. `'s3'` when `s3.bucket` is configured
-   * 2. `'gridfs'` when a database is configured
-   * 3. `'filesystem'` when neither is
+   * 2. `'filesystem'` when `database` routes the file metadata to a SQL source — GridFS would put bytes and
+   *    metadata into MongoDB. Pod-local: mount `storageDir` as a volume, or configure `s3`
+   * 3. `'gridfs'` when a database is configured
+   * 4. `'filesystem'` when none is
    *
    * A configured-but-unreachable database is an error in its own right (Mongoose
    * fails the boot), never a reason to fall through to the disk.
@@ -1545,7 +1549,10 @@ export interface IMultiTenancy {
    *
    * Return `false` for an inactive tenant; any other value (including `undefined`) counts as active.
    * `context.connection` is the main database connection, for a lookup in the project's own tenant
-   * collection. Answers are cached for {@link cacheTtlMs}; after switching a tenant on or off, call
+   * collection; `context.store(modelName)` is the database-neutral alternative for a tenant model registered with
+   * `CorePersistenceModule.forFeature()`, and the one that works when that model is stored in a SQL database. It
+   * throws for a model not registered that way, so a misnamed or missing tenant model refuses the request rather than
+   * counting every tenant as active. Answers are cached for {@link cacheTtlMs}; after switching a tenant on or off, call
    * `CoreTenantGuard.invalidateTenant(tenantId)` (broadcast to every replica when Redis is
    * configured). A function cannot arrive through `NSC__*` / `NEST_SERVER_CONFIG` — set it in
    * `config.env.ts`.
@@ -1553,15 +1560,30 @@ export interface IMultiTenancy {
    * @example
    * ```typescript
    * multiTenancy: {
-   *   isTenantActive: async (tenantId, { connection }) =>
-   *     (await connection.collection('tenants').findOne({ _id: new Types.ObjectId(tenantId) }))?.active !== false,
+   *   // Any database: the tenant model registered with CorePersistenceModule.forFeature()
+   *   isTenantActive: async (tenantId, { store }) => (await store('Tenant').findById(tenantId))?.active !== false,
+   *   // MongoDB only
+   *   // isTenantActive: async (tenantId, { connection }) =>
+   *   //   (await connection.collection('tenants').findOne({ _id: new Types.ObjectId(tenantId) }))?.active !== false,
    * }
    * ```
    *
    * @default undefined (every tenant is active)
    * @since 11.42.0
    */
-  isTenantActive?: (tenantId: string, context: { connection: Connection }) => boolean | Promise<boolean>;
+  isTenantActive?: (
+    tenantId: string,
+    context: {
+      connection: Connection;
+      /**
+       * The data store of a model registered with `CorePersistenceModule.forFeature()` — the database-neutral lookup,
+       * also when the tenant model lives in a SQL database (`connection` reaches MongoDB only). Throws a
+       * `DataSourceConfigError` for a model that is not registered that way: an `undefined` here would read as
+       * "active" in a hook written with `?.`, and open every deactivated tenant.
+       */
+      store: (modelName: string) => DataStore<any>;
+    },
+  ) => boolean | Promise<boolean>;
 }
 
 /**
@@ -2152,6 +2174,73 @@ export interface IAi {
 }
 
 /**
+ * Library that executes the framework's SQL on a SQL data source. The framework compiles every query,
+ * policy and schema change itself, so the engine decides only what projects use for native queries —
+ * switching it on the same database is a configuration change.
+ */
+export type DatabaseSqlEngine = 'drizzle' | 'kysely' | 'typeorm';
+
+/**
+ * One data source: a connection URL plus, for SQL databases, the engine.
+ */
+export interface IDatabaseSourceConfig {
+  /**
+   * Connection URL of the role that OWNS the tables — used only to bring the schema up to date at boot, never for
+   * requests. Only valid on SQL URLs. Without it the application role only verifies the schema and the boot stops
+   * while changes are pending (plan §3.9: the application role owns nothing, so row-level security binds it).
+   */
+  ownerUrl?: string;
+
+  /**
+   * SQL engine for this source. Only valid on SQL URLs.
+   * @default the top-level `sqlEngine`, else 'typeorm'
+   */
+  sqlEngine?: DatabaseSqlEngine;
+
+  /**
+   * Connection URL. The scheme selects the database: `mongodb://`, `mongodb+srv://`, `postgres://`,
+   * `postgresql://`, `mysql://`, `mariadb://`.
+   */
+  url: string;
+}
+
+/**
+ * Data sources and which model is stored where.
+ *
+ * One default source serves every model; `sources` adds further ones and `models` lists the exceptions.
+ * A model may also name its source in code with `@PersistedModel({ dataSource })`; the configuration
+ * wins, so operations can move a model without a code change.
+ */
+export interface IDatabaseConfig {
+  /**
+   * Model name → source name, for the models that do not use the default source.
+   */
+  models?: Record<string, string>;
+
+  /**
+   * Owner connection of the default source (see `IDatabaseSourceConfig.ownerUrl`). Needs `url` beside it: an
+   * `NSC__DATABASE__OWNER_URL` replaces a `database` given as a URL string, so the boot refuses `ownerUrl` alone.
+   */
+  ownerUrl?: string;
+
+  /**
+   * Further sources by name, each a URL or a source configuration. The name `default` is reserved.
+   */
+  sources?: Record<string, IDatabaseSourceConfig | string>;
+
+  /**
+   * SQL engine for every SQL source that does not set its own.
+   * @default 'typeorm'
+   */
+  sqlEngine?: DatabaseSqlEngine;
+
+  /**
+   * URL of the default source. Without it, the `mongoose` configuration stays the default source.
+   */
+  url?: string;
+}
+
+/**
  * Options for the server
  */
 export interface IServerOptions {
@@ -2496,6 +2585,25 @@ export interface IServerOptions {
     string,
     CronExpression | CronJobConfigWithTimeZone | CronJobConfigWithUtcOffset | Date | Falsy | string
   >;
+
+  /**
+   * Data sources: where models are stored.
+   *
+   * - absent: the `mongoose` configuration is the only data source — exactly as before
+   * - a URL (`'postgres://…'`): that database is the default source for every model
+   * - an object: a default source plus further `sources` and per-model exceptions (`models`)
+   * - `false`: no database at all
+   *
+   * When this sets a default source and the project ALSO configures `mongoose` explicitly, that
+   * MongoDB becomes the additional source named `mongoose`. Connection URLs are never logged with
+   * their credentials.
+   *
+   * Which databases this version can actually wire is checked at boot; anything it cannot is refused
+   * with a named error before any connection is attempted.
+   *
+   * @default undefined (the `mongoose` configuration)
+   */
+  database?: false | IDatabaseConfig | string;
 
   /**
    * When true, logs a debug message when prepareInput() changes the input type during process().

@@ -1,10 +1,10 @@
 import { Test, TestingModule } from '@nestjs/testing';
 import { PubSub } from 'graphql-subscriptions';
-import { MongoClient } from 'mongodb';
 
 import { HttpExceptionLogFilter, RoleEnum, TestGraphQLType, TestHelper } from '../src';
 import envConfig from '../src/config.env';
 import { ServerModule } from '../src/server/server.module';
+import { type IamTestDb, openIamTestDb } from './helpers/iam-test-db';
 
 /**
  * Safety Net Architecture E2E Tests
@@ -16,8 +16,7 @@ describe('Safety Net (e2e)', () => {
   let app;
   let httpServer;
   let testHelper: TestHelper;
-  let connection;
-  let db;
+  let iamDb: IamTestDb;
   let gToken: string;
   let gUserId: string;
   let gAdminToken: string;
@@ -46,12 +45,11 @@ describe('Safety Net (e2e)', () => {
 
       testHelper = new TestHelper(app);
 
-      // MongoDB direct connection
-      connection = await MongoClient.connect(envConfig.mongoose.uri);
-      db = connection.db();
+      // Direct database access — MongoDB, or PostgreSQL in the `postgres` project
+      iamDb = await openIamTestDb(envConfig.mongoose.uri);
 
       // Clean up test data
-      await db.collection('users').deleteMany({ email: { $regex: /^safetynet/ } });
+      await iamDb.deleteUsers({ email: /^safetynet/ });
 
       // Sign up a test user
       const signUpResult = await testHelper.graphQl({
@@ -89,10 +87,7 @@ describe('Safety Net (e2e)', () => {
         type: TestGraphQLType.MUTATION,
       });
       // Set admin role directly in DB
-      await db.collection('users').updateOne(
-        { email: 'safetynet-admin@testdomain.com' },
-        { $set: { roles: [RoleEnum.ADMIN] } },
-      );
+      await iamDb.updateUser({ email: 'safetynet-admin@testdomain.com' }, { roles: [RoleEnum.ADMIN] });
       // Re-login to get token with admin role
       const adminLogin = await testHelper.graphQl({
         arguments: {
@@ -113,11 +108,9 @@ describe('Safety Net (e2e)', () => {
 
   afterAll(async () => {
     // Clean up
-    if (db) {
-      await db.collection('users').deleteMany({ email: { $regex: /^safetynet/ } });
-    }
-    if (connection) {
-      await connection.close();
+    if (iamDb) {
+      await iamDb.deleteUsers({ email: /^safetynet/ });
+      await iamDb.close();
     }
     if (httpServer) {
       await new Promise<void>((resolve) => httpServer.close(() => resolve()));
@@ -133,7 +126,7 @@ describe('Safety Net (e2e)', () => {
 
   describe('Mongoose Password Plugin', () => {
     it('should hash password on save via signUp', async () => {
-      const dbUser = await db.collection('users').findOne({ email: 'safetynet-user@testdomain.com' });
+      const dbUser = await iamDb.findUser({ email: 'safetynet-user@testdomain.com' });
       expect(dbUser).toBeDefined();
       expect(dbUser.password).toBeDefined();
       // Password should be a bcrypt hash
@@ -157,23 +150,20 @@ describe('Safety Net (e2e)', () => {
         { token: gToken },
       );
 
-      const dbUser = await db.collection('users').findOne({ email: 'safetynet-user@testdomain.com' });
+      const dbUser = await iamDb.findUser({ email: 'safetynet-user@testdomain.com' });
       expect(dbUser.password).toMatch(/^\$2[aby]\$\d+\$/);
       expect(dbUser.password.length).toBe(60);
     });
 
     it('should not double-hash an already-hashed password', async () => {
       // Get current hash
-      const before = await db.collection('users').findOne({ email: 'safetynet-user@testdomain.com' });
+      const before = await iamDb.findUser({ email: 'safetynet-user@testdomain.com' });
       const hashBefore = before.password;
 
       // Write the same hash back via direct DB update (simulating what would happen if plugin ran twice)
-      await db.collection('users').updateOne(
-        { email: 'safetynet-user@testdomain.com' },
-        { $set: { password: hashBefore } },
-      );
+      await iamDb.updateUser({ email: 'safetynet-user@testdomain.com' }, { password: hashBefore });
 
-      const after = await db.collection('users').findOne({ email: 'safetynet-user@testdomain.com' });
+      const after = await iamDb.findUser({ email: 'safetynet-user@testdomain.com' });
       // Hash should be identical (not double-hashed)
       expect(after.password).toBe(hashBefore);
       expect(after.password.length).toBe(60);
@@ -332,7 +322,7 @@ describe('Safety Net (e2e)', () => {
         { token: gToken },
       );
 
-      const dbUser = await db.collection('users').findOne({ email: 'safetynet-user@testdomain.com' });
+      const dbUser = await iamDb.findUser({ email: 'safetynet-user@testdomain.com' });
       expect(dbUser.password).toMatch(/^\$2[aby]\$\d+\$/);
       expect(dbUser.password.length).toBe(60);
     });
@@ -344,7 +334,7 @@ describe('Safety Net (e2e)', () => {
 
   describe('Audit Fields', () => {
     it('should set createdBy on user creation (self-signup)', async () => {
-      const dbUser = await db.collection('users').findOne({ email: 'safetynet-user@testdomain.com' });
+      const dbUser = await iamDb.findUser({ email: 'safetynet-user@testdomain.com' });
       expect(dbUser).toBeDefined();
       // Self-signup: createdBy is set to the user's own ID in an extra step
       expect(dbUser.createdBy).toBeDefined();
@@ -364,13 +354,13 @@ describe('Safety Net (e2e)', () => {
         { token: gToken },
       );
 
-      const dbUser = await db.collection('users').findOne({ email: 'safetynet-user@testdomain.com' });
+      const dbUser = await iamDb.findUser({ email: 'safetynet-user@testdomain.com' });
       expect(dbUser.updatedBy).toBeDefined();
       expect(dbUser.firstName).toBe('AuditTest');
     });
 
     it('should set updatedBy when admin updates another user', async () => {
-      const adminDbUser = await db.collection('users').findOne({ email: 'safetynet-admin@testdomain.com' });
+      const adminDbUser = await iamDb.findUser({ email: 'safetynet-admin@testdomain.com' });
 
       await testHelper.graphQl(
         {
@@ -385,11 +375,11 @@ describe('Safety Net (e2e)', () => {
         { token: gAdminToken },
       );
 
-      const dbUser = await db.collection('users').findOne({ email: 'safetynet-user@testdomain.com' });
+      const dbUser = await iamDb.findUser({ email: 'safetynet-user@testdomain.com' });
       expect(dbUser.firstName).toBe('AdminUpdated');
       expect(dbUser.updatedBy).toBeDefined();
       // updatedBy should be the admin's ID
-      expect(dbUser.updatedBy.toString()).toBe(adminDbUser._id.toString());
+      expect(dbUser.updatedBy.toString()).toBe(adminDbUser.id);
     });
   });
 
@@ -414,7 +404,7 @@ describe('Safety Net (e2e)', () => {
       );
 
       // Check DB: roles should NOT contain ADMIN
-      const dbUser = await db.collection('users').findOne({ email: 'safetynet-user@testdomain.com' });
+      const dbUser = await iamDb.findUser({ email: 'safetynet-user@testdomain.com' });
       expect(dbUser.roles || []).not.toContain(RoleEnum.ADMIN);
     });
 
@@ -448,7 +438,7 @@ describe('Safety Net (e2e)', () => {
         { token: gAdminToken },
       );
 
-      const dbUser = await db.collection('users').findOne({ email: 'safetynet-role-target@testdomain.com' });
+      const dbUser = await iamDb.findUser({ email: 'safetynet-role-target@testdomain.com' });
       expect(dbUser.roles).toContain(RoleEnum.ADMIN);
     });
   });
@@ -460,16 +450,9 @@ describe('Safety Net (e2e)', () => {
   describe('TranslateResponseInterceptor', () => {
     it('should apply translations when Accept-Language header is set', async () => {
       // First, store a translation for jobTitle via direct DB update
-      await db.collection('users').updateOne(
+      await iamDb.updateUser(
         { email: 'safetynet-user@testdomain.com' },
-        {
-          $set: {
-            jobTitle: 'Entwickler',
-            _translations: {
-              en: { jobTitle: 'Developer' },
-            },
-          },
-        },
+        { _translations: { en: { jobTitle: 'Developer' } }, jobTitle: 'Entwickler' },
       );
 
       // Query with Accept-Language: en (using the language option)

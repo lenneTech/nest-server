@@ -16,9 +16,9 @@
  * - Auto-created admin can sign in
  * - Auto-creation is skipped when users already exist
  *
- * ISOLATION: This test uses separate temporary MongoDB databases because it
- * requires zero users to test the "fresh deployment" scenario. Using the shared
- * e2e database would interfere with tests running in parallel.
+ * ISOLATION: This test uses separate temporary databases (MongoDB, and PostgreSQL in the
+ * `postgres` project) because it requires zero users to test the "fresh deployment" scenario.
+ * Using the shared e2e database would interfere with tests running in parallel.
  *
  * The 11.37.0 issuer defect this suite used to pin only exists on better-auth 1.7.0–1.7.2, which
  * this repository no longer installs; it is pinned by unit specs that simulate that line
@@ -30,7 +30,7 @@ import { getConnectionToken } from '@nestjs/mongoose';
 import { ScheduleModule } from '@nestjs/schedule';
 import { Test, TestingModule } from '@nestjs/testing';
 import { PubSub } from 'graphql-subscriptions';
-import { MongoClient } from 'mongodb';
+import type { Db } from 'mongodb';
 
 import { CoreBetterAuthModule, CoreBetterAuthService, CoreModule, HttpExceptionLogFilter, TestHelper } from '../../src';
 import envConfig from '../../src/config.env';
@@ -48,12 +48,15 @@ import { BetterAuthModule } from '../../src/server/modules/better-auth/better-au
 import { FileModule } from '../../src/server/modules/file/file.module';
 import { ServerController } from '../../src/server/server.controller';
 import { deriveTestDbUri } from '../db-lifecycle.reporter';
+import { type IamTestDb, openIamTestDb } from '../helpers/iam-test-db';
+import { onOwnPostgresDatabase, ownPostgresDatabase, type PostgresTestDatabase } from '../helpers/postgres-test-db';
+
 
 // Isolated database to avoid interfering with parallel tests. Derived from the
 // current (per-run, per-worker) test DB name so the db-lifecycle cleanup owns it —
 // a hardcoded `...-setup-${Date.now()}` name escaped the per-run scheme and leaked
 // two databases per run (collected only by the 1h legacy rule).
-const testConfig = {
+const baseTestConfig = {
   ...envConfig,
   mongoose: {
     ...envConfig.mongoose,
@@ -67,8 +70,9 @@ describe('Story: System Setup', () => {
   let betterAuthService: CoreBetterAuthService;
 
   // Database
-  let mongoClient: MongoClient;
-  let db;
+  let db: Db;
+  let iamDb: IamTestDb;
+  let sql: PostgresTestDatabase | undefined;
 
   const SETUP_ADMIN_EMAIL = `setup-admin-${Date.now()}@test.com`;
   const SETUP_ADMIN_PASSWORD = 'TestPassword123!';
@@ -81,6 +85,8 @@ describe('Story: System Setup', () => {
   beforeAll(async () => {
     try {
       CoreBetterAuthModule.reset();
+      sql = await ownPostgresDatabase('setup');
+      const testConfig = onOwnPostgresDatabase(baseTestConfig, sql);
 
       @Module({
         controllers: [ServerController, AuthController],
@@ -109,8 +115,8 @@ describe('Story: System Setup', () => {
       testHelper = new TestHelper(app);
       betterAuthService = moduleFixture.get(CoreBetterAuthService);
 
-      mongoClient = await MongoClient.connect(testConfig.mongoose.uri);
-      db = mongoClient.db();
+      iamDb = await openIamTestDb(testConfig.mongoose.uri, { ownerUrl: sql?.ownerUrl });
+      db = iamDb.mongo;
     } catch (e) {
       console.error('beforeAll Error', e);
       throw e;
@@ -126,16 +132,17 @@ describe('Story: System Setup', () => {
       await app.close();
     }
     // Drop the entire temporary database (no shared data to worry about)
-    if (db) {
+    if (iamDb) {
       try {
         await db.dropDatabase();
       } catch {
         // Ignore cleanup errors
       }
     }
-    if (mongoClient) {
-      await mongoClient.close();
+    if (iamDb) {
+      await iamDb.close();
     }
+    await sql?.drop();
     CoreBetterAuthModule.reset();
   });
 
@@ -158,7 +165,7 @@ describe('Story: System Setup', () => {
 
     it('should return needsSetup: false when users exist', async () => {
       // Ensure at least one user exists
-      await db.collection('users').insertOne({
+      await iamDb.insertUser({
         createdAt: new Date(),
         email: 'existing@test.com',
         roles: [],
@@ -173,7 +180,7 @@ describe('Story: System Setup', () => {
       expect(result.needsSetup).toBe(false);
 
       // Cleanup the test user to restore empty DB state
-      await db.collection('users').deleteOne({ email: 'existing@test.com' });
+      await iamDb.deleteUsers({ email: 'existing@test.com' });
     });
   });
 
@@ -196,7 +203,7 @@ describe('Story: System Setup', () => {
     });
 
     it('should have created user with admin role', async () => {
-      const user = await db.collection('users').findOne({ email: SETUP_ADMIN_EMAIL });
+      const user = await iamDb.findUser({ email: SETUP_ADMIN_EMAIL });
 
       expect(user).toBeDefined();
       expect(user.roles).toContain('admin');
@@ -204,18 +211,13 @@ describe('Story: System Setup', () => {
     });
 
     it('should have created BetterAuth user and account', async () => {
-      const user = await db.collection('users').findOne({ email: SETUP_ADMIN_EMAIL });
+      const user = await iamDb.findUser({ email: SETUP_ADMIN_EMAIL });
       expect(user).toBeDefined();
       expect(user.iamId).toBeDefined();
 
-      // BetterAuth shares the 'users' collection (modelName: 'users')
-      // The account collection links via userId (can be ObjectId or string)
-      // Query by both _id and iamId to handle either format
-      const account = await db.collection('account').findOne({
-        $or: [{ userId: user._id }, { userId: user.iamId }],
-        providerId: 'credential',
-      });
-      expect(account).toBeDefined();
+      // BetterAuth shares the 'users' collection (modelName: 'users'); its credential account links to that user
+      const account = await iamDb.credentialAccount(user.id);
+      expect(account).toBeTruthy();
       expect(account.password).toBeDefined();
     });
 
@@ -275,10 +277,11 @@ describe('Story: System Setup - Auto-Creation via Config', () => {
 
   let app;
   let testHelper: TestHelper;
-  let mongoClient: MongoClient;
-  let db;
+  let db: Db;
+  let iamDb: IamTestDb;
+  let sql: PostgresTestDatabase | undefined;
 
-  const autoConfig = {
+  const baseAutoConfig = {
     ...envConfig,
     mongoose: {
       ...envConfig.mongoose,
@@ -296,6 +299,8 @@ describe('Story: System Setup - Auto-Creation via Config', () => {
   beforeAll(async () => {
     try {
       CoreBetterAuthModule.reset();
+      sql = await ownPostgresDatabase('setup-auto');
+      const autoConfig = onOwnPostgresDatabase(baseAutoConfig, sql);
 
       @Module({
         controllers: [ServerController, AuthController],
@@ -324,8 +329,8 @@ describe('Story: System Setup - Auto-Creation via Config', () => {
       await app.init();
 
       testHelper = new TestHelper(app);
-      mongoClient = await MongoClient.connect(autoConfig.mongoose.uri);
-      db = mongoClient.db();
+      iamDb = await openIamTestDb(autoConfig.mongoose.uri, { ownerUrl: sql?.ownerUrl });
+      db = iamDb.mongo;
     } catch (e) {
       console.error('beforeAll Error (auto-creation)', e);
       throw e;
@@ -338,21 +343,22 @@ describe('Story: System Setup - Auto-Creation via Config', () => {
     if (app) {
       await app.close();
     }
-    if (db) {
+    if (iamDb) {
       try {
         await db.dropDatabase();
       } catch {
         // Ignore cleanup errors
       }
     }
-    if (mongoClient) {
-      await mongoClient.close();
+    if (iamDb) {
+      await iamDb.close();
     }
+    await sql?.drop();
     CoreBetterAuthModule.reset();
   });
 
   it('should have auto-created the initial admin on bootstrap', async () => {
-    const user = await db.collection('users').findOne({ email: AUTO_ADMIN_EMAIL });
+    const user = await iamDb.findUser({ email: AUTO_ADMIN_EMAIL });
 
     expect(user).toBeDefined();
     expect(user.roles).toContain('admin');
@@ -371,14 +377,11 @@ describe('Story: System Setup - Auto-Creation via Config', () => {
   });
 
   it('should have created BetterAuth account for auto-created admin', async () => {
-    const user = await db.collection('users').findOne({ email: AUTO_ADMIN_EMAIL });
+    const user = await iamDb.findUser({ email: AUTO_ADMIN_EMAIL });
     expect(user).toBeDefined();
 
-    const account = await db.collection('account').findOne({
-      $or: [{ userId: user._id }, { userId: user.iamId }],
-      providerId: 'credential',
-    });
-    expect(account).toBeDefined();
+    const account = await iamDb.credentialAccount(user.id);
+    expect(account).toBeTruthy();
     expect(account.password).toBeDefined();
   });
 
@@ -419,11 +422,12 @@ describe('Story: System Setup - Concurrent bootstrap', () => {
   const RACE_ADMIN_EMAIL = `race-admin-${Date.now()}@test.com`;
 
   let app;
-  let mongoClient: MongoClient;
-  let db;
+  let db: Db;
+  let iamDb: IamTestDb;
   let services: CoreSystemSetupService[];
+  let sql: PostgresTestDatabase | undefined;
 
-  const raceConfig = {
+  const baseRaceConfig = {
     ...envConfig,
     mongoose: {
       ...envConfig.mongoose,
@@ -440,6 +444,8 @@ describe('Story: System Setup - Concurrent bootstrap', () => {
   beforeAll(async () => {
     try {
       CoreBetterAuthModule.reset();
+      sql = await ownPostgresDatabase('setup-race');
+      const raceConfig = onOwnPostgresDatabase(baseRaceConfig, sql);
 
       @Module({
         controllers: [ServerController, AuthController],
@@ -465,16 +471,22 @@ describe('Story: System Setup - Concurrent bootstrap', () => {
       app.setViewEngine(raceConfig.templates.engine);
       await app.init();
 
-      mongoClient = await MongoClient.connect(raceConfig.mongoose.uri);
-      db = mongoClient.db();
+      iamDb = await openIamTestDb(raceConfig.mongoose.uri, { ownerUrl: sql?.ownerUrl });
+      db = iamDb.mongo;
 
       // app.init() already ran the bootstrap once. Reset to a fresh-deployment state so
       // the two instances below start the race from zero users and an unclaimed marker.
       // deleteMany, not drop: dropping `users` would drop its unique email index, which is what
       // prevents a duplicate admin. Kept as a loop because three documents quote this verbatim as
       // "the framework's own reset" — a snippet nobody runs drifts; this one runs every suite.
-      for (const col of ['users', 'account', 'session', 'system-setup-locks']) {
-        await db.collection(col).deleteMany({});
+      if (iamDb.driver === 'mongodb') {
+        for (const col of ['users', 'account', 'session', 'system-setup-locks']) {
+          await db.collection(col).deleteMany({});
+        }
+      } else {
+        // The same reset on a PostgreSQL default source: every user with its sessions and accounts, and the claim's row
+        await iamDb.deleteUsers({});
+        await iamDb.clearSetupClaim();
       }
 
       // Two service instances sharing one database = two replicas booting simultaneously.
@@ -496,34 +508,35 @@ describe('Story: System Setup - Concurrent bootstrap', () => {
     if (app) {
       await app.close();
     }
-    if (db) {
+    if (iamDb) {
       try {
         await db.dropDatabase();
       } catch {
         // Ignore cleanup errors
       }
     }
-    if (mongoClient) {
-      await mongoClient.close();
+    if (iamDb) {
+      await iamDb.close();
     }
+    await sql?.drop();
     CoreBetterAuthModule.reset();
   });
 
   it('should create exactly one admin when two instances bootstrap concurrently', async () => {
     await Promise.all(services.map((service) => service.onApplicationBootstrap()));
 
-    const admins = await db.collection('users').find({ email: RACE_ADMIN_EMAIL }).toArray();
-    expect(admins).toHaveLength(1);
-    expect(admins[0].roles).toContain('admin');
+    expect(await iamDb.countUsers({ email: RACE_ADMIN_EMAIL })).toBe(1);
+    expect((await iamDb.findUser({ email: RACE_ADMIN_EMAIL }))!.roles).toContain('admin');
 
     // No second user slipped in through the other instance either
-    expect(await db.collection('users').countDocuments({})).toBe(1);
+    expect(await iamDb.countUsers({})).toBe(1);
   });
 
   it('should keep the claim marker so later boots skip the setup', async () => {
-    const marker = await db.collection('system-setup-locks').findOne({ _id: 'initial-admin' });
-    expect(marker).toBeDefined();
-    expect(marker.claimedAt).toBeDefined();
+    const marker = await iamDb.setupClaim();
+    expect(marker).toBeTruthy();
+    // MongoDB keeps the 12.0.0 marker document, PostgreSQL a lease row
+    expect(marker!.claimedAt ?? marker!.acquiredAt).toBeDefined();
   });
 
   /**
@@ -540,9 +553,9 @@ describe('Story: System Setup - Concurrent bootstrap', () => {
    * working, the second does.
    */
   it('refuses a fresh init when only `users` was cleared — the claim outlives a successful setup', async () => {
-    await db.collection('users').deleteMany({});
-    expect(await db.collection('users').countDocuments({})).toBe(0);
-    expect(await db.collection('system-setup-locks').countDocuments({})).toBe(1);
+    await iamDb.deleteUsers({});
+    expect(await iamDb.countUsers({})).toBe(0);
+    expect(await iamDb.setupClaim()).toBeTruthy();
 
     // A bare `.rejects.toThrow()` would be satisfied by ANY failure — a misconfigured BetterAuth,
     // a dropped connection — and would still look like evidence. Pin the actual refusal.
@@ -560,7 +573,7 @@ describe('Story: System Setup - Concurrent bootstrap', () => {
     expect(caught.getStatus?.()).toBe(403);
     expect(JSON.stringify(caught.getResponse?.() ?? caught.message)).toContain('LTNS_0050');
     // And no user was created as a side effect of the refused attempt.
-    expect(await db.collection('users').countDocuments({})).toBe(0);
+    expect(await iamDb.countUsers({})).toBe(0);
   });
 
   it('accepts a fresh init once `system-setup-locks` is cleared too — the documented remedy', async () => {
@@ -568,15 +581,15 @@ describe('Story: System Setup - Concurrent bootstrap', () => {
     // leaves behind. Run alone (or under `-t` filtering, or sharded) there would be no claim to
     // clear, `deleteMany` would be a no-op, and the case would pass GREEN without ever
     // exercising the remedy it is named after — a false pass, which is worse than a false fail.
-    expect(await db.collection('system-setup-locks').countDocuments({})).toBe(1);
+    expect(await iamDb.setupClaim()).toBeTruthy();
 
-    await db.collection('system-setup-locks').deleteMany({});
+    await iamDb.clearSetupClaim();
 
     const email = `reset-ok-${Date.now()}@test.com`;
     const result = await services[0].createInitialAdmin({ email, password: 'ResetPassword123!' });
 
     expect(result.success).toBe(true);
-    expect(await db.collection('users').countDocuments({})).toBe(1);
+    expect(await iamDb.countUsers({})).toBe(1);
   });
 });
 
@@ -593,10 +606,11 @@ describe('Story: System Setup - Auto-Creation skipped with existing users', () =
   const SKIP_ADMIN_EMAIL = `skip-admin-${Date.now()}@test.com`;
 
   let app;
-  let mongoClient: MongoClient;
-  let db;
+  let db: Db;
+  let iamDb: IamTestDb;
+  let sql: PostgresTestDatabase | undefined;
 
-  const skipConfig = {
+  const baseSkipConfig = {
     ...envConfig,
     mongoose: {
       ...envConfig.mongoose,
@@ -612,15 +626,8 @@ describe('Story: System Setup - Auto-Creation skipped with existing users', () =
 
   beforeAll(async () => {
     try {
-      // Pre-populate the database with a user BEFORE app bootstrap
-      mongoClient = await MongoClient.connect(skipConfig.mongoose.uri);
-      db = mongoClient.db();
-      await db.collection('users').insertOne({
-        createdAt: new Date(),
-        email: 'pre-existing@test.com',
-        roles: ['admin'],
-      });
-
+      sql = await ownPostgresDatabase('setup-skip');
+      const skipConfig = onOwnPostgresDatabase(baseSkipConfig, sql);
       CoreBetterAuthModule.reset();
 
       @Module({
@@ -645,6 +652,17 @@ describe('Story: System Setup - Auto-Creation skipped with existing users', () =
       app.useGlobalFilters(new HttpExceptionLogFilter());
       app.setBaseViewsDir(skipConfig.templates.path);
       app.setViewEngine(skipConfig.templates.engine);
+
+      // Pre-populate the database with a user BEFORE app bootstrap. The bootstrap hook runs in app.init(), the schema of
+      // a PostgreSQL users table is created when the module is compiled — so the user is planted in between.
+      iamDb = await openIamTestDb(skipConfig.mongoose.uri, { ownerUrl: sql?.ownerUrl });
+      db = iamDb.mongo;
+      await iamDb.insertUser({
+        createdAt: new Date(),
+        email: 'pre-existing@test.com',
+        roles: ['admin'],
+      });
+
       await app.init();
     } catch (e) {
       console.error('beforeAll Error (skip auto-creation)', e);
@@ -658,26 +676,27 @@ describe('Story: System Setup - Auto-Creation skipped with existing users', () =
     if (app) {
       await app.close();
     }
-    if (db) {
+    if (iamDb) {
       try {
         await db.dropDatabase();
       } catch {
         // Ignore cleanup errors
       }
     }
-    if (mongoClient) {
-      await mongoClient.close();
+    if (iamDb) {
+      await iamDb.close();
     }
+    await sql?.drop();
     CoreBetterAuthModule.reset();
   });
 
   it('should NOT have auto-created the admin when users already exist', async () => {
-    const autoCreatedUser = await db.collection('users').findOne({ email: SKIP_ADMIN_EMAIL });
+    const autoCreatedUser = await iamDb.findUser({ email: SKIP_ADMIN_EMAIL });
     expect(autoCreatedUser).toBeNull();
   });
 
   it('should still have the pre-existing user', async () => {
-    const existingUser = await db.collection('users').findOne({ email: 'pre-existing@test.com' });
+    const existingUser = await iamDb.findUser({ email: 'pre-existing@test.com' });
     expect(existingUser).toBeDefined();
     expect(existingUser.roles).toContain('admin');
   });

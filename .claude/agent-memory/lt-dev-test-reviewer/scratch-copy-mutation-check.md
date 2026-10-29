@@ -28,6 +28,14 @@ What worked (2026-10-06, generated-secret story):
   not stack two mutations on ONE file with a per-file `.orig` backup — the second overwrites the
   backup with the first mutant; restore from the real repo instead.
 
+- **Registered mutations via the real gate (2026-10-28):** `git clone --quiet <repo> <scratch>/nsc` plus a symlinked
+  `node_modules` is enough for `LT_TEST_INFRA=0 node scripts/check-mutations.mjs --id=<id> --jobs=1`. The clone is a
+  real git repo, so the gate's checks and its failure-count parsing work, and the reviewed tree is never touched.
+  A RED e2e mutation run takes ~4–5 min, because retry:2 grinds through the failing tests; a green spec run takes
+  ~11 s. Budget for 2–3 runs, not the whole registry. `--since=<sha>` falls back to the FULL set whenever
+  package.json or pnpm-lock changed.
+- The PreToolUse hook blocks any command containing the text `DROP DATABASE`, even inside a grep. Use `grep -c -i postgres`.
+
 **Why:** a green test looks the same whether it checks something or nothing; the copy gives the
 "show me it red" evidence the repo rule demands without colliding with the author's live tree.
 

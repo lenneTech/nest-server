@@ -1,11 +1,12 @@
 import { Injectable, Logger, OnModuleInit, Optional } from '@nestjs/common';
-import { InjectConnection } from '@nestjs/mongoose';
+import { InjectConnection } from '../../common/persistence/mongo/mongoose-compat.js';
 import * as crypto from 'crypto';
-import { Collection, Document } from 'mongodb';
+import type { Collection, Document } from 'mongodb';
 import type { Connection } from 'mongoose';
 
 import { IBetterAuth } from '../../common/interfaces/server-options.interface.js';
 import { ConfigService } from '../../common/services/config.service.js';
+import { getBetterAuthSqlStore } from './core-better-auth-sql.registry.js';
 
 /**
  * WebAuthn challenge mapping document structure.
@@ -104,8 +105,8 @@ export class CoreBetterAuthChallengeService implements OnModuleInit {
 
     try {
       if (!this.connection) {
-        this.logger.warn('MongoDB connection not available, challenge storage disabled');
-        this.enabled = false;
+        // No MongoDB (PostgreSQL alone): the mappings are Better-Auth verification values on the SQL source, reached per
+        // call through getBetterAuthSqlStore() — isEnabled() answers from it
         return;
       }
 
@@ -138,7 +139,7 @@ export class CoreBetterAuthChallengeService implements OnModuleInit {
    * Check if database challenge storage is enabled
    */
   isEnabled(): boolean {
-    return this.enabled && this.collection !== null;
+    return this.enabled && (this.collection !== null || !!getBetterAuthSqlStore());
   }
 
   /**
@@ -154,7 +155,8 @@ export class CoreBetterAuthChallengeService implements OnModuleInit {
     userId: string,
     type: 'authentication' | 'registration',
   ): Promise<string> {
-    if (!this.collection) {
+    const sql = getBetterAuthSqlStore();
+    if (!this.collection && !sql) {
       throw new Error('Challenge storage not initialized');
     }
 
@@ -163,6 +165,13 @@ export class CoreBetterAuthChallengeService implements OnModuleInit {
 
     const now = new Date();
     const expiresAt = new Date(now.getTime() + this.ttlSeconds * 1000);
+
+    if (sql) {
+      // On SQL as one of Better-Auth's verification values: short-lived, with an expiry, never sent to the client
+      await sql.storeChallenge(challengeId, { expiresAt, type, userId, verificationToken });
+      this.logger.debug(`Stored ${type} challenge mapping for user ${userId.substring(0, 8)}...`);
+      return challengeId;
+    }
 
     await this.collection.insertOne({
       challengeId,
@@ -185,11 +194,12 @@ export class CoreBetterAuthChallengeService implements OnModuleInit {
    * @returns The verificationToken or null if not found/expired
    */
   async getVerificationToken(challengeId: string): Promise<null | string> {
-    if (!this.collection) {
+    const sql = getBetterAuthSqlStore();
+    if (!this.collection && !sql) {
       return null;
     }
 
-    const doc = await this.collection.findOne({ challengeId });
+    const doc = sql ? await sql.findChallenge(challengeId) : await this.collection.findOne({ challengeId });
 
     if (!doc) {
       this.logger.debug(`Challenge mapping not found: ${challengeId.substring(0, 8)}...`);
@@ -211,11 +221,14 @@ export class CoreBetterAuthChallengeService implements OnModuleInit {
    * @param challengeId - The challenge ID to delete
    */
   async deleteChallengeMapping(challengeId: string): Promise<void> {
-    if (!this.collection) {
+    const sql = getBetterAuthSqlStore();
+    if (sql) {
+      await sql.deleteChallenge(challengeId);
+    } else if (!this.collection) {
       return;
+    } else {
+      await this.collection.deleteOne({ challengeId });
     }
-
-    await this.collection.deleteOne({ challengeId });
     this.logger.debug(`Deleted challenge mapping: ${challengeId.substring(0, 8)}...`);
   }
 
@@ -225,13 +238,16 @@ export class CoreBetterAuthChallengeService implements OnModuleInit {
    * @param userId - User ID whose challenge mappings should be deleted
    */
   async deleteUserChallengeMappings(userId: string): Promise<void> {
-    if (!this.collection) {
+    const sql = getBetterAuthSqlStore();
+    if (!this.collection && !sql) {
       return;
     }
 
-    const result = await this.collection.deleteMany({ userId });
-    if (result.deletedCount > 0) {
-      this.logger.debug(`Deleted ${result.deletedCount} challenge mappings for user ${userId.substring(0, 8)}...`);
+    const deletedCount = sql
+      ? await sql.deleteUserChallenges(userId)
+      : (await this.collection.deleteMany({ userId })).deletedCount;
+    if (deletedCount > 0) {
+      this.logger.debug(`Deleted ${deletedCount} challenge mappings for user ${userId.substring(0, 8)}...`);
     }
   }
 
@@ -243,14 +259,16 @@ export class CoreBetterAuthChallengeService implements OnModuleInit {
   }
 
   /**
-   * Get the cookie name used by Better Auth for passkey challenges
+   * The key of Better-Auth's passkey challenge cookie (`passkey.webAuthnChallengeCookie`, default
+   * `better-auth-passkey`). Better-Auth puts its cookie prefix in front of it — the full name is
+   * `createAuthCookie(<key>).name` of the instance, as `CoreBetterAuthApiMiddleware` resolves it.
    */
   getCookieName(): string {
     if (!this.configService) {
-      return 'better-auth.better-auth-passkey';
+      return 'better-auth-passkey';
     }
     const config = this.configService.get<IBetterAuth>('betterAuth') || {};
     const passkeyConfig = typeof config.passkey === 'object' ? config.passkey : null;
-    return passkeyConfig?.webAuthnChallengeCookie || 'better-auth.better-auth-passkey';
+    return passkeyConfig?.webAuthnChallengeCookie || 'better-auth-passkey';
   }
 }

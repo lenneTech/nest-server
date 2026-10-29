@@ -27,7 +27,6 @@
 
 import { Test, TestingModule } from '@nestjs/testing';
 import { PubSub } from 'graphql-subscriptions';
-import { Db, MongoClient } from 'mongodb';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 
 import {
@@ -39,13 +38,14 @@ import {
 } from '../../src';
 import envConfig from '../../src/config.env';
 import { ServerModule } from '../../src/server/server.module';
+import { type IamTestDb, openIamTestDb } from '../helpers/iam-test-db';
 
 describe('Story: Bidirectional Auth Sync', () => {
   // Test environment
   let app;
   let testHelper: TestHelper;
-  let mongoClient: MongoClient;
-  let db: Db;
+  // The database the run routes the users to (MongoDB, or PostgreSQL in the iam-sql projects)
+  let iamDb: IamTestDb;
   let betterAuthService: CoreBetterAuthService;
   let userMapper: CoreBetterAuthUserMapper;
   let isBetterAuthEnabled: boolean;
@@ -91,8 +91,7 @@ describe('Story: Bidirectional Auth Sync', () => {
       isBetterAuthEnabled = betterAuthService.isEnabled();
 
       // Connection to database
-      mongoClient = await MongoClient.connect(envConfig.mongoose.uri);
-      db = mongoClient.db();
+      iamDb = await openIamTestDb(envConfig.mongoose.uri);
     } catch (e) {
       console.error('beforeAllError', e);
       throw e;
@@ -101,27 +100,12 @@ describe('Story: Bidirectional Auth Sync', () => {
 
   afterAll(async () => {
     // Clean up test users (filtered by userId to avoid interfering with parallel tests)
-    if (db) {
+    if (iamDb) {
       for (const email of testEmails) {
-        const user = await db.collection('users').findOne({ email });
-        if (user) {
-          const userIds: any[] = [user._id, user._id.toString()];
-          if (user.iamId) userIds.push(user.iamId);
-          await db.collection('users').deleteOne({ _id: user._id });
-          await db.collection('account').deleteMany({ userId: { $in: userIds } });
-          await db.collection('session').deleteMany({ userId: { $in: userIds } });
-        }
+        await iamDb.deleteUsers({ email });
       }
-      for (const iamId of testIamUserIds) {
-        // Clean up by IAM user id
-        await db.collection('users').deleteOne({ id: iamId });
-        await db.collection('account').deleteMany({ userId: iamId });
-        await db.collection('session').deleteMany({ userId: iamId });
-      }
-    }
-
-    if (mongoClient) {
-      await mongoClient.close();
+      await iamDb.deleteUsers({ ids: testIamUserIds });
+      await iamDb.close();
     }
 
     if (app) {
@@ -160,7 +144,7 @@ describe('Story: Bidirectional Auth Sync', () => {
       }
 
       // Verify password was synced to users collection
-      const dbUser = await db.collection('users').findOne({ email });
+      const dbUser = await iamDb.findUser({ email });
       expect(dbUser).toBeDefined();
       expect(dbUser!.password).toBeDefined();
       expect(typeof dbUser!.password).toBe('string');
@@ -239,9 +223,9 @@ describe('Story: Bidirectional Auth Sync', () => {
       expect(signUpRes.user.email).toBe(email);
 
       // Verify no IAM account exists yet (users collection is shared, account collection is Better-Auth specific)
-      const userBefore = await db.collection('users').findOne({ email });
+      const userBefore = await iamDb.findUser({ email });
       expect(userBefore).toBeDefined();
-      let iamAccount = await db.collection('account').findOne({ providerId: 'credential', userId: userBefore!._id });
+      let iamAccount = await iamDb.credentialAccount(userBefore!.id);
       expect(iamAccount).toBeNull(); // No credential account before migration
 
       // Now sign in via Better-Auth (IAM) - should auto-migrate
@@ -261,14 +245,11 @@ describe('Story: Bidirectional Auth Sync', () => {
       }
 
       // Verify IAM account was created after migration
-      const userAfter = await db.collection('users').findOne({ email });
+      const userAfter = await iamDb.findUser({ email });
       expect(userAfter).toBeDefined();
       expect(userAfter!.iamId).toBeDefined(); // iamId should be set after migration
 
-      iamAccount = await db.collection('account').findOne({
-        providerId: 'credential',
-        userId: userAfter!._id,
-      });
+      iamAccount = await iamDb.credentialAccount(userAfter!.id);
       expect(iamAccount).toBeDefined();
       expect(iamAccount!.password).toBeDefined();
     });
@@ -381,6 +362,13 @@ describe('Story: Bidirectional Auth Sync', () => {
       expect(iamSignIn2.success).toBe(true);
     });
 
+    /**
+     * @regression   DEV-3831 (db-agnostic phase 3) — on SQL Better-Auth added `name` as a NOT NULL column, so every
+     *   user the framework created without one (legacy sign-up, user service, setup) failed to insert.
+     * @seen-failing Skip adding the required user columns nullable in addRequiredUserColumnsAsNullable() in
+     *   src/core/modules/better-auth/better-auth-sql.helper.ts — registered as mutation
+     *   `iam-required-user-column-not-null` in tests/regression-mutations.json.
+     */
     it('should link iamId after IAM sign-in', async () => {
       if (!isBetterAuthEnabled) {
         console.debug('Better-Auth is not enabled, skipping test');
@@ -399,7 +387,7 @@ describe('Story: Bidirectional Auth Sync', () => {
       });
 
       // Verify no iamId initially
-      let dbUser = await db.collection('users').findOne({ email });
+      let dbUser = await iamDb.findUser({ email });
       expect(dbUser!.iamId).toBeUndefined();
 
       // Sign in via IAM (triggers migration and linking)
@@ -415,7 +403,7 @@ describe('Story: Bidirectional Auth Sync', () => {
       }
 
       // Verify iamId is now set
-      dbUser = await db.collection('users').findOne({ email });
+      dbUser = await iamDb.findUser({ email });
       expect(dbUser!.iamId).toBeDefined();
       expect(typeof dbUser!.iamId).toBe('string');
     });
@@ -524,23 +512,23 @@ describe('Story: Bidirectional Auth Sync', () => {
       }
 
       // Verify session exists for the user
-      const user = await db.collection('users').findOne({ email: oldEmail });
+      const user = await iamDb.findUser({ email: oldEmail });
       expect(user).toBeDefined();
-      const sessionBefore = await db.collection('session').findOne({ userId: user!._id });
+      const sessionBefore = await iamDb.findUserSession(user!.id);
       expect(sessionBefore).toBeDefined();
 
       // Update email directly via database (simulating Legacy service update)
-      await db.collection('users').updateOne({ _id: user!._id }, { $set: { email: newEmail } });
+      await iamDb.updateUser({ id: user!.id }, { email: newEmail });
 
       // Call the sync method directly (this is what CoreUserService.update would do)
       await userMapper?.syncEmailChangeFromLegacy(oldEmail, newEmail);
 
       // Verify email was updated in database
-      const userByNewEmail = await db.collection('users').findOne({ email: newEmail });
+      const userByNewEmail = await iamDb.findUser({ email: newEmail });
       expect(userByNewEmail).toBeDefined();
 
       // Session should be invalidated after email change
-      const sessionAfter = await db.collection('session').findOne({ userId: user!._id });
+      const sessionAfter = await iamDb.findUserSession(user!.id);
       expect(sessionAfter).toBeNull();
 
       // Add new email to cleanup
@@ -571,11 +559,11 @@ describe('Story: Bidirectional Auth Sync', () => {
       }
 
       // Find the user
-      const user = await db.collection('users').findOne({ email: oldEmail });
+      const user = await iamDb.findUser({ email: oldEmail });
       expect(user).toBeDefined();
 
       // Update email directly via database
-      await db.collection('users').updateOne({ _id: user!._id }, { $set: { email: newEmail } });
+      await iamDb.updateUser({ id: user!.id }, { email: newEmail });
 
       // Sign in via Legacy with new email
       const legacySignIn = await testHelper.graphQl({
@@ -626,9 +614,9 @@ describe('Story: Bidirectional Auth Sync', () => {
       }
 
       // Verify IAM account exists
-      const user = await db.collection('users').findOne({ email });
+      const user = await iamDb.findUser({ email });
       expect(user).toBeDefined();
-      const iamAccount = await db.collection('account').findOne({ userId: user!._id });
+      const iamAccount = await iamDb.findAccount(user!.id);
       expect(iamAccount).toBeDefined();
 
       // Delete user from both systems using the mapper
@@ -637,15 +625,15 @@ describe('Story: Bidirectional Auth Sync', () => {
       expect(deleteResult?.userDeleted).toBe(true);
 
       // Verify user is deleted
-      const deletedUser = await db.collection('users').findOne({ email });
+      const deletedUser = await iamDb.findUser({ email });
       expect(deletedUser).toBeNull();
 
       // Verify IAM account and session are also deleted
-      const deletedAccount = await db.collection('account').findOne({ userId: user!._id });
+      const deletedAccount = await iamDb.findAccount(user!.id);
       expect(deletedAccount).toBeNull();
 
       // Session should also be cleaned up
-      const deletedSession = await db.collection('session').findOne({ userId: user!._id });
+      const deletedSession = await iamDb.findUserSession(user!.id);
       expect(deletedSession).toBeNull();
     });
 
@@ -679,26 +667,233 @@ describe('Story: Bidirectional Auth Sync', () => {
       }
 
       // Verify IAM account exists
-      const user = await db.collection('users').findOne({ email });
+      const user = await iamDb.findUser({ email });
       expect(user).toBeDefined();
-      const iamAccount = await db.collection('account').findOne({ userId: user!._id });
+      const iamAccount = await iamDb.findAccount(user!.id);
       expect(iamAccount).toBeDefined();
-      const iamSession = await db.collection('session').findOne({ userId: user!._id });
+      const iamSession = await iamDb.findUserSession(user!.id);
       expect(iamSession).toBeDefined();
 
       // Cleanup IAM data (simulating what happens when Legacy deletes a user)
-      const cleanupResult = await userMapper?.cleanupIamDataForDeletedUser(user!._id);
+      const cleanupResult = await userMapper?.cleanupIamDataForDeletedUser(user!.id);
       expect(cleanupResult?.success).toBe(true);
 
       // User should still exist (only IAM data cleaned up)
-      const userAfter = await db.collection('users').findOne({ email });
+      const userAfter = await iamDb.findUser({ email });
       expect(userAfter).toBeDefined();
 
       // IAM account and session should be deleted
-      const deletedAccount = await db.collection('account').findOne({ userId: user!._id });
+      const deletedAccount = await iamDb.findAccount(user!.id);
       expect(deletedAccount).toBeNull();
-      const deletedSession = await db.collection('session').findOne({ userId: user!._id });
+      const deletedSession = await iamDb.findUserSession(user!.id);
       expect(deletedSession).toBeNull();
+    });
+  });
+  // ===================================================================================================================
+  // 7. Name Sync
+  // ===================================================================================================================
+
+  describe('7. Name Sync', () => {
+    /**
+     * @regression   found in 11.43.1 — CoreUserService.update() synced email and password changes to the
+     *   Better-Auth side of the shared users document, but not firstName/lastName. The Better-Auth
+     *   `name` therefore stayed stale, and the next IAM sign-in reverse-synced it back into
+     *   firstName/lastName (linkOrCreateUser), silently discarding the user's edit.
+     * @seen-failing Drop the `syncNameChangeFromLegacy()` call from CoreUserService.update() in
+     *   src/core/modules/user/core-user.service.ts — registered as mutation
+     *   `user-update-skips-iam-name-sync` in tests/regression-mutations.json.
+     */
+    it('should keep a firstName/lastName edit across the next IAM sign-in', async () => {
+      if (!isBetterAuthEnabled) {
+        console.debug('Better-Auth is not enabled, skipping test');
+        return;
+      }
+
+      const email = generateTestEmail('name-edit');
+      const password = 'NameEdit123!';
+
+      const signUpRes = await testHelper.rest('/iam/sign-up/email', {
+        method: 'POST',
+        payload: { email, name: 'Anna Maria', password, termsAndPrivacyAccepted: true },
+        statusCode: 201,
+      });
+      expect(signUpRes.success).toBe(true);
+      if (signUpRes.user?.id) {
+        testIamUserIds.push(signUpRes.user.id);
+      }
+
+      const legacySignIn = await testHelper.graphQl({
+        arguments: { input: { email, password } },
+        fields: ['token', { user: ['id'] }],
+        name: 'signIn',
+        type: TestGraphQLType.MUTATION,
+      });
+      expect(legacySignIn.token).toBeDefined();
+
+      // The user edits their own name (S_SELF) — a two-word first name and a two-word last name
+      const updated = await testHelper.graphQl(
+        {
+          arguments: { id: legacySignIn.user.id, input: { firstName: 'Anna Maria', lastName: 'von Berg' } },
+          fields: ['firstName', 'lastName'],
+          name: 'updateUser',
+          type: TestGraphQLType.MUTATION,
+        },
+        { token: legacySignIn.token },
+      );
+      expect(updated.firstName).toBe('Anna Maria');
+      expect(updated.lastName).toBe('von Berg');
+
+      // The Better-Auth name follows the edit
+      const afterUpdate = await iamDb.findUser({ email });
+      expect(afterUpdate!.name).toBe('Anna Maria von Berg');
+
+      const iamSignIn = await testHelper.rest('/iam/sign-in/email', {
+        method: 'POST',
+        payload: { email, password },
+      });
+      expect(iamSignIn.success).toBe(true);
+
+      const afterSignIn = await iamDb.findUser({ email });
+      expect(afterSignIn!.firstName).toBe('Anna Maria');
+      expect(afterSignIn!.lastName).toBe('von Berg');
+    });
+
+    /**
+     * @regression   found in 11.43.1 — linkOrCreateUser() re-split the Better-Auth `name` into
+     *   firstName/lastName on EVERY sign-in. The split is lossy (first word vs. rest), so a stored
+     *   "Anna Maria" / "von Berg" became "Anna" / "Maria von Berg" although nothing had changed on
+     *   the Better-Auth side.
+     * @seen-failing Make `nameChangedInIam` in linkOrCreateUser() always true in
+     *   src/core/modules/better-auth/core-better-auth-user.mapper.ts — registered as mutation
+     *   `iam-sign-in-resplits-unchanged-name` in tests/regression-mutations.json.
+     */
+    it('should not re-split an unchanged Better-Auth name on sign-in', async () => {
+      if (!isBetterAuthEnabled) {
+        console.debug('Better-Auth is not enabled, skipping test');
+        return;
+      }
+
+      const email = generateTestEmail('name-unchanged');
+      const password = 'NameKeep123!';
+
+      const signUpRes = await testHelper.rest('/iam/sign-up/email', {
+        method: 'POST',
+        payload: { email, name: 'Anna Maria von Berg', password, termsAndPrivacyAccepted: true },
+        statusCode: 201,
+      });
+      expect(signUpRes.success).toBe(true);
+      if (signUpRes.user?.id) {
+        testIamUserIds.push(signUpRes.user.id);
+      }
+
+      // Locally maintained split that matches the Better-Auth name as a whole
+      await iamDb.updateUser({ email }, { firstName: 'Anna Maria', lastName: 'von Berg' });
+
+      const iamSignIn = await testHelper.rest('/iam/sign-in/email', {
+        method: 'POST',
+        payload: { email, password },
+      });
+      expect(iamSignIn.success).toBe(true);
+
+      const afterSignIn = await iamDb.findUser({ email });
+      expect(afterSignIn!.firstName).toBe('Anna Maria');
+      expect(afterSignIn!.lastName).toBe('von Berg');
+    });
+
+    it('should still reverse-sync a name that changed on the Better-Auth side', async () => {
+      if (!isBetterAuthEnabled) {
+        console.debug('Better-Auth is not enabled, skipping test');
+        return;
+      }
+
+      const email = generateTestEmail('name-iam-change');
+      const password = 'NameIam123!';
+
+      const signUpRes = await testHelper.rest('/iam/sign-up/email', {
+        method: 'POST',
+        payload: { email, name: 'Old Name', password, termsAndPrivacyAccepted: true },
+        statusCode: 201,
+      });
+      expect(signUpRes.success).toBe(true);
+      if (signUpRes.user?.id) {
+        testIamUserIds.push(signUpRes.user.id);
+      }
+
+      // Name changed on the Better-Auth side only (e.g. via POST /iam/update-user)
+      await iamDb.updateUser({ email }, { name: 'Jane Doe' });
+
+      const iamSignIn = await testHelper.rest('/iam/sign-in/email', {
+        method: 'POST',
+        payload: { email, password },
+      });
+      expect(iamSignIn.success).toBe(true);
+
+      const afterSignIn = await iamDb.findUser({ email });
+      expect(afterSignIn!.firstName).toBe('Jane');
+      expect(afterSignIn!.lastName).toBe('Doe');
+    });
+
+    /**
+     * @regression   found while integrating PR #647 (DEV-3821) — the first version of the name sync
+     *   skipped an EMPTY result, so clearing both names left the old Better-Auth `name` in place,
+     *   and the next IAM sign-in reverse-synced it into the fields the user had just cleared.
+     * @seen-failing Restore the `fullName &&` skip in CoreUserService.update() in
+     *   src/core/modules/user/core-user.service.ts — registered as mutation
+     *   `user-update-skips-emptied-name-sync` in tests/regression-mutations.json.
+     */
+    it('should keep cleared names cleared across the next IAM sign-in', async () => {
+      if (!isBetterAuthEnabled) {
+        console.debug('Better-Auth is not enabled, skipping test');
+        return;
+      }
+
+      const email = generateTestEmail('name-cleared');
+      const password = 'NameClear123!';
+
+      const signUpRes = await testHelper.rest('/iam/sign-up/email', {
+        method: 'POST',
+        payload: { email, name: 'Anna Maria', password, termsAndPrivacyAccepted: true },
+        statusCode: 201,
+      });
+      expect(signUpRes.success).toBe(true);
+      if (signUpRes.user?.id) {
+        testIamUserIds.push(signUpRes.user.id);
+      }
+
+      const legacySignIn = await testHelper.graphQl({
+        arguments: { input: { email, password } },
+        fields: ['token', { user: ['id'] }],
+        name: 'signIn',
+        type: TestGraphQLType.MUTATION,
+      });
+      expect(legacySignIn.token).toBeDefined();
+
+      // The user clears both names (S_SELF)
+      const updated = await testHelper.graphQl(
+        {
+          arguments: { id: legacySignIn.user.id, input: { firstName: '', lastName: '' } },
+          fields: ['firstName', 'lastName'],
+          name: 'updateUser',
+          type: TestGraphQLType.MUTATION,
+        },
+        { token: legacySignIn.token },
+      );
+      expect(updated.firstName ?? '').toBe('');
+      expect(updated.lastName ?? '').toBe('');
+
+      // The Better-Auth name follows, also when it becomes empty
+      const afterUpdate = await iamDb.findUser({ email });
+      expect(afterUpdate!.name).toBe('');
+
+      const iamSignIn = await testHelper.rest('/iam/sign-in/email', {
+        method: 'POST',
+        payload: { email, password },
+      });
+      expect(iamSignIn.success).toBe(true);
+
+      const afterSignIn = await iamDb.findUser({ email });
+      expect(afterSignIn!.firstName ?? '').toBe('');
+      expect(afterSignIn!.lastName ?? '').toBe('');
     });
   });
 });

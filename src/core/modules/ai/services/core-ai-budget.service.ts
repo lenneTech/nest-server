@@ -1,9 +1,12 @@
 import { HttpException, HttpStatus, Inject, Injectable } from '@nestjs/common';
-import { InjectConnection, InjectModel } from '@nestjs/mongoose';
-import { type Connection, Model } from 'mongoose';
+import { InjectConnection, InjectModel } from '../../../common/persistence/mongo/mongoose-compat.js';
+import type { Connection, Model } from 'mongoose';
 
+import type { DataStore } from '../../../common/persistence/data-store.interface.js';
+import { getModelStore } from '../../../common/persistence/persistence-runtime.registry.js';
 import { ConfigService } from '../../../common/services/config.service.js';
 import { CrudService } from '../../../common/services/crud.service.js';
+import { RequestContext } from '../../../common/services/request-context.service.js';
 import type { CoreModelConstructor } from '../../../common/types/core-model-constructor.type.js';
 import { ErrorCode } from '../../error-code/index.js';
 import { CoreAiBudgetLimitCreateInput } from '../inputs/core-ai-budget-limit-create.input.js';
@@ -11,7 +14,7 @@ import { CoreAiBudgetLimitInput } from '../inputs/core-ai-budget-limit.input.js'
 import { AiBudgetLimitDocument, CoreAiBudgetLimit } from '../models/core-ai-budget-limit.model.js';
 import { CoreAiBudgetSummary, CoreAiUsageInfo, CoreAiUsageScope } from '../models/core-ai-usage-info.model.js';
 
-import { AI_BUDGET_LIMIT_CLASS, AI_BUDGET_LIMIT_MODEL } from '../core-ai.constants.js';
+import { AI_BUDGET_LIMIT_CLASS, AI_BUDGET_LIMIT_MODEL, AI_INTERACTION_MODEL } from '../core-ai.constants.js';
 
 /**
  * @deprecated Import from `../core-ai.constants` instead. Re-exported only so existing deep imports
@@ -68,7 +71,7 @@ export class CoreAiBudgetService extends CrudService<
    * Resolve the effective limit for a scope: persisted override, else config default.
    */
   async resolveLimit(scope: 'tenant' | 'user', refId: string): Promise<ResolvedAiBudgetLimit> {
-    const override = await this.mainDbModel.findOne({ refId, scope }).lean().exec();
+    const override = (await this.dataStore.findOne({ refId, scope })) as Partial<CoreAiBudgetLimit> | null;
     const cfg = ConfigService.get<{
       period?: string;
       tenant?: { maxPrompts?: number; maxTokens?: number };
@@ -96,6 +99,15 @@ export class CoreAiBudgetService extends CrudService<
     if (filter.tenantId) {
       match.tenantId = filter.tenantId;
     }
+    // On a SQL source the interactions live in their table, summed by the database across tenants (the explicit
+    // user/tenant filter decides), as the MongoDB aggregation below does
+    const interactions = this.interactionsSqlStore();
+    if (interactions) {
+      const { count, sum } = await RequestContext.runWithBypassTenantGuard(() =>
+        interactions.sum('totalTokens', match),
+      );
+      return { resetAt: this.nextReset(period), usedPrompts: count, usedTokens: sum };
+    }
     const db = this.connection.db;
     if (!db) {
       return { resetAt: this.nextReset(period), usedPrompts: 0, usedTokens: 0 };
@@ -111,6 +123,12 @@ export class CoreAiBudgetService extends CrudService<
       ])
       .toArray();
     return { resetAt: this.nextReset(period), usedPrompts: agg?.usedPrompts ?? 0, usedTokens: agg?.usedTokens ?? 0 };
+  }
+
+  /** The store of the interactions when they are routed to a SQL source; `undefined` keeps the native aggregation */
+  protected interactionsSqlStore(): DataStore<any> | undefined {
+    const store = getModelStore(this.connection, AI_INTERACTION_MODEL);
+    return store && !store.capabilities.mongoosePopulate ? store : undefined;
   }
 
   /**

@@ -1,14 +1,20 @@
 {
   "name": "@lenne.tech/nest-server",
-  "version": "12.0.0",
+  "version": "12.1.0",
   "type": "module",
-  "description": "Modern, fast, powerful Node.js web framework in TypeScript based on Nest with a GraphQL API and a connection to MongoDB (or other databases).",
+  "description": "Server framework in TypeScript on top of NestJS: GraphQL and REST APIs on MongoDB, PostgreSQL, MySQL or MariaDB, with authentication, field-level permissions, multi-tenancy and an AI assistant.",
   "keywords": [
     "node",
     "nest",
+    "nestjs",
     "server",
     "mongodb",
+    "postgresql",
+    "mysql",
+    "mariadb",
     "graphql",
+    "rest",
+    "multi-tenancy",
     "typescript"
   ],
   "author": "lenne.Tech <info@lenne.tech> (https://lenne.tech)",
@@ -27,14 +33,16 @@
     "check": "node scripts/check.mjs",
     "check:consumer": "node scripts/check-consumer.mjs",
     "check:esm": "node scripts/check-esm-core.mjs",
-    "check:fix": "pnpm install && pnpm run spectaql:sync && pnpm audit --fix && pnpm run check:overrides && pnpm peers check && pnpm run format && pnpm run lint:fix && pnpm run typecheck:tests && pnpm run typecheck:vendor && pnpm run check:esm && pnpm run check:swc-tdz && pnpm test && pnpm run build && pnpm run check:manifest && pnpm run check:server-start",
+    "check:fix": "pnpm install && pnpm run spectaql:sync && pnpm audit --fix && pnpm run check:overrides && pnpm peers check && pnpm run format && pnpm run lint:fix && pnpm run typecheck:tests && pnpm run typecheck:vendor && pnpm run check:esm && pnpm run check:swc-tdz && pnpm test && pnpm run build && pnpm run check:manifest && pnpm run check:without-mongodb && pnpm run check:server-start",
     "check:manifest": "node scripts/check-package-manifest.mjs",
     "check:mutations": "node scripts/check-mutations.mjs",
-    "check:naf": "pnpm install && pnpm run spectaql:sync && pnpm run check:overrides && pnpm peers check && pnpm run format && pnpm run lint:fix && pnpm run typecheck:tests && pnpm run typecheck:vendor && pnpm run check:esm && pnpm run check:swc-tdz && pnpm test && pnpm run build && pnpm run check:manifest && pnpm run check:server-start",
+    "check:naf": "pnpm install && pnpm run spectaql:sync && pnpm run check:overrides && pnpm peers check && pnpm run format && pnpm run lint:fix && pnpm run typecheck:tests && pnpm run typecheck:vendor && pnpm run check:esm && pnpm run check:swc-tdz && pnpm test && pnpm run build && pnpm run check:manifest && pnpm run check:without-mongodb && pnpm run check:server-start",
     "check:overrides": "node scripts/check-overrides.mjs",
-    "check:raw": "pnpm install --frozen-lockfile && pnpm run spectaql:sync && pnpm audit && pnpm run check:overrides && pnpm peers check && pnpm run format:check && pnpm run lint && pnpm run typecheck:tests && pnpm run typecheck:vendor && pnpm run check:esm && pnpm run check:swc-tdz && pnpm test && pnpm run build && pnpm run check:manifest && pnpm run check:server-start",
+    "check:raw": "pnpm install --frozen-lockfile && pnpm run spectaql:sync && pnpm audit && pnpm run check:overrides && pnpm peers check && pnpm run format:check && pnpm run lint && pnpm run typecheck:tests && pnpm run typecheck:vendor && pnpm run check:esm && pnpm run check:swc-tdz && pnpm test && pnpm run build && pnpm run check:manifest && pnpm run check:without-mongodb && pnpm run check:server-start",
     "check:server-start": "cross-env NODE_ENV=local node scripts/check-server-start.mjs --entry=dist/main.js --port-env=NSC__PORT --ready=\"Server starte[dt] at\" --path=/",
     "check:swc-tdz": "nest build -b swc -p tsconfig.swc-tdz.json && node scripts/check-swc-tdz.mjs",
+    "check:without-mongodb": "node scripts/check-without-mongodb.mjs --dist",
+    "check:without-mongodb:package": "node scripts/check-without-mongodb.mjs --package",
     "cnaf": "pnpm run check:naf",
     "docs": "pnpm run docs:ci && node scripts/open.mjs http://127.0.0.1:8080/ ./public/index.html && compodoc -p tsconfig.json -s",
     "docs:bootstrap": "node extras/update-spectaql-version.mjs && node scripts/run-spectaql.mjs",
@@ -95,16 +103,15 @@
     "@as-integrations/express5": "1.1.2",
     "@getbrevo/brevo": "6.2.0",
     "@modelcontextprotocol/sdk": "1.32.2",
-    "@nestjs/apollo": "14.0.3",
-    "@nestjs/common": "12.2.0",
-    "@nestjs/core": "12.2.0",
-    "@nestjs/graphql": "14.0.3",
+    "@nestjs/apollo": "14.1.1",
+    "@nestjs/common": "12.3.2",
+    "@nestjs/core": "12.3.2",
+    "@nestjs/graphql": "14.1.0",
     "@nestjs/jwt": "12.0.3",
-    "@nestjs/mongoose": "12.0.0",
     "@nestjs/passport": "12.0.0",
-    "@nestjs/platform-express": "12.2.0",
+    "@nestjs/platform-express": "12.3.2",
     "@nestjs/schedule": "12.0.2",
-    "@nestjs/swagger": "12.0.4",
+    "@nestjs/swagger": "12.0.5",
     "@nestjs/terminus": "12.1.0",
     "@tus/file-store": "2.1.1",
     "@tus/server": "2.4.6",
@@ -121,14 +128,12 @@
     "graphql": "16.14.2",
     "graphql-query-complexity": "2.0.0",
     "graphql-subscriptions": "3.0.0",
-    "graphql-upload": "15.0.2",
+    "graphql-upload": "17.1.0",
     "graphql-ws": "6.3.0",
     "jose": "6.2.13",
     "js-sha256": "1.0.0",
     "json-to-graphql-query": "2.3.0",
     "lodash": "4.18.1",
-    "mongodb": "7.7.0",
-    "mongoose": "9.11.4",
     "multer": "2.5.0",
     "node-mailjet": "6.0.11",
     "nodemailer": "10.2.1",
@@ -149,11 +154,19 @@
     "@aws-sdk/s3-request-presigner": ">=3.1045.0 <4",
     "@better-auth/core": ">=1.7.12 <1.8.0",
     "@better-auth/passkey": ">=1.7.12 <1.8.0",
+    "@nestjs/mongoose": ">=12.0.0 <13",
     "@swc/core": ">=1.10.0 <2",
     "@tus/s3-store": ">=2.0.5 <3",
     "better-auth": ">=1.7.12 <1.8.0",
     "bullmq": ">=5.16.0 <7",
-    "ioredis": ">=5.0.0 <7"
+    "drizzle-orm": "1.0.0-rc.5",
+    "ioredis": ">=5.0.0 <7",
+    "kysely": ">=0.29.0 <0.30.0",
+    "mongodb": ">=7.7.0 <8",
+    "mongoose": ">=9.11.4 <10",
+    "mysql2": ">=3.24.6 <4",
+    "pg": ">=8.23.0 <9",
+    "typeorm": ">=1.1.0 <2"
   },
   "peerDependenciesMeta": {
     "@aws-sdk/client-s3": {
@@ -171,6 +184,9 @@
     "@better-auth/passkey": {
       "optional": false
     },
+    "@nestjs/mongoose": {
+      "optional": true
+    },
     "@swc/core": {
       "optional": true
     },
@@ -183,21 +199,43 @@
     "bullmq": {
       "optional": true
     },
+    "drizzle-orm": {
+      "optional": true
+    },
     "ioredis": {
+      "optional": true
+    },
+    "kysely": {
+      "optional": true
+    },
+    "mongodb": {
+      "optional": true
+    },
+    "mongoose": {
+      "optional": true
+    },
+    "mysql2": {
+      "optional": true
+    },
+    "pg": {
+      "optional": true
+    },
+    "typeorm": {
       "optional": true
     }
   },
   "devDependencies": {
-    "@aws-sdk/client-s3": "3.1156.0",
-    "@aws-sdk/lib-storage": "3.1156.0",
-    "@aws-sdk/s3-request-presigner": "3.1156.0",
-    "@better-auth/core": "1.7.13",
-    "@better-auth/passkey": "1.7.13",
+    "@aws-sdk/client-s3": "3.1158.0",
+    "@aws-sdk/lib-storage": "3.1158.0",
+    "@aws-sdk/s3-request-presigner": "3.1158.0",
+    "@better-auth/core": "1.7.14",
+    "@better-auth/passkey": "1.7.14",
     "@compodoc/compodoc": "2.0.0",
-    "@nestjs/cli": "12.0.10",
-    "@nestjs/schematics": "12.0.10",
-    "@nestjs/testing": "12.2.0",
-    "@swc/cli": "0.8.1",
+    "@nestjs/cli": "12.0.11",
+    "@nestjs/mongoose": "12.0.0",
+    "@nestjs/schematics": "12.0.12",
+    "@nestjs/testing": "12.3.2",
+    "@swc/cli": "0.8.2",
     "@swc/core": "1.16.20",
     "@tus/s3-store": "2.0.9",
     "@types/compression": "1.8.1",
@@ -208,20 +246,28 @@
     "@types/multer": "2.3.0",
     "@types/node": "26.6.5",
     "@types/passport": "1.0.17",
+    "@types/pg": "8.23.1",
     "@vitest/coverage-v8": "5.0.5",
-    "better-auth": "1.7.13",
-    "bullmq": "6.4.2",
+    "better-auth": "1.7.14",
+    "bullmq": "6.5.0",
     "cross-env": "10.1.0",
+    "drizzle-orm": "1.0.0-rc.5",
     "ioredis": "6.0.0",
+    "kysely": "0.29.7",
+    "mongodb": "7.7.0",
+    "mongoose": "9.11.4",
+    "mysql2": "3.24.6",
     "nodemon": "3.1.14",
     "otpauth": "9.5.2",
-    "oxfmt": "0.74.0",
-    "oxlint": "1.89.0",
+    "oxfmt": "0.75.0",
+    "oxlint": "1.90.0",
     "oxlint-tsgolint": "7.0.2005",
+    "pg": "8.23.1",
     "rimraf": "6.1.3",
     "smtp-server": "3.21.1",
     "tsx": "4.23.15",
     "tus-js-client": "4.3.1",
+    "typeorm": "1.1.2",
     "typescript": "6.0.3",
     "unplugin-swc": "2.0.0",
     "vite": "8.3.4",

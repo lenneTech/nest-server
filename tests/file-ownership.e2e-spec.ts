@@ -1,22 +1,22 @@
 import { Test, TestingModule } from '@nestjs/testing';
 import * as fs from 'fs';
 import mongoose from 'mongoose';
-import { MongoClient, ObjectId } from 'mongodb';
+import { ObjectId } from 'mongodb';
 import * as path from 'path';
 import { Readable } from 'stream';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 
-import { TestGraphQLType, TestHelper } from '../src';
+import { type DataStore, FILESYSTEM_FILE_MODEL, getStoreToken, TestGraphQLType, TestHelper } from '../src';
 import envConfig from '../src/config.env';
 import { RoleEnum } from '../src/core/common/enums/role.enum';
 import { IServerOptions } from '../src/core/common/interfaces/server-options.interface';
 import { ConfigService } from '../src/core/common/services/config.service';
-import { FILESYSTEM_FILES_COLLECTION } from '../src/core/modules/file/filesystem-file.helper';
 import { ComparisonOperatorEnum } from '../src/core/common/enums/comparison-operator.enum';
 import { FileService } from '../src/server/modules/file/file.service';
 import { User } from '../src/server/modules/user/user.model';
 import { ServerModule } from '../src/server/server.module';
 import { createFixtureDir, removeFixtureDir } from './helpers/tmp-fixtures';
+import { type IamTestDb, openIamTestDb } from './helpers/iam-test-db';
 
 /**
  * The FINE half of the file security model, executed — against the REFERENCE SERVER'S OWN
@@ -65,7 +65,7 @@ interface TestUser {
 
 describe('Per-file ownership via checkRights (e2e)', () => {
   let app;
-  let mongoClient: MongoClient;
+  let iamDb: IamTestDb;
   let testHelper: TestHelper;
   let fixtureDir: string;
   let storageDir: string;
@@ -94,10 +94,7 @@ describe('Per-file ownership via checkRights (e2e)', () => {
       type: TestGraphQLType.MUTATION,
     });
     user.id = signUp.user.id;
-    await mongoClient
-      .db()
-      .collection('users')
-      .updateOne({ _id: new ObjectId(user.id) }, { $set: { verified: true } });
+    await iamDb.updateUser({ id: user.id }, { verified: true });
 
     const signIn: any = await testHelper.graphQl({
       arguments: { input: { email: user.email, password: user.password } },
@@ -130,10 +127,13 @@ describe('Per-file ownership via checkRights (e2e)', () => {
    * and the ownership rule compares against a genuine id rather than a hand-built object literal.
    */
   const loadUser = async (user: TestUser): Promise<User> => {
-    const doc = await mongoClient.db().collection('users').findOne({ _id: new ObjectId(user.id) });
+    const doc = await iamDb.findUser({ id: user.id });
     expect(doc, `${user.email} must exist`).toBeTruthy();
     return User.map({ ...doc, id: user.id });
   };
+
+  /** The metadata records of the filesystem driver, in whichever database they are routed to */
+  const filesystemFiles = () => app.get(getStoreToken(FILESYSTEM_FILE_MODEL), { strict: false }) as DataStore<any>;
 
   beforeAll(async () => {
     fixtureDir = await createFixtureDir('nest-server-file-ownership-');
@@ -162,15 +162,12 @@ describe('Per-file ownership via checkRights (e2e)', () => {
     app = moduleFixture.createNestApplication();
     await app.init();
     testHelper = new TestHelper(app);
-    mongoClient = await MongoClient.connect(envConfig.mongoose.uri);
+    iamDb = await openIamTestDb(envConfig.mongoose.uri);
 
     for (const user of [alice, bob, admin]) {
       await signUpAndIn(user);
     }
-    await mongoClient
-      .db()
-      .collection('users')
-      .updateOne({ _id: new ObjectId(admin.id) }, { $set: { roles: [RoleEnum.ADMIN] } });
+    await iamDb.updateUser({ id: admin.id }, { roles: [RoleEnum.ADMIN] });
     // Re-issue the admin's token so it carries the role
     const adminSignIn: any = await testHelper.graphQl({
       arguments: { input: { email: admin.email, password: admin.password } },
@@ -185,7 +182,8 @@ describe('Per-file ownership via checkRights (e2e)', () => {
     // A second file for the same owner, written straight into GridFS. The active driver is
     // 'filesystem', so this is a file from "before the switch" — reads must still find it, and the
     // ownership rule must still authorize against ITS metadata.
-    const bucket = new mongoose.mongo.GridFSBucket(mongoClient.db() as any, { bucketName: 'fs' });
+    // GridFS is MongoDB's own store: it stays there whichever database holds the file metadata of the other drivers
+    const bucket = new mongoose.mongo.GridFSBucket(iamDb.mongo as any, { bucketName: 'fs' });
     const gridFsFilename = `${testId}-alice-gridfs.txt`;
     const gridFsId = await new Promise<any>((resolve, reject) => {
       const stream = bucket.openUploadStream(gridFsFilename, {
@@ -200,12 +198,12 @@ describe('Per-file ownership via checkRights (e2e)', () => {
 
   afterAll(async () => {
     try {
-      await mongoClient?.db()?.collection(FILESYSTEM_FILES_COLLECTION).deleteMany({ filename: { $regex: testId } });
-      await mongoClient?.db()?.collection('users').deleteMany({ email: { $regex: testId } });
+      await filesystemFiles().deleteMany({ filename: { $regex: testId } });
+      await iamDb?.deleteUsers({ email: new RegExp(testId) });
     } catch {
       // Ignore cleanup errors
     }
-    await mongoClient?.close();
+    await iamDb?.close();
     await app?.close();
     await removeFixtureDir(fixtureDir);
     // Global config is shared per worker — restore it, in case this file ever stops being the only
@@ -229,12 +227,9 @@ describe('Per-file ownership via checkRights (e2e)', () => {
   });
 
   it('resolves the file through the filesystem driver, not GridFS', async () => {
-    const fsDoc = await mongoClient
-      .db()
-      .collection(FILESYSTEM_FILES_COLLECTION)
-      .findOne({ _id: new ObjectId(aliceAvatar.id) });
+    const fsDoc = await filesystemFiles().findById(aliceAvatar.id);
     expect(fsDoc?.metadata?.[OWNER_METADATA_KEY]).toBe(alice.id);
-    expect(await mongoClient.db().collection('fs.files').findOne({ filename: aliceAvatar.filename })).toBeNull();
+    expect(await iamDb.mongo.collection('fs.files').findOne({ filename: aliceAvatar.filename })).toBeNull();
   });
 
   // ===================================================================================================================

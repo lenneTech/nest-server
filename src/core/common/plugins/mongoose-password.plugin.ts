@@ -1,7 +1,7 @@
-import bcrypt from 'bcrypt';
-import { sha256 } from 'js-sha256';
+import { hashPassword, hashUpdatePassword } from '../persistence/policies/password.policy.js';
 
-import { ConfigService } from '../services/config.service.js';
+// Public API since before the policy extraction — keep every import path working
+export { hashPassword, hashUpdatePassword, resetSkipPatternsCache } from '../persistence/policies/password.policy.js';
 
 /**
  * Mongoose plugin that automatically hashes passwords before saving to the database.
@@ -15,6 +15,9 @@ import { ConfigService } from '../services/config.service.js';
  *
  * For sentinel/lock values (e.g. '!LOCKED:REQUIRES_PASSWORD_RESET'), configure
  * skipPatterns in security.mongoosePasswordPlugin to preserve them as-is.
+ *
+ * The hashing decisions live in the password policy (`persistence/policies/password.policy.ts`), which
+ * every data store shares; this plugin only applies them to Mongoose's hook shapes.
  */
 export function mongoosePasswordPlugin(schema) {
   // Pre-save hook
@@ -78,63 +81,4 @@ export function mongoosePasswordPlugin(schema) {
       }
     }
   });
-}
-
-export async function hashUpdatePassword(update: any) {
-  if (!update) {
-    return;
-  }
-  if (update.password) {
-    update.password = await hashPassword(update.password);
-  }
-  if (update.$set?.password) {
-    update.$set.password = await hashPassword(update.$set.password);
-  }
-}
-
-// Compiled RegExp cache (built once on first call)
-let compiledSkipPatterns: RegExp[] | null = null;
-
-/**
- * Reset the compiled skip patterns cache.
- * Use in test environments where ConfigService is reset between test suites.
- */
-export function resetSkipPatternsCache(): void {
-  compiledSkipPatterns = null;
-}
-
-function getSkipPatterns(): RegExp[] {
-  if (compiledSkipPatterns !== null) {
-    return compiledSkipPatterns;
-  }
-  const pluginConfig = ConfigService.configFastButReadOnly?.security?.mongoosePasswordPlugin;
-  if (pluginConfig && typeof pluginConfig === 'object' && 'skipPatterns' in pluginConfig && pluginConfig.skipPatterns) {
-    compiledSkipPatterns = (pluginConfig.skipPatterns as (string | RegExp)[]).map((p) =>
-      p instanceof RegExp ? p : new RegExp(p),
-    );
-  } else {
-    compiledSkipPatterns = [];
-  }
-  return compiledSkipPatterns;
-}
-
-export async function hashPassword(password: string): Promise<string> {
-  // Already BCrypt-hashed → skip
-  if (/^\$2[aby]\$\d+\$/.test(password)) {
-    return password;
-  }
-
-  // Check configured skip patterns (e.g. sentinel/lock values)
-  const skipPatterns = getSkipPatterns();
-  if (skipPatterns.some((pattern) => pattern.test(password))) {
-    return password;
-  }
-
-  // SHA256 pre-hash if configured and password is not already SHA256
-  const sha256Enabled = ConfigService.configFastButReadOnly?.sha256;
-  if (sha256Enabled && !/^[a-f0-9]{64}$/i.test(password)) {
-    password = sha256(password);
-  }
-
-  return bcrypt.hash(password, 10);
 }

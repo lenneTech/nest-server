@@ -1,7 +1,8 @@
 import { Inject, Injectable, Logger } from '@nestjs/common';
-import { InjectModel } from '@nestjs/mongoose';
-import { Model } from 'mongoose';
+import { InjectModel } from '../../../common/persistence/mongo/mongoose-compat.js';
+import type { Model } from 'mongoose';
 
+import { upsertRecord } from '../../../common/persistence/store-upsert.js';
 import { CrudService } from '../../../common/services/crud.service.js';
 import type { CoreModelConstructor } from '../../../common/types/core-model-constructor.type.js';
 import { AiToolGrantDocument, CoreAiToolGrant } from '../models/core-ai-tool-grant.model.js';
@@ -60,17 +61,14 @@ export class CoreAiToolGrantService extends CrudService<CoreAiToolGrant, CoreAiT
     const now = new Date();
     for (const c of candidates) {
       try {
-        const grant = await this.mainDbModel
-          .findOne({
-            $or: [{ expiresAt: { $exists: false } }, { expiresAt: null }, { expiresAt: { $gt: now } }],
-            decision: { $ne: 'deny' },
-            enabled: { $ne: false },
-            refId: c.refId,
-            scope: c.scope,
-            tool,
-          })
-          .lean<CoreAiToolGrant>()
-          .exec();
+        const grant = await this.dataStore.findOne({
+          $or: [{ expiresAt: { $exists: false } }, { expiresAt: null }, { expiresAt: { $gt: now } }],
+          decision: { $ne: 'deny' },
+          enabled: { $ne: false },
+          refId: c.refId,
+          scope: c.scope,
+          tool,
+        });
         if (grant) {
           return c.scope;
         }
@@ -90,20 +88,12 @@ export class CoreAiToolGrantService extends CrudService<CoreAiToolGrant, CoreAiT
       return;
     }
     try {
-      await this.mainDbModel
-        .updateOne(
-          { refId, scope, tool },
-          {
-            $set: {
-              decision: 'allow',
-              enabled: true,
-              expiresAt: options?.expiresAt ?? null,
-            },
-            $setOnInsert: { refId, scope, tool },
-          },
-          { upsert: true },
-        )
-        .exec();
+      // Upserts on the unique (scope, refId, tool) index
+      await upsertRecord(
+        this.dataStore,
+        { refId, scope, tool },
+        { decision: 'allow', enabled: true, expiresAt: options?.expiresAt ?? null },
+      );
     } catch (err) {
       this.logger.warn(`Could not persist tool grant (${scope}:${refId}:${tool}): ${(err as Error).message}`);
     }

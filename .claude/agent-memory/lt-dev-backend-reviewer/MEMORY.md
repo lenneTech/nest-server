@@ -24,3 +24,10 @@
 - [MCP late-user tenant scope (11.43.3)](project_mcp-late-user-tenant-scope.md) — scopeLateResolvedUser + resolveMembershipContext verified identical to the guard; plain OAuth user is safe.
 - [12.0.0 native password routes](project_12-0-0-native-password-routes.md) — length refusal on /iam/change-password answered 500 via the middleware catch, BA logger dropped Error args — both FIXED 2026-10-24 (catch rethrows HttpException; formatBetterAuthLogArg).
 - [12.0.0 ESM dist switch](project_12-0-0-esm-dist-switch.md) — migration template cwd config lookup broke compiled runs w/o NSC__MONGOOSE__URI (High, FIXED 2026-10-26); rest of ESM switch probed sound.
+- [db-agnostic phase 0 (DEV-3828)](project_db-agnostic-phase0.md) — policies verified identical; `database` MongoDB URL accepted by guard but never wired (High, 2026-10-27).
+- [db-agnostic phase 2 (DEV-3830)](project_db-agnostic-phase2.md) — lock formats + Mongo parity verified; High: createMigrationStore SQL branch hardcodes typeorm (2026-10-28).
+- [db-agnostic phase 3 (DEV-3831)](project_db-agnostic-phase3.md) — BA on SQL verified; High: BA adapter.findMany caps at 100 without explicit limit (migration status).
+- [db-agnostic phase 4 (DEV-3832)](project_db-agnostic-phase4.md) — SQL writes `$set: {x: undefined}` as NULL (Mongoose strips): AI prompt tenantId → RLS 403 (High).
+- [db-agnostic phase 1 (DEV-3829)](project_db-agnostic-phase1.md) — SQL store/compilers injection-safe, RLS sound; 2 update-path Highs (undeclared keys 500, structuredClone kills ObjectIds) — both FIXED 2026-10-28.
+- [db-agnostic phase 5 (DEV-3833)](project_db-agnostic-phase5.md) — postgres e2e keeps mongoose connected: null-connection path untested; 2 Highs (DeclaredSchema.path, AI store lookup), both FIXED 2026-10-28 (computedDefault, getModelStore).
+- [db-agnostic phase 6 (DEV-3848)](project_db-agnostic-phase6.md) — MySQL: pushToArray with 2+ modifiers fails (1054); unique on existing column → unrunnable migration (High).

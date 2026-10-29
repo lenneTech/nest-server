@@ -1,11 +1,11 @@
 ---
 name: deferred-major-updates
-description: Updates deliberately NOT taken in nest-server and why — state 2026-10-24 (12.0.0): vite held at 8.3.4 (vitest 5.0.5 #11682 crash), graphql-upload 17 planned for 12.1.0 (needs the GraphQLUpload re-export adopted first), undici 8 BLOCKED (hijacks Node's built-in fetch dispatcher on load), graphql 17 + TS 7 blocked by peers, ws/graphql-ws/express/multer locked to NestJS 12 pins; ts-node REMOVED in 12.0.0 (own @swc/core loader, do not re-add)
+description: Updates deliberately NOT taken in nest-server and why — state 2026-10-29 (12.1.0 run): graphql-upload 17.1.0 TAKEN (.mjs default imports, own ambient d.ts kept — 17 ships none); vite held at 8.3.4 (vitest 5.0.5 #11682 crash, no stable vitest after 5.0.5); graphql-ws held at 6.3.0 (= @nestjs/graphql 14.1.0 exact pin); undici 8 BLOCKED (hijacks Node built-in fetch dispatcher); graphql 17 + TS 7 blocked by peers; ts-node REMOVED in 12.0.0 (do not re-add)
 metadata:
   type: project
 ---
 
-# Deferred updates in `@lenne.tech/nest-server` (state 2026-10-24, 12.0.0)
+# Deferred updates in `@lenne.tech/nest-server` (state 2026-10-29, 12.1.0 maintenance run)
 
 **Why this note exists:** this repo IS the framework. Whatever it pins becomes the pin every downstream project
 inherits (`pnpm run update` in a starter-based project raises shared pins to the framework's), so a deferral is a
@@ -17,14 +17,13 @@ take it only when the reason is gone. The full run-by-run log up to 2026-10-24 i
 
 | Package | Pinned | Available | Reason — and what lifts it |
 |---|---|---|---|
-| `graphql-upload` | 15.0.2 | 17.1.0 (18 needs graphql 17) | 16+ exports only `.mjs` subpaths, so every project importing `graphql-upload/GraphQLUpload.js` breaks, with no way to prepare under 11.x — and `check:consumer` (publish gate) runs against the starter's DEFAULT branch, which still imports `.js`. Two copies are not an option: the scalar checks `instanceof Upload` against its own copy, the middleware creates them from nest-server's. 12.0.0 therefore adds the root export `GraphQLUpload` (`src/core/common/scalars/upload.scalar.ts`); once the starter imports the scalar from `@lenne.tech/nest-server`, take 17.1.0 in **12.1.0**: change `core.module.ts` (`graphqlUploadExpress.mjs`, default import), `upload.scalar.ts` (`GraphQLUpload.mjs`, default import — NOT `import = require`, which yields the namespace under require(esm)), `src/types/graphql-upload.d.ts` (`.mjs` module names, `export default`), and drop `peerDependencyRules.allowedVersions '@types/express'` (17 peers `^4 \|\| ^5`). Verified 2026-10-24: under CJS, `__importDefault(require('…GraphQLUpload.mjs'))` works (Node sets `__esModule` on a require(esm) namespace with a default export) and the scalar is from the same `graphql` realm (graphql 16 has no exports map, ESM import resolves index.js). 17.1.0 also fixes a hang on aborted multipart requests |
 | `undici` | 7.30.1 | 8.12.3 | **BLOCKED.** Loading undici 8 replaces the global dispatcher of Node's BUILT-IN `fetch` (Dispatcher1Wrapper): afterwards `fetch(url, { method: 'POST', headers: { 'Content-Length': '0' } })` anywhere in the process fails with `UND_ERR_INVALID_ARG`; 7.30.1 leaves it alone. Reproduced on Node 24.12 (probe: start an http server, call fetch, `require('undici')`, call again). nest-server loads it via `outbound-url.helper.ts`, so every consumer's process would be affected (the starter's tus e2e went 16/125 red). Also needs Node >= 22.19 (floor 22.15). 7.x still gets security patches (7.30.1, 2026-10-15). Re-run the probe on each new 8.x |
 | `graphql` | 16.14.2 | 17.0.2 | `@apollo/server` 5 (latest) peers `^16.11.0`, `graphql-subscriptions` 3 (latest) `^15.7.2 \|\| ^16` |
 | `typescript` | 6.0.3 | 7.0.2 | `@nestjs/graphql` 14 and `@nestjs/swagger` 12 peer `^5.5 \|\| ^6`; `@nestjs/schematics` 12 wants `>=6` |
-| `graphql-ws` / `ws` | 6.3.0 / 8.22.0 | 6.4.1 | LOCKSTEP with `@nestjs/graphql` 14.0.3's exact pins — a direct bump alone puts a second copy into every consumer tree |
-| `express` / `multer` | 5.3.0 / 2.5.0 | — | `express` = `@nestjs/platform-express` 12.2.0's exact pin; `multer` one patch ABOVE its pin (2.4.0, GHSA-q7qp) via override + direct dep in lockstep |
-| `better-auth` trio | devDeps 1.7.13 (since 2026-10-27), peers `>=1.7.12 <1.8.0` | 1.8.0 beta only | Wire-critical: move in LOCK-STEP with nuxt-extensions and both starters (peer ranges byte-identical in both frameworks). The floor moved to 1.7.12 on 2026-10-24 by owner decision (1.7.12 verifies JWTs with the stored key's algorithm). A maintenance run reports, never moves them alone |
-| `vite` (dev) | 8.3.4 | 8.3.5 | **BLOCKED by vitest 5.0.5** (vitest-dev/vitest#11682): vitest reads globalSetup/reporter modules as a Buffer, vite 8.3.5 calls `charCodeAt` on it when mapping a stack — any `.stack` read in the main process throws, the run exits 1 after green tests (MongoDB monitor in the DB reporter's close(), 1 run in 3). Guard `tests/unit/toolchain-compat.spec.ts`. Lift: a vitest release after 5.0.5, then raise vite and delete the spec |
+| `graphql-ws` / `ws` | 6.3.0 / 8.22.0 | 6.4.1 | LOCKSTEP with `@nestjs/graphql`'s exact pins — 14.1.0 (2026-10-29) STILL pins graphql-ws 6.3.0 / ws 8.22.0. A direct bump alone puts a second copy into every consumer tree. 6.4.x = client bugfixes + `isProd` option, no advisory (repo advisories checked 2026-10-29). Raise when @nestjs/graphql pins it |
+| `express` / `multer` | 5.3.0 / 2.5.0 | — | both = `@nestjs/platform-express` 12.3.2's exact pins (since 2026-10-29 the multer override is gone: 12.3.2 pins 2.5.0 itself) |
+| `better-auth` trio | devDeps 1.7.14 (since 2026-10-29), peers `>=1.7.12 <1.8.0` | 1.8.0 beta only | Wire-critical: move in LOCK-STEP with nuxt-extensions and both starters (peer ranges byte-identical in both frameworks). The floor moved to 1.7.12 on 2026-10-24 by owner decision (1.7.12 verifies JWTs with the stored key's algorithm). A maintenance run raises only the devDependency TEST pins inside the peer range; the peer range itself is reported, never moved alone |
+| `vite` (dev) | 8.3.4 | 8.3.5 | **BLOCKED by vitest 5.0.5** (vitest-dev/vitest#11682): vitest reads globalSetup/reporter modules as a Buffer, vite 8.3.5 calls `charCodeAt` on it when mapping a stack — any `.stack` read in the main process throws, the run exits 1 after green tests (MongoDB monitor in the DB reporter's close(), 1 run in 3). Guard `tests/unit/toolchain-compat.spec.ts`. Re-checked 2026-10-29: still no stable after 5.0.5 (5.1.0-beta.1 only). Lift: a vitest release after 5.0.5, then raise vite and delete the spec |
 | `pnpm` (`packageManager`) | 11.28.5 | 12.x | Never from a maintenance run (contract test `tests/unit/pnpm-pin-contract.spec.ts`) |
 
 **Taken later on 2026-10-24, once each cleared the 1440-min gate:** mongoose 9.11.4 (prototype-pollution
@@ -38,7 +37,9 @@ same day: @nestjs/graphql 14.0.3 is still the newest and still pins graphql-ws 6
 platform-express 12.2.0 still pins multer 2.4.0; vitest has no stable after 5.0.5 (5.1.0-beta.1 only), so vite
 stays 8.3.4.
 
-**Next run:** better-auth trio 1.7.14 (TOTP base32 import fix, Kakao loginHint; not security), AWS trio 3.1157.0,
+**Taken 2026-10-29 (12.1.0 maintenance run):** graphql-upload 17.1.0 (imports `graphql-upload/graphqlUploadExpress.mjs` / `GraphQLUpload.mjs`, DEFAULT imports; `src/types/graphql-upload.d.ts` kept with `.mjs` names + `export default` because 17 ships only JSDoc-typed `.mjs`, no d.ts; `peerDependencyRules.allowedVersions @types/express` dropped — 17 peers `^4 || ^5`; fs-capacitor 6 -> 8 transitively, `file-upload.interface.ts` imports its `WriteStream` type and still compiles). CJS interop verified: SWC `_interop_require_default` and tsc `__importDefault` of `require(.mjs)` both yield the scalar, same graphql realm (Node sets `__esModule` on a required ESM namespace with a default export). NestJS 12.3.2 / graphql 14.1.0 / apollo 14.1.1 / swagger 12.0.5 / cli 12.0.11 / schematics 12.0.12, AWS trio 3.1158.0, better-auth devDeps 1.7.14, bullmq 6.5.0, oxfmt 0.75.0 (no drift on 540 files), oxlint 1.90.0 (0 diagnostics, 123 rules), @swc/cli 0.8.2, 28 sticky transitives lifted to fresh-resolve versions.
+
+**Next run:** in the 1440-min cooldown on 2026-10-29 (none a security fix, repo advisories checked): jose 6.2.14, nodemailer 10.3.1, smtp-server 3.21.2, @types/node 26.6.6, AWS trio 3.1159.0, bullmq 6.5.1. Also re-check whether @nestjs/graphql pins graphql-ws 6.4.x yet.
 bullmq 6.5.0 (a MINOR) — all published 2026-10-26 evening, inside the gate on 2026-10-27.
 
 **Deprecated transitives without a fix:** `lodash.get` (via `graphql-query-complexity` 2.0.0, the newest — runtime,

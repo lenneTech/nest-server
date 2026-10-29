@@ -1,5 +1,6 @@
 import { Field, FieldOptions, HideField, TypeMetadataStorage } from '@nestjs/graphql';
-import { Prop, PropOptions } from '@nestjs/mongoose';
+import type { PropOptions } from '@nestjs/mongoose';
+import { Prop } from '../persistence/mongo/mongoose-compat.js';
 import { ApiHideProperty, ApiProperty, ApiPropertyOptions } from '@nestjs/swagger';
 import { Type } from 'class-transformer';
 import {
@@ -178,6 +179,11 @@ export interface UnifiedFieldOptions {
   isOptional?: boolean;
   /** Whether to apply Mongoose @Prop decorator. Optional, used for database models. Default: false */
   mongoose?: boolean | PropOptions;
+  /**
+   * Previous name of a persisted field. A SQL data store renames the column instead of adding a new, empty one;
+   * MongoDB is not affected (its documents keep the old key until a migration moves it). Needs `mongoose`.
+   */
+  renamedFrom?: string;
   /** Restricted roles */
   roles?: RestrictedType | RoleEnum | RoleEnum[];
   /** Options for swagger api documentation */
@@ -561,6 +567,10 @@ export function UnifiedField(opts: UnifiedFieldOptions = {}): PropertyDecorator 
       // Apply array type if needed
       if (typeof propOptions === 'object' && !Array.isArray(propOptions) && isArrayField && !propOptions.type) {
         propOptions.type = [baseType];
+      }
+
+      if (opts.renamedFrom && typeof propOptions === 'object' && !Array.isArray(propOptions)) {
+        propOptions.renamedFrom = opts.renamedFrom;
       }
 
       Prop(propOptions)(target, propertyKey);

@@ -1,4 +1,4 @@
-import { Types } from 'mongoose';
+import type { Types } from 'mongoose';
 import { Readable } from 'stream';
 
 import { CoreS3Service } from '../../common/services/core-s3.service.js';
@@ -10,13 +10,15 @@ import {
   findMetadataById,
   findMetadataByName,
 } from './file-metadata.helper.js';
+import { newObjectId } from '../../common/persistence/mongo/mongoose-compat.js';
 
 /**
  * Name of the MongoDB collection holding the metadata of S3-stored files.
  *
  * S3 itself has no queryable metadata store, so file info (filename, contentType,
  * length, uploadDate) is kept in this collection — the equivalent of GridFS's
- * `fs.files`. The object key in the bucket is the string form of `_id`.
+ * `fs.files`. The object key in the bucket is the string form of `_id`. On a SQL
+ * source the same records live in the table `s3_files` (`fileMetadataCollection()`).
  */
 export const S3_FILES_COLLECTION = 's3-files';
 
@@ -56,7 +58,9 @@ export async function streamToBuffer(stream: Readable): Promise<Buffer> {
 }
 
 /**
- * Helper for files stored in S3 with their metadata in MongoDB.
+ * Helper for files stored in S3 with their metadata in the database — pass
+ * `fileMetadataCollection(connection, 's3')` as the collection: on a SQL source the
+ * metadata lives in the table `s3_files`, not in MongoDB.
  *
  * Counterpart of GridFSHelper: same operations, S3 as the byte store and
  * `s3-files` as the metadata store.
@@ -81,7 +85,7 @@ export class S3FileHelper {
       metadata?: Record<string, any>;
     },
   ): Promise<S3FileInfo> {
-    const _id = new Types.ObjectId();
+    const _id = newObjectId();
     const key = _id.toHexString();
 
     // A stream is never read into a Buffer here. Doing so — which every caller used to do —
@@ -126,7 +130,7 @@ export class S3FileHelper {
       sourceKey: string;
     },
   ): Promise<S3FileInfo> {
-    const _id = new Types.ObjectId();
+    const _id = newObjectId();
     await s3Service.copyObject(options.sourceKey, _id.toHexString(), options.sourceBucket, options.contentType);
 
     return S3FileHelper.recordFile(s3Service, collection, _id, {
@@ -206,7 +210,7 @@ export class S3FileHelper {
     collection: FileCollection,
     id: string | Types.ObjectId,
   ): Promise<void> {
-    const objectId = typeof id === 'string' ? new Types.ObjectId(id) : id;
+    const objectId = typeof id === 'string' ? newObjectId(id) : id;
     await s3Service.deleteObject(objectId.toHexString());
     await collection.deleteOne({ _id: objectId });
   }
@@ -215,7 +219,7 @@ export class S3FileHelper {
    * Get the download stream of a file
    */
   static async getStream(s3Service: CoreS3Service, id: string | Types.ObjectId): Promise<Readable> {
-    const objectId = typeof id === 'string' ? new Types.ObjectId(id) : id;
+    const objectId = typeof id === 'string' ? newObjectId(id) : id;
     return (await s3Service.getObject(objectId.toHexString())).body;
   }
 

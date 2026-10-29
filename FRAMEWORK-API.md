@@ -1,6 +1,6 @@
 # @lenne.tech/nest-server — Framework API Reference
 
-> Auto-generated from source code as of 2026-10-22 (v12.0.0)
+> Auto-generated from source code as of 2026-10-29 (v12.1.0)
 > File: `FRAMEWORK-API.md` — compact, machine-readable API surface for Claude Code
 
 ## CoreModule.forRoot()
@@ -25,6 +25,7 @@
   - `cookies?`: `boolean | ICookiesConfig` (default: `true`) — Cookie configuration for authentication handling.
   - `cors?`: `boolean | ICorsConfig` (default: `undefined (enabled with auto-derived origins)`) — CORS (Cross-Origin Resource Sharing) configuration.
   - `cronJobs?`: `Record<string, string | false | 0 | CronJobConfigWithTimeZone<null, null> | C...` — Cron jobs configuration object with the name of the cron job function as key
+  - `database?`: `string | false | IDatabaseConfig` (default: `undefined (the `mongoose` configuration)`) — Data sources: where models are stored.
   - `debugProcessInput?`: `boolean` (default: `false`) — When true, logs a debug message when prepareInput() changes the input type during process().
   - `email?`: `{ defaultSender?: { email?: string; name?: string; }; mailjet?: MailjetOption...` — SMTP and template configuration for sending emails
   - `env?`: `string` — Environment
@@ -82,7 +83,7 @@ When `passkey` is enabled, `trustedOrigins` is required (compile-time enforcemen
   - `strictMembershipRoles?`: `boolean` (default: `false`) — Refuse membership roles that are not declared anywhere (deny by default).
   - `additionalMembershipRoles?`: `string[]` (default: `[]`) — Membership roles that are valid but carry no hierarchy level (exact-match roles).
   - `cacheTtlMs?`: `number` (default: `30000 (30 seconds)`) — TTL in milliseconds for the tenant guard's in-memory membership cache.
-  - `isTenantActive?`: `(tenantId: string, context: { connection: Connection; }) => boolean | Promise...` (default: `undefined (every tenant is active)`) — Whether a tenant may be used at all — the hook that makes a DEACTIVATED tenant stop working.
+  - `isTenantActive?`: `(tenantId: string, context: { connection: Connection; store: (modelName: stri...` (default: `undefined (every tenant is active)`) — Whether a tenant may be used at all — the hook that makes a DEACTIVATED tenant stop working.
 
 ### IErrorCode
 
@@ -230,7 +231,7 @@ When `passkey` is enabled, `trustedOrigins` is required (compile-time enforcemen
   - `rpId?`: `string` — Relying Party ID (usually the domain without protocol).
   - `rpName?`: `string` — Relying Party Name (displayed to users)
   - `userVerification?`: `"discouraged" | "preferred" | "required"` (default: `'preferred'`) — User verification requirement.
-  - `webAuthnChallengeCookie?`: `string` (default: `'better-auth-passkey'`) — Custom cookie name for WebAuthn challenge storage.
+  - `webAuthnChallengeCookie?`: `string` (default: `'better-auth-passkey'`) — Key of Better-Auth's WebAuthn challenge cookie. Better-Auth puts its cookie prefix in front of it
 
 ### IBetterAuthTwoFactorConfig
 
@@ -342,6 +343,7 @@ Generic: `CrudService<Model, CreateInput, UpdateInput>`
 - `async pushToArray(id: string | Types.ObjectId | { id?: any; _id?: any; }, field: string, items: any, options?: { $slice?: number; $position?: number; $sort?: Record<string, 1 | -1>; })`: `Promise<void>` — Append items to an array field without loading the full array.
 - `async pullFromArray(id: string | Types.ObjectId | { id?: any; _id?: any; }, field: string, condition: any)`: `Promise<void>` — Remove items from an array field.
 - `async processQueryOrDocument(queryOrDocument: Document<Types.ObjectId, any, any, Record<string, any>, {}> | Document<Types...., serviceOptions?: ServiceOptions)`: `Promise<T>` — Execute, populate and map Mongoose query or document(s) with serviceOptions
+- `assertMongooseStore(method: string)`: `void` — Refuse an API that only exists on MongoDB when the main model is stored elsewhere. The Mongoose model may still
 
 **Variants:** Each method has three variants:
 - `method()` — Standard: applies `securityCheck()`, respects permissions
@@ -406,5 +408,5 @@ in consuming projects keep working.
 | `src/core/common/interceptors/` | CheckResponse, CheckSecurity, ResponseModel |
 | `src/core/common/helpers/process-diagnostics.helper.ts` | installProcessDiagnostics() / handleFatalBootstrapError — opt-in, wire into your own main.ts |
 | `docs/REQUEST-LIFECYCLE.md` | Complete request lifecycle |
-| `docs/security-overrides.md` | pnpm overrides are NOT inherited — two entries your project needs |
+| `docs/security-overrides.md` | pnpm overrides are NOT inherited — which entries your project still needs |
 | `.claude/rules/` | Detailed rules for architecture, security, testing |

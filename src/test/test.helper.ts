@@ -2,13 +2,13 @@ import { INestApplication } from '@nestjs/common';
 import { Blob } from 'buffer';
 import { createClient } from 'graphql-ws';
 import { jsonToGraphQLQuery } from 'json-to-graphql-query';
-import { Types } from 'mongoose';
 import supertest from 'supertest';
 import * as util from 'util';
 import ws from 'ws';
 
 import { getStringIds } from '../core/common/helpers/db.helper.js';
 import { resolveBetterAuthSessionCookieName } from '../core/modules/better-auth/better-auth-cookie-prefix.helper.js';
+import { isObjectIdLike } from '../core/common/helpers/id.helper.js';
 
 /**
  * GraphQL request type
@@ -801,7 +801,7 @@ export class TestHelper {
     if (args instanceof Date) {
       return args.toISOString();
     }
-    if (args instanceof Types.ObjectId) {
+    if (isObjectIdLike(args)) {
       return getStringIds(args);
     }
     if (!objects) {

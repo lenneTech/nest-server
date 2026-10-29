@@ -1,4 +1,5 @@
-import { QueryFilter, QueryOptions } from 'mongoose';
+import type { QueryFilter } from 'mongoose';
+import type { QueryOptions } from 'mongoose';
 
 import { FilterArgs } from '../args/filter.args.js';
 import { ComparisonOperatorEnum } from '../enums/comparison-operator.enum.js';

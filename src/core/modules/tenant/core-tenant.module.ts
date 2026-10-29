@@ -1,8 +1,9 @@
 import { CanActivate, DynamicModule, Global, Module, OnModuleDestroy, OnModuleInit, Type } from '@nestjs/common';
 import { APP_GUARD } from '@nestjs/core';
-import { MongooseModule, SchemaFactory, getModelToken } from '@nestjs/mongoose';
-import { Model } from 'mongoose';
+import { getModelToken, SchemaFactory } from '../../common/persistence/mongo/mongoose-compat.js';
+import type { Model } from 'mongoose';
 
+import { CorePersistenceModule } from '../../common/persistence/core-persistence.module.js';
 import { roleScopeRegistry } from './core-role-scope.registry.js';
 import { registerActiveTenantGuard } from './core-tenant-guard.registry.js';
 import { CoreTenantMemberModel } from './core-tenant-member.model.js';
@@ -127,7 +128,9 @@ export class CoreTenantModule implements OnModuleDestroy, OnModuleInit {
     return {
       exports: [CoreTenantService],
       global: true,
-      imports: [MongooseModule.forFeature([{ name: modelName, schema: memberSchema }])],
+      // Database-neutral registration: the membership model follows `database` like every other model, and the guard
+      // and the service switch to its store when it is routed to a SQL database
+      imports: [CorePersistenceModule.forFeature([{ name: modelName, schema: memberSchema }])],
       module: CoreTenantModule,
       providers,
     };

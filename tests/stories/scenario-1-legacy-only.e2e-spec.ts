@@ -15,7 +15,7 @@ import { ScheduleModule } from '@nestjs/schedule';
 import { Test, TestingModule } from '@nestjs/testing';
 import { createHash } from 'crypto';
 import { PubSub } from 'graphql-subscriptions';
-import { Db, MongoClient } from 'mongodb';
+import { Db } from 'mongodb';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 
 import { CoreBetterAuthService, CoreModule, HttpExceptionLogFilter, TestGraphQLType, TestHelper } from '../../src';
@@ -29,6 +29,7 @@ import { AuthController } from '../../src/server/modules/auth/auth.controller';
 import { AuthModule } from '../../src/server/modules/auth/auth.module';
 import { FileModule } from '../../src/server/modules/file/file.module';
 import { ServerController } from '../../src/server/server.controller';
+import { type IamTestDb, openIamTestDb } from '../helpers/iam-test-db';
 
 // Helper to create SHA256 hash
 function sha256(password: string): string {
@@ -67,8 +68,7 @@ class Scenario1ServerModule {}
 describe('Story: Scenario 1 - Legacy Only', () => {
   let app;
   let testHelper: TestHelper;
-  let mongoClient: MongoClient;
-  let db: Db;
+  let iamDb: IamTestDb;
   let betterAuthService: CoreBetterAuthService | null = null;
 
   // Test data tracking for cleanup
@@ -106,16 +106,17 @@ describe('Story: Scenario 1 - Legacy Only', () => {
     }
 
     // Connect to MongoDB for cleanup
-    mongoClient = await MongoClient.connect(scenario1Config.mongoose.uri);
-    db = mongoClient.db();
+    iamDb = await openIamTestDb(scenario1Config.mongoose.uri);
   });
 
   afterAll(async () => {
     // Clean up test users
-    if (db && testEmails.length > 0) {
-      await db.collection('users').deleteMany({ email: { $in: testEmails } });
+    if (iamDb) {
+      for (const email of testEmails) {
+        await iamDb.deleteUsers({ email });
+      }
+      await iamDb.close();
     }
-    if (mongoClient) await mongoClient.close();
     if (app) await app.close();
   });
 
@@ -329,7 +330,7 @@ describe('Story: Scenario 1 - Legacy Only', () => {
       });
 
       // Check database
-      const dbUser = await db.collection('users').findOne({ email });
+      const dbUser = await iamDb.findUser({ email: email });
       expect(dbUser).toBeDefined();
       expect(dbUser!.password).toBeDefined();
       expect(dbUser!.password.startsWith('$2')).toBe(true); // bcrypt prefix
@@ -349,7 +350,7 @@ describe('Story: Scenario 1 - Legacy Only', () => {
       });
 
       // Check database - iamId should not be set
-      const dbUser = await db.collection('users').findOne({ email });
+      const dbUser = await iamDb.findUser({ email: email });
       expect(dbUser).toBeDefined();
       expect(dbUser!.iamId).toBeUndefined();
     });
@@ -367,11 +368,8 @@ describe('Story: Scenario 1 - Legacy Only', () => {
       });
 
       // Check database - no credential account should exist
-      const dbUser = await db.collection('users').findOne({ email });
-      const iamAccount = await db.collection('account').findOne({
-        providerId: 'credential',
-        userId: dbUser!._id,
-      });
+      const dbUser = await iamDb.findUser({ email: email });
+      const iamAccount = await iamDb.credentialAccount(dbUser!.id);
       expect(iamAccount).toBeNull();
     });
   });

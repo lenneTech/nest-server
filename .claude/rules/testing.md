@@ -32,11 +32,11 @@ that every `*.spec.ts` / `*.test.ts` in the repo is claimed by **exactly one** r
 mis-named suite fails the build instead of silently passing. Type-only tests
 (`tests/types/*.type-test.ts`) are compiled by `pnpm run test:types`, never executed.
 
-## Infrastructure containers (Redis + S3)
+## Infrastructure containers (Redis + S3 + PostgreSQL + MySQL + MariaDB)
 
-**Eight** e2e suites talk to a **real** Redis and/or a **real** S3-compatible store rather than a
-mock, and they **fail loudly** when it is missing — a silently skipped infrastructure test is how an
-untested driver ships:
+**Twenty** e2e suites talk to a **real** Redis, a **real** S3-compatible store and/or a **real**
+PostgreSQL, MySQL or MariaDB rather than a mock, and they **fail loudly** when it is missing — a silently skipped
+infrastructure test is how an untested driver ships:
 
 | Suite | Needs |
 |-------|-------|
@@ -44,14 +44,29 @@ untested driver ships:
 | `tests/redis-consumers.e2e-spec.ts` | Redis |
 | `tests/multi-replica.e2e-spec.ts` | Redis |
 | `tests/s3-infra.e2e-spec.ts` | S3 |
-| `tests/file-storage-parity.e2e-spec.ts` | S3 |
-| `tests/file-storage-http-parity.e2e-spec.ts` | S3 |
+| `tests/file-storage-parity.e2e-spec.ts` | S3 + PostgreSQL |
+| `tests/file-storage-http-parity.e2e-spec.ts` | S3 + PostgreSQL |
 | `tests/redis-s3-bootstrap.e2e-spec.ts` | Redis + S3 |
 | `tests/graceful-shutdown.e2e-spec.ts` | Redis + S3 |
+| `tests/persistence-sql-executor.e2e-spec.ts` | PostgreSQL |
+| `tests/persistence-sql-where.e2e-spec.ts` | PostgreSQL + MySQL + MariaDB (and MongoDB) |
+| `tests/persistence-sql-schema.e2e-spec.ts` | PostgreSQL |
+| `tests/persistence-sql-store.e2e-spec.ts` | PostgreSQL |
+| `tests/persistence-parity.e2e-spec.ts` | PostgreSQL + MySQL + MariaDB (and MongoDB) |
+| `tests/persistence-lock-store.e2e-spec.ts` | PostgreSQL + MySQL + MariaDB (and MongoDB) |
+| `tests/persistence-sql-wiring.e2e-spec.ts` | PostgreSQL (and MongoDB) |
+| `tests/core-module-parity.e2e-spec.ts` | PostgreSQL + MySQL + MariaDB (and MongoDB) |
+| `tests/migrate/sql-state-store.e2e-spec.ts` | PostgreSQL + MySQL + MariaDB |
+| `tests/persistence-mysql-executor.e2e-spec.ts` | MySQL + MariaDB |
+| `tests/persistence-mysql-schema.e2e-spec.ts` | MySQL + MariaDB |
+| `tests/persistence-mysql-wiring.e2e-spec.ts` | MySQL + MariaDB |
 
-`tests/global-setup.ts` starts both containers automatically, so `pnpm test` works from a clean
+Beyond these twenty, the `postgres` vitest project runs the whole e2e suite once more on PostgreSQL (see "Behaviour
+matrices" below), so without the PostgreSQL container that project fails as a whole while `e2e` runs.
+
+`tests/global-setup.ts` starts all five containers automatically, so `pnpm test` works from a clean
 machine with no manual docker command. It is idempotent (a running container is reused) and never
-fatal: without Docker every other suite still runs, and the eight above report their own actionable
+fatal: without Docker every other suite still runs, and the twenty above report their own actionable
 error.
 
 ```bash
@@ -60,10 +75,28 @@ pnpm run test:infra:status   # what is running
 pnpm run test:infra:down     # stop and remove
 ```
 
-| | Redis | S3 (RustFS) |
-|---|---|---|
-| Port | 6380 (6379 is an auth-protected TurboOps Redis on lt dev machines) | 9102 |
-| Container | `nest-server-2985-redis` | `nest-server-2985-rustfs` |
+| | Redis | S3 (RustFS) | PostgreSQL | MySQL 8.4 | MariaDB 11.8 |
+|---|---|---|---|---|---|
+| Port | 6380 (6379 is an auth-protected TurboOps Redis on lt dev machines) | 9102 | 5440 | 3316 | 3317 |
+| Container | `nest-server-2985-redis` | `nest-server-2985-rustfs` | `nest-server-2985-postgres` | `nest-server-2985-mysql` | `nest-server-2985-mariadb` |
+
+**PostgreSQL runs with two roles, as every environment does** (`.claude/plans/db-agnostic/PLAN.md`
+§3.9): `nest_owner` owns the databases and their schema, `nest_app` owns nothing and has neither
+superuser nor `BYPASSRLS` — so a suite running as the application role meets row-level security the
+way production does. The readiness step creates `nest_app`, which is why the container is started
+through `pnpm run test:infra` (or the CI action) and not by a bare `docker run`. Each suite creates
+its own database through `tests/helpers/postgres-test-db.ts`, named after the run
+(`deriveTestDbUri()`), refused unless it passes the drop guard, and dropped in `afterAll`. Overridable
+via `PG_HOST`, `PG_PORT`, `PG_OWNER_USER`, `PG_OWNER_PASSWORD`, `PG_APP_USER`, `PG_APP_PASSWORD`.
+
+**MySQL and MariaDB run with two accounts the same way** (phase 6): `nest_owner` may do anything,
+`nest_app` holds nothing until `tests/helpers/mysql-test-db.ts` creates a suite's database and grants it
+`SELECT, INSERT, UPDATE, DELETE` there — and revokes that grant before the drop, because a database-level
+grant outlives its database. Database names follow the PostgreSQL scheme and pass the same drop guard.
+Overridable via `MYSQL_HOST`, `MYSQL_PORT`, `MARIADB_HOST`, `MARIADB_PORT`, `MYSQL_OWNER_USER`,
+`MYSQL_OWNER_PASSWORD`, `MYSQL_APP_USER`, `MYSQL_APP_PASSWORD`. MySQL and MariaDB are not a third run of the
+whole e2e suite: the matrices carry their columns (persistence: one per engine; core modules and where
+parity: one per server).
 
 **CI provisions its own** containers in `.github/workflows/*.yml` and sets `LT_TEST_INFRA=0` so the
 automatic start stays out of the way. Same images, same ports — only who starts them differs. Set
@@ -212,6 +245,70 @@ exactly that (`getRawFileInfoByName()` consulted two of the three stores), and e
 | Route-contract executor (boots the real `ServerModule` per driver) | `tests/file-storage-http-parity.e2e-spec.ts` |
 | Structural guard | `tests/unit/file-storage-parity-matrix.spec.ts` |
 
+**It has a database dimension (DEV-3832).** S3 and filesystem metadata follow `database` to a SQL table, so a column
+is a driver WITH its metadata database: `s3` / `filesystem` / `gridfs` (MongoDB, the names they always had) plus
+`s3@postgres` and `filesystem@postgres`, which run every case. `gridfs@postgres` is declared `IMPOSSIBLE` case by case
+— GridFS keeps bytes and metadata together in MongoDB — and the guard refuses a case that runs for a driver on MongoDB
+but not on PostgreSQL. The PostgreSQL environment routes the two metadata models through a real `DataSourceRuntime`
+(`routeFileMetadataToPostgres()`); the HTTP executor installs that runtime before it compiles `ServerModule`, as
+`CoreModule.forRoot()` would. **The harness reads and plants through the stores, never through
+`fileMetadataCollection()`**: a harness using the routing it checks follows a broken routing to MongoDB and stays green
+(mutation `file-metadata-routing-ignored` turns 22 cells red only because of that).
+
+The **core modules** follow it one level up: `tests/helpers/core-module-matrix.ts` declares what the framework's own
+modules answer through REST and GraphQL — users and legacy sign-in, tenant memberships and the tenant guard, API
+tokens, health check, Hub panels — and `tests/core-module-parity.e2e-spec.ts` assembles them like the reference server
+once with MongoDB alone and once with PostgreSQL as the default source (default engine; the persistence matrix covers
+the engines). `tests/unit/core-module-parity-matrix.spec.ts` is its structural guard. The PostgreSQL column signs in
+through the legacy endpoints with `betterAuth: false`, so it proves the legacy-auth path on SQL; IAM on SQL is the job of
+the projects below.
+
+The **whole e2e suite runs on both databases** (12.1.0+): the `e2e` project on MongoDB, the `postgres` project again
+with PostgreSQL as the default data source (`POSTGRES_E2E_ENGINE`, the default engine TypeORM). Each test file gets a
+PostgreSQL database of its own (`tests/postgres-file.setup.ts`, created before the file's first import and dropped in
+its `afterAll`): two suites with different `multiTenancy` sharing one database stop each other's boot, because a table
+that loses tenant isolation refuses to start. A `describe` whose configuration differs from the rest of its file — or
+that needs an empty user base, as the system setup does — takes one more of its own through
+`ownPostgresDatabase()` / `onOwnPostgresDatabase()` (`tests/helpers/postgres-test-db.ts`). The project runs every e2e
+file except those in `POSTGRES_E2E_EXCLUDED` (`vitest.include-globs.mts`), each with one of two reasons: `MONGODB-ONLY:`
+(the suite checks a MongoDB mechanism against MongoDB itself, and names where its PostgreSQL counterpart is proven) or
+`OWN-DATABASES:` (a parity matrix or a suite that creates its PostgreSQL databases itself). An entry is a claim about the
+suite, never a way to get a run green: a suite that fails on PostgreSQL because it reads MongoDB directly belongs on
+the neutral helpers. `tests/unit/postgres-e2e-coverage.spec.ts` keeps the list honest (existing suites, one of the two
+reasons, an upper bound on its size).
+
+A suite stays database-neutral through three rules. It reads and prepares users, sessions, accounts and reset tokens
+through `tests/helpers/iam-test-db.ts` — `openIamTestDb(uri, { users: 'mongodb' })` for an application built on
+`CoreModule.forRoot()` alone, which registers no user model and therefore keeps its users on MongoDB. It reads a model
+the application registered with `CorePersistenceModule.forFeature()` through that model's store
+(`app.get(getStoreToken(name), { strict: false })`, inside `RequestContext.runWithBypassTenantGuard()` for a
+tenant-scoped one) — never through a MongoDB client, which would read the wrong database on PostgreSQL. And it keeps
+what is genuinely MongoDB's on MongoDB (`iamDb.mongo`: GridFS, a model registered with `MongooseModule.forFeature()`
+alone). Where a behaviour differs by design — PostgreSQL's CHECK constraint refuses a stored system role that MongoDB
+lets a raw insert plant — the case asserts what happens instead, per `iamDb.driver`.
+
+The **IAM suites** run on the two other engines as well, through vitest projects in `vitest-e2e.config.mts`:
+`iam-sql-kysely` and `iam-sql-drizzle` (`IAM_SQL_ENGINES`), each over the files in `IAM_SQL_TEST_INCLUDE`
+(`vitest.include-globs.mts`: the Better-Auth stories, privilege escalation, sign-in CSRF, migration status, the storage
+paths, the bidirectional sync, and since phase 4 the AI suite and both MCP OAuth suites). A project's global setup (`tests/iam-sql.global-setup.ts`) creates its PostgreSQL
+database per run and drops it afterwards; its setup file (`tests/iam-sql.setup.ts`) points `NSC__DATABASE__URL`,
+`NSC__DATABASE__OWNER_URL` and `NSC__DATABASE__SQL_ENGINE` at it, so the unchanged `ServerModule` boots with its users —
+and Better-Auth with them — on PostgreSQL. The suites read and prepare state through `tests/helpers/iam-test-db.ts`,
+which answers from whichever database the run routes the users to (camelCase fields, string ids, a column never written
+left out rather than `null`), never through a MongoDB client of their own; the AI suite does the same through
+`tests/helpers/ai-test-stores.ts` (the stores the application routes the AI models to, `system()` for fixtures that span
+tenants). `tests/ai-mcp-oauth-tenant.e2e-spec.ts` boots with `multiTenancy` and therefore creates a PostgreSQL database
+of its own in those projects: a table that loses tenant isolation stops the boot of a suite configured without it, so
+two suites with different `multiTenancy` must never share one. Keep the root config free of `include`: with
+`extends: true` it is merged into every project, and the IAM projects would run the whole suite. vitest runs the global
+setup of EVERY project before any test, and the project setups before the root one — so a throw in
+`tests/iam-sql.global-setup.ts` used to stop the whole run, MongoDB project included, before the root setup could start
+the containers. The IAM setup therefore starts the test infrastructure itself (once per run) and never throws: a
+database it still cannot create (no Docker) makes every suite of that project fail in `tests/iam-sql.setup.ts` with the
+reason, never fall back to MongoDB, while the `e2e` project runs. `--project e2e` runs MongoDB alone.
+
+The **data store** contract follows the same discipline: `tests/helpers/persistence-matrix.ts` declares the cases (CRUD contract plus the security policies), `tests/persistence-parity.e2e-spec.ts` executes them against a store obtained via `CorePersistenceModule.forFeature()` + `@InjectStore()` with every security plugin registered, and `tests/unit/persistence-parity-matrix.spec.ts` guards that every (case, database) cell is declared. It has ten columns: `mongodb`, PostgreSQL once per engine (`postgres-typeorm`, `postgres-kysely`, `postgres-drizzle`) — a `SqlDataStore` over the schema the migrator created, connected as the application role, so row-level security binds every case — and MySQL and MariaDB once per engine (`mysql-*`, `mariadb-*`, phase 6), a `MysqlDataStore` connected as the DML-only application account. Without row-level security there, `native-api-tenant-refused` is DIFFERENT-BY-DESIGN for those six columns and its complement asserts that a native query reaches every tenant while the store still isolates. Each tenant layer of the SQL store is additionally proven ALONE in `tests/persistence-sql-store.e2e-spec.ts` — the matrix runs them together, where one layer hides the loss of another.
+
 ### A cell is EXECUTED, IMPOSSIBLE, or DIFFERENT-BY-DESIGN — never merely absent
 
 Omitting a case for one implementation and declaring it impossible there produce the same artefact
@@ -273,7 +370,7 @@ pnpm run check:mutations -- --id=<id>       # one mutation
 pnpm run check:mutations -- --list          # the registry, without running anything
 pnpm run check:mutations -- --allow-dirty   # when the fix and its evidence share a working tree
 pnpm run check:mutations -- --jobs=4        # N mutations at a time (default: 2, or 4 on >=12 cores)
-pnpm run check:mutations -- --no-infra      # only the 185 that need no MongoDB
+pnpm run check:mutations -- --no-infra      # only the 222 that need no MongoDB
 pnpm run check:mutations -- --since=<ref>   # only mutations touching files changed since <ref>
 ```
 
@@ -292,7 +389,7 @@ when the registry, a vitest config or a setup file changed, since those can move
 commit, and in CI alongside the publish without blocking it. The price of caching is a cache that
 has to model each spec's full dependency closure correctly, and getting that wrong produces a stale
 PASS for a test that has since gone vacuous — exactly what the gate is there to prevent. Bad trade
-at 274 mutations.
+at 407 mutations.
 
 **Decided 2026-10-03 (repo owner): keep the full run.** Measured at 128 mutations, the CI job for
 11.41.6 took **14 minutes**. The trigger to revisit is that wall time, not the mutation count —
@@ -337,9 +434,9 @@ exactly the environment where the answer matters.
 
 ### The cost is vitest's cold start, not the tests
 
-Worth knowing before optimising the wrong thing: the specs behind all 89 e2e mutations add up to
+Worth knowing before optimising the wrong thing: the specs behind all 185 e2e mutations add up to
 **~40 seconds**. The step takes ~740s. The remaining ~700s is paying vitest's startup — process
-spawn, transform, module graph, mongod connect, DB create and drop — once per mutation, 274 times.
+spawn, transform, module graph, mongod connect, DB create and drop — once per mutation, 407 times.
 That work is largely single-threaded I/O and barely scales with cores: the full registry measures
 **744s on a 12-core laptop and 777s on a 4-vCPU CI runner**.
 
@@ -735,11 +832,12 @@ catches the *failure*, never the *disarming* of the safety property.
 |-----------|-------|
 | DI tokens live in import-free leaves (SWC/TDZ) | `tests/unit/import-cycle-invariants.spec.ts` |
 | Internal calls forward the caller's `ServiceOptions` | `tests/unit/service-options-forwarding.spec.ts` |
-| The parity matrix is complete and honest | `tests/unit/file-storage-parity-matrix.spec.ts` |
+| The parity matrix is complete and honest | `tests/unit/file-storage-parity-matrix.spec.ts`, `tests/unit/persistence-parity-matrix.spec.ts`, `tests/unit/core-module-parity-matrix.spec.ts` |
 | Regression tests carry re-runnable evidence | `tests/unit/regression-evidence.spec.ts` |
 | The core is valid as CommonJS AND ESM (no `require()`, `__dirname`, `import x = require()`, `import.meta`, relative dynamic `import()`) | `tests/unit/module-format-invariants.spec.ts`; `pnpm run check:esm` proves the loading half |
 | The ESM package stays loadable by `require()` (no import from a CommonJS directory into the graph, no top-level `await`) and its CommonJS islands (`bin/`, `migrate/helpers/`) load in place | `tests/unit/module-format-invariants.spec.ts`, `tests/unit/package-format-contracts.spec.ts`; `pnpm run check:manifest` repeats it against the packed build |
 | Type-aware lint is armed (flag, `oxlint-tsgolint`, `no-floating-promises: error`) | `tests/unit/lint-type-aware.spec.ts` |
+| The core needs no MongoDB library (12.1.0+): no static value import of `mongoose` / `@nestjs/mongoose` / `mongodb`, both model-description sources agree | `pnpm run check:without-mongodb` (dist, packages unresolvable; `:package` installs the tarball without them); `tests/unit/persistence-model-descriptor.spec.ts`; `tests/unit/import-cycle-invariants.spec.ts` (the compat leaf) |
 
 `service-options-forwarding` is 11.33.1 generalised: inside `src/core/`, a method that HAS the
 caller's context must pass it to every internal call that accepts one. Passing a local derived from

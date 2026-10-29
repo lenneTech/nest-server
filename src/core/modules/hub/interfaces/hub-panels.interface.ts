@@ -71,12 +71,19 @@ export interface HubModelsData {
   relationCount: number;
 }
 
+/** Persistence panel: where each model is stored, on which database and engine, with which capabilities */
+export interface HubPersistenceData {
+  defaultSource?: string;
+  models: { capabilities: string[]; driver?: string; name: string; source?: string }[];
+  sources: { driver: string; engine?: string; host: string; name: string; ownerConfigured: boolean }[];
+}
+
 export interface HubMigrationsData {
   completed: string[];
   dirAvailable: boolean;
   lastRun?: string;
   pending: string[];
-  source: 'collection' | 'runner';
+  source: 'collection' | 'runner' | 'table';
 }
 
 /**

@@ -17,7 +17,7 @@
 import { Injectable, Module } from '@nestjs/common';
 import { NestExpressApplication } from '@nestjs/platform-express';
 import { InjectModel, MongooseModule, Prop, Schema, SchemaFactory } from '@nestjs/mongoose';
-import { Db, MongoClient } from 'mongodb';
+import type { Db } from 'mongodb';
 import { Model } from 'mongoose';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 
@@ -33,6 +33,8 @@ import {
   bootApiTokenIamApp,
   signUpAndSignIn,
 } from './helpers/api-token-e2e.helpers';
+import { createPostgresTestDatabase, type PostgresTestDatabase } from './helpers/postgres-test-db';
+import { type IamTestDb, openIamTestDb } from './helpers/iam-test-db';
 
 @Schema({ timestamps: true })
 class McpTenantNote {
@@ -85,9 +87,12 @@ describe('MCP OAuth — tenant context for an OAuth access token (e2e)', () => {
   let app: NestExpressApplication;
   let db: Db;
   let helper: TestHelper;
-  let mongo: MongoClient;
+  let iamDb: IamTestDb;
   let oauth: CoreAiMcpOAuthService;
   let previousConfig: any;
+  // In the postgres and iam-sql projects: a PostgreSQL database of this suite's own. Its configuration (multiTenancy) isolates the
+  // tenant-scoped AI tables, and the project's shared database is used by suites without multiTenancy
+  let sqlDatabase: PostgresTestDatabase | undefined;
 
   const suffix = `${Date.now()}`;
   const tenantA = `mcp-tenant-a-${suffix}`;
@@ -111,7 +116,19 @@ describe('MCP OAuth — tenant context for an OAuth access token (e2e)', () => {
 
   beforeAll(async () => {
     previousConfig = ConfigService.configFastButReadOnly;
+    if (process.env.NSC__DATABASE__OWNER_URL) {
+      sqlDatabase = await createPostgresTestDatabase(`mcp-oauth-tenant-${process.pid}`);
+    }
     const config = apiTokenIamConfig('mcp-oauth-tenant', {
+      ...(sqlDatabase
+        ? {
+            database: {
+              ownerUrl: sqlDatabase.ownerUrl,
+              sqlEngine: process.env.NSC__DATABASE__SQL_ENGINE,
+              url: sqlDatabase.appUrl,
+            },
+          }
+        : {}),
       ai: {
         ...(envConfig as any).ai,
         mcp: { oauth: true, oauthSecret: 'e2e-mcp-oauth-tenant-signing-secret-32-plus-chars' },
@@ -120,12 +137,13 @@ describe('MCP OAuth — tenant context for an OAuth access token (e2e)', () => {
     });
     app = await bootApiTokenIamApp(config, { imports: [McpTenantNotesModule] });
     helper = new TestHelper(app);
-    mongo = await MongoClient.connect(config.mongoose.uri);
-    db = mongo.db();
+    // CoreModule.forRoot() alone registers no user model: users and Better-Auth stay on MongoDB
+    iamDb = await openIamTestDb(config.mongoose.uri, { users: 'mongodb' });
+    db = iamDb.mongo;
     oauth = app.get(CoreAiMcpOAuthService);
 
-    member = await signUpAndSignIn(helper, db, 'mcp-member');
-    outsider = await signUpAndSignIn(helper, db, 'mcp-outsider');
+    member = await signUpAndSignIn(helper, iamDb, 'mcp-member');
+    outsider = await signUpAndSignIn(helper, iamDb, 'mcp-outsider');
     await app.get(CoreTenantService).addMember(tenantA, member.id, 'member');
 
     await db.collection('mcptenantnotes').insertMany([
@@ -137,7 +155,8 @@ describe('MCP OAuth — tenant context for an OAuth access token (e2e)', () => {
 
   afterAll(async () => {
     await app?.close();
-    await mongo?.close();
+    await iamDb?.close();
+    await sqlDatabase?.drop();
     CoreBetterAuthModule.reset();
     if (previousConfig) {
       ConfigService.setConfig(previousConfig, { reInit: true, warn: false });
@@ -210,5 +229,35 @@ describe('MCP OAuth — tenant context for an OAuth access token (e2e)', () => {
       expect(result.isError).toBe(true);
       expect(result.content?.[0]?.text).toContain('Tenant context required');
     }
+  });
+
+  /**
+   * @regression   DEV-3832 (db-agnostic phase 4, review) — CoreAiPromptService wrote `tenantId: undefined` after the
+   *   insert. MongoDB drops the key; a SQL store wrote NULL, row-level security refused the row the insert had stamped
+   *   with the member's tenant, and creating a personal prompt inside a tenant answered 403 with an orphan row left.
+   * @seen-failing Write `tenantId` unconditionally again in CoreAiPromptService.create() in
+   *   src/core/modules/ai/services/core-ai-prompt.service.ts — registered as mutation `ai-prompt-tenant-written-as-null`
+   *   in tests/regression-mutations.json.
+   */
+  it('lets a member create a personal prompt inside the tenant and take a shared one back', async () => {
+    const name = `tenant-prompt-${Date.now()}`;
+    const created: any = await helper.rest('/ai/prompts', {
+      headers: asTenant(tenantA),
+      method: 'POST',
+      payload: { content: 'Summarize the notes', name },
+      statusCode: 201,
+      token: member.token,
+    });
+    expect(created).toMatchObject({ name, ownerId: member.id, scope: 'user' });
+
+    // Scope changes write the tenant only when there is one: back to `user` must not write it as NULL either
+    const personal: any = await helper.rest(`/ai/prompts/${created.id}`, {
+      headers: asTenant(tenantA),
+      method: 'PUT',
+      payload: { scope: 'user' },
+      statusCode: 200,
+      token: member.token,
+    });
+    expect(personal).toMatchObject({ id: created.id, scope: 'user' });
   });
 });

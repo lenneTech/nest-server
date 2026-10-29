@@ -5,9 +5,12 @@
 - [Hub Module Performance Profile](hub-module-perf.md) — admin cockpit: verified zero-cost gating + single-poller model; the 5 low-severity findings to re-check as it evolves.
 - [API-Token Module Performance Profile](api-token-module-perf.md) — per-request cost with feature off/on (ns-level), token-request DB budget, bounded Map/rate-limit structures.
 - [Migrate Module Performance Profile](migrate-module-perf.md) — boot/CLI-only (no HTTP path); the per-migration state save is deliberate crash-safety, do NOT flag as N+1.
+- [Persistence layer (db-agnostic) costs](persistence-layer-db-agnostic-costs.md) — measured: tenant post-read row check 16-89 ns/row (~1-4 % of hydrate), ObjectId tag check faster than instanceof.
+- [SQL store perf profile](sql-store-perf-profile.md) — phases 1-6: owner conns FIXED; BA sign-up tx starves pool; MySQL unique-sentinel index = full scan + table-wide FOR UPDATE.
 
 ## Request Path
 - [Auth-gate per-request cost](auth-gate-per-request-cost.md) — the global BetterAuth middleware already authenticates PUBLIC routes; gating adds ~0 lookups, but adds a double-verify failure path and kills shared-cache eligibility.
+- [CoreUserService.update() query budget](core-user-update-query-budget.md) — per-call queries incl. IAM name/email syncs; login/token-refresh never pass names, so syncs are not per-login.
 
 ## Build & Startup
 - [SWC/CJS TDZ + CI Gap](swc-cjs-tdz-and-ci-gap.md) — circular-import crashes hit `nest start -b swc` but NOT CI (vitest's unplugin-swc misses it); includes the cycle-triage rule.
@@ -21,7 +24,7 @@
 - [Response.clone + EJS costs](response-clone-and-ejs-costs.md) — measured: async-identity ~42 ns, `clone().json()` ~10 us small / 2.7 ms at 512 KB, cached EJS render ~3 us.
 - [Redaction regex costs](redaction-regex-costs.md) — redactSensitiveText is O(n²) on crafted input (JWT rule 23 ms @6 KB); per-caller caps; mailbox copy mode redacts before truncating.
 - [check-mutations parallelism costs](check-mutations-parallelism-costs.md) — measured: npx 239ms vs .bin 41ms, worktree add ~190ms; the cited 1.87x predates CHECK_LOW_RESOURCE=1 and needs re-measuring.
-- [check-overrides + dep-bump costs](check-overrides-and-dep-bump-costs.md) — measured: guard ~1.2-2s/run (own audit + registry spawn), 71s outage stall + error-envelope false green, pnpm 11 ignores npm_config_registry.
+- [check-overrides + dep-bump costs](check-overrides-and-dep-bump-costs.md) — measured: guard ~1.2-2s/run, 71s outage stall + false green; registryFix packuments bounded by ignoreGhsas, 20s timeout covers body.
 - [Better-Auth router + openAPI costs](better-auth-router-and-openapi-costs.md) — router rebuilt per /iam call (~54 us); SERVER_ONLY endpoints skip addRoute; bench by rotated minimums under load.
 - [scan-secrets + bridge normaliser costs](scan-secrets-and-bridge-normaliser-costs.md) — measured: Check 8 ~2ms/added line + ~100ms/cue line, --all ~57s baseline; oxfmt idempotence proven with real oxfmt.
 - [Mongoose CastError filter costs](mongoose-cast-error-filter-costs.md) — measured: APP_FILTER free off the error path; walk ~1 ms/10k nodes; array CastError.value → 3x Set build (~2x JSON.parse).

@@ -1,6 +1,6 @@
 import { Inject, Injectable, Logger } from '@nestjs/common';
-import { InjectModel } from '@nestjs/mongoose';
-import { Model } from 'mongoose';
+import { InjectModel } from '../../../common/persistence/mongo/mongoose-compat.js';
+import type { Model } from 'mongoose';
 
 import { ConfigService } from '../../../common/services/config.service.js';
 import { CrudService } from '../../../common/services/crud.service.js';
@@ -72,11 +72,10 @@ export class CoreAiPromptHintService extends CrudService<
       return [];
     }
     try {
-      const rows = await this.mainDbModel
-        .find({ enabled: { $ne: false }, scope: { $in: [null, '', ...scopes] }, status: 'approved' })
-        .sort({ occurrences: -1 })
-        .lean<CoreAiPromptHint[]>()
-        .exec();
+      const rows = (await this.dataStore.find(
+        { enabled: { $ne: false }, scope: { $in: [null, '', ...scopes] }, status: 'approved' },
+        { sort: { occurrences: -1 } },
+      )) as CoreAiPromptHint[];
       return rows.map((r) => r.content).filter((c): c is string => !!c?.trim());
     } catch {
       return [];
@@ -95,30 +94,48 @@ export class CoreAiPromptHintService extends CrudService<
     }
     const scope = signal.scope || '';
     try {
-      const existing = await this.mainDbModel
-        .findOne({ scope, trigger: signal.trigger })
-        .lean<CoreAiPromptHint>()
-        .exec();
-      if (existing) {
-        const occurrences = (existing.occurrences ?? 1) + 1;
-        const update: Record<string, unknown> = { occurrences };
-        // Auto-approve once the threshold is reached (config) and not already decided.
-        if (config.autoApply && existing.status === 'suggested' && occurrences >= config.minOccurrences) {
-          update.status = 'approved';
-        }
-        await this.mainDbModel.updateOne({ _id: (existing as any)._id }, { $set: update }).exec();
+      // Counted atomically: concurrent signals of one trigger each add one
+      const counted = (await this.incrementOccurrences(scope, signal.trigger)) as CoreAiPromptHint | null;
+      if (counted) {
+        await this.approveWhenDue(counted, config);
         return;
       }
       const status = config.autoApply && config.minOccurrences <= 1 ? 'approved' : 'suggested';
-      await this.mainDbModel.create({
-        content: signal.content,
-        occurrences: 1,
-        scope,
-        status,
-        trigger: signal.trigger,
-      });
+      try {
+        await this.dataStore.insert({
+          content: signal.content,
+          occurrences: 1,
+          scope,
+          status,
+          trigger: signal.trigger,
+        });
+      } catch (err) {
+        if ((err as { code?: unknown })?.code !== 11000) {
+          throw err;
+        }
+        // Another signal created the hint between the two steps: count this one too
+        const recounted = (await this.incrementOccurrences(scope, signal.trigger)) as CoreAiPromptHint | null;
+        if (recounted) {
+          await this.approveWhenDue(recounted, config);
+        }
+      }
     } catch (err) {
       this.logger.debug(`recordSignal skipped: ${(err as Error).message}`);
+    }
+  }
+
+  /** Add one occurrence to the hint of (scope, trigger); `null` when there is none yet */
+  protected incrementOccurrences(scope: string, trigger: string) {
+    return this.dataStore.updateOne({ scope, trigger }, { $inc: { occurrences: 1 } });
+  }
+
+  /** Auto-approve once the threshold is reached (config) and the hint is not already decided */
+  protected async approveWhenDue(
+    hint: CoreAiPromptHint & { id?: string },
+    config: { autoApply?: boolean; minOccurrences: number },
+  ): Promise<void> {
+    if (config.autoApply && hint.status === 'suggested' && (hint.occurrences ?? 1) >= config.minOccurrences) {
+      await this.dataStore.updateOne({ id: hint.id, status: 'suggested' }, { $set: { status: 'approved' } });
     }
   }
 

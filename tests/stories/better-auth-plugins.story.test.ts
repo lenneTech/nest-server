@@ -18,12 +18,12 @@
 
 import { Test, TestingModule } from '@nestjs/testing';
 import { PubSub } from 'graphql-subscriptions';
-import { MongoClient, ObjectId } from 'mongodb';
 import * as OTPAuth from 'otpauth';
 
 import { CoreBetterAuthService, HttpExceptionLogFilter, TestGraphQLType, TestHelper } from '../../src';
 import envConfig from '../../src/config.env';
 import { ServerModule } from '../../src/server/server.module';
+import { type IamTestDb, openIamTestDb } from '../helpers/iam-test-db';
 
 describe('Story: BetterAuth Plugins (2FA & Passkey)', () => {
   let app: any;
@@ -34,8 +34,8 @@ describe('Story: BetterAuth Plugins (2FA & Passkey)', () => {
   let isPasskeyEnabled: boolean;
 
   // Database
-  let mongoClient: MongoClient;
-  let db: any;
+  // The database the run routes the users to (MongoDB, or PostgreSQL in the iam-sql projects)
+  let iamDb: IamTestDb;
 
   // Test data tracking
   const testUserIds: string[] = [];
@@ -69,8 +69,7 @@ describe('Story: BetterAuth Plugins (2FA & Passkey)', () => {
       isTwoFactorEnabled = betterAuthService.isTwoFactorEnabled();
       isPasskeyEnabled = betterAuthService.isPasskeyEnabled();
 
-      mongoClient = await MongoClient.connect(envConfig.mongoose.uri);
-      db = mongoClient.db();
+      iamDb = await openIamTestDb(envConfig.mongoose.uri);
     } catch (e) {
       console.error('beforeAllError', e);
       throw e;
@@ -78,30 +77,10 @@ describe('Story: BetterAuth Plugins (2FA & Passkey)', () => {
   });
 
   afterAll(async () => {
-    // Cleanup test users
-    if (db) {
-      for (const userId of testUserIds) {
-        try {
-          await db.collection('users').deleteOne({ _id: new ObjectId(userId) });
-        } catch {
-          // Ignore cleanup errors
-        }
-      }
-      for (const iamUserId of testIamUserIds) {
-        try {
-          await db.collection('user').deleteOne({ id: iamUserId });
-          await db.collection('session').deleteMany({ userId: iamUserId });
-          await db.collection('account').deleteMany({ userId: iamUserId });
-          await db.collection('twoFactor').deleteMany({ userId: iamUserId });
-          await db.collection('passkey').deleteMany({ userId: iamUserId });
-        } catch {
-          // Ignore cleanup errors
-        }
-      }
-    }
-
-    if (mongoClient) {
-      await mongoClient.close();
+    // Cleanup test users and everything Better-Auth keeps for them (sessions, accounts, 2FA, passkeys)
+    if (iamDb) {
+      await iamDb.deleteUsers({ ids: [...testUserIds, ...testIamUserIds] });
+      await iamDb.close();
     }
     if (app) {
       await app.close();
@@ -112,14 +91,13 @@ describe('Story: BetterAuth Plugins (2FA & Passkey)', () => {
   // Helper Functions
   // =============================================================================
 
-  const generateTestEmail = () =>
-    `plugin-test-${Date.now()}-${Math.random().toString(36).substring(7)}@test.com`;
+  const generateTestEmail = () => `plugin-test-${Date.now()}-${Math.random().toString(36).substring(7)}@test.com`;
 
   const createBetterAuthUser = async (email: string, password: string) => {
     const res: any = await testHelper.rest('/iam/sign-up/email', {
       method: 'POST',
       payload: { email, name: 'Test User', password, termsAndPrivacyAccepted: true },
-      statusCode: 201,  // Created
+      statusCode: 201, // Created
     });
 
     if (res.user?.id) {
@@ -632,7 +610,10 @@ describe('Story: BetterAuth Plugins (2FA & Passkey)', () => {
         statusCode: 200,
       });
       const signInBody = JSON.parse(signIn.text);
-      expect(signInBody.twoFactorRedirect === true || signInBody.requiresTwoFactor === true, 'sign-in asks for the second factor').toBe(true);
+      expect(
+        signInBody.twoFactorRedirect === true || signInBody.requiresTwoFactor === true,
+        'sign-in asks for the second factor',
+      ).toBe(true);
 
       // =================================================================
       // Step 4: Complete the sign-in with a TOTP code and the pending two-factor cookie
@@ -660,7 +641,7 @@ describe('Story: BetterAuth Plugins (2FA & Passkey)', () => {
             Cookie: `token=${e2eAuthToken}`,
           },
           method: 'POST',
-          payload: { code: '000000' },  // Invalid code
+          payload: { code: '000000' }, // Invalid code
           statusCode: 400,
         });
         // Should fail with 400 for invalid code
@@ -690,7 +671,12 @@ describe('Story: BetterAuth Plugins (2FA & Passkey)', () => {
       });
       const secret = String(enable.totpURI).match(/secret=([A-Z2-7]+)/i)?.[1];
       expect(secret, 'enable returns a TOTP URI with a secret').toBeTruthy();
-      const totp = new OTPAuth.TOTP({ algorithm: 'SHA1', digits: 6, period: 30, secret: OTPAuth.Secret.fromBase32(secret!) });
+      const totp = new OTPAuth.TOTP({
+        algorithm: 'SHA1',
+        digits: 6,
+        period: 30,
+        secret: OTPAuth.Secret.fromBase32(secret!),
+      });
 
       // In TOTP mode Better-Auth activates 2FA only once a code from the new secret is confirmed.
       await testHelper.rest('/iam/two-factor/verify-totp', {
@@ -921,7 +907,12 @@ describe('Story: BetterAuth Plugins (2FA & Passkey)', () => {
       // active, the sign-in below never asked for it, and the case returned before its critical assertion.
       const secret = String(enableResponse?.totpURI).match(/secret=([A-Z2-7]+)/i)?.[1];
       expect(secret, 'enable returns a TOTP URI with a secret').toBeTruthy();
-      const totp = new OTPAuth.TOTP({ algorithm: 'SHA1', digits: 6, period: 30, secret: OTPAuth.Secret.fromBase32(secret!) });
+      const totp = new OTPAuth.TOTP({
+        algorithm: 'SHA1',
+        digits: 6,
+        period: 30,
+        secret: OTPAuth.Secret.fromBase32(secret!),
+      });
       await testHelper.rest('/iam/two-factor/verify-totp', {
         headers: { Authorization: `Bearer ${authToken}` },
         method: 'POST',
@@ -940,7 +931,7 @@ describe('Story: BetterAuth Plugins (2FA & Passkey)', () => {
       const signInWithCookies: any = await testHelper.rest('/iam/sign-in/email', {
         method: 'POST',
         payload: { email: twoFaCookieTestEmail, password: twoFaCookieTestPassword },
-        returnResponse: true,  // Get full response with headers
+        returnResponse: true, // Get full response with headers
         statusCode: 200,
       });
 
@@ -953,8 +944,7 @@ describe('Story: BetterAuth Plugins (2FA & Passkey)', () => {
       }
 
       // Check that 2FA is required
-      const requires2FA = responseBody.requiresTwoFactor === true ||
-                          responseBody.twoFactorRedirect === true;
+      const requires2FA = responseBody.requiresTwoFactor === true || responseBody.twoFactorRedirect === true;
       expect(requires2FA, 'sign-in asks for the second factor once 2FA is active').toBe(true);
 
       // CRITICAL ASSERTION: Verify Set-Cookie header contains the two_factor token
@@ -967,8 +957,7 @@ describe('Story: BetterAuth Plugins (2FA & Passkey)', () => {
       const cookieString = cookieStrings.join('; ');
 
       // Check for the two_factor cookie (Better Auth sets this for 2FA pending sessions)
-      const hasTwoFactorCookie = cookieString.includes('better-auth.two_factor') ||
-                                  cookieString.includes('two_factor');
+      const hasTwoFactorCookie = cookieString.includes('better-auth.two_factor') || cookieString.includes('two_factor');
 
       // This assertion will FAIL without the fix implemented in 11.10.x
       expect(hasTwoFactorCookie).toBe(true);
@@ -1088,7 +1077,7 @@ describe('Story: BetterAuth Plugins (2FA & Passkey)', () => {
         if (!isBetterAuthEnabled || !isTwoFactorEnabled) return;
 
         // Verify the twoFactor collection exists (created by Better Auth)
-        const collections = await db.listCollections({ name: 'twoFactor' }).toArray();
+        const collections = await iamDb.mongo.listCollections({ name: 'twoFactor' }).toArray();
         // Collection may or may not exist depending on whether 2FA was ever used
         expect(collections.length).toBeGreaterThanOrEqual(0);
       });
@@ -1097,7 +1086,7 @@ describe('Story: BetterAuth Plugins (2FA & Passkey)', () => {
         if (!isBetterAuthEnabled || !isPasskeyEnabled) return;
 
         // Verify the passkey collection exists (created by Better Auth)
-        const collections = await db.listCollections({ name: 'passkey' }).toArray();
+        const collections = await iamDb.mongo.listCollections({ name: 'passkey' }).toArray();
         // Collection may or may not exist depending on whether Passkey was ever used
         expect(collections.length).toBeGreaterThanOrEqual(0);
       });
@@ -1110,7 +1099,7 @@ describe('Story: BetterAuth Plugins (2FA & Passkey)', () => {
         // so retry the query a few times before failing
         let user: any = null;
         for (let attempt = 0; attempt < 5 && !user; attempt++) {
-          user = await db.collection('users').findOne({ email: parallelTestEmail });
+          user = await iamDb.findUser({ email: parallelTestEmail });
           if (!user) await new Promise((r) => setTimeout(r, 100));
         }
 
@@ -1213,7 +1202,11 @@ describe('Story: BetterAuth Plugins (2FA & Passkey)', () => {
 
       // Try body first, then cookies
       let bodyData: any;
-      try { bodyData = JSON.parse(response.text); } catch { bodyData = response.body; }
+      try {
+        bodyData = JSON.parse(response.text);
+      } catch {
+        bodyData = response.body;
+      }
 
       const token = bodyData?.token || TestHelper.extractSessionToken(response);
       if (!token) {
@@ -1221,10 +1214,8 @@ describe('Story: BetterAuth Plugins (2FA & Passkey)', () => {
       }
 
       // Cleanup tracking
-      const iamUser = await db.collection('iam_user').findOne({ email });
-      if (iamUser) testIamUserIds.push(iamUser._id);
-      const user = await db.collection('users').findOne({ email });
-      if (user) testUserIds.push(user._id.toString());
+      const user = await iamDb.findUser({ email });
+      if (user) testUserIds.push(user.id);
 
       return token;
     }
@@ -1251,10 +1242,8 @@ describe('Story: BetterAuth Plugins (2FA & Passkey)', () => {
       expect(token!.length).toBeGreaterThan(0);
 
       // Cleanup tracking
-      const iamUser = await db.collection('iam_user').findOne({ email });
-      if (iamUser) testIamUserIds.push(iamUser._id);
-      const user = await db.collection('users').findOne({ email });
-      if (user) testUserIds.push(user._id.toString());
+      const user = await iamDb.findUser({ email });
+      if (user) testUserIds.push(user.id);
     });
 
     it('should not return 401 for session access after sign-up', async () => {
@@ -1439,10 +1428,8 @@ describe('Story: BetterAuth Plugins (2FA & Passkey)', () => {
       expect(signInToken!.length).toBeGreaterThan(0);
 
       // Cleanup tracking
-      const iamUser = await db.collection('iam_user').findOne({ email });
-      if (iamUser) testIamUserIds.push(iamUser._id);
-      const user = await db.collection('users').findOne({ email });
-      if (user) testUserIds.push(user._id.toString());
+      const user = await iamDb.findUser({ email });
+      if (user) testUserIds.push(user.id);
     });
   });
 });

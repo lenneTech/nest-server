@@ -10,24 +10,31 @@ import {
   Type,
 } from '@nestjs/common';
 import { APP_GUARD } from '@nestjs/core';
-import { getConnectionToken } from '@nestjs/mongoose';
-import mongoose, { Connection } from 'mongoose';
+import { getConnectionToken } from '../../common/persistence/mongo/mongoose-compat.js';
+import type { Connection } from 'mongoose';
 
 import { maskEmail } from '../../common/helpers/logging.helper.js';
+import { getPersistenceRuntime } from '../../common/persistence/persistence-runtime.registry.js';
 import { IBetterAuth, ICorsConfig } from '../../common/interfaces/server-options.interface.js';
 import { BrevoService } from '../../common/services/brevo.service.js';
 import { ConfigService } from '../../common/services/config.service.js';
 import { RolesGuardRegistry } from '../auth/guards/roles-guard-registry.js';
+import { ROLE_GUARD } from '../auth/guards/role-guard.token.js';
 import { isLegacyEndpointEnabled } from '../auth/helpers/legacy-endpoints.helper.js';
 import { BetterAuthRolesGuard } from './better-auth-roles.guard.js';
 import { BetterAuthTokenService } from './better-auth-token.service.js';
 import {
   AuthEmailCallbackOptions,
   BetterAuthInstance,
+  buildBetterAuthOptions,
+  type CreateBetterAuthOptions,
   CreateBetterAuthResult,
-  createBetterAuthInstance,
+  instantiateBetterAuth,
   OnPasswordResetCallback,
 } from './better-auth.config.js';
+import { applyBetterAuthSchema } from './better-auth-sql.helper.js';
+import { getBetterAuthSqlStore, setBetterAuthSqlStore } from './core-better-auth-sql.registry.js';
+import { BetterAuthSqlStore, type IamSqlQueryable } from './core-better-auth-sql.store.js';
 import { DefaultBetterAuthResolver } from './better-auth.resolver.js';
 import { CoreBetterAuthApiMiddleware } from './core-better-auth-api.middleware.js';
 import { CoreBetterAuthChallengeService } from './core-better-auth-challenge.service.js';
@@ -48,6 +55,8 @@ import {
 } from './core-better-auth.registry.js';
 import { CoreBetterAuthResolver } from './core-better-auth.resolver.js';
 import { CoreBetterAuthService } from './core-better-auth.service.js';
+import { newObjectId } from '../../common/persistence/mongo/mongoose-compat.js';
+import { requireMongoPackages } from '../../common/persistence/mongo/mongo-packages.js';
 
 /**
  * @deprecated Import from `./core-better-auth.constants` instead. Re-exported only
@@ -465,6 +474,38 @@ export class CoreBetterAuthModule implements NestModule, OnModuleInit {
   }
 
   /**
+   * Better-Auth on the database the `users` table lives in (one row per user, shared with the user model): on a SQL
+   * source its adapter runs on that source's application pool, and its tables are brought up to date before the
+   * instance exists — Better-Auth validates its schema as it starts.
+   */
+  private static async createInstance(options: CreateBetterAuthOptions): Promise<CreateBetterAuthResult | null> {
+    const storage = await getPersistenceRuntime()?.iamStorage();
+    setBetterAuthSqlStore(undefined);
+    const built = buildBetterAuthOptions({ ...options, sqlPool: storage?.pool });
+    if (!built) {
+      return null;
+    }
+    if (storage) {
+      await applyBetterAuthSchema(built.options, storage);
+    }
+    const result = instantiateBetterAuth(built);
+    if (storage) {
+      setBetterAuthSqlStore(new BetterAuthSqlStore(storage.users, result.instance, storage.pool as IamSqlQueryable));
+    }
+    return result;
+  }
+
+  /** The MongoDB database Better-Auth's adapter runs on, once the connection is up */
+  private static async mongoDatabase(): Promise<unknown> {
+    await this.waitForMongoConnection();
+    const db = requireMongoPackages('Better-Auth on MongoDB').mongoose.connection.db;
+    if (!db) {
+      throw new Error('MongoDB database not available');
+    }
+    return db;
+  }
+
+  /**
    * Waits for mongoose connection to be ready using polling
    * This is more reliable than event-based waiting in test environments
    * @throws Error if connection times out or fails
@@ -472,6 +513,7 @@ export class CoreBetterAuthModule implements NestModule, OnModuleInit {
   private static async waitForMongoConnection(): Promise<void> {
     const maxAttempts = 60; // 60 attempts * 500ms = 30 seconds max
     const pollInterval = 500;
+    const { mongoose } = requireMongoPackages('Better-Auth on MongoDB (the user model is not routed to a SQL source)');
 
     for (let attempt = 0; attempt < maxAttempts; attempt++) {
       // Check if already connected
@@ -687,12 +729,9 @@ export class CoreBetterAuthModule implements NestModule, OnModuleInit {
             // Enable middleware registration
             this.betterAuthEnabled = true;
 
-            await this.waitForMongoConnection();
-
-            const db = mongoose.connection.db;
-            if (!db) {
-              throw new Error('MongoDB database not available');
-            }
+            // On a SQL source Better-Auth runs on that source's pool (createInstance()); MongoDB is neither awaited
+            // nor needed then — a project on PostgreSQL alone has none
+            const db = (await getPersistenceRuntime()?.iamStorage()) ? undefined : await this.mongoDatabase();
 
             this.configServiceInstance = configService;
 
@@ -706,7 +745,7 @@ export class CoreBetterAuthModule implements NestModule, OnModuleInit {
 
             // Note: Secret validation is now handled in createBetterAuthInstance
             // with fallback to jwt.secret, jwt.refresh.secret, or auto-generation
-            const result = createBetterAuthInstance({
+            const result = await this.createInstance({
               config,
               db,
               fallbackSecrets,
@@ -802,6 +841,7 @@ export class CoreBetterAuthModule implements NestModule, OnModuleInit {
    */
   static reset(): void {
     this.authInstance = null;
+    setBetterAuthSqlStore(undefined);
     this.initialized = false;
     this.initLogged = false;
     this.betterAuthEnabled = false;
@@ -894,12 +934,16 @@ export class CoreBetterAuthModule implements NestModule, OnModuleInit {
         // This callback is called by Better-Auth when email is verified
         // Sync nest-server's verified/verifiedAt fields with Better-Auth's emailVerified
         try {
+          const sql = getBetterAuthSqlStore();
           const db = this.mongoConnection?.db;
-          if (db) {
-            const { ObjectId } = await import('mongodb');
+          if (sql) {
+            // One row per user on SQL: Better-Auth's user id is the row's id
+            await sql.updateUser({ id: userId }, { verified: true, verifiedAt: new Date() });
+            this.logger.debug(`Email verified for user ${userId} - synced verified/verifiedAt`);
+          } else if (db) {
             await db
               .collection('users')
-              .updateOne({ _id: new ObjectId(userId) }, { $set: { verified: true, verifiedAt: new Date() } });
+              .updateOne({ _id: newObjectId(userId) }, { $set: { verified: true, verifiedAt: new Date() } });
             this.logger.debug(`Email verified for user ${userId} - synced verified/verifiedAt`);
           } else {
             this.logger.warn(`Cannot sync verifiedAt for user ${userId} - no database connection`);
@@ -1040,7 +1084,7 @@ export class CoreBetterAuthModule implements NestModule, OnModuleInit {
           inject: [getConnectionToken(), CoreBetterAuthEmailVerificationService, ConfigService],
           provide: BETTER_AUTH_INSTANCE,
           useFactory: async (
-            connection: Connection,
+            connection: Connection | null,
             emailVerificationService: CoreBetterAuthEmailVerificationService,
             configService: ConfigService,
           ) => {
@@ -1067,26 +1111,13 @@ export class CoreBetterAuthModule implements NestModule, OnModuleInit {
               serverEnv: options?.serverEnv,
             };
 
-            // Connection is now guaranteed to be established
-            let result: CreateBetterAuthResult | null;
-            const db = connection.db;
-            if (!db) {
-              // Fallback to global mongoose if connection.db is not yet available
-              await this.waitForMongoConnection();
-              const globalDb = mongoose.connection.db;
-              if (!globalDb) {
-                throw new Error('MongoDB database not available');
-              }
-              result = createBetterAuthInstance({
-                ...sharedInstanceOptions,
-                db: globalDb,
-              });
-            } else {
-              result = createBetterAuthInstance({
-                ...sharedInstanceOptions,
-                db,
-              });
-            }
+            // On a SQL source Better-Auth runs on that source's pool; on MongoDB on the injected connection, falling
+            // back to the global mongoose connection while its database is not yet available
+            const sqlStorage = await getPersistenceRuntime()?.iamStorage();
+            const result: CreateBetterAuthResult | null = await this.createInstance({
+              ...sharedInstanceOptions,
+              db: sqlStorage ? undefined : (connection?.db ?? (await this.mongoDatabase())),
+            });
             this.authInstance = result?.instance ?? null;
             this.resolvedCookieDomain = result?.cookieDomain;
 
@@ -1163,7 +1194,12 @@ export class CoreBetterAuthModule implements NestModule, OnModuleInit {
         ...(this.shouldRegisterRolesGuardGlobally && !RolesGuardRegistry.isRegistered()
           ? (() => {
               RolesGuardRegistry.markRegistered('CoreBetterAuthModule');
-              return [BetterAuthRolesGuard, { provide: APP_GUARD, useExisting: BetterAuthRolesGuard }];
+              return [
+                BetterAuthRolesGuard,
+                { provide: APP_GUARD, useExisting: BetterAuthRolesGuard },
+                // How CoreTenantGuard reaches it
+                { provide: ROLE_GUARD, useExisting: BetterAuthRolesGuard },
+              ];
             })()
           : []),
       ],

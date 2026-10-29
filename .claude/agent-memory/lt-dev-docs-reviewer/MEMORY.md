@@ -10,7 +10,7 @@
 - [Migration-guide self-description traps](migration-guide-behavior-change-count-trap.md) — never trust Overview counts, "aligns with X" claims, or a Quick Migration "nothing else" line; derive from the diff
 - [Comment-density baseline](comment-density-baseline.md) — src/core is 33% comments with 227 blocks >=15 lines; long narrative JSDoc is house style, grade duplication/placement/accuracy instead
 - [migrate CLI exit guard is dead](migrate-cli-exit-guard-dead-through-bin-shim.md) — `require.main === module` never true through bin/migrate.js (both bins + docker-entrypoint); check the shim before believing a CLI-lifecycle claim
-- [AI module false doc claims](ai-module-false-doc-claims.md) — `authorize()` is plan-mode-only, MCP has no confirmation gate, MCP SDK is a regular dep; both claims now CORRECTED in live surfaces as of 11.32.2 (facts still true; don't re-flag fixed surfaces)
+- [AI module false doc claims](ai-module-false-doc-claims.md) — authorize() plan-mode-only, MCP no confirmation gate, mutating confirm default OFF (root README 12.1 reintroduced it), MCP SDK regular dep
 - [exposeTokenInBody is dev-only](exposetokeninbody-is-dev-only.md) — the boot guard blocks it in production/staging, so bugs gated on it can never have hit a real deployment; scope severity accordingly
 - [Mutation-count drift in tooling prose](number-drift-in-tooling-prose.md) — testing.md AND the check-mutations.mjs header quote registry counts; the new guard test covers only 2 of ~8
 - [Legacy-auth / password-sync stale claims](legacy-auth-and-password-sync-stale-claims.md) — two surfaces that asserted the OPPOSITE of the code (inverted LEGACY_AUTH_ENABLED default; "IAM→legacy sync impossible"); fixed in 11.38.0, re-check on every auth/password diff
@@ -37,3 +37,6 @@
 - [TS6 esModuleInterop namespace-import trap](ts6-esmoduleinterop-namespace-import-trap.md) — `import * as GraphQLUpload` compiles green under TS 6 and fails at boot; carried by nest-server's CoreFileResolver ≤ 11.43.3, not by the CLI generator
 - [Starter update does not apply every row](starter-update-does-not-apply-every-row.md) — RAISE_SOURCES skips devDep→runtime + undeclared pkgs; diff every guide table row against package.json
 - [Vendor legacy ts-node bootstrap](vendor-legacy-ts-node-bootstrap.md) — CLI-generated migrations-utils/ts-compiler.js survives core sync; 12.x core breaks migrate:* through it
+- [db-agnostic phase 0-6 doc facts](db-agnostic-phase0-doc-facts.md) — phase-2 guard leak, fail-open isTenantActive; phase 3 globalSetup abort; phase 5 mongo trio; phase 6 --sql template "one transaction"
+- [NSC__ env replaces shorthand values](nsc-env-merge-replaces-shorthand.md) — NSC__A__B over `a: 'string'`/`a: false` wipes the value to { b }; check docs pairing both
+- [Vendor type imports need the package](vendor-type-imports-need-the-package.md) — `import type` AND literal `import('x')` of an optional peer break a vendor tsc; every SQL driver/engine needed; probe recipe

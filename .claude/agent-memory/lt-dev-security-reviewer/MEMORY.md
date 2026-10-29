@@ -32,6 +32,13 @@
 - [project-betterauth-baseurl-jwt-issuer.md](project-betterauth-baseurl-jwt-issuer.md) — getBaseUrl() from instance.options.baseURL: security-neutral (JWT iss + CSRF traced); trailing-slash 401 residual; SWC probe recipe
 - [project-12-0-0-esm-switch-security-facts.md](project-12-0-0-esm-switch-security-facts.md) — 12.0.0 ESM/SWC-loader/loadLocalConfig traced neutral: config read before env merge, CLI-only loaders, no dual guard state
 - [project-ws-connection-ack-echoes-extra.md](project-ws-connection-ack-echoes-extra.md) — pre-existing: onConnect `return extra` = connection_ack payload (own user + headers); probe + fix if it ever carries secrets
+- [project-db-agnostic-phase0-store-facts.md](project-db-agnostic-phase0-store-facts.md) — DEV-3828 policies verbatim; DataStore select/filter/native safe only by no-caller; phase-1 re-check list
+- [project-db-agnostic-phase2-core-modules-facts.md](project-db-agnostic-phase2-core-modules-facts.md) — DEV-3830 user/tenant/token/locks on SQL traced sound; health-ping + logout deviceId residuals below bar
+- [project-db-agnostic-phase3-better-auth-sql-facts.md](project-db-agnostic-phase3-better-auth-sql-facts.md) — DEV-3831 BA-on-SQL traced sound; MCP OAuth loadUser missed-reader finding FIXED in phase 4
+- [project-db-agnostic-phase4-ai-file-sweep-facts.md](project-db-agnostic-phase4-ai-file-sweep-facts.md) — DEV-3832: sweep ignores partialFilterExpression (data loss); OAuth/file/AI store paths sound; conversation-append IDOR below bar
+- [project-db-agnostic-phase5-mongo-optional-facts.md](project-db-agnostic-phase5-mongo-optional-facts.md) — DEV-3833: null connection breaks JWT verify, AI budget, MCP OAuth stores (fail closed), all FIXED 2026-10-28; DB-less probe recipe
+- [project-db-agnostic-phase6-mysql-facts.md](project-db-agnostic-phase6-mysql-facts.md) — DEV-3848: MySQL update compiler prototype pollution (`__proto__` path → tenant bypass); app-account check blind to roles; container probe recipe
+- [project-legacy-rate-limit-key-and-unnamed-fix-lookup.md](project-legacy-rate-limit-key-and-unnamed-fix-lookup.md) — 12.1.0: REST rate limit keyed on handler (shares GraphQL bucket); registryFix() fails loud; override drops guard
 
 ## Review Methodology
 
@@ -48,3 +55,4 @@
 - [lt-dev permissions.json = global auto-allow](reference-lt-dev-permissions-json-global-allow.md) — `lt claude plugins` writes every pattern into ~/.claude/settings.json; the existing broad entries are an owner decision (2026-10-06), do not report
 - [Windows .cmd spawn quoting](reference-windows-cmd-spawn-quoting.md) — simulate win32 spawnargs on macOS; cmd vs CRT parser; trailing-backslash class; cmd-shim quirks
 - [e2e-run-slots shared /tmp model](project-e2e-run-slots-shared-tmp-model.md) — wx+unlink closes the symlink write; squatted-dir FIFO hang on the read path is pre-existing, below bar
+- [IAM name sync + _bsontype facts](project-iam-name-sync-and-bsontype-facts.md) — DEV-3821 email-keyed name write sound (unique email premise); `name` undeclared → never in responses; bson refuses `_bsontype`

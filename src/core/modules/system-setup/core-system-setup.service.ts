@@ -1,21 +1,36 @@
+import { randomUUID } from 'node:crypto';
+import { hostname } from 'node:os';
+
 import { ForbiddenException, Injectable, Logger, OnApplicationBootstrap } from '@nestjs/common';
-import { InjectConnection } from '@nestjs/mongoose';
+import { InjectConnection } from '../../common/persistence/mongo/mongoose-compat.js';
 import { isEmail } from 'class-validator';
+import type { Collection } from 'mongodb';
 import type { Connection } from 'mongoose';
 
+import {
+  defaultSqlLockStore,
+  SYSTEM_SETUP_CLAIM_STALE_AFTER_MS,
+  SYSTEM_SETUP_LOCK_COLLECTION,
+  SYSTEM_SETUP_LOCK_KEY,
+  systemSetupMongoLocks,
+} from '../../common/persistence/infrastructure-locks.js';
+import type { LockStore } from '../../common/persistence/lock-store.interface.js';
 import { ConfigService } from '../../common/services/config.service.js';
 import { legacyCredentialAccountIssuer } from '../better-auth/core-better-auth-account-issuer.helper.js';
 import { CoreBetterAuthUserMapper } from '../better-auth/core-better-auth-user.mapper.js';
 import { CoreBetterAuthService } from '../better-auth/core-better-auth.service.js';
 import { ErrorCode } from '../error-code/error-codes.js';
+import { getPersistenceRuntime } from '../../common/persistence/persistence-runtime.registry.js';
+import { getBetterAuthSqlStore } from '../better-auth/core-better-auth-sql.registry.js';
 
 /**
- * Collection holding the bootstrap claim markers.
+ * Collection holding the bootstrap claim marker on MongoDB — the 12.0.0 document (`{ _id, claimedAt }`), kept so
+ * an older replica in a rolling deploy claims the same marker (see `infrastructure-locks.ts`).
  *
  * Native collection access is intentional here: no Mongoose schema exists for it
  * (see docs/native-driver-security.md).
  */
-const SETUP_LOCK_COLLECTION = 'system-setup-locks';
+const SETUP_LOCK_COLLECTION = SYSTEM_SETUP_LOCK_COLLECTION;
 
 /**
  * How long an initial-admin claim may stand before another replica takes it over.
@@ -23,10 +38,7 @@ const SETUP_LOCK_COLLECTION = 'system-setup-locks';
  * Long enough that a slow but live creation is never stolen, short enough that a crashed
  * claimer does not lock the deployment out for good.
  */
-const INITIAL_ADMIN_CLAIM_STALE_AFTER_MS = 5 * 60_000;
-
-/** `_id` of the marker claiming the initial-admin creation */
-const INITIAL_ADMIN_LOCK_ID = 'initial-admin';
+const INITIAL_ADMIN_CLAIM_STALE_AFTER_MS = SYSTEM_SETUP_CLAIM_STALE_AFTER_MS;
 
 /**
  * Input for creating the initial admin user
@@ -69,6 +81,9 @@ export interface SystemSetupStatus {
 @Injectable()
 export class CoreSystemSetupService implements OnApplicationBootstrap {
   private readonly logger = new Logger(CoreSystemSetupService.name);
+
+  /** Who holds the claim: one owner per instance, so a second concurrent claim of the same process is refused too */
+  private readonly claimOwner = `${hostname()}:${process.pid}:${randomUUID()}`;
 
   constructor(
     @InjectConnection() private readonly connection: Connection,
@@ -149,39 +164,19 @@ export class CoreSystemSetupService implements OnApplicationBootstrap {
   /**
    * Try to claim the initial-admin creation for this instance
    *
-   * The upsert on a fixed `_id` is atomic, so exactly one of N concurrently booting
-   * replicas sees no previous document and wins the claim.
+   * A lease (`LockStore`), so exactly one of N concurrently booting replicas — or of N anonymous
+   * `POST /system-setup/init` callers — wins the claim.
    *
    * @returns true when this instance may create the initial admin
    */
   protected async claimInitialAdminSetup(): Promise<boolean> {
-    try {
-      const collection = this.connection.collection(SETUP_LOCK_COLLECTION);
-
-      // The marker is a CLAIM, not a permanent record: a replica SIGKILLed between claiming and
-      // creating (OOM, node drain, a failed first rollout — all ordinary) never reaches the
-      // release in the catch below. Without an expiry that leaves a deployment with zero users
-      // and no way in, recoverable only by deleting a document from an undocumented collection.
-      // A stale claim is therefore taken over rather than obeyed.
-      const staleBefore = new Date(Date.now() - INITIAL_ADMIN_CLAIM_STALE_AFTER_MS);
-      await collection.deleteOne({ _id: INITIAL_ADMIN_LOCK_ID as any, claimedAt: { $lt: staleBefore } });
-
-      const previous = await collection.findOneAndUpdate(
-        { _id: INITIAL_ADMIN_LOCK_ID as any },
-        { $setOnInsert: { claimedAt: new Date() } },
-        { returnDocument: 'before', upsert: true },
-      );
-
-      // No previous document → this instance inserted the marker and owns the setup
-      return !previous;
-    } catch (error) {
-      // Two replicas upserting the same `_id` at the very same moment: one insert wins,
-      // the other gets a duplicate key error — which means the claim is taken.
-      if (error instanceof Error && (error.message?.includes('duplicate key') || error.message?.includes('E11000'))) {
-        return false;
-      }
-      throw error;
-    }
+    // The marker is a CLAIM, not a permanent record: a replica SIGKILLed between claiming and
+    // creating (OOM, node drain, a failed first rollout — all ordinary) never reaches the
+    // release in createInitialAdmin(). Without an expiry that leaves a deployment with zero users
+    // and no way in, recoverable only by deleting a document from an undocumented collection.
+    // A stale claim is therefore taken over rather than obeyed.
+    const locks = await this.setupLocks();
+    return locks.tryAcquire(SYSTEM_SETUP_LOCK_KEY, this.claimOwner, INITIAL_ADMIN_CLAIM_STALE_AFTER_MS / 1000);
   }
 
   /**
@@ -189,7 +184,7 @@ export class CoreSystemSetupService implements OnApplicationBootstrap {
    */
   protected async releaseInitialAdminSetupClaim(): Promise<void> {
     try {
-      await this.connection.collection(SETUP_LOCK_COLLECTION).deleteOne({ _id: INITIAL_ADMIN_LOCK_ID as any });
+      await (await this.setupLocks()).release(SYSTEM_SETUP_LOCK_KEY, this.claimOwner);
     } catch (error) {
       // Never mask the failure that triggered the release
       this.logger.warn(
@@ -199,10 +194,41 @@ export class CoreSystemSetupService implements OnApplicationBootstrap {
   }
 
   /**
+   * Where the claim lives: the lease table when the default data source is a SQL database, else the MongoDB marker
+   */
+  protected async setupLocks(): Promise<LockStore> {
+    return (
+      (await defaultSqlLockStore('system-setup')) ??
+      systemSetupMongoLocks(this.connection.collection(SETUP_LOCK_COLLECTION) as unknown as Collection<any>)
+    );
+  }
+
+  /**
+   * Where the claim lives, in the words an operator needs to clear it: the lease row on a SQL default source, the
+   * marker collection on MongoDB. The refusal log names it, so it must name the store `setupLocks()` actually uses.
+   */
+  protected async setupClaimLocation(): Promise<{ remedy: string; where: string }> {
+    if (await defaultSqlLockStore('system-setup')) {
+      const row = `system-setup:${SYSTEM_SETUP_LOCK_KEY}`;
+      return { remedy: `delete the row "${row}" from "lt_locks"`, where: `"lt_locks" (row "${row}")` };
+    }
+    return { remedy: `drop "${SETUP_LOCK_COLLECTION}"`, where: `"${SETUP_LOCK_COLLECTION}"` };
+  }
+
+  /**
+   * How many users exist, wherever the `users` table lives: a user model on a SQL source is counted there — counting the
+   * MongoDB collection instead would find none and let an anonymous caller create an administrator
+   */
+  protected async countUsers(): Promise<number> {
+    const users = getBetterAuthSqlStore()?.users ?? (await getPersistenceRuntime()?.iamStorage())?.users;
+    return users ? users.count({}) : this.connection.collection('users').countDocuments({});
+  }
+
+  /**
    * Check if the system needs initial setup (zero users)
    */
   async getSetupStatus(): Promise<SystemSetupStatus> {
-    const userCount = await this.connection.collection('users').countDocuments({});
+    const userCount = await this.countUsers();
     return {
       betterAuthEnabled: this.betterAuthService.isEnabled(),
       needsSetup: userCount === 0,
@@ -217,7 +243,7 @@ export class CoreSystemSetupService implements OnApplicationBootstrap {
    */
   async createInitialAdmin(input: SystemSetupInitInput): Promise<SystemSetupInitResult> {
     // Pre-check: only allow when zero users exist
-    const userCount = await this.connection.collection('users').countDocuments({});
+    const userCount = await this.countUsers();
     if (userCount > 0) {
       throw new ForbiddenException(ErrorCode.SYSTEM_SETUP_NOT_AVAILABLE);
     }
@@ -253,11 +279,12 @@ export class CoreSystemSetupService implements OnApplicationBootstrap {
       // Two records with contradictory severity for one non-event trains operators to ignore the
       // louder one. The HTTP caller is not left without a diagnosis: the message is unchanged and
       // an operator investigating a 403 reads it at the default level.
+      const claim = await this.setupClaimLocation();
       this.logger.log(
-        `System setup refused: the initial-admin claim in "${SETUP_LOCK_COLLECTION}" is held. ` +
+        `System setup refused: the initial-admin claim in ${claim.where} is held. ` +
           'Either another instance is running the setup right now, or a previous SUCCESSFUL setup ' +
           'left the marker behind — it is removed only when creation FAILS. If you reset the ' +
-          `database to replay the setup, drop "${SETUP_LOCK_COLLECTION}" alongside "users"; ` +
+          `database to replay the setup, ${claim.remedy} alongside "users"; ` +
           `otherwise setup stays refused until the claim goes stale after ` +
           `${INITIAL_ADMIN_CLAIM_STALE_AFTER_MS / 60_000} minutes.`,
       );
@@ -334,10 +361,15 @@ export class CoreSystemSetupService implements OnApplicationBootstrap {
         throw new Error('Failed to sync user to nest-server collection');
       }
 
-      // Set admin role directly
-      await this.connection
-        .collection('users')
-        .updateOne({ _id: syncedUser._id }, { $set: { roles: ['admin'], updatedAt: new Date() } });
+      // Set admin role directly — the framework's own decision, as system work
+      const sql = getBetterAuthSqlStore();
+      if (sql) {
+        await sql.updateUserAsSystem(String(syncedUser._id), { roles: ['admin'] });
+      } else {
+        await this.connection
+          .collection('users')
+          .updateOne({ _id: syncedUser._id }, { $set: { roles: ['admin'], updatedAt: new Date() } });
+      }
 
       // Sync password to Legacy Auth for backwards compatibility
       await this.userMapper.syncPasswordToLegacy(iamUser.id, input.email, input.password);

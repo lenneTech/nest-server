@@ -52,6 +52,11 @@ config is present, and keep their previous single-process behaviour when it is n
 `@Optional()` and always keep the non-configured fallback path — that is the pattern every core
 consumer follows. See `.claude/rules/configurable-features.md` for the full option reference.
 
+**MongoDB itself is optional since 12.1.0** — the same pattern one level down: `mongoose`, `@nestjs/mongoose` and
+`mongodb` are optional peers, reached only through `common/persistence/mongo/` (never a static value import in
+`src/core/`), and `CoreModule` connects MongoDB only when a data source uses it. `pnpm run check:without-mongodb`
+proves the build loads and runs with them unresolvable. Rules: `.claude/rules/persistence.md`.
+
 ## Core Modules (`src/core/modules/`)
 
 | Module | Purpose |
@@ -62,7 +67,7 @@ consumer follows. See `.claude/rules/configurable-features.md` for the full opti
 | **ErrorCode** | Centralized error codes with unique identifiers |
 | **File** | File upload/download with GridFS storage |
 | **HealthCheck** | Application health monitoring |
-| **Hub** | Build-free ADMIN-gated operator cockpit at `/hub` (config-gated per environment; 16 panels, runtime collectors, mailbox, admin actions) |
+| **Hub** | Build-free ADMIN-gated operator cockpit at `/hub` (config-gated per environment; 17 panels, runtime collectors, mailbox, admin actions) |
 | **Migrate** | Database migration utilities |
 | **Permissions** | ADMIN-gated security-map report (routes + roles + `@Restricted` fields); also surfaced in the Hub's "Routes / Permissions" panel |
 | **SystemSetup** | Initial admin creation for fresh deployments |

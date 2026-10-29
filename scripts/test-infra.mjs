@@ -53,6 +53,80 @@ const S3_SECRET_KEY = process.env.S3_SECRET_KEY || 'rustfs-secret';
 
 const s3Url = parseEndpoint(S3_ENDPOINT);
 
+/**
+ * PostgreSQL for the SQL data store suites — with the SAME role separation every environment uses
+ * (`.claude/plans/db-agnostic/PLAN.md` §3.9): the owner role owns the schema, the application role owns
+ * nothing and has neither BYPASSRLS nor superuser, so row-level security holds against it. 5440 keeps clear of
+ * a developer's own Postgres on 5432.
+ */
+const PG_HOST = process.env.PG_HOST || 'localhost';
+const PG_PORT = process.env.PG_PORT ? Number(process.env.PG_PORT) : 5440;
+const PG_OWNER_USER = process.env.PG_OWNER_USER || 'nest_owner';
+const PG_OWNER_PASSWORD = process.env.PG_OWNER_PASSWORD || 'nest-owner-secret';
+const PG_APP_USER = process.env.PG_APP_USER || 'nest_app';
+const PG_APP_PASSWORD = process.env.PG_APP_PASSWORD || 'nest-app-secret';
+const PG_MAINTENANCE_DB = 'nest_server_e2e';
+
+/**
+ * Ready = reachable over TCP (the image's init phase serves the unix socket only) AND the application role
+ * exists with no way around RLS. Creating the role here keeps it idempotent across reused containers.
+ */
+function postgresReady(name) {
+  const sql =
+    `DO $$ BEGIN IF NOT EXISTS (SELECT 1 FROM pg_roles WHERE rolname = '${PG_APP_USER}') THEN ` +
+    `CREATE ROLE ${PG_APP_USER} LOGIN PASSWORD '${PG_APP_PASSWORD}' NOSUPERUSER NOBYPASSRLS NOCREATEDB NOCREATEROLE; ` +
+    `END IF; END $$;`;
+  return (
+    run('docker', [
+      'exec',
+      '-e',
+      `PGPASSWORD=${PG_OWNER_PASSWORD}`,
+      name,
+      'psql',
+      '-h',
+      '127.0.0.1',
+      '-U',
+      PG_OWNER_USER,
+      '-d',
+      PG_MAINTENANCE_DB,
+      '-v',
+      'ON_ERROR_STOP=1',
+      '-c',
+      sql,
+    ]).status === 0
+  );
+}
+
+/**
+ * MySQL 8.4 and MariaDB 11.8 for the MySQL dialect suites (plan phase 6) — the same two roles as PostgreSQL: the
+ * owner creates databases and tables and grants, the application user starts with no privilege at all and receives
+ * data access (SELECT, INSERT, UPDATE, DELETE) table by table from the schema runner. One user pair serves both
+ * servers. 3316 / 3317 keep clear of a developer's own server on 3306.
+ */
+const MYSQL_HOST = process.env.MYSQL_HOST || 'localhost';
+const MYSQL_PORT = process.env.MYSQL_PORT ? Number(process.env.MYSQL_PORT) : 3316;
+const MARIADB_HOST = process.env.MARIADB_HOST || 'localhost';
+const MARIADB_PORT = process.env.MARIADB_PORT ? Number(process.env.MARIADB_PORT) : 3317;
+const MYSQL_ROOT_PASSWORD = 'nest-root-secret';
+const MYSQL_OWNER_USER = process.env.MYSQL_OWNER_USER || 'nest_owner';
+const MYSQL_OWNER_PASSWORD = process.env.MYSQL_OWNER_PASSWORD || 'nest-owner-secret';
+const MYSQL_APP_USER = process.env.MYSQL_APP_USER || 'nest_app';
+const MYSQL_APP_PASSWORD = process.env.MYSQL_APP_PASSWORD || 'nest-app-secret';
+
+/**
+ * Ready = reachable over TCP (both images serve only the unix socket while they initialise) AND both users exist.
+ * Created here, idempotently, so a reused container is ready the same way as a fresh one.
+ */
+function mysqlReady(client) {
+  const sql =
+    `CREATE USER IF NOT EXISTS '${MYSQL_OWNER_USER}'@'%' IDENTIFIED BY '${MYSQL_OWNER_PASSWORD}'; ` +
+    `GRANT ALL PRIVILEGES ON *.* TO '${MYSQL_OWNER_USER}'@'%' WITH GRANT OPTION; ` +
+    `CREATE USER IF NOT EXISTS '${MYSQL_APP_USER}'@'%' IDENTIFIED BY '${MYSQL_APP_PASSWORD}';`;
+  return (name) =>
+    run('docker', ['exec', name, client, '-h', '127.0.0.1', '-uroot', `-p${MYSQL_ROOT_PASSWORD}`, '-e', sql]).status ===
+    0;
+}
+
 /** Parse `S3_ENDPOINT` into host + port, tolerating a missing port and a bad URL. */
 function parseEndpoint(endpoint) {
   try {
@@ -97,6 +171,34 @@ const CONTAINERS = [
     ports: [`${s3Url.port}:9000`],
     // No shell client to ping with, so probe the HTTP port directly.
     ready: () => httpReady(s3Url.host === '0.0.0.0' || s3Url.host === '::' ? '127.0.0.1' : s3Url.host, s3Url.port),
+  },
+  {
+    env: {
+      POSTGRES_DB: PG_MAINTENANCE_DB,
+      POSTGRES_PASSWORD: PG_OWNER_PASSWORD,
+      POSTGRES_USER: PG_OWNER_USER,
+    },
+    host: PG_HOST,
+    image: 'postgres:18.6-alpine3.24',
+    name: 'nest-server-2985-postgres',
+    ports: [`${PG_PORT}:5432`],
+    ready: postgresReady,
+  },
+  {
+    env: { MYSQL_ROOT_PASSWORD },
+    host: MYSQL_HOST,
+    image: 'mysql:8.4.10',
+    name: 'nest-server-2985-mysql',
+    ports: [`${MYSQL_PORT}:3306`],
+    ready: mysqlReady('mysql'),
+  },
+  {
+    env: { MARIADB_ROOT_PASSWORD: MYSQL_ROOT_PASSWORD },
+    host: MARIADB_HOST,
+    image: 'mariadb:11.8.8',
+    name: 'nest-server-2985-mariadb',
+    ports: [`${MARIADB_PORT}:3306`],
+    ready: mysqlReady('mariadb'),
   },
 ];
 

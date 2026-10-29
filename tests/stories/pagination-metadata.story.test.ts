@@ -9,11 +9,12 @@
 
 import { Test, TestingModule } from '@nestjs/testing';
 import { PubSub } from 'graphql-subscriptions';
-import { MongoClient, ObjectId } from 'mongodb';
+import { ObjectId } from 'mongodb';
 
 import { HttpExceptionLogFilter, TestGraphQLType, TestHelper } from '../../src';
 import envConfig from '../../src/config.env';
 import { ServerModule } from '../../src/server/server.module';
+import { type IamTestDb, openIamTestDb } from '../helpers/iam-test-db';
 
 describe('Story: Pagination Metadata', () => {
   // Test environment properties
@@ -21,8 +22,7 @@ describe('Story: Pagination Metadata', () => {
   let testHelper: TestHelper;
 
   // Database
-  let mongoClient: MongoClient;
-  let db;
+  let iamDb: IamTestDb;
 
   // Test data tracking
   const testUserIds: string[] = [];
@@ -53,8 +53,7 @@ describe('Story: Pagination Metadata', () => {
 
       testHelper = new TestHelper(app);
 
-      mongoClient = await MongoClient.connect(envConfig.mongoose.uri);
-      db = mongoClient.db();
+      iamDb = await openIamTestDb(envConfig.mongoose.uri);
 
       // Create admin user for testing
       const adminEmail = `pagination-admin-${Date.now()}-${Math.random().toString(36).substring(2, 8)}@test.com`;
@@ -73,10 +72,7 @@ describe('Story: Pagination Metadata', () => {
       testUserIds.push(adminUserId);
 
       // Make user admin and verified
-      await db.collection('users').updateOne(
-        { _id: new ObjectId(adminUserId) },
-        { $set: { roles: ['admin'], verified: true } },
-      );
+      await iamDb.updateUser({ id: adminUserId }, { roles: ['admin'], verified: true });
 
       // Sign in to get fresh token with admin role
       const signInResult: any = await testHelper.graphQl({
@@ -96,17 +92,9 @@ describe('Story: Pagination Metadata', () => {
 
   afterAll(async () => {
     // Cleanup test users
-    if (db) {
-      for (const userId of testUserIds) {
-        try {
-          await db.collection('users').deleteOne({ _id: new ObjectId(userId) });
-        } catch {
-          // Ignore cleanup errors
-        }
-      }
-    }
-    if (mongoClient) {
-      await mongoClient.close();
+    if (iamDb) {
+      await iamDb.deleteUsers({ ids: testUserIds });
+      await iamDb.close();
     }
     if (app) {
       await app.close();
@@ -151,14 +139,7 @@ describe('Story: Pagination Metadata', () => {
             'totalCount',
             { items: ['id', 'email'] },
             {
-              pagination: [
-                'totalCount',
-                'pageCount',
-                'currentPage',
-                'perPage',
-                'hasNextPage',
-                'hasPreviousPage',
-              ],
+              pagination: ['totalCount', 'pageCount', 'currentPage', 'perPage', 'hasNextPage', 'hasPreviousPage'],
             },
           ],
           name: 'findAndCountUsers',
@@ -190,11 +171,7 @@ describe('Story: Pagination Metadata', () => {
             skip: 0,
             take: 2, // Small page size to ensure multiple pages
           },
-          fields: [
-            'totalCount',
-            { items: ['id'] },
-            { pagination: ['totalCount', 'pageCount', 'perPage'] },
-          ],
+          fields: ['totalCount', { items: ['id'] }, { pagination: ['totalCount', 'pageCount', 'perPage'] }],
           name: 'findAndCountUsers',
           type: TestGraphQLType.QUERY,
         },
@@ -249,10 +226,7 @@ describe('Story: Pagination Metadata', () => {
               skip: 0,
               take: 1, // Only take 1 item
             },
-            fields: [
-              'totalCount',
-              { pagination: ['hasNextPage', 'totalCount', 'perPage'] },
-            ],
+            fields: ['totalCount', { pagination: ['hasNextPage', 'totalCount', 'perPage'] }],
             name: 'findAndCountUsers',
             type: TestGraphQLType.QUERY,
           },
@@ -349,14 +323,7 @@ describe('Story: Pagination Metadata', () => {
             'totalCount',
             { items: ['id'] },
             {
-              pagination: [
-                'totalCount',
-                'pageCount',
-                'currentPage',
-                'perPage',
-                'hasNextPage',
-                'hasPreviousPage',
-              ],
+              pagination: ['totalCount', 'pageCount', 'currentPage', 'perPage', 'hasNextPage', 'hasPreviousPage'],
             },
           ],
           name: 'findAndCountUsers',

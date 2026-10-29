@@ -247,10 +247,17 @@ for members, API tokens and the header-less tenant list — unless the project t
 ```typescript
 // config.env.ts
 multiTenancy: {
-  isTenantActive: async (tenantId, { connection }) =>
-    (await connection.collection('tenants').findOne({ _id: new Types.ObjectId(tenantId) }))?.active !== false,
+  // Any database: the project's tenant model, registered with CorePersistenceModule.forFeature()
+  isTenantActive: async (tenantId, { store }) => (await store('Tenant').findById(tenantId))?.active !== false,
 }
 ```
+
+`store(modelName)` returns the data store of a model registered with `CorePersistenceModule.forFeature()` in the
+running application, wherever `database` routes it. For a model registered any other way (`MongooseModule.forFeature()`,
+which `lt server module` generates) it throws a `DataSourceConfigError`, and the request is refused: answering
+`undefined` would make a hook written with `?.` count every deactivated tenant as active. `context.connection` (the MongoDB connection) is still passed
+for a lookup on MongoDB only:
+`(await connection.collection('tenants').findOne({ _id: new Types.ObjectId(tenantId) }))?.active !== false`.
 
 | Path                                                           | Deactivated tenant                                                                                                                                                                         |
 | -------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
