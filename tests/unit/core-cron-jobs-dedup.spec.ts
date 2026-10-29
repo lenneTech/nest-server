@@ -851,6 +851,58 @@ describe('CoreCronJobs multi-replica deduplication', () => {
       expect([...replicaA.calls, ...replicaB.calls]).toEqual(['slow', 'slow']);
     });
 
+    /**
+     * @regression   DEV-3896 review — the running lease must fail open like the tick lease: a `runParallel: false` job
+     *   with no lease backend at all must still run, or it would never run on any replica.
+     * @seen-failing Refuse the run when acquireRunningLease() finds no store in
+     *   src/core/common/services/core-cron-jobs.service.ts — registered as mutation
+     *   `cron-running-lease-closed-without-store` in tests/regression-mutations.json.
+     */
+    it('runs a runParallel: false job when there is no lease backend at all', async () => {
+      const service = new TestCronJobs(
+        { job1: { cronTime: NEVER, distributed: true, runOnInit: false, runParallel: false } },
+        {},
+      );
+      await service.onApplicationBootstrap();
+
+      await service.runDistributedTick('job1', new Date('2026-08-07T10:00:00.000Z'));
+      await service.runDistributedTick('job1', new Date('2026-08-07T10:01:00.000Z'));
+
+      expect(service.calls).toEqual(['job1', 'job1']);
+    });
+
+    /**
+     * @regression   DEV-3896 review — a lease store that fails (Redis erroring, a database down) must not stop a
+     *   `runParallel: false` job: with `redis` configured every such job is distributed, and failing closed would skip
+     *   every tick for the length of the outage.
+     * @seen-failing Refuse the run when the running lease throws in acquireRunningLease() in
+     *   src/core/common/services/core-cron-jobs.service.ts — registered as mutation
+     *   `cron-running-lease-closed-on-error` in tests/regression-mutations.json.
+     */
+    it('runs a runParallel: false job when its running lease cannot be taken', async () => {
+      const failing = new FakeLockCollection();
+      const claim = failing.updateOne.bind(failing);
+      failing.updateOne = (async (filter: any, update: any, options?: any) => {
+        if (String(filter._id).endsWith(':running')) {
+          throw new Error('connection reset');
+        }
+        return claim(filter, update, options);
+      }) as any;
+      const service = new TestCronJobs(
+        { job1: { cronTime: NEVER, distributed: true, runOnInit: false, runParallel: false } },
+        { connection: fakeConnection(failing) },
+      );
+      await service.onApplicationBootstrap();
+
+      await service.runDistributedTick('job1', new Date('2026-08-07T10:00:00.000Z'));
+
+      expect(service.calls).toEqual(['job1']);
+      expect(Logger.prototype.error).toHaveBeenCalledWith(
+        expect.stringContaining('Cron running lease for job1:running failed, running anyway'),
+        expect.any(String),
+      );
+    });
+
     it('keeps runParallel: true jobs free of a running lease', async () => {
       const service = new TestCronJobs(
         { job1: { cronTime: NEVER, distributed: true, runOnInit: false } },
@@ -965,6 +1017,57 @@ describe('CoreCronJobs multi-replica deduplication', () => {
         name: 'job1',
         opts: { attempts: 1, removeOnComplete: { count: 100 }, removeOnFail: { count: 500 } },
       });
+      await service.onApplicationShutdown();
+    });
+
+    /**
+     * @regression   DEV-3896 review — up to 12.1.0 every finished cron job stayed in Redis. BullMQ trims by `count` in ONE
+     *   Lua call without a limit, so with the new options the first tick to finish after the upgrade would have deleted
+     *   that whole backlog at once: measured 2 s for 300k jobs, 4.4 s for 700k, during which Redis answered nobody.
+     * @seen-failing Drop the trimBullJobBacklog() call from initCronJobs() in
+     *   src/core/common/services/core-cron-jobs.service.ts — registered as mutation `cron-bull-backlog-trimmed-at-once`
+     *   in tests/regression-mutations.json.
+     */
+    it('trims the backlog earlier versions kept in bounded batches before the schedulers get the new options', async () => {
+      const events: string[] = [];
+      const counts: Record<string, number> = { completed: 2_350, failed: 520 };
+      const bullMq = {
+        Queue: class {
+          clean = vi.fn(async (grace: number, limit: number, type: string) => {
+            events.push(`clean:${type}:${grace}:${limit}`);
+            const removed = Math.min(limit, counts[type]);
+            counts[type] -= removed;
+            return Array.from({ length: removed }, (_, i) => `${type}-${i}`);
+          });
+          close = vi.fn(async () => undefined);
+          getJobCountByTypes = vi.fn(async (type: string) => counts[type]);
+          upsertJobScheduler = vi.fn(async (name: string) => {
+            events.push(`upsert:${name}`);
+          });
+        },
+        Worker: class {
+          close = vi.fn(async () => undefined);
+          concurrency = 1;
+          on = vi.fn();
+          run = vi.fn(async () => undefined);
+        },
+      };
+      const service = new TestCronJobs(
+        { job1: { cronTime: '*/5 * * * *', runOnInit: false } },
+        { bullMq, redisService: fakeRedisService({ getClient: () => ({ del: vi.fn() }) }) },
+      );
+
+      await service.onApplicationBootstrap();
+
+      // The newest 100 completed and 500 failed jobs stay, every call removes at most 1000, all before the upsert
+      expect(counts).toEqual({ completed: 100, failed: 500 });
+      expect(events).toEqual([
+        'clean:completed:0:1000',
+        'clean:completed:0:1000',
+        'clean:completed:0:250',
+        'clean:failed:0:20',
+        'upsert:job1',
+      ]);
       await service.onApplicationShutdown();
     });
   });

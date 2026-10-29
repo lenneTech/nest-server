@@ -62,6 +62,12 @@ const REDIS_RELEASE_SCRIPT =
   "if redis.call('get', KEYS[1]) == ARGV[1] then return redis.call('del', KEYS[1]) else return 0 end";
 
 /**
+ * Jobs one `clean()` call removes when the backlog of earlier versions is trimmed: about 6.5 ms of Redis time each, so
+ * Redis keeps answering other clients between the calls
+ */
+const CRON_JOB_TRIM_BATCH = 1000;
+
+/**
  * Name of the shared BullMQ queue carrying all distributed cron jobs
  */
 const CRON_QUEUE_NAME = 'cron';
@@ -95,11 +101,13 @@ export interface CoreCronJobsOptions {
 /**
  * Cron jobs service to extend
  *
- * Jobs are deduplicated across replicas unless `distributed: false` is set:
+ * Jobs are deduplicated across replicas when they are `distributed` — the default with `redis` configured; without
+ * it a job runs on every replica unless it sets `distributed: true`:
  * - Redis configured + `bullmq` installed: the job becomes a BullMQ job scheduler,
  *   so exactly one worker in the cluster picks up each tick.
  * - Otherwise: the local cron timer stays, but each tick first acquires a lease
- *   (Redis `SET NX` when available, else a `cron-locks` document in MongoDB).
+ *   (Redis `SET NX` when available, else the SQL lease table of the default source, else a `cron-locks` document in
+ *   MongoDB).
  */
 export abstract class CoreCronJobs implements OnApplicationBootstrap, OnApplicationShutdown {
   /**
@@ -239,6 +247,9 @@ export abstract class CoreCronJobs implements OnApplicationBootstrap, OnApplicat
     }
 
     const bullMqActive = await this.initBullMq();
+    if (bullMqActive) {
+      await this.trimBullJobBacklog();
+    }
     this.bullScheduledJobs.clear();
     /** Jobs that run on every replica because no redis is configured and they did not choose either way */
     const localByDefault: string[] = [];
@@ -560,6 +571,44 @@ export abstract class CoreCronJobs implements OnApplicationBootstrap, OnApplicat
 
     if (running()) {
       cronLogger.warn(`${running()} cron job(s) still running after ${timeoutMs}ms — shutting down anyway`);
+    }
+  }
+
+  /**
+   * Trim the finished cron jobs earlier versions kept, in bounded batches, before the schedulers get `bullJobOptions`.
+   *
+   * Up to 12.1.0 every completed and failed tick stayed in Redis. BullMQ trims by `count` in ONE Lua call without a
+   * limit, so the first tick to finish under the new options would delete the whole backlog at once — measured 2 s for
+   * 300k jobs and 4.4 s for 700k, during which Redis answers nobody and every command of every replica times out
+   * (DEV-3896). `clean()` removes the oldest first and honours its limit. Once the backlog is gone this is one count
+   * per type at bootstrap. A failure is reported and does not stop the jobs.
+   */
+  protected async trimBullJobBacklog(): Promise<void> {
+    const keep = {
+      completed: (this.bullJobOptions.removeOnComplete as { count?: number } | undefined)?.count,
+      failed: (this.bullJobOptions.removeOnFail as { count?: number } | undefined)?.count,
+    };
+    for (const type of ['completed', 'failed'] as const) {
+      const limit = keep[type];
+      if (typeof limit !== 'number' || limit < 0) {
+        continue;
+      }
+      try {
+        let excess = (await this.bullQueue.getJobCountByTypes(type)) - limit;
+        if (excess <= 0) {
+          continue;
+        }
+        cronLogger.log(`Trimming ${excess} ${type} cron jobs an earlier version kept in Redis`);
+        while (excess > 0) {
+          const removed: string[] = await this.bullQueue.clean(0, Math.min(CRON_JOB_TRIM_BATCH, excess), type);
+          if (!removed?.length) {
+            break;
+          }
+          excess -= removed.length;
+        }
+      } catch (error) {
+        cronLogger.warn(`Trimming the ${type} cron jobs failed: ${errorMessage(error)}`);
+      }
     }
   }
 

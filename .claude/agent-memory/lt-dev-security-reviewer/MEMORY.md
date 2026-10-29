@@ -40,7 +40,7 @@
 - [project-db-agnostic-phase6-mysql-facts.md](project-db-agnostic-phase6-mysql-facts.md) — DEV-3848: MySQL update compiler prototype pollution (`__proto__` path → tenant bypass); app-account check blind to roles; container probe recipe
 - [project-betterauth-mysql-dev3904-facts.md](project-betterauth-mysql-dev3904-facts.md) — DEV-3904 Better-Auth on MySQL: mysql2 object-injection closed by sql-escaper SET rule (peer floor); juggling dead-ends
 - [project-legacy-rate-limit-key-and-unnamed-fix-lookup.md](project-legacy-rate-limit-key-and-unnamed-fix-lookup.md) — 12.1.0: REST rate limit keyed on handler (shares GraphQL bucket); registryFix() fails loud; override drops guard
-- [project-cron-bullmq-scheduler-restore-facts.md](project-cron-bullmq-scheduler-restore-facts.md) — DEV-3889 restore sound: subset of own active config, runTick refuses unconfigured names; rolling-deploy resurrection residual
+- [project-cron-bullmq-scheduler-restore-facts.md](project-cron-bullmq-scheduler-restore-facts.md) — DEV-3889 restore + DEV-3896 running lease traced sound (Lua KEYS/ARGV, owner-checked, Hub name via registry)
 - [project-redis-channel-registry-resubscribe-facts.md](project-redis-channel-registry-resubscribe-facts.md) — DEV-3894 channel refcount + ready re-subscribe sound; ioredis 6 nextTick ready order; TCP-proxy probe
 - [project-synchronized-up-lock-and-hub-cursor-facts.md](project-synchronized-up-lock-and-hub-cursor-facts.md) — DEV-3897: synchronizedUp precheck vs withMigrationLock ('' / lock:false run unlocked by design); not HTTP-reachable
 

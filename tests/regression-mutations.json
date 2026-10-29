@@ -4986,6 +4986,39 @@
         "tests/unit/core-cron-jobs-dedup.spec.ts"
       ],
       "driverSpecific": false
+    },
+    {
+      "id": "cron-running-lease-closed-without-store",
+      "defect": "DEV-3896 review — the running lease must fail open like the tick lease; refusing the run without a lease backend would stop a runParallel: false job on every replica for good.",
+      "file": "src/core/common/services/core-cron-jobs.service.ts",
+      "find": "        this.warnDedupInactive();\n        return unlocked;",
+      "replace": "        this.warnDedupInactive();\n        return false;",
+      "specs": [
+        "tests/unit/core-cron-jobs-dedup.spec.ts"
+      ],
+      "driverSpecific": false
+    },
+    {
+      "id": "cron-running-lease-closed-on-error",
+      "defect": "DEV-3896 review — a failing lease store must not stop a runParallel: false job: with redis configured every such job is distributed, and failing closed would skip every tick for the length of an outage.",
+      "file": "src/core/common/services/core-cron-jobs.service.ts",
+      "find": "errorStack(e));\n      return unlocked;",
+      "replace": "errorStack(e));\n      return false;",
+      "specs": [
+        "tests/unit/core-cron-jobs-dedup.spec.ts"
+      ],
+      "driverSpecific": false
+    },
+    {
+      "id": "cron-bull-backlog-trimmed-at-once",
+      "defect": "DEV-3896 review — up to 12.1.0 every finished cron job stayed in Redis; BullMQ trims by count in ONE Lua call without a limit, so with the new job options the first tick to finish after the upgrade would delete the whole backlog at once (measured 2 s for 300k jobs, 4.4 s for 700k) while Redis answers nobody.",
+      "file": "src/core/common/services/core-cron-jobs.service.ts",
+      "find": "      await this.trimBullJobBacklog();\n",
+      "replace": "",
+      "specs": [
+        "tests/unit/core-cron-jobs-dedup.spec.ts"
+      ],
+      "driverSpecific": false
     }
   ]
 }

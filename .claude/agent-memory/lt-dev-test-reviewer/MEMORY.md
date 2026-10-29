@@ -29,3 +29,4 @@
 - [Cron BullMQ Restore Test Facts](cron-bullmq-restore-test-facts.md) — DEV-3889: 4 mutations red for the right reason; e2e "2 red" = e2e+postgres projects; restore-vs-reconcile below bar.
 - [Redis Resubscribe Test Facts](redis-resubscribe-test-facts.md) — ioredis offline-queue flush vs commandTimeout decides vacuity of "Redis down at boot" tests; DEV-3894 mutations measured; exit spec accepts a commented line.
 - [IAM User-Cache Broadcast Test Facts](iam-user-cache-broadcast-test-facts.md) — DEV-3895: WS re-check test proves ORDER (reauthenticate is called synchronously); mapper Redis wiring probed green in assembled CoreModule.
+- [Cron Scheduled-Instant + Running-Lease Test Facts](cron-scheduled-instant-running-lease-test-facts.md) — DEV-3896: fireAt() faithful to cron 4.4.0; stale-instant mutation red on key only; heartbeat proven; fail-open pinned since the review.
