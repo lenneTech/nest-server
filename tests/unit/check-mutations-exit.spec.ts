@@ -25,14 +25,14 @@ describe('check-mutations — the gate keeps its whole report on a pipe', () => 
       SOURCE.indexOf('export function isSameCliEntry'),
     );
 
-    expect(afterSummary).toContain('process.exitCode = failed.length ? 1 : 0;');
+    expect(afterSummary).toMatch(/^\s*process\.exitCode = failed\.length \? 1 : 0;/m);
     expect(afterSummary).not.toMatch(/^\s*process\.exit\(/m);
   });
 
   it('reports a crash the same way', () => {
     const crashHandler = SOURCE.slice(SOURCE.indexOf('check-mutations.mjs crashed'));
 
-    expect(crashHandler).toContain('process.exitCode = 1;');
+    expect(crashHandler).toMatch(/^\s*process\.exitCode = 1;/m);
     expect(crashHandler).not.toMatch(/^\s*process\.exit\(/m);
   });
 });
