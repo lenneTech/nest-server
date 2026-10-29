@@ -27,7 +27,8 @@ export interface CronJobConfig<OC extends CronOnCompleteCommand | null = null, C
    * Whether the job is deduplicated across replicas in multi-replica deployments.
    *
    * When enabled, only ONE replica executes each tick: via BullMQ job schedulers when
-   * Redis is configured, otherwise via a MongoDB lease per tick. The lease is BEST EFFORT —
+   * Redis is configured, otherwise via a lease per tick (Redis, the SQL default source, or
+   * MongoDB), keyed on the tick's SCHEDULED instant. The lease is BEST EFFORT —
    * an unreachable lease store runs the tick everywhere rather than stopping all scheduled
    * work, because a silent fleet-wide outage of every cron job is the worse failure.
    *
@@ -52,8 +53,12 @@ export interface CronJobConfig<OC extends CronOnCompleteCommand | null = null, C
 
   /**
    * Depending on how long the execution of a job takes, it may happen that several executions take place at the
-   * same time. This can be prevented with `runParallel = false`.This option is set to `true` by default.
+   * same time. This can be prevented with `runParallel = false`. This option is set to `true` by default.
    * If a number is specified, it is used as the number of maximum parallel executions.
+   *
+   * For a `distributed` job, `false` (or `1`) holds across replicas too: the run holds a lease, renewed while it
+   * runs and released at its end, so another replica skips its tick instead of starting the job in parallel
+   * (12.1.1+). A larger number limits each process on its own.
    */
   runParallel?: boolean | number;
 

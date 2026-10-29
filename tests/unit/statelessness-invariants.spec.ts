@@ -233,6 +233,15 @@ const INVENTORY: StateEntry[] = [
   },
   {
     because:
+      'The heartbeat of ONE running job\'s running lease. What crosses replicas is the lease itself, in Redis, the SQL '
+      + 'lease table or cron-locks; this timer only keeps it alive while this process runs the job. Cleared when the '
+      + 'run ends and unref\'d. A replica that dies takes its heartbeat along, and the lease expires within its TTL.',
+    classification: 'local',
+    file: 'common/services/core-cron-jobs.service.ts',
+    name: 'heartbeat',
+  },
+  {
+    because:
       'Subscriber callbacks — functions cannot be serialized, so they are local by definition. '
       + 'What crosses replicas is the MESSAGE, published through Redis; these maps only route it '
       + 'to the handlers registered in THIS process.',
