@@ -4898,6 +4898,127 @@
         "tests/unit/migration-runner-relative-directory.spec.ts"
       ],
       "driverSpecific": false
+    },
+    {
+      "id": "cron-lease-key-from-fire-time",
+      "defect": "DEV-3896 — the lease key of a scheduled tick was cron's lastDate(), which cron 4.4.0 sets to the moment its timer FIRED. A replica whose timer fired across a second boundary later computed a key of its own and ran the tick a second time.",
+      "file": "src/core/common/services/core-cron-jobs.service.ts",
+      "find": "          await this.runDistributedTick(name, new Date(instant));",
+      "replace": "          await this.runDistributedTick(name, ref.job.lastDate() ?? new Date(instant));",
+      "specs": [
+        "tests/unit/core-cron-jobs-dedup.spec.ts"
+      ],
+      "driverSpecific": false
+    },
+    {
+      "id": "cron-running-lease-missing",
+      "defect": "DEV-3896 — with runParallel: false a job that ran longer than its interval was skipped only inside its own process; a second replica took the next tick's lease and ran it in parallel.",
+      "file": "src/core/common/services/core-cron-jobs.service.ts",
+      "find": "      if (this.runsExclusively(config)) {",
+      "replace": "      if (false && this.runsExclusively(config)) {",
+      "specs": [
+        "tests/unit/core-cron-jobs-dedup.spec.ts"
+      ],
+      "driverSpecific": false
+    },
+    {
+      "id": "cron-lease-index-failure-cached",
+      "defect": "DEV-3896 — a failed creation of the TTL index on cron-locks was cached as done, so the index was never created and the collection grew without bound.",
+      "file": "src/core/common/services/core-cron-jobs.service.ts",
+      "find": "          this.leaseIndexReady = undefined;\n",
+      "replace": "",
+      "specs": [
+        "tests/unit/core-cron-jobs-dedup.spec.ts"
+      ],
+      "driverSpecific": false
+    },
+    {
+      "id": "cron-no-redis-hint-missing",
+      "defect": "DEV-3896 — without Redis every cron job runs on every replica, and nothing said so: the only warning was reachable only for jobs that had explicitly asked for deduplication.",
+      "file": "src/core/common/services/core-cron-jobs.service.ts",
+      "find": "    this.logLocalJobsHint(localByDefault);\n",
+      "replace": "",
+      "specs": [
+        "tests/unit/core-cron-jobs-dedup.spec.ts"
+      ],
+      "driverSpecific": false
+    },
+    {
+      "id": "cron-bull-jobs-without-options",
+      "defect": "DEV-3896 — the BullMQ schedulers were registered without job options: every completed and failed tick stayed in Redis for good, one job per tick, and the retry policy was left to BullMQ's default.",
+      "file": "src/core/common/services/core-cron-jobs.service.ts",
+      "find": "      { name, opts: this.bullJobOptions },",
+      "replace": "      { name },",
+      "specs": [
+        "tests/unit/core-cron-jobs-dedup.spec.ts"
+      ],
+      "driverSpecific": false
+    },
+    {
+      "id": "cron-running-lease-e2e-missing",
+      "defect": "DEV-3896 — with runParallel: false a job that ran longer than its interval was skipped only inside its own process; a second replica took the next tick's lease and ran it in parallel. Against a real Redis, with the owner-checked renew and release.",
+      "file": "src/core/common/services/core-cron-jobs.service.ts",
+      "find": "      if (this.runsExclusively(config)) {",
+      "replace": "      if (false && this.runsExclusively(config)) {",
+      "specs": [
+        "tests/multi-replica.e2e-spec.ts"
+      ],
+      "driverSpecific": false
+    },
+    {
+      "id": "cron-manual-run-decided-by-clock",
+      "defect": "DEV-3896 review — with the scheduled instant decided by the clock alone, \"Run now\" on a job the Hub had stopped on this replica, after its remembered instant had passed, counted as a scheduled tick; its key was an instant another replica had already run, and the operator's run was skipped without a word.",
+      "file": "src/core/common/services/core-cron-jobs.service.ts",
+      "find": "          if (fired === undefined || fired === lastFired || scheduledFor === undefined || fired < scheduledFor) {",
+      "replace": "          if (scheduledFor === undefined || Date.now() < scheduledFor) {",
+      "specs": [
+        "tests/unit/core-cron-jobs-dedup.spec.ts"
+      ],
+      "driverSpecific": false
+    },
+    {
+      "id": "cron-stale-instant-after-restart",
+      "defect": "DEV-3896 review — a job the Hub stopped and started again kept the instant it had remembered before the stop; its first tick after the restart took the lease of that old, long expired instant and ran next to the replica that ran the current tick.",
+      "file": "src/core/common/services/core-cron-jobs.service.ts",
+      "find": "          const instant = this.currentScheduledInstant(ref.job, scheduledFor, fired);",
+      "replace": "          const instant = scheduledFor;",
+      "specs": [
+        "tests/unit/core-cron-jobs-dedup.spec.ts"
+      ],
+      "driverSpecific": false
+    },
+    {
+      "id": "cron-running-lease-closed-without-store",
+      "defect": "DEV-3896 review — the running lease must fail open like the tick lease; refusing the run without a lease backend would stop a runParallel: false job on every replica for good.",
+      "file": "src/core/common/services/core-cron-jobs.service.ts",
+      "find": "        this.warnDedupInactive();\n        return unlocked;",
+      "replace": "        this.warnDedupInactive();\n        return false;",
+      "specs": [
+        "tests/unit/core-cron-jobs-dedup.spec.ts"
+      ],
+      "driverSpecific": false
+    },
+    {
+      "id": "cron-running-lease-closed-on-error",
+      "defect": "DEV-3896 review — a failing lease store must not stop a runParallel: false job: with redis configured every such job is distributed, and failing closed would skip every tick for the length of an outage.",
+      "file": "src/core/common/services/core-cron-jobs.service.ts",
+      "find": "errorStack(e));\n      return unlocked;",
+      "replace": "errorStack(e));\n      return false;",
+      "specs": [
+        "tests/unit/core-cron-jobs-dedup.spec.ts"
+      ],
+      "driverSpecific": false
+    },
+    {
+      "id": "cron-bull-backlog-trimmed-at-once",
+      "defect": "DEV-3896 review — up to 12.1.0 every finished cron job stayed in Redis; BullMQ trims by count in ONE Lua call without a limit, so with the new job options the first tick to finish after the upgrade would delete the whole backlog at once (measured 2 s for 300k jobs, 4.4 s for 700k) while Redis answers nobody.",
+      "file": "src/core/common/services/core-cron-jobs.service.ts",
+      "find": "      await this.trimBullJobBacklog();\n",
+      "replace": "",
+      "specs": [
+        "tests/unit/core-cron-jobs-dedup.spec.ts"
+      ],
+      "driverSpecific": false
     }
   ]
 }

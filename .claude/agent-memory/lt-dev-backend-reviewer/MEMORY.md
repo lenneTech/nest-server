@@ -36,3 +36,4 @@
 - [IAM user-cache broadcast (DEV-3895)](project_iam-user-cache-broadcast.md) — mapper DI + channel probed in assembled CoreModule; scratchpad probes cannot use local decorators.
 - [Better-Auth on MySQL (DEV-3904)](project_better-auth-mysql-dev3904.md) — foreignPool wrapper, collation swap, PG parity, IamSqlStorage change verified clean (2026-10-29).
 - [DEV-3897 stateless hardenings](project_dev-3897-stateless-hardenings.md) — relative migrationsDirectory MODULE_NOT_FOUND found and fixed (runner resolves since 12.1.1); Hub cursor read verified.
+- [Cron scheduled-instant + running lease (DEV-3896)](project_cron-scheduled-instant-running-lease.md) — cron 4.4 lastDate/timer facts verified, running lease sound; no High (2026-10-29).

@@ -196,6 +196,66 @@ describe('Multi-replica behavior (real Redis)', () => {
     await Promise.all([replicaA.onApplicationShutdown(), replicaB.onApplicationShutdown()]);
   });
 
+  /**
+   * @regression   DEV-3896 — `runParallel: false` held only inside one process: a job that ran longer than its interval
+   *   was started a second time on another replica. Against a real Redis, so the owner-checked renew and release
+   *   (Lua) are exercised too.
+   * @seen-failing Skip the running lease in runTick() in src/core/common/services/core-cron-jobs.service.ts — registered
+   *   as mutation `cron-running-lease-e2e-missing` in tests/regression-mutations.json.
+   */
+  it('runs a runParallel: false job on one replica at a time, across ticks', async () => {
+    const [redisA, redisB] = [createRedisService('running'), createRedisService('running')];
+    services.push(redisA, redisB);
+    await Promise.all([redisA.onModuleInit(), redisB.onModuleInit()]);
+
+    let finish!: () => void;
+    const gate = new Promise<void>(resolve => (finish = resolve));
+    const jobs = { report: { cronTime: NEVER, runOnInit: false, runParallel: false } };
+    const replicaA = new ReplicaCronJobs(jobs, redisA);
+    const replicaB = new ReplicaCronJobs(jobs, redisB);
+    (replicaA as any).report = async () => {
+      replicaA.calls.push('report');
+      await gate;
+    };
+    await Promise.all([replicaA.onApplicationBootstrap(), replicaB.onApplicationBootstrap()]);
+
+    const running = replicaA.runDistributedTick('report', new Date('2026-08-08T13:00:00.000Z'));
+    await waitUntil(() => replicaA.calls.length === 1, 'replica A to start the job');
+    const runningKey = `${RUN_PREFIX}:running:cron-lock:report:running`;
+    expect(await redisA.getClient().get(runningKey)).toBeTruthy();
+
+    // The next tick, while A still runs: B wins the tick's lease and must still not start the job
+    await replicaB.runDistributedTick('report', new Date('2026-08-08T13:01:00.000Z'));
+    expect(replicaB.calls).toEqual([]);
+
+    finish();
+    await running;
+    expect(await redisA.getClient().get(runningKey)).toBeNull();
+    await replicaB.runDistributedTick('report', new Date('2026-08-08T13:02:00.000Z'));
+    expect([...replicaA.calls, ...replicaB.calls]).toEqual(['report', 'report']);
+
+    await Promise.all([replicaA.onApplicationShutdown(), replicaB.onApplicationShutdown()]);
+  });
+
+  it('renews and releases a Redis running lease only for its owner', async () => {
+    const redis = createRedisService('owner');
+    services.push(redis);
+    await redis.onModuleInit();
+    const replica = new ReplicaCronJobs({}, redis);
+    const store = (replica as any).redisLeaseStore(redis.getClient());
+    const key = `${RUN_PREFIX}:owner:cron-lock:job:running`;
+
+    expect(await store.tryAcquire('job:running', 'owner-a', 60)).toBe(true);
+    expect(await store.tryAcquire('job:running', 'owner-b', 60)).toBe(false);
+    expect(await store.renew('job:running', 'owner-b', 600)).toBe(false);
+    expect(await store.renew('job:running', 'owner-a', 600)).toBe(true);
+    expect(await redis.getClient().ttl(key)).toBeGreaterThan(60);
+    expect(await store.release('job:running', 'owner-b')).toBe(false);
+    expect(await redis.getClient().get(key)).toBe('owner-a');
+    expect(await store.release('job:running', 'owner-a')).toBe(true);
+    expect(await redis.getClient().get(key)).toBeNull();
+  });
+
   it('runs the startup tick on exactly one replica, even though they boot at different moments', async () => {
     // Own key scope, so the key enumeration at the end sees only THIS case's leases and not the
     // scheduled-tick lease the previous case left in Redis.

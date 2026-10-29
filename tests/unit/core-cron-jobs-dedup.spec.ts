@@ -17,13 +17,33 @@ class FakeLockCollection {
     return new Set(this.docs.keys());
   }
 
-  /** The claim of `MongoLockStore`: `{ _id, expiresAt: { $lte: now } }` with an upsert */
+  /** The release of `MongoLockStore`: only by its owner */
+  async deleteOne(filter: { _id: string; owner: string }) {
+    const doc = this.docs.get(filter._id);
+    if (doc?.owner !== filter.owner) {
+      return { deletedCount: 0 };
+    }
+    this.docs.delete(filter._id);
+    return { deletedCount: 1 };
+  }
+
+  /**
+   * The claim of `MongoLockStore`: `{ _id, expiresAt: { $lte: now } }` with an upsert; its renewal:
+   * `{ _id, expiresAt: { $gt: now }, owner }` without one
+   */
   async updateOne(
-    filter: { _id: string; expiresAt?: { $lte: Date } },
+    filter: { _id: string; expiresAt?: { $gt?: Date; $lte?: Date }; owner?: string },
     update: { $set: Record<string, any> },
     options?: { upsert?: boolean },
   ) {
     const doc = this.docs.get(filter._id);
+    if (filter.owner !== undefined) {
+      const held = doc && doc.owner === filter.owner && doc.expiresAt > filter.expiresAt!.$gt!;
+      if (held) {
+        this.docs.set(filter._id, { ...doc, ...update.$set });
+      }
+      return { matchedCount: held ? 1 : 0, upsertedCount: 0 };
+    }
     if (doc && filter.expiresAt && doc.expiresAt <= filter.expiresAt.$lte) {
       this.docs.set(filter._id, { ...doc, ...update.$set });
       return { matchedCount: 1, upsertedCount: 0 };
@@ -64,6 +84,11 @@ class TestCronJobs extends CoreCronJobs {
     this.bullMqModule = options.bullMq;
     // Off unless a case asks for it: the default (60 s) would outlive the case it was created in.
     this.bullSchedulerCheckIntervalMs = options.schedulerCheckIntervalMs ?? 0;
+  }
+
+  /** The scheduler registry the jobs were added to */
+  get registry(): SchedulerRegistry {
+    return this.schedulerRegistry;
   }
 
   /** Whether the periodic scheduler check is armed */
@@ -377,7 +402,7 @@ describe('CoreCronJobs multi-replica deduplication', () => {
       expect(upsertJobScheduler).toHaveBeenCalledWith(
         'job1',
         { pattern: '*/5 * * * *', tz: 'Europe/Berlin' },
-        { name: 'job1' },
+        expect.objectContaining({ name: 'job1' }),
       );
       expect(queueArgs[0]).toBe('cron');
       expect(queueArgs[1].prefix).toBe('nest-server:bull');
@@ -519,7 +544,12 @@ describe('CoreCronJobs multi-replica deduplication', () => {
       await waitUntil(() => bull.schedulers.size === 2, 'both active schedulers to be registered again');
 
       expect([...bull.schedulers.keys()].sort()).toEqual(['job1', 'job2']);
-      expect(bull.upsert).toHaveBeenLastCalledWith('job2', { pattern: '0 * * * *', tz: 'Europe/Berlin' }, { name: 'job2' });
+      // A restored scheduler carries the same job options as a fresh one (DEV-3896)
+      expect(bull.upsert).toHaveBeenLastCalledWith(
+        'job2',
+        { pattern: '0 * * * *', tz: 'Europe/Berlin' },
+        { name: 'job2', opts: { attempts: 1, removeOnComplete: { count: 100 }, removeOnFail: { count: 500 } } },
+      );
       // Only the schedule comes back: no second startup run, no second registry entry for the Hub.
       expect(service.calls).toEqual(['job1']);
       expect((service as any).schedulerRegistry.addCronJob).toHaveBeenCalledTimes(2);
@@ -646,6 +676,399 @@ describe('CoreCronJobs multi-replica deduplication', () => {
       );
       expect([...collection.ids]).toEqual(['job1:2026-08-07T10:00:00.000Z']);
       expect(service.calls).toEqual(['job1']);
+    });
+  });
+
+  describe('stateless review hardenings (DEV-3896)', () => {
+    afterEach(() => {
+      vi.useRealTimers();
+    });
+
+    /** The CronJob a local job was registered with */
+    function cronJobOf(service: TestCronJobs, name: string): any {
+      const call = (service.registry.addCronJob as any).mock.calls.find((args: any[]) => args[0] === name);
+      return call?.[1];
+    }
+
+    /** What cron does when its timer fires: record the moment, then call the job */
+    async function fireAt(job: any, at: string): Promise<void> {
+      vi.setSystemTime(new Date(at));
+      job.lastExecution = new Date();
+      await job.fireOnTick();
+      for (let i = 0; i < 5; i++) {
+        await flush();
+      }
+    }
+
+    /**
+     * @regression   DEV-3896 — the lease key of a scheduled tick was cron's lastDate(), which cron 4.4.0 sets to the
+     *   moment its timer FIRED. A replica whose timer fired across a second boundary later (an event-loop stall)
+     *   computed a key of its own and ran the tick a second time.
+     * @seen-failing Key the tick on `ref.job?.lastDate()` again in registerLocalJob() in
+     *   src/core/common/services/core-cron-jobs.service.ts — registered as mutation `cron-lease-key-from-fire-time` in
+     *   tests/regression-mutations.json.
+     */
+    it('gives two replicas whose timers fire on either side of a second boundary the same lease', async () => {
+      vi.useFakeTimers({ now: new Date('2026-08-07T09:59:50.000Z'), toFake: ['Date', 'setTimeout', 'clearTimeout'] });
+      const jobs = { job1: { cronTime: '0 * * * * *', distributed: true, runOnInit: false } };
+      const replicaA = new TestCronJobs(jobs, { connection: fakeConnection(collection) });
+      const replicaB = new TestCronJobs(jobs, { connection: fakeConnection(collection) });
+      await replicaA.onApplicationBootstrap();
+      await replicaB.onApplicationBootstrap();
+
+      await fireAt(cronJobOf(replicaA, 'job1'), '2026-08-07T10:00:00.005Z');
+      await fireAt(cronJobOf(replicaB, 'job1'), '2026-08-07T10:00:01.005Z');
+
+      expect([...replicaA.calls, ...replicaB.calls]).toEqual(['job1']);
+      expect([...collection.ids]).toEqual(['job1:2026-08-07T10:00:00.000Z']);
+      cronJobOf(replicaA, 'job1').stop();
+      cronJobOf(replicaB, 'job1').stop();
+    });
+
+    it('keys a run triggered before the next scheduled instant on a key of its own (manual run)', async () => {
+      vi.useFakeTimers({ now: new Date('2026-08-07T09:59:50.000Z'), toFake: ['Date', 'setTimeout', 'clearTimeout'] });
+      const service = new TestCronJobs(
+        { job1: { cronTime: '0 * * * * *', distributed: true, runOnInit: false } },
+        { connection: fakeConnection(collection) },
+      );
+      await service.onApplicationBootstrap();
+      const job = cronJobOf(service, 'job1');
+
+      await fireAt(job, '2026-08-07T10:00:00.005Z');
+      // The Hub's "Run now" calls fireOnTick() without cron moving lastDate()
+      vi.setSystemTime(new Date('2026-08-07T10:00:20.000Z'));
+      await job.fireOnTick();
+      for (let i = 0; i < 5; i++) {
+        await flush();
+      }
+
+      expect(service.calls).toEqual(['job1', 'job1']);
+      expect([...collection.ids].filter((id) => id.includes(':manual:'))).toHaveLength(1);
+      expect(collection.ids.has('job1:2026-08-07T10:01:00.000Z')).toBe(false);
+      job.stop();
+    });
+
+    /**
+     * @regression   DEV-3896 review — with the scheduled instant decided by the clock alone, "Run now" on a job the Hub
+     *   had STOPPED on this replica (its remembered instant long past) counted as a scheduled tick. Its key was the
+     *   instant another replica had already run, so the operator's run was skipped without a word.
+     * @seen-failing Decide the manual run by the clock instead of lastDate() in registerLocalJob() in
+     *   src/core/common/services/core-cron-jobs.service.ts — registered as mutation
+     *   `cron-manual-run-decided-by-clock` in tests/regression-mutations.json.
+     */
+    it('runs "Run now" on a job the Hub stopped on this replica, even after another replica ran that tick', async () => {
+      vi.useFakeTimers({ now: new Date('2026-08-07T09:59:50.000Z'), toFake: ['Date', 'setTimeout', 'clearTimeout'] });
+      const jobs = { job1: { cronTime: '0 * * * * *', distributed: true, runOnInit: false } };
+      const replicaA = new TestCronJobs(jobs, { connection: fakeConnection(collection) });
+      const replicaB = new TestCronJobs(jobs, { connection: fakeConnection(collection) });
+      await replicaA.onApplicationBootstrap();
+      await replicaB.onApplicationBootstrap();
+      const jobA = cronJobOf(replicaA, 'job1');
+      const jobB = cronJobOf(replicaB, 'job1');
+
+      // Both fire for 10:00, A wins; then the Hub stops the job on B, and A runs 10:01
+      await fireAt(jobA, '2026-08-07T10:00:00.005Z');
+      await fireAt(jobB, '2026-08-07T10:00:00.009Z');
+      jobB.stop();
+      await fireAt(jobA, '2026-08-07T10:01:00.005Z');
+      // "Run now" on replica B after 10:01 has passed: cron leaves lastDate() alone on a manual fireOnTick()
+      vi.setSystemTime(new Date('2026-08-07T10:01:10.000Z'));
+      await jobB.fireOnTick();
+      for (let i = 0; i < 5; i++) {
+        await flush();
+      }
+
+      expect(replicaA.calls).toEqual(['job1', 'job1']);
+      expect(replicaB.calls).toEqual(['job1']);
+      jobA.stop();
+    });
+
+    /**
+     * @regression   DEV-3896 review — a job the Hub stopped and started again kept the instant it had remembered before
+     *   the stop. Its first tick after the restart took the lease of that old instant, which had long expired, and ran
+     *   next to the replica that ran the current tick.
+     * @seen-failing Key the tick on the remembered instant without moving it forward in registerLocalJob() in
+     *   src/core/common/services/core-cron-jobs.service.ts — registered as mutation
+     *   `cron-stale-instant-after-restart` in tests/regression-mutations.json.
+     */
+    it('keys the first tick after a Hub restart on the current instant, not the one before the stop', async () => {
+      vi.useFakeTimers({ now: new Date('2026-08-07T09:59:50.000Z'), toFake: ['Date', 'setTimeout', 'clearTimeout'] });
+      const jobs = { job1: { cronTime: '0 * * * * *', distributed: true, runOnInit: false } };
+      const replicaA = new TestCronJobs(jobs, { connection: fakeConnection(collection) });
+      const replicaB = new TestCronJobs(jobs, { connection: fakeConnection(collection) });
+      await replicaA.onApplicationBootstrap();
+      await replicaB.onApplicationBootstrap();
+      const jobB = cronJobOf(replicaB, 'job1');
+      jobB.stop();
+
+      // Two hours later B is started again; both replicas fire for 12:00
+      vi.setSystemTime(new Date('2026-08-07T11:59:50.000Z'));
+      jobB.start();
+      await fireAt(cronJobOf(replicaA, 'job1'), '2026-08-07T12:00:00.003Z');
+      await fireAt(jobB, '2026-08-07T12:00:00.009Z');
+
+      expect([...replicaA.calls, ...replicaB.calls]).toEqual(['job1']);
+      expect(collection.ids.has('job1:2026-08-07T12:00:00.000Z')).toBe(true);
+      cronJobOf(replicaA, 'job1').stop();
+      jobB.stop();
+    });
+
+    /**
+     * @regression   DEV-3896 — the per-tick lease never covered the RUN: with `runParallel: false` a job that ran longer
+     *   than its interval was skipped only inside its own process, so a second replica took the next tick's lease and
+     *   ran it in parallel.
+     * @seen-failing Skip the running lease in runTick() in src/core/common/services/core-cron-jobs.service.ts —
+     *   registered as mutation `cron-running-lease-missing` in tests/regression-mutations.json.
+     */
+    it('does not start a runParallel: false job on a second replica while the first still runs it', async () => {
+      vi.useFakeTimers({ now: new Date('2026-08-07T10:00:00.000Z'), toFake: ['Date', 'setInterval', 'clearInterval'] });
+      let finish!: () => void;
+      const gate = new Promise<void>((resolve) => (finish = resolve));
+      const jobs = { slow: { cronTime: NEVER, distributed: true, runOnInit: false, runParallel: false } };
+      const replicaA = new TestCronJobs(jobs, { connection: fakeConnection(collection) });
+      const replicaB = new TestCronJobs(jobs, { connection: fakeConnection(collection) });
+      (replicaA as any).slow = async () => {
+        replicaA.calls.push('slow');
+        await gate;
+      };
+      (replicaB as any).slow = async () => {
+        replicaB.calls.push('slow');
+      };
+      await replicaA.onApplicationBootstrap();
+      await replicaB.onApplicationBootstrap();
+
+      const running = replicaA.runDistributedTick('slow', new Date('2026-08-07T10:00:00.000Z'));
+      await flush();
+      // 65 s later the heartbeat has kept the lease alive past its 60 s lifetime
+      await vi.advanceTimersByTimeAsync(65_000);
+      await replicaB.runDistributedTick('slow', new Date('2026-08-07T10:01:00.000Z'));
+      expect(replicaB.calls).toEqual([]);
+
+      finish();
+      await running;
+      expect(collection.ids.has('slow:running')).toBe(false);
+      await replicaB.runDistributedTick('slow', new Date('2026-08-07T10:02:00.000Z'));
+      expect([...replicaA.calls, ...replicaB.calls]).toEqual(['slow', 'slow']);
+    });
+
+    /**
+     * @regression   DEV-3896 review — the running lease must fail open like the tick lease: a `runParallel: false` job
+     *   with no lease backend at all must still run, or it would never run on any replica.
+     * @seen-failing Refuse the run when acquireRunningLease() finds no store in
+     *   src/core/common/services/core-cron-jobs.service.ts — registered as mutation
+     *   `cron-running-lease-closed-without-store` in tests/regression-mutations.json.
+     */
+    it('runs a runParallel: false job when there is no lease backend at all', async () => {
+      const service = new TestCronJobs(
+        { job1: { cronTime: NEVER, distributed: true, runOnInit: false, runParallel: false } },
+        {},
+      );
+      await service.onApplicationBootstrap();
+
+      await service.runDistributedTick('job1', new Date('2026-08-07T10:00:00.000Z'));
+      await service.runDistributedTick('job1', new Date('2026-08-07T10:01:00.000Z'));
+
+      expect(service.calls).toEqual(['job1', 'job1']);
+    });
+
+    /**
+     * @regression   DEV-3896 review — a lease store that fails (Redis erroring, a database down) must not stop a
+     *   `runParallel: false` job: with `redis` configured every such job is distributed, and failing closed would skip
+     *   every tick for the length of the outage.
+     * @seen-failing Refuse the run when the running lease throws in acquireRunningLease() in
+     *   src/core/common/services/core-cron-jobs.service.ts — registered as mutation
+     *   `cron-running-lease-closed-on-error` in tests/regression-mutations.json.
+     */
+    it('runs a runParallel: false job when its running lease cannot be taken', async () => {
+      const failing = new FakeLockCollection();
+      const claim = failing.updateOne.bind(failing);
+      failing.updateOne = (async (filter: any, update: any, options?: any) => {
+        if (String(filter._id).endsWith(':running')) {
+          throw new Error('connection reset');
+        }
+        return claim(filter, update, options);
+      }) as any;
+      const service = new TestCronJobs(
+        { job1: { cronTime: NEVER, distributed: true, runOnInit: false, runParallel: false } },
+        { connection: fakeConnection(failing) },
+      );
+      await service.onApplicationBootstrap();
+
+      await service.runDistributedTick('job1', new Date('2026-08-07T10:00:00.000Z'));
+
+      expect(service.calls).toEqual(['job1']);
+      expect(Logger.prototype.error).toHaveBeenCalledWith(
+        expect.stringContaining('Cron running lease for job1:running failed, running anyway'),
+        expect.any(String),
+      );
+    });
+
+    it('keeps runParallel: true jobs free of a running lease', async () => {
+      const service = new TestCronJobs(
+        { job1: { cronTime: NEVER, distributed: true, runOnInit: false } },
+        { connection: fakeConnection(collection) },
+      );
+      await service.onApplicationBootstrap();
+
+      await service.runDistributedTick('job1', new Date('2026-08-07T10:00:00.000Z'));
+
+      expect([...collection.ids]).toEqual(['job1:2026-08-07T10:00:00.000Z']);
+    });
+
+    /**
+     * @regression   DEV-3896 — a failed creation of the TTL index on `cron-locks` was cached as done, so the index was
+     *   never created and the collection grew without bound.
+     * @seen-failing Keep the failed promise in ensureLeaseIndex() in src/core/common/services/core-cron-jobs.service.ts
+     *   — registered as mutation `cron-lease-index-failure-cached` in tests/regression-mutations.json.
+     */
+    it('tries the TTL index again on the next tick after it failed', async () => {
+      collection.createIndex.mockRejectedValueOnce(new Error('not authorized'));
+      const service = new TestCronJobs(
+        { job1: { cronTime: NEVER, distributed: true, runOnInit: false } },
+        { connection: fakeConnection(collection) },
+      );
+      await service.onApplicationBootstrap();
+
+      await service.runDistributedTick('job1', new Date('2026-08-07T10:00:00.000Z'));
+      await service.runDistributedTick('job1', new Date('2026-08-07T10:01:00.000Z'));
+      await service.runDistributedTick('job1', new Date('2026-08-07T10:02:00.000Z'));
+
+      expect(collection.createIndex).toHaveBeenCalledTimes(2);
+      expect(Logger.prototype.error).toHaveBeenCalledWith(
+        expect.stringContaining('Could not create TTL index'),
+        expect.any(String),
+      );
+    });
+
+    /**
+     * @regression   DEV-3896 — without Redis every job runs on every replica, and nothing said so: the only warning
+     *   was reachable only for jobs that had explicitly asked for deduplication.
+     * @seen-failing Drop the logLocalJobsHint() call from initCronJobs() in
+     *   src/core/common/services/core-cron-jobs.service.ts — registered as mutation `cron-no-redis-hint-missing` in
+     *   tests/regression-mutations.json.
+     */
+    it('says once at startup that jobs run on every replica when no redis is configured', async () => {
+      const service = new TestCronJobs(
+        {
+          job1: { cronTime: NEVER, runOnInit: false },
+          job2: { cronTime: NEVER, distributed: false, runOnInit: false },
+        },
+        {},
+      );
+      (service as any).job2 = async () => undefined;
+
+      await service.onApplicationBootstrap();
+
+      const hints = (Logger.prototype.log as any).mock.calls.filter(([message]: [string]) =>
+        message.includes('every replica'),
+      );
+      expect(hints).toHaveLength(1);
+      expect(hints[0][0]).toContain('job1');
+      expect(hints[0][0]).not.toContain('job2');
+      expect(Logger.prototype.warn).not.toHaveBeenCalled();
+    });
+
+    it('stays quiet about replicas when redis is configured, when every job chose, or with log: false', async () => {
+      const withRedis = new TestCronJobs(
+        { job1: { cronTime: NEVER, runOnInit: false } },
+        { redisService: fakeRedisService({ getClient: () => undefined }) },
+      );
+      const chosen = new TestCronJobs({ job1: { cronTime: NEVER, distributed: false, runOnInit: false } }, {});
+      const silent = new TestCronJobs({ job1: { cronTime: NEVER, runOnInit: false } }, { log: false });
+
+      await withRedis.onApplicationBootstrap();
+      await chosen.onApplicationBootstrap();
+      await silent.onApplicationBootstrap();
+
+      expect(
+        (Logger.prototype.log as any).mock.calls.filter(([message]: [string]) => message.includes('every replica')),
+      ).toEqual([]);
+    });
+
+    /**
+     * @regression   DEV-3896 — the BullMQ schedulers were registered without job options: every completed and every
+     *   failed tick stayed in Redis for good, one job per tick, and the retry policy was left to BullMQ's default.
+     * @seen-failing Register the scheduler with the bare template `{ name }` in upsertBullScheduler() in
+     *   src/core/common/services/core-cron-jobs.service.ts — registered as mutation `cron-bull-jobs-without-options`
+     *   in tests/regression-mutations.json.
+     */
+    it('registers BullMQ schedulers with bounded job retention and a single attempt', async () => {
+      const upsertJobScheduler = vi.fn(async () => undefined);
+      const bullMq = {
+        Queue: class {
+          close = vi.fn(async () => undefined);
+          upsertJobScheduler = upsertJobScheduler;
+        },
+        Worker: class {
+          close = vi.fn(async () => undefined);
+          concurrency = 1;
+          on = vi.fn();
+          run = vi.fn(async () => undefined);
+        },
+      };
+      const service = new TestCronJobs(
+        { job1: { cronTime: '*/5 * * * *', runOnInit: false } },
+        { bullMq, redisService: fakeRedisService({ getClient: () => ({ del: vi.fn() }) }) },
+      );
+
+      await service.onApplicationBootstrap();
+
+      expect(upsertJobScheduler).toHaveBeenCalledWith('job1', expect.any(Object), {
+        name: 'job1',
+        opts: { attempts: 1, removeOnComplete: { count: 100 }, removeOnFail: { count: 500 } },
+      });
+      await service.onApplicationShutdown();
+    });
+
+    /**
+     * @regression   DEV-3896 review — up to 12.1.0 every finished cron job stayed in Redis. BullMQ trims by `count` in ONE
+     *   Lua call without a limit, so with the new options the first tick to finish after the upgrade would have deleted
+     *   that whole backlog at once: measured 2 s for 300k jobs, 4.4 s for 700k, during which Redis answered nobody.
+     * @seen-failing Drop the trimBullJobBacklog() call from initCronJobs() in
+     *   src/core/common/services/core-cron-jobs.service.ts — registered as mutation `cron-bull-backlog-trimmed-at-once`
+     *   in tests/regression-mutations.json.
+     */
+    it('trims the backlog earlier versions kept in bounded batches before the schedulers get the new options', async () => {
+      const events: string[] = [];
+      const counts: Record<string, number> = { completed: 2_350, failed: 520 };
+      const bullMq = {
+        Queue: class {
+          clean = vi.fn(async (grace: number, limit: number, type: string) => {
+            events.push(`clean:${type}:${grace}:${limit}`);
+            const removed = Math.min(limit, counts[type]);
+            counts[type] -= removed;
+            return Array.from({ length: removed }, (_, i) => `${type}-${i}`);
+          });
+          close = vi.fn(async () => undefined);
+          getJobCountByTypes = vi.fn(async (type: string) => counts[type]);
+          upsertJobScheduler = vi.fn(async (name: string) => {
+            events.push(`upsert:${name}`);
+          });
+        },
+        Worker: class {
+          close = vi.fn(async () => undefined);
+          concurrency = 1;
+          on = vi.fn();
+          run = vi.fn(async () => undefined);
+        },
+      };
+      const service = new TestCronJobs(
+        { job1: { cronTime: '*/5 * * * *', runOnInit: false } },
+        { bullMq, redisService: fakeRedisService({ getClient: () => ({ del: vi.fn() }) }) },
+      );
+
+      await service.onApplicationBootstrap();
+
+      // The newest 100 completed and 500 failed jobs stay, every call removes at most 1000, all before the upsert
+      expect(counts).toEqual({ completed: 100, failed: 500 });
+      expect(events).toEqual([
+        'clean:completed:0:1000',
+        'clean:completed:0:1000',
+        'clean:completed:0:250',
+        'clean:failed:0:20',
+        'upsert:job1',
+      ]);
+      await service.onApplicationShutdown();
     });
   });
 });

@@ -8,6 +8,7 @@ import { CRON_LOCK_COLLECTION, cronMongoLocks, defaultSqlLockStore } from '../pe
 import { Falsy } from '../types/falsy.type.js';
 import { getCronJobsInfrastructure } from './core-cron-jobs.registry.js';
 
+import type { LockStore } from '../persistence/lock-store.interface.js';
 import type { CoreRedisService } from './core-redis.service.js';
 import type { Redis } from 'ioredis';
 import type { Connection } from 'mongoose';
@@ -45,6 +46,28 @@ const CRON_LOCK_TTL_SECONDS = 3600;
 const CRON_INIT_LOCK_TTL_SECONDS = 300;
 
 /**
+ * Lifetime of the lease a `runParallel: false` job holds while it RUNS, renewed every third of it.
+ *
+ * Short, so a replica that dies mid-run frees the job within a minute; the heartbeat keeps it held for as long as the
+ * run takes.
+ */
+const CRON_RUNNING_LOCK_TTL_SECONDS = 60;
+
+/** Extends a Redis lease only for its owner */
+const REDIS_RENEW_SCRIPT =
+  "if redis.call('get', KEYS[1]) == ARGV[1] then return redis.call('pexpire', KEYS[1], ARGV[2]) else return 0 end";
+
+/** Deletes a Redis lease only for its owner */
+const REDIS_RELEASE_SCRIPT =
+  "if redis.call('get', KEYS[1]) == ARGV[1] then return redis.call('del', KEYS[1]) else return 0 end";
+
+/**
+ * Jobs one `clean()` call removes when the backlog of earlier versions is trimmed: about 6.5 ms of Redis time each, so
+ * Redis keeps answering other clients between the calls
+ */
+const CRON_JOB_TRIM_BATCH = 1000;
+
+/**
  * Name of the shared BullMQ queue carrying all distributed cron jobs
  */
 const CRON_QUEUE_NAME = 'cron';
@@ -78,11 +101,13 @@ export interface CoreCronJobsOptions {
 /**
  * Cron jobs service to extend
  *
- * Jobs are deduplicated across replicas unless `distributed: false` is set:
+ * Jobs are deduplicated across replicas when they are `distributed` — the default with `redis` configured; without
+ * it a job runs on every replica unless it sets `distributed: true`:
  * - Redis configured + `bullmq` installed: the job becomes a BullMQ job scheduler,
  *   so exactly one worker in the cluster picks up each tick.
  * - Otherwise: the local cron timer stays, but each tick first acquires a lease
- *   (Redis `SET NX` when available, else a `cron-locks` document in MongoDB).
+ *   (Redis `SET NX` when available, else the SQL lease table of the default source, else a `cron-locks` document in
+ *   MongoDB).
  */
 export abstract class CoreCronJobs implements OnApplicationBootstrap, OnApplicationShutdown {
   /**
@@ -97,6 +122,18 @@ export abstract class CoreCronJobs implements OnApplicationBootstrap, OnApplicat
    * Cron jobs that are currently running
    */
   runningJobs: Record<string, Date[]> = {};
+
+  /**
+   * Options of every job a BullMQ scheduler creates (DEV-3896). One attempt: a failed tick is not repeated, as with the
+   * local timer — the next tick runs on schedule, and a retry could repeat side effects of a run that failed halfway.
+   * Completed and failed jobs are trimmed, one job per tick would otherwise stay in Redis for good. A subclass may set
+   * its own.
+   */
+  protected bullJobOptions: Record<string, unknown> = {
+    attempts: 1,
+    removeOnComplete: { count: 100 },
+    removeOnFail: { count: 500 },
+  };
 
   /** Shared BullMQ queue, created only in BullMQ mode */
   protected bullQueue?: any;
@@ -210,7 +247,12 @@ export abstract class CoreCronJobs implements OnApplicationBootstrap, OnApplicat
     }
 
     const bullMqActive = await this.initBullMq();
+    if (bullMqActive) {
+      await this.trimBullJobBacklog();
+    }
     this.bullScheduledJobs.clear();
+    /** Jobs that run on every replica because no redis is configured and they did not choose either way */
+    const localByDefault: string[] = [];
 
     // Init cron jobs
     for (const [name, CronExpressionOrConfig] of Object.entries(this.cronJobs)) {
@@ -280,8 +322,12 @@ export abstract class CoreCronJobs implements OnApplicationBootstrap, OnApplicat
 
       // Init local cron job
       this.registerLocalJob(name, config, distributed);
+      if (!distributed && conf.distributed === undefined) {
+        localByDefault.push(name);
+      }
     }
 
+    this.logLocalJobsHint(localByDefault);
     await this.removeStaleBullSchedulers(this.bullScheduledJobs);
     this.startBullWorker();
     this.startBullSchedulerCheck();
@@ -382,6 +428,9 @@ export abstract class CoreCronJobs implements OnApplicationBootstrap, OnApplicat
         .createIndex({ expiresAt: 1 }, { expireAfterSeconds: 0 })
         .then(() => undefined)
         .catch((e) => {
+          // Tried again on the next tick: cached as done, the index would never exist and `cron-locks` would grow
+          // without bound (DEV-3896). The lease itself does not need it — expiry is decided by expiresAt.
+          this.leaseIndexReady = undefined;
           cronLogger.error(`Could not create TTL index on cron lock collection: ${errorMessage(e)}`, errorStack(e));
         });
     }
@@ -522,6 +571,44 @@ export abstract class CoreCronJobs implements OnApplicationBootstrap, OnApplicat
 
     if (running()) {
       cronLogger.warn(`${running()} cron job(s) still running after ${timeoutMs}ms — shutting down anyway`);
+    }
+  }
+
+  /**
+   * Trim the finished cron jobs earlier versions kept, in bounded batches, before the schedulers get `bullJobOptions`.
+   *
+   * Up to 12.1.0 every completed and failed tick stayed in Redis. BullMQ trims by `count` in ONE Lua call without a
+   * limit, so the first tick to finish under the new options would delete the whole backlog at once — measured 2 s for
+   * 300k jobs and 4.4 s for 700k, during which Redis answers nobody and every command of every replica times out
+   * (DEV-3896). `clean()` removes the oldest first and honours its limit. Once the backlog is gone this is one count
+   * per type at bootstrap. A failure is reported and does not stop the jobs.
+   */
+  protected async trimBullJobBacklog(): Promise<void> {
+    const keep = {
+      completed: (this.bullJobOptions.removeOnComplete as { count?: number } | undefined)?.count,
+      failed: (this.bullJobOptions.removeOnFail as { count?: number } | undefined)?.count,
+    };
+    for (const type of ['completed', 'failed'] as const) {
+      const limit = keep[type];
+      if (typeof limit !== 'number' || limit < 0) {
+        continue;
+      }
+      try {
+        let excess = (await this.bullQueue.getJobCountByTypes(type)) - limit;
+        if (excess <= 0) {
+          continue;
+        }
+        cronLogger.log(`Trimming ${excess} ${type} cron jobs an earlier version kept in Redis`);
+        while (excess > 0) {
+          const removed: string[] = await this.bullQueue.clean(0, Math.min(CRON_JOB_TRIM_BATCH, excess), type);
+          if (!removed?.length) {
+            break;
+          }
+          excess -= removed.length;
+        }
+      } catch (error) {
+        cronLogger.warn(`Trimming the ${type} cron jobs failed: ${errorMessage(error)}`);
+      }
     }
   }
 
@@ -754,7 +841,7 @@ export abstract class CoreCronJobs implements OnApplicationBootstrap, OnApplicat
     return this.bullQueue.upsertJobScheduler(
       name,
       { pattern: config.cronTime as string, tz: config.timeZone ?? undefined },
-      { name },
+      { name, opts: this.bullJobOptions },
     );
   }
 
@@ -764,8 +851,14 @@ export abstract class CoreCronJobs implements OnApplicationBootstrap, OnApplicat
   protected registerLocalJob(name: string, config: CronJobConfigWithTimeZone, distributed: boolean): void {
     // Filled after construction; runOnInit fires DURING construction, where the fire time is simply "now"
     const ref: { job?: CronJob } = {};
-    /** Fire time of the last SCHEDULED tick, to tell a manual trigger apart from a repeat */
-    let lastLeasedFireTime: number | undefined;
+    /**
+     * The schedule instant the next scheduled fire belongs to, read when the job is armed and after every scheduled
+     * fire. cron's lastDate() is NOT that instant: cron 4 sets it to the moment its timer fired, so two replicas whose
+     * timers fire on either side of a second boundary computed different lease keys and both ran the tick (DEV-3896).
+     */
+    let scheduledFor: number | undefined;
+    /** lastDate() as of the last scheduled fire, to tell the next scheduled fire from a manual one */
+    let lastFired: number | undefined;
 
     const job = new CronJob(
       config.cronTime,
@@ -776,21 +869,23 @@ export abstract class CoreCronJobs implements OnApplicationBootstrap, OnApplicat
           // the fleet-wide init lease, because "startup" is not an instant the replicas
           // agree on; a scheduled tick takes a lease keyed on the schedule instant, which
           // every replica computes identically.
-          const scheduled = ref.job?.lastDate();
-          if (!scheduled) {
+          if (!ref.job) {
             this.runInitTick(name);
             return;
           }
-          // `cron` only advances lastDate() on a SCHEDULED fire, so a manual fireOnTick() (the
-          // Hub's "Run now") reports the previous tick's instant — whose lease this replica
-          // already holds. Reusing it would lose the race against itself and silently do
-          // nothing, while the operator sees a success response. A manual run gets its own key.
-          if (scheduled.getTime() === lastLeasedFireTime) {
+          // cron advances lastDate() only when its timer fires, never before the instant; a manual fireOnTick() (the
+          // Hub's "Run now") leaves it as it was. Keyed on an instant, a manual run would take a lease another replica
+          // may already hold (the operator's run silently skipped) or the next tick's (that tick skipped everywhere),
+          // so it gets its own key.
+          const fired = ref.job.lastDate()?.getTime();
+          if (fired === undefined || fired === lastFired || scheduledFor === undefined || fired < scheduledFor) {
             await this.runDistributedTick(name, 'manual');
             return;
           }
-          lastLeasedFireTime = scheduled.getTime();
-          await this.runDistributedTick(name, scheduled);
+          lastFired = fired;
+          const instant = this.currentScheduledInstant(ref.job, scheduledFor, fired);
+          scheduledFor = this.nextScheduledInstant(ref.job);
+          await this.runDistributedTick(name, new Date(instant));
           return;
         }
         await this.runTick(name);
@@ -804,6 +899,7 @@ export abstract class CoreCronJobs implements OnApplicationBootstrap, OnApplicat
       config.unrefTimeout,
     );
     ref.job = job;
+    scheduledFor = this.nextScheduledInstant(job);
     this.schedulerRegistry.addCronJob(name, job);
     if (this.config.log && this.schedulerRegistry.getCronJob(name)) {
       cronLogger.log(`CronJob ${name} initialized with "${config.cronTime}"`);
@@ -861,21 +957,175 @@ export abstract class CoreCronJobs implements OnApplicationBootstrap, OnApplicat
     const date = new Date();
     this.runningJobs[name].push(date);
 
-    // Execute the job and wait until job process is done
+    let lease: false | undefined | { release: () => Promise<void> };
     try {
+      // runParallel above is per process. A job that must not run twice at once holds a lease for the length of the
+      // run, so a second replica skips its next tick instead of starting it in parallel (DEV-3896).
+      if (this.runsExclusively(config)) {
+        lease = await this.acquireRunningLease(name);
+        if (lease === false) {
+          this.logSkippedTick(`${name}:running`);
+          return;
+        }
+      }
+
+      // Execute the job and wait until job process is done
       await this[name]();
     } catch (e) {
-      // Remove job from running list
-      this.runningJobs[name] = this.runningJobs[name].filter((item) => item !== date);
       if (config.throwException) {
         throw e;
       } else {
         cronLogger.error(`CronJob ${name} failed: ${errorMessage(e)}`, errorStack(e));
       }
+    } finally {
+      // Remove job from running list
+      this.runningJobs[name] = this.runningJobs[name].filter((item) => item !== date);
+      if (lease) {
+        await lease.release();
+      }
+    }
+  }
+
+  /**
+   * Whether a job may run only once at a time across all replicas: a distributed job with `runParallel: false` (or
+   * `1`). A larger `runParallel` stays a per-process limit.
+   */
+  protected runsExclusively(config: CronJobConfigWithTimeZone): boolean {
+    return config.distributed !== false && (!config.runParallel || config.runParallel === 1);
+  }
+
+  /**
+   * Take the lease a running job holds, kept alive by a heartbeat until `release()`.
+   *
+   * Returns `false` when another replica runs the job. Without a lease backend, or when the backend fails, the job runs
+   * anyway (fail open, like the tick lease): a missing lock must never stop the job.
+   */
+  protected async acquireRunningLease(name: string): Promise<false | { release: () => Promise<void> }> {
+    const key = `${name}:running`;
+    const unlocked = { release: async () => undefined };
+    let store: LockStore | undefined;
+    try {
+      store = await this.leaseStore();
+      if (!store) {
+        this.warnDedupInactive();
+        return unlocked;
+      }
+      if (!(await store.tryAcquire(key, this.leaseOwner, CRON_RUNNING_LOCK_TTL_SECONDS))) {
+        return false;
+      }
+    } catch (e) {
+      cronLogger.error(`Cron running lease for ${key} failed, running anyway: ${errorMessage(e)}`, errorStack(e));
+      return unlocked;
     }
 
-    // Remove job from running list
-    this.runningJobs[name] = this.runningJobs[name].filter((item) => item !== date);
+    const held = store;
+    const heartbeat = setInterval(
+      () => {
+        held
+          .renew(key, this.leaseOwner, CRON_RUNNING_LOCK_TTL_SECONDS)
+          .then((renewed) => {
+            if (!renewed) {
+              cronLogger.warn(`Cron running lease for ${key} was lost; another replica may start the job`);
+            }
+          })
+          .catch((e) => cronLogger.warn(`Renewing the cron running lease for ${key} failed: ${errorMessage(e)}`));
+      },
+      (CRON_RUNNING_LOCK_TTL_SECONDS * 1000) / 3,
+    );
+    heartbeat.unref?.();
+
+    return {
+      release: async () => {
+        clearInterval(heartbeat);
+        await held
+          .release(key, this.leaseOwner)
+          .catch((e) => cronLogger.warn(`Releasing the cron running lease for ${key} failed: ${errorMessage(e)}`));
+      },
+    };
+  }
+
+  /**
+   * The store for leases with an owner: Redis when available, else the SQL lease table of the default source, else
+   * `cron-locks` in MongoDB; `undefined` when there is none
+   */
+  protected async leaseStore(): Promise<LockStore | undefined> {
+    const redis = this.getRedisClient();
+    if (redis) {
+      return this.redisLeaseStore(redis);
+    }
+    const sqlLocks = await defaultSqlLockStore('cron');
+    if (sqlLocks) {
+      return sqlLocks;
+    }
+    const connection = this.getConnection();
+    if (!connection) {
+      return undefined;
+    }
+    await this.ensureLeaseIndex(connection);
+    return cronMongoLocks(connection.db.collection(CRON_LOCK_COLLECTION));
+  }
+
+  /** Leases in Redis under `<keyPrefix>:cron-lock:<key>`, renewed and released only by their owner */
+  protected redisLeaseStore(redis: Redis): LockStore {
+    const redisKey = (key: string) => this.getRedisService().key('cron-lock', key);
+    return {
+      release: async (key, owner) => (await redis.eval(REDIS_RELEASE_SCRIPT, 1, redisKey(key), owner)) === 1,
+      renew: async (key, owner, ttlSeconds) =>
+        (await redis.eval(REDIS_RENEW_SCRIPT, 1, redisKey(key), owner, ttlSeconds * 1000)) === 1,
+      tryAcquire: async (key, owner, ttlSeconds) =>
+        (await redis.set(redisKey(key), owner, 'EX', ttlSeconds, 'NX')) === 'OK',
+    };
+  }
+
+  /**
+   * The instant a scheduled fire belongs to: the remembered instant, moved forward to the last one at or before the
+   * fire. It stays as remembered on every regular fire; it lags only when the job did not fire for a while (stopped
+   * in the Hub and started again), and keyed on that old instant the first tick after a restart would run next to
+   * the replica that runs the current one. Not moved for a `utcOffset` job or a one-shot date, whose schedule this
+   * cannot step through.
+   */
+  protected currentScheduledInstant(job: CronJob, remembered: number, fired: number): number {
+    const cronTime = job.cronTime;
+    if (cronTime.utcOffset !== undefined || cronTime.realDate) {
+      return remembered;
+    }
+    let instant = remembered;
+    try {
+      // Bounded: a job stopped for a long time on a per-second schedule must not keep the tick busy
+      for (let step = 0; step < 10_000; step++) {
+        const next = cronTime.getNextDateFrom(new Date(instant), cronTime.timeZone).toMillis();
+        if (next > fired) {
+          break;
+        }
+        instant = next;
+      }
+    } catch {
+      // cron could not step the schedule: keep what is known
+    }
+    return instant;
+  }
+
+  /** The next instant the job's schedule fires at, in ms; `undefined` when cron cannot say (a past one-shot date) */
+  protected nextScheduledInstant(job: CronJob): number | undefined {
+    try {
+      return job.nextDate().toMillis();
+    } catch {
+      return undefined;
+    }
+  }
+
+  /**
+   * Say once at startup which jobs run on every replica because no redis is configured and they did not choose with
+   * `distributed`. Info, not a warning: most projects run one replica, where this is right (DEV-3896).
+   */
+  protected logLocalJobsHint(names: string[]): void {
+    if (!names.length || !this.config.log) {
+      return;
+    }
+    cronLogger.log(
+      `CronJobs ${names.join(', ')} run on every replica: no redis is configured. With more than one replica, ` +
+        'configure redis, or set distributed: true to take a lease in MongoDB or the SQL default source.',
+    );
   }
 
   /**
