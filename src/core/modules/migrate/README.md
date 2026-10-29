@@ -133,7 +133,8 @@ await synchronizedUp(migrationOptions);
 // that runs migrations
 await synchronizedMigration(migrationOptions, async (migrationSet) => {
   // Only one instance at a time will execute this code
-  console.log(`${migrationSet.migrations.length} migration(s) recorded`);
+  // `migrations` is absent until the first migration was recorded
+  console.log(`${migrationSet.migrations?.length ?? 0} migration(s) recorded`);
 });
 ```
 

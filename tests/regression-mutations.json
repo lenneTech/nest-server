@@ -4867,11 +4867,11 @@
       "driverSpecific": false
     },
     {
-      "id": "redis-release-channel-ignores-holders",
-      "defect": "DEV-3897 — two CoreRedisPubSub instances share the subscriber connection; when one dropped its last handler for a trigger it unsubscribed the channel, and the other's subscriptions to the same trigger received nothing from then on.",
-      "file": "src/core/common/services/core-redis.service.ts",
-      "find": "    const holders = (this.subscribedChannels.get(channel) ?? 0) - 1;",
-      "replace": "    const holders = 0;",
+      "id": "pubsub-unsubscribe-ignores-other-holders",
+      "defect": "DEV-3897 — two CoreRedisPubSub instances share the subscriber connection; when one dropped its last handler for a trigger it unsubscribed the channel on that connection itself, and the other's subscriptions to the same trigger received nothing from then on. Restores that call in place of the holder-counted releaseChannel().",
+      "file": "src/core/common/services/core-redis-pubsub.ts",
+      "find": "      await this.redisService.releaseChannel(channel);",
+      "replace": "      await this.redisService.getSubscriber().unsubscribe(channel);",
       "specs": [
         "tests/unit/core-redis.service.spec.ts"
       ],
@@ -4881,10 +4881,21 @@
       "id": "synchronized-up-calls-up-on-state",
       "defect": "DEV-3897 — synchronizedUp() called `up` on the loaded migration state, which has none, so it threw on every call although the README and the module's JSDoc recommended it for clustered environments.",
       "file": "src/core/modules/migrate/migration-runner.ts",
-      "find": "  await new MigrationRunner({\n    migrationsDirectory: opts.migrationsDirectory ?? path.resolve(process.cwd(), 'migrations'),\n    pattern: opts.pattern,\n    stateStore: opts.stateStore,\n  }).up();",
+      "find": "  await new MigrationRunner({\n    migrationsDirectory: opts.migrationsDirectory ?? 'migrations',\n    pattern: opts.pattern,\n    stateStore: opts.stateStore,\n  }).up();",
       "replace": "  await withMigrationLock(opts.stateStore, async () => {\n    const loadedSet: any = await opts.stateStore.loadAsync();\n    await new Promise((resolve, reject) => loadedSet.up((err?: Error) => (err ? reject(err) : resolve(undefined))));\n  });",
       "specs": [
         "tests/migrate/mongo-state-store.e2e-spec.ts"
+      ],
+      "driverSpecific": false
+    },
+    {
+      "id": "migration-runner-relative-directory",
+      "defect": "DEV-3897 review — MigrationRunner handed a relative migrationsDirectory to require() unresolved; path.join('./migrations', file) is `migrations/<file>`, which require() reads as a package name, so the documented './migrations' (README, JSDoc, synchronizedUp()) threw MODULE_NOT_FOUND for every migration file.",
+      "file": "src/core/modules/migrate/migration-runner.ts",
+      "find": "      migrationsDirectory: path.resolve(options.migrationsDirectory),",
+      "replace": "      migrationsDirectory: options.migrationsDirectory,",
+      "specs": [
+        "tests/unit/migration-runner-relative-directory.spec.ts"
       ],
       "driverSpecific": false
     }

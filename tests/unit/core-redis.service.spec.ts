@@ -274,8 +274,9 @@ describe('CoreRedisService', () => {
      *   the subscriber connection. When instance A lost its last handler for a trigger, it unsubscribed the channel on
      *   that connection, and instance B's subscriptions to the same trigger received nothing from then on, silently.
      *   Fixed by counting holders per channel in the service (DEV-3894); this pins it at the level where it broke.
-     * @seen-failing Make releaseChannel() in src/core/common/services/core-redis.service.ts ignore the other holders —
-     *   registered as mutation `redis-release-channel-ignores-holders` in tests/regression-mutations.json.
+     * @seen-failing Let CoreRedisPubSub.unsubscribe() in src/core/common/services/core-redis-pubsub.ts unsubscribe the
+     *   shared connection itself instead of releasing its hold — registered as mutation
+     *   `pubsub-unsubscribe-ignores-other-holders` in tests/regression-mutations.json.
      */
     it('keeps a channel subscribed for a second PubSub engine when the first one drops its last handler', async () => {
       const service = createService(true);

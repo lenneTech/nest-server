@@ -94,7 +94,7 @@ export function parseStrictEnv(value: string | undefined = process.env.NSC__MIGR
  * Migration runner configuration
  */
 export interface MigrationRunnerOptions {
-  /** Directory containing migration files */
+  /** Directory containing migration files, absolute or relative to the working directory */
   migrationsDirectory: string;
   /** Pattern to match migration files (default: {@link DEFAULT_MIGRATION_FILE_PATTERN}) */
   pattern?: RegExp;
@@ -148,7 +148,13 @@ export class MigrationRunner {
   constructor(options: MigrationRunnerOptions) {
     // Resolve the strict default from the environment so NSC__MIGRATE__STRICT works
     // identically for programmatic runners and the CLI (which parses it itself).
-    this.options = { ...options, strict: options.strict ?? parseStrictEnv() };
+    // A relative directory is resolved against the working directory, as by the CLI: the files are
+    // loaded with require(), which reads `migrations/<file>` as a package name (DEV-3897).
+    this.options = {
+      ...options,
+      migrationsDirectory: path.resolve(options.migrationsDirectory),
+      strict: options.strict ?? parseStrictEnv(),
+    };
     this.pattern = options.pattern || DEFAULT_MIGRATION_FILE_PATTERN;
   }
 
@@ -448,7 +454,7 @@ export interface SynchronizedUpOptions extends MigrationOptions {
 export async function synchronizedUp(opts: SynchronizedUpOptions): Promise<void> {
   assertLockableStore(opts?.stateStore);
   await new MigrationRunner({
-    migrationsDirectory: opts.migrationsDirectory ?? path.resolve(process.cwd(), 'migrations'),
+    migrationsDirectory: opts.migrationsDirectory ?? 'migrations',
     pattern: opts.pattern,
     stateStore: opts.stateStore,
   }).up();

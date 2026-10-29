@@ -42,3 +42,4 @@
 - [Vendor type imports need the package](vendor-type-imports-need-the-package.md) — `import type` AND literal `import('x')` of an optional peer break a vendor tsc; every SQL driver/engine needed; probe recipe
 - [bullmq peer-range API drift](bullmq-peer-range-api-drift.md) — peer >=5.16.0: getJobScheduler absent <5.23, truthy-for-missing to 5.40.2; check new calls against the floor
 - [Redis outage fallback claims](redis-outage-fallback-claims.md) — configured-but-down Redis: TUS locker + CoreRedisPubSub have NO fallback; "every consumer falls back" is false
+- [Migrate doc-example traps](migrate-programmatic-runner-doc-traps.md) — relative migrationsDirectory threw before 12.1.1 (runner resolves it now); loadAsync() is {} on first run

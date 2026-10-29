@@ -16,3 +16,10 @@ Migrate-module test coverage as of the `feature/migrate-safe-ts-js-transition` r
 - Repo precedent for "CLI is untestable": `bin/migrate.js` exports `resolveCliPath` behind the `require.main` guard purely for its spec — exporting `parseArgs` the same way is the established answer, not a subprocess test.
 - `MigrationSet` requires `up: (done?) => void`; a stub returning only `{ migrations }` needs `as unknown as MongoStateStore`, which disables drift checking — prefer a valid MigrationSet + `satisfies Pick<MongoStateStore, 'loadAsync' | 'saveAsync'>`.
 - `status()` ignores `strict` although the CLI `list` command passes it (dead config wiring) — flagged informational, may still exist.
+
+**Concurrency lock of `up()` (DEV-3897 review, 2026-10-29):** no registered mutation removes the lock from
+`MigrationRunner.up()` (only `migration-down-outside-lock` for down). The two "exactly once when two replicas" tests in
+`tests/migrate/mongo-state-store.e2e-spec.ts` are nevertheless non-vacuous: a scratch probe calling `runUp()` instead of
+`up()` in `synchronizedUp()` turned the synchronizedUp case red with `'up\nup\n'` (the 300 ms slow fixture makes both
+replicas read the empty state). Run it as `--project e2e -t "Concurrent migrate up"`, ~6 s green. `synchronizedUp()`
+lives in `migration-runner.ts` since 12.1.1 and delegates to `MigrationRunner.up()`, so the lock is the runner's.
