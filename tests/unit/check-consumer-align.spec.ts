@@ -98,6 +98,29 @@ describe('check-consumer — alignConsumerPins() follows `pnpm run update`', () 
     expect(consumer.dependencies).toEqual({ 'better-auth': '1.7.7', typescript: '5.8.3' });
   });
 
+  /**
+   * @regression   12.1.0 (found by the starter's lock-step run) — mongoose, @nestjs/mongoose and mongodb
+   *   became OPTIONAL peers, pinned only as framework devDependencies, while a MongoDB project keeps them as
+   *   dependencies. The starter's `pnpm run update` raises such a runtime pin from the framework's
+   *   devDependency; the gate did not, so a release raising the Mongo trio would have been tested with the
+   *   starter's old pins, a state no project reaches.
+   * @seen-failing Skip the optional-peer branch of `raiseSources()` in scripts/check-consumer.mjs —
+   *   registered as mutation `consumer-gate-ignores-optional-peers` in tests/regression-mutations.json;
+   *   the opposite mistake, any peer counted as optional, as `consumer-gate-required-peer-as-optional`.
+   */
+  it('raises a runtime pin of an OPTIONAL framework peer from the framework devDependencies', () => {
+    const withPeers = {
+      devDependencies: { 'better-auth': '1.7.8', mongodb: '7.7.0', mongoose: '9.11.4' },
+      peerDependencies: { 'better-auth': '>=1.7.1 <1.8.0', mongodb: '>=7.7.0', mongoose: '>=9.11.4' },
+      peerDependenciesMeta: { mongodb: { optional: true }, mongoose: { optional: true } },
+    };
+    const consumer = { dependencies: { 'better-auth': '1.7.7', mongodb: '7.6.0', mongoose: '9.10.2' } };
+    const raised = alignConsumerPins(consumer, withPeers);
+    expect(consumer.dependencies).toEqual({ 'better-auth': '1.7.7', mongodb: '7.7.0', mongoose: '9.11.4' });
+    // A REQUIRED peer stays the project's call, also next to optional ones.
+    expect(raised.map((entry) => entry.name).sort()).toEqual(['mongodb', 'mongoose']);
+  });
+
   it('takes the newest version from the framework sections allowed for the consumer section', () => {
     const both = { dependencies: { mongodb: '7.6.0' }, devDependencies: { mongodb: '7.7.0' } };
     const dev = { devDependencies: { mongodb: '7.5.0' } };

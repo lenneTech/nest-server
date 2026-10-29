@@ -370,7 +370,7 @@ pnpm run check:mutations -- --id=<id>       # one mutation
 pnpm run check:mutations -- --list          # the registry, without running anything
 pnpm run check:mutations -- --allow-dirty   # when the fix and its evidence share a working tree
 pnpm run check:mutations -- --jobs=4        # N mutations at a time (default: 2, or 4 on >=12 cores)
-pnpm run check:mutations -- --no-infra      # only the 222 that need no MongoDB
+pnpm run check:mutations -- --no-infra      # only the 224 that need no MongoDB
 pnpm run check:mutations -- --since=<ref>   # only mutations touching files changed since <ref>
 ```
 
@@ -389,7 +389,7 @@ when the registry, a vitest config or a setup file changed, since those can move
 commit, and in CI alongside the publish without blocking it. The price of caching is a cache that
 has to model each spec's full dependency closure correctly, and getting that wrong produces a stale
 PASS for a test that has since gone vacuous — exactly what the gate is there to prevent. Bad trade
-at 407 mutations.
+at 409 mutations.
 
 **Decided 2026-10-03 (repo owner): keep the full run.** Measured at 128 mutations, the CI job for
 11.41.6 took **14 minutes**. The trigger to revisit is that wall time, not the mutation count —
@@ -436,7 +436,7 @@ exactly the environment where the answer matters.
 
 Worth knowing before optimising the wrong thing: the specs behind all 185 e2e mutations add up to
 **~40 seconds**. The step takes ~740s. The remaining ~700s is paying vitest's startup — process
-spawn, transform, module graph, mongod connect, DB create and drop — once per mutation, 407 times.
+spawn, transform, module graph, mongod connect, DB create and drop — once per mutation, 409 times.
 That work is largely single-threaded I/O and barely scales with cores: the full registry measures
 **744s on a 12-core laptop and 777s on a 4-vCPU CI runner**.
 
@@ -779,10 +779,17 @@ consumer's `devDependencies`, never a runtime pin. The better-auth trio is the r
 holds it as devDependencies (its own test versions; the peer range is the contract), a project holds
 it as dependencies and owns that version, because its api and app must resolve the same better-auth.
 Letting the framework's test pin drive it would move the api on the next `pnpm run update` and leave
-the app behind (mutation `consumer-gate-devdeps-drive-runtime-pins`). `RAISE_SOURCES` in
-`scripts/check-consumer.mjs` and in the starter's `extras/align-package-versions.mjs` encode this;
-the two must stay identical — a gate that is more generous than the consumer's script certifies an
-update path nobody has.
+the app behind (mutation `consumer-gate-devdeps-drive-runtime-pins`).
+
+One exception since 12.1.0: an **optional** framework peer (`peerDependenciesMeta.<name>.optional`).
+mongoose, @nestjs/mongoose and mongodb arrive that way — pinned only as framework devDependencies,
+kept by a MongoDB project as dependencies — so their runtime pin follows the framework's
+devDependency, or `pnpm run update` would never raise them again. better-auth is a REQUIRED peer and
+stays the project's call (mutations `consumer-gate-ignores-optional-peers`,
+`consumer-gate-required-peer-as-optional`). `raiseSources()` in `scripts/check-consumer.mjs` and in the
+starter's `extras/align-package-versions.mjs` encode all of this; the two must stay identical — a gate
+that is more generous than the consumer's script certifies an update path nobody has, and one that is
+narrower never tests the pins projects get.
 
 Wired into `.github/workflows/publish.yml` before the publish step, with `--fast`. Deliberately not
 on every push (~5 minutes), and deliberately not the starter's full `check` in CI: that also runs

@@ -1579,7 +1579,7 @@
       "id": "consumer-gate-same-section-only",
       "defect": "11.42.15 — the consumer gate (and the starter's `pnpm run update`) raised a pin only when the framework declared it in the SAME section. nest-server declares mongodb under dependencies, the starter under devDependencies, and Better-Auth's MongoDB adapter resolves its mongodb peer from that pin: raising mongoose 9.11 (mongodb ~7.7) left the starter on mongodb 7.6.0, two bson copies made the adapter's instanceof ObjectId fail, sign-in answered 401 and the gate broke on 2026-10-06.",
       "file": "scripts/check-consumer.mjs",
-      "find": "      const version = newestFrameworkVersion(framework, name, RAISE_SOURCES[section]);",
+      "find": "      const version = newestFrameworkVersion(framework, name, raiseSources(framework, name, section));",
       "replace": "      const version = framework?.[section]?.[name];",
       "specs": [
         "tests/unit/check-consumer-align.spec.ts"
@@ -1592,6 +1592,28 @@
       "file": "scripts/check-consumer.mjs",
       "find": "  dependencies: ['dependencies'],",
       "replace": "  dependencies: ['dependencies', 'devDependencies'],",
+      "specs": [
+        "tests/unit/check-consumer-align.spec.ts"
+      ],
+      "driverSpecific": false
+    },
+    {
+      "id": "consumer-gate-ignores-optional-peers",
+      "defect": "12.1.0 (found by the starter's lock-step run) — mongoose, @nestjs/mongoose and mongodb became OPTIONAL framework peers, pinned only as framework devDependencies, while a MongoDB project keeps them as dependencies. The starter's `pnpm run update` raises such a runtime pin from the framework devDependency; the consumer gate did not, so a release raising the Mongo trio would have tested the starter with its old pins.",
+      "file": "scripts/check-consumer.mjs",
+      "find": "  if (section === 'dependencies' && framework?.peerDependenciesMeta?.[name]?.optional === true) {",
+      "replace": "  if (false) {",
+      "specs": [
+        "tests/unit/check-consumer-align.spec.ts"
+      ],
+      "driverSpecific": false
+    },
+    {
+      "id": "consumer-gate-required-peer-as-optional",
+      "defect": "12.1.0 — the opposite of consumer-gate-ignores-optional-peers: counting every framework peer as optional lets a framework devDependency set a REQUIRED peer's runtime pin. better-auth is a required peer whose version the project owns (api and app must resolve the same better-auth); the gate would raise it while the starter's `pnpm run update` does not.",
+      "file": "scripts/check-consumer.mjs",
+      "find": "  if (section === 'dependencies' && framework?.peerDependenciesMeta?.[name]?.optional === true) {",
+      "replace": "  if (section === 'dependencies' && framework?.peerDependencies?.[name] !== undefined) {",
       "specs": [
         "tests/unit/check-consumer-align.spec.ts"
       ],
