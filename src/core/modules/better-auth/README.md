@@ -1596,6 +1596,28 @@ export class MyService {
 | `hasRole(roles)`              | function | Check if user has any of the specified roles          |
 | `_authenticatedViaBetterAuth` | true     | Marker for Better-Auth authenticated users            |
 
+### Role and Verification Cache
+
+`mapSessionUser()` reads `roles` and `verified` from the user record on every request, and keeps the answer for
+**15 seconds** per user (at most 500 users, about 100 bytes each). Under test runners and `lt dev` the cache is off,
+so a test that changes a user's roles directly in the database sees the change at once.
+
+A change must not wait for that bound, so `invalidateUserCache(iamId)` drops the entry. `CoreUserService.setRoles()`
+and `CoreUserService.update()` (when the input touches `roles`, `verified` or `emailVerified`) call it themselves.
+Call it yourself when your project changes these fields in another way.
+
+| Configuration   | What `invalidateUserCache()` reaches                                                                                                                                                                  |
+| --------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| without `redis` | the cache of this process                                                                                                                                                                             |
+| with `redis`    | the cache of **every replica**: the invalidation is broadcast on `<keyPrefix>:iam-user-cache:invalidate`, and each replica that receives it also re-checks the user's open GraphQL WebSockets at once |
+
+Without the broadcast, a withdrawn admin role kept working for up to 15 seconds on every replica except the one that
+withdrew it, and an open subscription on another replica until its next periodic re-check
+(`graphQl.subscriptionRevalidationMs`). Each replica subscribes again after a Redis restart. A broadcast that cannot
+be sent is logged as a warning; the other replicas then follow within the 15 seconds.
+
+A subclass may change the duration through the `protected` field `userCacheTtlMs` (`0` switches the cache off).
+
 ## CoreModule.forRoot() Signatures
 
 Two signatures are available for different use cases:

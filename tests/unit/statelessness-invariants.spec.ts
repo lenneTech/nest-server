@@ -363,9 +363,10 @@ const INVENTORY: StateEntry[] = [
   },
   {
     because:
-      'Roles/verified for a session user, TTL 15s (0 under test). A role change is visible on '
-      + 'every replica within that bound, and the bound is the same one a single replica always had.',
-    classification: 'bounded',
+      'Roles/verified for a session user, TTL 15s (0 under test). With `redis` configured '
+      + 'invalidateUserCache() is BROADCAST to every replica, so a withdrawn role does not linger '
+      + 'anywhere; without it each replica expires on its own TTL.',
+    classification: 'shared',
     file: 'modules/better-auth/core-better-auth-user.mapper.ts',
     name: 'userCache',
   },
