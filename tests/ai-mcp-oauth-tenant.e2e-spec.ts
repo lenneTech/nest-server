@@ -233,7 +233,9 @@ describe('MCP OAuth — tenant context for an OAuth access token (e2e)', () => {
    * @regression   DEV-3832 (db-agnostic phase 4, review) — CoreAiPromptService wrote `tenantId: undefined` after the
    *   insert. MongoDB drops the key; a SQL store wrote NULL, row-level security refused the row the insert had stamped
    *   with the member's tenant, and creating a personal prompt inside a tenant answered 403 with an orphan row left.
-   * @seen-failing Write `tenantId` unconditionally again in CoreAiPromptService.create() in
+   *   Since DEV-3833 the SQL update compiler skips a field given as `undefined` as well, so the service's guard is what
+   *   this test pins: a personal prompt gets no tenant written at all, not even an explicit `null`.
+   * @seen-failing Write `tenantId: tenantId ?? null` in CoreAiPromptService.create() in
    *   src/core/modules/ai/services/core-ai-prompt.service.ts — registered as mutation `ai-prompt-tenant-written-as-null`
    *   in tests/regression-mutations.json.
    */

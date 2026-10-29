@@ -4132,10 +4132,10 @@
     {
       "driverSpecific": false,
       "id": "ai-prompt-tenant-written-as-null",
-      "defect": "DEV-3832 review: creating a personal AI prompt inside a tenant wrote tenantId undefined, which a SQL store writes as NULL; row-level security refused it with 403 and left an orphan row",
+      "defect": "DEV-3832 review: creating a personal AI prompt inside a tenant wrote a tenantId over the one the insert had stamped; a SQL store wrote NULL, row-level security refused the row with 403 and left an orphan. Since DEV-3833 the SQL update compiler also skips a field given as undefined (mutation sql-update-writes-undefined), so the service's own guard is pinned by writing an explicit null, the shape a typed $set invites.",
       "file": "src/core/modules/ai/services/core-ai-prompt.service.ts",
       "find": "      $set: { ownerId: String(user.id), scope, ...(tenantId !== undefined ? { tenantId } : {}) },",
-      "replace": "      $set: { ownerId: String(user.id), scope, tenantId },",
+      "replace": "      $set: { ownerId: String(user.id), scope, tenantId: tenantId ?? null },",
       "specs": [
         "tests/ai-mcp-oauth-tenant.e2e-spec.ts"
       ]
