@@ -337,6 +337,26 @@ on `FIX AVAILABLE` (a `first_patched_version` now exists) or on a withdrawn advi
 API is reported as `UNVERIFIED` and tolerated locally — but **fails under `CI`**, because a skip
 nobody reads is indistinguishable from a check that ran.
 
+**A fix nobody named is still a fix.** GitHub leaves `first_patched_version` null on some advisories
+after a release outside the vulnerable range shipped: GHSA-86w9-cpqp-85rv (node-forge) read
+`<= 1.4.0` / null a day after 1.4.1 was published. Until 12.0.x the guard skipped such an advisory,
+so its suppression passed every run. It now reads the package's packument from the registry pnpm
+installs from and, per vulnerable copy in the lockfile, looks for a stable release above it that
+lies outside **every** range the advisory lists. A deprecated release is held back, not ruled out: it
+counts only when every such release is deprecated, because some packages deprecate all of them
+(node-sass: 132 of 132 stable releases), and ruling them out reads a published fix as "no fix" for good.
+
+| Finding | Verdict |
+|---------|---------|
+| every copy has such a release, past `minimumReleaseAge` | `FIX AVAILABLE`, naming it — `unusableFixConsumers` applies as for a named fix |
+| one is published but younger than `minimumReleaseAge` | passes, printed as `pending` with the date the gate clears (pnpm would refuse it, so failing would order a `minimumReleaseAgeExclude` nobody decided on) |
+| some copy has none | passes — the suppression is still justified |
+| no version the lockfile resolves is in the range any more | `NOT IN TREE` — the entry hides nothing |
+| registry or lockfile unreadable | `UNVERIFIED`, with the reason (fails under `CI`) |
+
+`--advisory-file` runs stay offline: they take packuments from `--packument-file` and never ask the
+registry.
+
 One consequence worth knowing before you reach for this mechanism: the guard fires when the advisory
 has a patched version for **any** affected range. For most findings that is the honest outcome — a
 fix exists, take it, and the case is an override problem rather than a suppression problem.

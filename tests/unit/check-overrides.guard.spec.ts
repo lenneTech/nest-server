@@ -61,6 +61,7 @@ interface GuardRunOptions {
   lock?: null | string;
   overrides?: Record<string, string>;
   packageManager?: null | string;
+  packumentData?: Record<string, unknown>;
   workspaceYaml?: null | string;
 }
 
@@ -79,6 +80,7 @@ function buildWorkspace({
   lock = null,
   overrides = {},
   packageManager = null,
+  packumentData = {},
   workspaceYaml = null,
 }: GuardRunOptions = {}) {
   const dir = mkdtempSync(join(tmpdir(), 'overrides-guard-'));
@@ -125,6 +127,11 @@ function buildWorkspace({
     const advisoryPath = join(dir, 'advisories.json');
     writeFileSync(advisoryPath, `${JSON.stringify(advisoryData)}\n`);
     args.push('--advisory-file', advisoryPath);
+    // The registry half of the same lookup, for an advisory that names no fix. Passed for the
+    // same reason as the flag above: an offline run must never reach registry.npmjs.org.
+    const packumentPath = join(dir, 'packuments.json');
+    writeFileSync(packumentPath, `${JSON.stringify(packumentData)}\n`);
+    args.push('--packument-file', packumentPath);
   }
   // `advisoryData: null` is the ONE way to reach the real fetch path, and the only callers that
   // use it point CHECK_OVERRIDES_ADVISORY_API at a loopback server they started themselves. The
@@ -207,6 +214,48 @@ function advisory({ id = 1, installed = '1.0.0', module, patched, path = `root>$
     },
   };
 }
+
+/**
+ * A GHSA record as the API returns one that names NO patched version — the node-forge shape:
+ * GHSA-86w9-cpqp-85rv read `<= 1.4.0` / null on 2026-10-28, a day after 1.4.1 was published.
+ */
+function unnamedFix(...ranges: string[]) {
+  return {
+    vulnerabilities: (ranges.length > 0 ? ranges : ['<= 1.4.0']).map((range) => ({
+      first_patched_version: null,
+      package: { ecosystem: 'npm', name: 'node-forge' },
+      vulnerable_version_range: range,
+    })),
+    withdrawn: false,
+  };
+}
+
+/** A lockfile resolving the given node-forge versions, optionally pulled in by `consumer`. */
+function forgeLock(versions: string[], consumer?: string) {
+  const packages = [...(consumer ? [consumer] : []), ...versions.map((v) => `node-forge@${v}`)];
+  const pulls = consumer ? `  ${consumer}:\n    dependencies:\n      node-forge: ${versions[0]}\n\n` : '';
+  return (
+    `lockfileVersion: '9.0'\n\npackages:\n\n${packages.map((p) => `  ${p}:\n    resolution: {integrity: sha512-x}\n`).join('\n')}` +
+    `\nsnapshots:\n\n${pulls}${versions.map((v) => `  node-forge@${v}: {}\n`).join('\n')}`
+  );
+}
+
+/** node-forge's registry entry: every version with its age in DAYS; `deprecated` lists the deprecated ones. */
+function forgePackument(ages: Record<string, number>, deprecated: string[] = []) {
+  return {
+    'node-forge': {
+      time: Object.fromEntries(
+        Object.entries(ages).map(([v, days]) => [v, new Date(Date.now() - days * 86_400_000).toISOString()]),
+      ),
+      versions: Object.fromEntries(
+        Object.keys(ages).map((v) => [v, deprecated.includes(v) ? { deprecated: 'use a newer release' } : {}]),
+      ),
+    },
+  };
+}
+
+/** The registry today for a tree on 1.4.0 that has NO way out: nothing above it leaves the range. */
+const FORGE_NO_FIX = { lock: forgeLock(['1.4.0']), packumentData: forgePackument({ '1.3.0': 400, '1.4.0': 30 }) };
 
 describe('check-overrides — an override below the advisory fix', () => {
   // THE defect. fast-uri was pinned to 3.1.3 while the fix was 3.1.6: the
@@ -435,10 +484,9 @@ describe('check-overrides — suppressed advisories that got a fix', () => {
   it('stays quiet while the advisory genuinely has no fix', () => {
     // The state offers is in: three advisories with patched_versions <0.0.0.
     // Suppressing those is legitimate, and must not cost a red build forever.
-    const r = run({
-      advisoryData: { [GHSA]: { first_patched_version: null, withdrawn: false } },
-      ignoreGhsas: [GHSA],
-    });
+    // "Genuinely" is a claim about the REGISTRY, not about the advisory's field —
+    // see the next describe — so the fixture says what the registry carries.
+    const r = run({ ...FORGE_NO_FIX, advisoryData: { [GHSA]: unnamedFix() }, ignoreGhsas: [GHSA] });
     expect(r.status, `expected pass, got:\n${r.out}`).toBe(0);
     expect(r.out).not.toMatch(/FIX AVAILABLE/);
     // Must still say it looked — otherwise this is indistinguishable from a run
@@ -497,8 +545,7 @@ describe('check-overrides — suppressed advisories that got a fix', () => {
    */
   const DEVTOOLS_LOCK = (version: string, extra = '') =>
     `lockfileVersion: '9.0'\n\npackages:\n  '@nuxt/devtools@${version}':\n    resolution: {integrity: sha512-x}\n  simple-git@3.36.0:\n    resolution: {integrity: sha512-x}\n${extra}\nsnapshots:\n\n  '@nuxt/devtools@${version}':\n    dependencies:\n      simple-git: 3.36.0\n${extra ? `\n  new-parent@1.0.0:\n    dependencies:\n      simple-git: 3.36.0\n` : ''}`;
-  const DECLARE = (value: string) =>
-    `auditConfig:\n  unusableFixConsumers:\n    ${GHSA}: '${value}'\n`;
+  const DECLARE = (value: string) => `auditConfig:\n  unusableFixConsumers:\n    ${GHSA}: '${value}'\n`;
   const FIXED = { affectedPackages: ['simple-git'], patchedVersions: ['4.0.1'], withdrawn: false };
 
   it('accepts a fixed advisory whose fix the declared consumer provably cannot use', () => {
@@ -533,9 +580,7 @@ describe('check-overrides — suppressed advisories that got a fix', () => {
     });
     expect(r.status, `expected failure, got:\n${r.out}`).toBe(1);
     expect(r.out).toMatch(/RE-TEST/);
-    expect(r.out, `both versions belong in the message, got:\n${r.out}`).toMatch(
-      /moved from 3\.4\.1 to 3\.5\.0/,
-    );
+    expect(r.out, `both versions belong in the message, got:\n${r.out}`).toMatch(/moved from 3\.4\.1 to 3\.5\.0/);
   });
 
   it('FIRES when the declared consumer left the tree entirely', () => {
@@ -577,7 +622,7 @@ describe('check-overrides — suppressed advisories that got a fix', () => {
     const r = run({
       advisoryData: { [GHSA]: FIXED },
       ignoreGhsas: [GHSA],
-      lock: DEVTOOLS_LOCK('3.4.1', "  new-parent@1.0.0:\n    resolution: {integrity: sha512-x}\n"),
+      lock: DEVTOOLS_LOCK('3.4.1', '  new-parent@1.0.0:\n    resolution: {integrity: sha512-x}\n'),
       workspaceYaml: DECLARE('@nuxt/devtools@3.4.1 cannot use 4.0.1'),
     });
     expect(r.status, `expected failure, got:\n${r.out}`).toBe(1);
@@ -635,8 +680,8 @@ describe('check-overrides — suppressed advisories that got a fix', () => {
       advisoryData: { [GHSA]: FIXED },
       ignoreGhsas: [GHSA],
       lock: DEVTOOLS_LOCK('3.4.1').replace(
-        "  simple-git@3.36.0:\n    resolution: {integrity: sha512-x}\n",
-        "  simple-git@3.36.0:\n    resolution: {integrity: sha512-x}\n  typescript@5.9.3:\n    resolution: {integrity: sha512-x}\n",
+        '  simple-git@3.36.0:\n    resolution: {integrity: sha512-x}\n',
+        '  simple-git@3.36.0:\n    resolution: {integrity: sha512-x}\n  typescript@5.9.3:\n    resolution: {integrity: sha512-x}\n',
       ),
       workspaceYaml: DECLARE('typescript@5.9.3 cannot use 4.0.1'),
     });
@@ -656,7 +701,7 @@ describe('check-overrides — suppressed advisories that got a fix', () => {
   const TWO_VERSIONS = (pullers: string[]) =>
     `lockfileVersion: '9.0'\n\npackages:\n\n  '@nuxt/devtools@3.9.0':\n    resolution: {integrity: sha512-x}\n  '@nuxt/devtools@3.4.1':\n    resolution: {integrity: sha512-x}\n  simple-git@3.36.0:\n    resolution: {integrity: sha512-x}\n\nsnapshots:\n\n${pullers.map((v) => `  '@nuxt/devtools@${v}':\n    dependencies:\n      simple-git: 3.36.0\n`).join('\n')}`;
 
-  it('accepts the declaration when the consumer\'s OTHER version pulls nothing', () => {
+  it("accepts the declaration when the consumer's OTHER version pulls nothing", () => {
     // 3.9.0 exists but does not touch simple-git, so the declaration about 3.4.1
     // is still exactly true. Taking the first match called this "moved from 3.4.1
     // to 3.9.0" and demanded a re-assessment of a correct entry — a guard that
@@ -761,6 +806,239 @@ describe('check-overrides — suppressed advisories that got a fix', () => {
     });
     expect(r.status, `expected failure, got:\n${r.out}`).toBe(1);
     expect(r.out).toMatch(/FIX AVAILABLE/);
+  });
+});
+
+describe('check-overrides — a suppressed advisory whose fix nobody named', () => {
+  // "No first_patched_version" and "no fix" are different facts. GitHub left node-forge's
+  // GHSA-86w9-cpqp-85rv at `<= 1.4.0` / null after 1.4.1 was on npm, and a guard that read only
+  // the named field kept the suppression "justified" for as long as GitHub did not catch up —
+  // with the tree still on 1.4.0 and nobody told. So the registry answers instead, per
+  // vulnerable copy the lockfile resolves.
+  const GHSA = 'GHSA-86w9-cpqp-85rv';
+
+  /**
+   * @regression   12.0.x — an advisory without a named `first_patched_version` was skipped with
+   *   a bare `continue`, so its suppression passed every run while a release outside the
+   *   vulnerable range sat on the registry (node-forge 1.4.1 against GHSA-86w9-cpqp-85rv,
+   *   reported by the nuxt-base-starter session, whose copy of this guard had the same gap).
+   * @seen-failing Put the bare skip back for an advisory without a named fix in
+   *   scripts/check-overrides.mjs — registered as mutation `suppression-unnamed-fix-not-looked-up`
+   *   in tests/regression-mutations.json.
+   */
+  it('FIRES when the registry carries a release outside the vulnerable range', () => {
+    const r = run({
+      advisoryData: { [GHSA]: unnamedFix() },
+      ignoreGhsas: [GHSA],
+      lock: forgeLock(['1.4.0']),
+      packumentData: forgePackument({ '1.3.0': 400, '1.4.0': 30, '1.4.1': 2, '1.4.2': 1.5 }),
+    });
+    expect(r.status, `expected failure, got:\n${r.out}`).toBe(1);
+    expect(r.out).toMatch(/FIX AVAILABLE GHSA-86w9-cpqp-85rv/);
+    // The smallest way out, and the reason it counts although the advisory names nothing.
+    expect(r.out).toMatch(/node-forge@1\.4\.1 is published and outside the vulnerable range \(the advisory names no/);
+  });
+
+  /**
+   * @regression   12.0.x — the registry lookup must not turn a fix pnpm would still refuse into a
+   *   red build: with `minimumReleaseAge` set, a younger release cannot be installed without a
+   *   `minimumReleaseAgeExclude` entry nobody decided on, which is exactly what failing would order.
+   * @seen-failing Accept the smallest candidate regardless of its publish time in registryFix() of
+   *   scripts/check-overrides.mjs — registered as mutation `suppression-unnamed-fix-ignores-release-age`
+   *   in tests/regression-mutations.json.
+   */
+  it("holds while the only fix is inside the workspace's minimumReleaseAge gate, and says until when", () => {
+    const r = run({
+      advisoryData: { [GHSA]: unnamedFix() },
+      ignoreGhsas: [GHSA],
+      lock: forgeLock(['1.4.0']),
+      packumentData: forgePackument({ '1.4.0': 30, '1.4.1': 2 }),
+      // Seven days, read from the workspace: the default 24h would already have cleared 1.4.1.
+      workspaceYaml: 'minimumReleaseAge: 10080\n',
+    });
+    expect(r.status, `expected pass, got:\n${r.out}`).toBe(0);
+    expect(r.out).toMatch(
+      /pending GHSA-86w9-cpqp-85rv — node-forge@1\.4\.1 is published, but inside the 7d minimumReleaseAge gate until/,
+    );
+    expect(r.out).toMatch(/1\/1 suppression\(s\) verified/);
+  });
+
+  /**
+   * @regression   12.0.x — a candidate must leave EVERY range the advisory lists for the package:
+   *   a release inside a later vulnerable line would name a fix that installs a known hole.
+   * @seen-failing Drop the every-range filter in registryFix() of scripts/check-overrides.mjs —
+   *   registered as mutation `suppression-unnamed-fix-takes-vulnerable-release` in
+   *   tests/regression-mutations.json.
+   */
+  it('does not count a release inside another vulnerable range', () => {
+    const ranges = ['<= 1.4.0', '>= 1.5.0, < 1.5.2'];
+    const ages = { '1.4.0': 30, '1.5.0': 10, '1.5.1': 5 };
+    const held = run({
+      advisoryData: { [GHSA]: unnamedFix(...ranges) },
+      ignoreGhsas: [GHSA],
+      lock: forgeLock(['1.4.0']),
+      packumentData: forgePackument(ages),
+    });
+    expect(held.status, `expected pass, got:\n${held.out}`).toBe(0);
+    expect(held.out).not.toMatch(/FIX AVAILABLE/);
+
+    // The paired control: the first release past both ranges IS the fix.
+    const fixed = run({
+      advisoryData: { [GHSA]: unnamedFix(...ranges) },
+      ignoreGhsas: [GHSA],
+      lock: forgeLock(['1.4.0']),
+      packumentData: forgePackument({ ...ages, '1.5.2': 3 }),
+    });
+    expect(fixed.status, `expected failure, got:\n${fixed.out}`).toBe(1);
+    expect(fixed.out).toMatch(/node-forge@1\.5\.2 is published/);
+  });
+
+  /**
+   * @regression   12.0.x — a deprecated release is held back, not ruled out. Ruling it out read a
+   *   package that deprecates every release as having no fix for good: node-sass deprecated all 132
+   *   of its stable releases, GHSA-r8f7-9pfq-mjmv is fixed in 7.0.0 (found by the nuxt-extensions
+   *   review of its own copy of this lookup).
+   * @seen-failing Rule deprecated releases out in registryFix() of scripts/check-overrides.mjs —
+   *   registered as mutation `suppression-unnamed-fix-rules-out-deprecated` in
+   *   tests/regression-mutations.json.
+   */
+  it('FIRES on a deprecated release when every release outside the range is deprecated', () => {
+    const ages = { '1.3.0': 400, '1.4.0': 30, '1.4.1': 20, '1.4.2': 10 };
+    const r = run({
+      advisoryData: { [GHSA]: unnamedFix() },
+      ignoreGhsas: [GHSA],
+      lock: forgeLock(['1.4.0']),
+      packumentData: forgePackument(ages, Object.keys(ages)),
+    });
+    expect(r.status, `expected failure, got:\n${r.out}`).toBe(1);
+    expect(r.out).toMatch(/FIX AVAILABLE GHSA-86w9-cpqp-85rv/);
+    expect(r.out).toMatch(
+      /node-forge@1\.4\.1 \(deprecated, like every release outside the vulnerable range\) is published/,
+    );
+  });
+
+  /**
+   * @regression   12.0.x — where a supported release leaves the range as well, a smaller deprecated
+   *   one is not the fix to name: a deprecation mostly says "broken, take the next one".
+   * @seen-failing Treat deprecated releases like any other in registryFix() of
+   *   scripts/check-overrides.mjs — registered as mutation `suppression-unnamed-fix-prefers-deprecated`
+   *   in tests/regression-mutations.json.
+   */
+  it('names the supported release, not a smaller deprecated one', () => {
+    const r = run({
+      advisoryData: { [GHSA]: unnamedFix() },
+      ignoreGhsas: [GHSA],
+      lock: forgeLock(['1.4.0']),
+      packumentData: forgePackument({ '1.4.0': 30, '1.4.1': 20, '1.4.2': 10 }, ['1.4.1']),
+    });
+    expect(r.status, `expected failure, got:\n${r.out}`).toBe(1);
+    expect(r.out).toMatch(/node-forge@1\.4\.2 is published/);
+    expect(r.out).not.toMatch(/node-forge@1\.4\.1 is published/);
+  });
+
+  /**
+   * @regression   12.0.x — once no version the lockfile resolves is in the vulnerable range, the
+   *   suppression hides nothing, whether or not a fix exists: nuxt-base-starter's two image-size
+   *   suppressions outlived a package that had left the tree by a full release cycle.
+   * @seen-failing Drop the NOT IN TREE verdict in scripts/check-overrides.mjs — registered as
+   *   mutation `suppression-unnamed-fix-ignores-tree` in tests/regression-mutations.json.
+   */
+  it('FIRES as NOT IN TREE when the lockfile resolves no vulnerable copy any more', () => {
+    const r = run({
+      advisoryData: { [GHSA]: unnamedFix() },
+      ignoreGhsas: [GHSA],
+      lock: forgeLock(['1.4.2']),
+      packumentData: forgePackument({ '1.4.0': 30, '1.4.2': 20 }),
+    });
+    expect(r.status, `expected failure, got:\n${r.out}`).toBe(1);
+    expect(r.out).toMatch(
+      /NOT IN TREE {2}GHSA-86w9-cpqp-85rv — nothing in the tree is in the vulnerable range any more: the lockfile resolves only node-forge@1\.4\.2/,
+    );
+  });
+
+  it('reports a registry it could not read as unverified, with the reason, and fails under CI', () => {
+    const opts = { advisoryData: { [GHSA]: unnamedFix() }, ignoreGhsas: [GHSA], lock: forgeLock(['1.4.0']) };
+    const local = run({ ...opts, env: { CI: '' } });
+    expect(local.status, `expected pass, got:\n${local.out}`).toBe(0);
+    expect(local.out).toMatch(/UNVERIFIED \(no registry entry for node-forge in the packument file\)/);
+
+    const ci = run({ ...opts, env: { CI: 'true' } });
+    expect(ci.status, `expected failure, got:\n${ci.out}`).toBe(1);
+    expect(ci.out).toMatch(/could not be verified/);
+  });
+
+  it('lets a copy without a way out decide, even when another package cannot be looked up', () => {
+    // node-forge comes FIRST and its registry entry is missing; forge-twin has no fix at all.
+    // The entry is justified by forge-twin alone, so the order of the lookups must not turn
+    // that into "unverified" — which fails under CI.
+    const advisoryData = {
+      [GHSA]: {
+        vulnerabilities: ['node-forge', 'forge-twin'].map((name) => ({
+          first_patched_version: null,
+          package: { ecosystem: 'npm', name },
+          vulnerable_version_range: '<= 1.4.0',
+        })),
+        withdrawn: false,
+      },
+    };
+    const lock = forgeLock(['1.4.0']).replace(
+      '\nsnapshots:',
+      '\n  forge-twin@1.4.0:\n    resolution: {integrity: sha512-x}\n\nsnapshots:',
+    );
+    const twin = forgePackument({ '1.4.0': 30 })['node-forge'];
+    const r = run({
+      advisoryData,
+      env: { CI: 'true' },
+      ignoreGhsas: [GHSA],
+      lock,
+      packumentData: { 'forge-twin': twin },
+    });
+    expect(r.status, `expected pass, got:\n${r.out}`).toBe(0);
+    expect(r.out).not.toMatch(/UNVERIFIED/);
+    expect(r.out).toMatch(/1\/1 suppression\(s\) verified/);
+  });
+
+  it('accepts a registry fix the declared consumer provably cannot use', () => {
+    // The fix found on the registry runs through the same unusableFixConsumers checks as a named one.
+    const r = run({
+      advisoryData: { [GHSA]: unnamedFix() },
+      ignoreGhsas: [GHSA],
+      lock: forgeLock(['1.4.0'], 'forge-consumer@2.0.0'),
+      packumentData: forgePackument({ '1.4.0': 30, '1.4.1': 2 }),
+      workspaceYaml: `auditConfig:\n  unusableFixConsumers:\n    ${GHSA}: 'forge-consumer@2.0.0 cannot use 1.4.1'\n`,
+    });
+    expect(r.status, `expected pass, got:\n${r.out}`).toBe(0);
+    expect(r.out).toMatch(/residual GHSA-86w9-cpqp-85rv — 1\.4\.1 exists but forge-consumer@2\.0\.0 cannot use it/);
+  });
+
+  it('asks the registry live, through the same loopback seam as the Advisory API', async () => {
+    const { createServer } = await import('node:http');
+    const requests: string[] = [];
+    const server = createServer((req, res) => {
+      requests.push(req.url ?? '');
+      const body = req.url?.startsWith('/advisories/')
+        ? unnamedFix()
+        : forgePackument({ '1.4.0': 30, '1.4.1': 2 })['node-forge'];
+      res.writeHead(200, { 'content-type': 'application/json' });
+      res.end(JSON.stringify(body));
+    });
+    await new Promise<void>((resolve) => server.listen(0, '127.0.0.1', () => resolve()));
+    const { port } = server.address() as { port: number };
+    try {
+      // ASYNC: the stub answers the child from THIS process's event loop (see runAsync()).
+      const r = await runAsync({
+        advisoryData: null,
+        env: { CHECK_OVERRIDES_ADVISORY_API: `http://127.0.0.1:${port}`, CI: '' },
+        ignoreGhsas: [GHSA],
+        lock: forgeLock(['1.4.0']),
+      });
+      expect(r.status, `expected failure, got:\n${r.out}`).toBe(1);
+      expect(r.out).toMatch(/node-forge@1\.4\.1 is published/);
+      expect(requests).toContain('/node-forge');
+    } finally {
+      server.closeAllConnections?.();
+      await new Promise<void>((resolve) => server.close(() => resolve()));
+    }
   });
 });
 
@@ -993,7 +1271,8 @@ describe('check-overrides — an unverified suppression is a skip, and CI must n
   it('still passes under CI once the suppression IS verified', () => {
     // The negative control: the CI rule must key on "unverified", not on "CI plus a suppression".
     const r = run({
-      advisoryData: { [GHSA_CI]: { first_patched_version: null, withdrawn: false } },
+      ...FORGE_NO_FIX,
+      advisoryData: { [GHSA_CI]: unnamedFix() },
       env: { CI: 'true' },
       ignoreGhsas: [GHSA_CI],
     });
@@ -1123,6 +1402,8 @@ describe('check-overrides — a clean LIVE audit is probed, not assumed', () => 
       auditExit?: number;
       auditReport?: string;
       ignoreGhsas?: string[];
+      lock?: string;
+      packumentData?: Record<string, unknown>;
       registry?: string;
       registryEnv?: 'npm_config_registry' | 'pnpm_config_registry';
       useApiOverride?: boolean;
@@ -1142,7 +1423,12 @@ describe('check-overrides — a clean LIVE audit is probed, not assumed', () => 
     if (opts.advisoryData) {
       const advisoryPath = join(dir, 'advisories.json');
       writeFileSync(advisoryPath, `${JSON.stringify(opts.advisoryData)}\n`);
-      guardArgs.push('--advisory-file', advisoryPath);
+      const packumentPath = join(dir, 'packuments.json');
+      writeFileSync(packumentPath, `${JSON.stringify(opts.packumentData ?? {})}\n`);
+      guardArgs.push('--advisory-file', advisoryPath, '--packument-file', packumentPath);
+    }
+    if (opts.lock) {
+      writeFileSync(join(dir, 'pnpm-lock.yaml'), opts.lock);
     }
     const bin = join(dir, 'bin');
     mkdirSync(bin);
@@ -1321,7 +1607,8 @@ describe('check-overrides — a clean LIVE audit is probed, not assumed', () => 
 
     // The paired control: an unfixed suppression passes, and the run says which half it verified.
     const unfixed = await runLiveClean(200, {
-      advisoryData: { [GHSA]: { first_patched_version: null, withdrawn: false } },
+      ...FORGE_NO_FIX,
+      advisoryData: { [GHSA]: unnamedFix() },
       auditExit: 1,
       auditReport: failed,
       ignoreGhsas: [GHSA],
