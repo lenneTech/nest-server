@@ -11,7 +11,7 @@ import {
 import { APP_FILTER, APP_INTERCEPTOR, APP_PIPE, DiscoveryModule } from '@nestjs/core';
 import { GraphQLModule } from '@nestjs/graphql';
 import type { Context } from 'graphql-ws';
-import graphqlUploadExpress from 'graphql-upload/graphqlUploadExpress.js';
+import graphqlUploadExpress from 'graphql-upload/graphqlUploadExpress.mjs';
 
 import { MongooseCastErrorFilter } from './core/common/filters/mongoose-cast-error.filter.js';
 import { merge } from './core/common/helpers/config.helper.js';

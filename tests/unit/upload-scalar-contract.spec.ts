@@ -27,10 +27,11 @@ describe('Upload scalar contract with the lt CLI', () => {
   });
 
   it("exports graphql-upload's own scalar object, not a namespace wrapper around it", () => {
-    // Identity with what require() returns: a TypeScript 6 `import * as` would hand out an `__importStar` copy,
+    // Identity with the module's default export: a TypeScript 6 `import * as` would hand out an `__importStar` copy,
     // which still has a `name` and a constructor called GraphQLScalarType — only identity tells the two apart.
+    // graphql-upload 16+ is ESM, so require() returns its namespace and the scalar is its `default`.
     const requireFromRoot = createRequire(resolve(root, 'package.json'));
-    expect(GraphQLUpload).toBe(requireFromRoot('graphql-upload/GraphQLUpload.js'));
+    expect(GraphQLUpload).toBe(requireFromRoot('graphql-upload/GraphQLUpload.mjs').default);
     expect(GraphQLUpload.constructor.name).toBe('GraphQLScalarType');
     expect(GraphQLUpload.name).toBe('Upload');
   });

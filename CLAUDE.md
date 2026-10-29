@@ -527,7 +527,7 @@ Details: [`docs/process-performance-optimization.md`](docs/process-performance-o
 | [`docs/REQUEST-LIFECYCLE.md`](docs/REQUEST-LIFECYCLE.md) | Complete request lifecycle, security architecture, interceptor chain, decorator reference, CrudService pipeline, Safety Net, diagrams |
 | [`docs/native-driver-security.md`](docs/native-driver-security.md) | Native MongoDB Driver restrictions, secure alternatives, review checklist |
 | [`docs/process-performance-optimization.md`](docs/process-performance-optimization.md) | process() pipeline performance optimizations, SubDocument array handling (pushToArray/pullFromArray) |
-| [`docs/security-overrides.md`](docs/security-overrides.md) | Why pnpm `overrides:` do NOT reach consumers, which two are load-bearing, and the rules for writing your own |
+| [`docs/security-overrides.md`](docs/security-overrides.md) | Why pnpm `overrides:` do NOT reach consumers, which entries a project still needs (none on 12.1 with the declared `@nestjs/*` versions), and the rules for writing your own |
 | [`docs/brevo-manual-test.md`](docs/brevo-manual-test.md) | Manual smoke test for `BrevoService` against the live Brevo API (framework repo only) |
 
 <!-- lt-dev:url-block:start -->

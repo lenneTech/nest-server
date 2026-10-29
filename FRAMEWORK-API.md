@@ -1,6 +1,6 @@
 # @lenne.tech/nest-server — Framework API Reference
 
-> Auto-generated from source code as of 2026-10-28 (v12.0.0)
+> Auto-generated from source code as of 2026-10-29 (v12.1.0)
 > File: `FRAMEWORK-API.md` — compact, machine-readable API surface for Claude Code
 
 ## CoreModule.forRoot()
@@ -408,5 +408,5 @@ in consuming projects keep working.
 | `src/core/common/interceptors/` | CheckResponse, CheckSecurity, ResponseModel |
 | `src/core/common/helpers/process-diagnostics.helper.ts` | installProcessDiagnostics() / handleFatalBootstrapError — opt-in, wire into your own main.ts |
 | `docs/REQUEST-LIFECYCLE.md` | Complete request lifecycle |
-| `docs/security-overrides.md` | pnpm overrides are NOT inherited — two entries your project needs |
+| `docs/security-overrides.md` | pnpm overrides are NOT inherited — which entries your project still needs |
 | `.claude/rules/` | Detailed rules for architecture, security, testing |

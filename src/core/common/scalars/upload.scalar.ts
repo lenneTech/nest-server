@@ -1,5 +1,5 @@
 import type { GraphQLScalarType } from 'graphql';
-import GraphQLUploadScalar from 'graphql-upload/GraphQLUpload.js';
+import GraphQLUploadScalar from 'graphql-upload/GraphQLUpload.mjs';
 
 /**
  * The GraphQL `Upload` scalar for multipart file uploads — import it from `@lenne.tech/nest-server`,
@@ -10,8 +10,13 @@ import GraphQLUploadScalar from 'graphql-upload/GraphQLUpload.js';
  * copy. A resolver that imports the scalar from the project's own graphql-upload therefore works only
  * while both resolve to the same version; with two copies every upload is refused as invalid. And the
  * import path itself is not stable across graphql-upload majors (15: `GraphQLUpload.js`, 16+:
- * `GraphQLUpload.mjs`). Importing it from here keeps scalar and middleware one copy and leaves the
- * path to the framework.
+ * `GraphQLUpload.mjs`, the one this package imports since 12.1.0). Importing it from here keeps scalar
+ * and middleware one copy and leaves the path to the framework.
+ *
+ * A default import, never `import = require()` or `import * as`: graphql-upload 16+ is ESM, so under
+ * `require(esm)` both of those yield the module NAMESPACE, not the scalar. Compiled to CommonJS, the
+ * default import still reaches it — Node marks a required ES module that has a default export with
+ * `__esModule`, which the interop helper reads.
  *
  * The path is a CONTRACT with the lt CLI: its generator checks whether `common/scalars/upload.scalar` exists in
  * the framework root (`dist/core/` in npm mode, `src/core/` vendored) and only then writes
