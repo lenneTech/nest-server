@@ -3,6 +3,7 @@ import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { CoreRedisService } from '../src/core/common/services/core-redis.service';
 import { CoreCronJobs } from '../src/core/common/services/core-cron-jobs.service';
 import { CoreBetterAuthRateLimiter } from '../src/core/modules/better-auth/core-better-auth-rate-limiter.service';
+import { CoreBetterAuthUserMapper } from '../src/core/modules/better-auth/core-better-auth-user.mapper';
 import { captureExpectedLogs } from './helpers/expected-log-output';
 
 import type { ConfigService } from '../src/core/common/services/config.service';
@@ -131,6 +132,14 @@ class BullCronJobs extends CoreCronJobs {
 
   protected async report() {
     return undefined;
+  }
+}
+
+/** A Better-Auth user mapper with its role cache switched on — the test environment switches it off */
+class CachingUserMapper extends CoreBetterAuthUserMapper {
+  constructor(users: { findOne: () => Promise<unknown> }, redisService: CoreRedisService) {
+    super({ collection: () => users } as any, redisService);
+    this.userCacheTtlMs = 15_000;
   }
 }
 
@@ -272,6 +281,50 @@ describe('Multi-replica behavior (real Redis)', () => {
       expect(restored?.pattern).toBe(NEVER);
     } finally {
       await replica.onApplicationShutdown();
+    }
+  });
+
+  /**
+   * @regression   12.1.1 (DEV-3895) — invalidateUserCache() cleared only the replica it ran on: an admin whose role was
+   *   withdrawn kept it on every other replica for up to 15 s, and without session affinity it was enough to keep
+   *   sending requests.
+   * @seen-failing Drop the publishInvalidation() call from invalidateUserCache() in
+   *   src/core/modules/better-auth/core-better-auth-user.mapper.ts — registered as mutation
+   *   `iam-user-cache-e2e-not-broadcast` in tests/regression-mutations.json.
+   */
+  it('withdraws a role on every replica at once, not only on the one that changed it', async () => {
+    const scope = 'iam-user-cache';
+    const [redisA, redisB] = [createRedisService(scope), createRedisService(scope)];
+    services.push(redisA, redisB);
+    await Promise.all([redisA.onModuleInit(), redisB.onModuleInit()]);
+
+    // One user document both replicas read, as they read one database
+    const stored = { _id: 'db-user-1', email: 'admin@test.com', iamId: 'iam-1', roles: ['admin'], verified: true };
+    const users = { findOne: async () => ({ ...stored, roles: [...stored.roles] }) };
+    const replicaA = new CachingUserMapper(users, redisA);
+    const replicaB = new CachingUserMapper(users, redisB);
+    await Promise.all([replicaA.onApplicationBootstrap(), replicaB.onApplicationBootstrap()]);
+    const sessionUser = { email: stored.email, id: stored.iamId };
+    try {
+      expect((await replicaB.mapSessionUser(sessionUser))?.hasRole('admin')).toBe(true);
+
+      // What CoreUserService.setRoles() does on replica A: write, then invalidate
+      stored.roles = [];
+      replicaA.invalidateUserCache(stored.iamId);
+
+      // Redis delivers asynchronously; poll replica B rather than sleep. Before the broadcast existed, B answered from
+      // its cache until the entry expired — 15 s, so the deadline here separates the two outcomes cleanly.
+      const deadline = Date.now() + 5000;
+      let mapped = await replicaB.mapSessionUser(sessionUser);
+      while (mapped?.hasRole('admin') && Date.now() < deadline) {
+        await new Promise(resolve => setTimeout(resolve, 20));
+        mapped = await replicaB.mapSessionUser(sessionUser);
+      }
+      expect(mapped?.roles).toEqual([]);
+      expect(mapped?.hasRole('admin')).toBe(false);
+    } finally {
+      replicaA.onModuleDestroy();
+      replicaB.onModuleDestroy();
     }
   });
 

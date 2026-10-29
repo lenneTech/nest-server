@@ -4766,6 +4766,39 @@
         "tests/unit/check-mutations-exit.spec.ts"
       ],
       "driverSpecific": false
+    },
+    {
+      "id": "iam-user-cache-invalidation-not-broadcast",
+      "defect": "12.1.1 (DEV-3895) — invalidateUserCache() cleared the Better-Auth user cache only on the replica it ran on: an admin whose role was withdrawn, or a user whose verification was, kept it on every other replica for up to 15 s, and without session affinity it was enough to keep sending requests.",
+      "file": "src/core/modules/better-auth/core-better-auth-user.mapper.ts",
+      "find": "    this.userCache.delete(iamId);\n    this.publishInvalidation(iamId);",
+      "replace": "    this.userCache.delete(iamId);",
+      "specs": [
+        "tests/unit/better-auth-user-cache-invalidation.spec.ts"
+      ],
+      "driverSpecific": false
+    },
+    {
+      "id": "iam-user-cache-e2e-not-broadcast",
+      "defect": "12.1.1 (DEV-3895) — the same defect against a real Redis with two mapper instances: a role withdrawn on replica A was still granted by replica B from its cache for up to 15 s.",
+      "file": "src/core/modules/better-auth/core-better-auth-user.mapper.ts",
+      "find": "    this.userCache.delete(iamId);\n    this.publishInvalidation(iamId);",
+      "replace": "    this.userCache.delete(iamId);",
+      "specs": [
+        "tests/multi-replica.e2e-spec.ts"
+      ],
+      "driverSpecific": false
+    },
+    {
+      "id": "iam-user-cache-remote-ws-not-revalidated",
+      "defect": "12.1.1 (DEV-3895) — a role or verification change re-checked the user's open GraphQL WebSockets only on the replica that made it; on every other replica an open subscription kept the old rights until the periodic re-check (subscriptionRevalidationMs, 30 s).",
+      "file": "src/core/modules/better-auth/core-better-auth-user.mapper.ts",
+      "find": "    revalidateWsConnectionsOf({ iamId });",
+      "replace": "    void revalidateWsConnectionsOf;",
+      "specs": [
+        "tests/unit/better-auth-user-cache-invalidation.spec.ts"
+      ],
+      "driverSpecific": false
     }
   ]
 }

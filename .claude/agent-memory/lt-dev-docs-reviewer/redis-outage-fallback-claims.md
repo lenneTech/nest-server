@@ -13,6 +13,7 @@ and the server down:
 |---|---|
 | RateLimitStore (auth / better-auth / AI / api-token) | degrades to in-memory, logged |
 | Cron leases, MCP session registry, tenant broadcast publish | fail open / debug |
+| IAM user-cache broadcast (`CoreBetterAuthUserMapper`, 12.1.1, `<prefix>:iam-user-cache:invalidate`) | publish rejects after commandTimeout → WARN; other replicas fall back to the 15 s TTL. Channel via `subscribeChannel()`, so re-subscribed on `ready` |
 | `TusRedisLocker.lock()` | rejects `Command timed out` after 2 s, every TUS request fails |
 | `CoreRedisPubSub` | subscribe rejects; publish warns and DROPS the event — not even delivered on the same replica |
 

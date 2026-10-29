@@ -1,4 +1,4 @@
-import { Injectable, Logger, Optional } from '@nestjs/common';
+import { Injectable, Logger, OnApplicationBootstrap, OnModuleDestroy, Optional } from '@nestjs/common';
 import { InjectConnection } from '../../common/persistence/mongo/mongoose-compat.js';
 import * as bcrypt from 'bcrypt';
 import { randomBytes, scrypt, ScryptOptions } from 'crypto';
@@ -17,7 +17,9 @@ const scryptPromise = (password: string, salt: string, keylen: number, options: 
 };
 
 import { RoleEnum } from '../../common/enums/role.enum.js';
+import { revalidateWsConnectionsOf } from '../../common/helpers/graphql-ws-connection.helper.js';
 import { maskEmail } from '../../common/helpers/logging.helper.js';
+import { CoreRedisService } from '../../common/services/core-redis.service.js';
 import { legacyCredentialAccountIssuer } from './core-better-auth-account-issuer.helper.js';
 import { getBetterAuthSqlStore } from './core-better-auth-sql.registry.js';
 import type { BetterAuthSqlStore } from './core-better-auth-sql.store.js';
@@ -139,13 +141,15 @@ function isClosedConnectionError(error: unknown): boolean {
 }
 
 @Injectable()
-export class CoreBetterAuthUserMapper {
+export class CoreBetterAuthUserMapper implements OnApplicationBootstrap, OnModuleDestroy {
   private readonly logger = new Logger(CoreBetterAuthUserMapper.name);
 
   /**
    * Lightweight TTL cache for user DB lookups.
    * Key: iamId (BetterAuth user ID), Value: minimal user data (id, roles, verified).
    * Only caches ~100 bytes per entry (no full documents). Max 500 entries = ~50KB.
+   *
+   * With `redis` configured, {@link invalidateUserCache} reaches the cache of every replica; without it, only this one.
    */
   private readonly userCache = new Map<string, CachedUserData>();
   private static readonly USER_CACHE_MAX = 500;
@@ -167,7 +171,64 @@ export class CoreBetterAuthUserMapper {
       ? 0
       : 15_000;
 
-  constructor(@Optional() @InjectConnection() private readonly connection?: Connection) {}
+  /**
+   * How long a user's roles and verification state are answered from the cache, in ms. `0` switches the cache off.
+   * Defaults to {@link USER_CACHE_TTL_MS}; a subclass may set another value.
+   */
+  protected userCacheTtlMs = CoreBetterAuthUserMapper.USER_CACHE_TTL_MS;
+
+  /** The listener on the shared subscriber connection, kept to detach it again in {@link onModuleDestroy}. */
+  private invalidationListener?: (channel: string, message: string) => void;
+
+  constructor(
+    @Optional() @InjectConnection() private readonly connection?: Connection,
+    @Optional() protected readonly redisService?: CoreRedisService,
+  ) {}
+
+  /**
+   * Subscribe to the cache invalidations of the other replicas. Runs after every `onModuleInit`, so the Redis service is
+   * connected. A no-op without `redis`.
+   */
+  async onApplicationBootstrap(): Promise<void> {
+    if (!this.redisService?.enabled) {
+      return;
+    }
+    const channel = this.invalidationChannel(this.redisService);
+    try {
+      // Held in a field: the subscriber connection is shared between features, so a listener that is never detached
+      // keeps clearing a destroyed mapper's cache for the life of the process.
+      this.invalidationListener = (incomingChannel: string, message: string) => {
+        if (incomingChannel === channel) {
+          this.applyInvalidation(message);
+        }
+      };
+      this.redisService.getSubscriber().on('message', this.invalidationListener);
+      // Registered with the Redis service, so the subscription is established again after every reconnect — also when
+      // this first attempt fails because Redis is down at boot.
+      await this.redisService.subscribeChannel(channel);
+    } catch (error) {
+      this.logger.warn(
+        `IAM user cache invalidation subscribe failed: ${(error as Error).message}. Retried when the Redis connection ` +
+          'is up; until then a role or verification change made on another replica reaches this one only when its ' +
+          'cache entry expires and at the next periodic WebSocket re-check.',
+      );
+    }
+  }
+
+  onModuleDestroy(): void {
+    if (!this.invalidationListener) {
+      return;
+    }
+    try {
+      if (this.redisService) {
+        this.redisService.getSubscriber().off('message', this.invalidationListener);
+        void this.redisService.releaseChannel(this.invalidationChannel(this.redisService)).catch(() => undefined);
+      }
+    } catch {
+      // Redis already gone — nothing to detach from
+    }
+    this.invalidationListener = undefined;
+  }
 
   /**
    * Maps a Better-Auth session user to a user with role capabilities
@@ -203,7 +264,7 @@ export class CoreBetterAuthUserMapper {
 
     try {
       // Check lightweight cache first (only stores id, roles, verified — ~100 bytes per entry)
-      const ttl = CoreBetterAuthUserMapper.USER_CACHE_TTL_MS;
+      const ttl = this.userCacheTtlMs;
       const now = Date.now();
       const cached = ttl > 0 ? this.userCache.get(sessionUser.id) : undefined;
       if (cached && now < cached.expiresAt) {
@@ -235,7 +296,7 @@ export class CoreBetterAuthUserMapper {
         const verified = dbUser.verified === true || sessionUser.emailVerified === true;
 
         // Cache only the minimal data needed (not the full document)
-        if (CoreBetterAuthUserMapper.USER_CACHE_TTL_MS > 0) {
+        if (this.userCacheTtlMs > 0) {
           this.cacheUserData(sessionUser.id, { id: String(dbUser._id ?? dbUser.id), roles, verified });
         }
 
@@ -316,7 +377,7 @@ export class CoreBetterAuthUserMapper {
     }
     this.userCache.set(iamId, {
       ...data,
-      expiresAt: Date.now() + CoreBetterAuthUserMapper.USER_CACHE_TTL_MS,
+      expiresAt: Date.now() + this.userCacheTtlMs,
     });
   }
 
@@ -324,10 +385,65 @@ export class CoreBetterAuthUserMapper {
    * Invalidate cached user data. Call when user roles or verified status change.
    * Called automatically from `CoreUserService.setRoles()` and `CoreUserService.update()`.
    *
+   * With `redis` configured, the invalidation is broadcast to every replica, which also re-checks the user's open
+   * GraphQL WebSockets — otherwise a withdrawn role would keep working there until the cache entry expires.
+   *
    * @param iamId - The BetterAuth user ID (from session/account, not MongoDB _id)
    */
   invalidateUserCache(iamId: string): void {
     this.userCache.delete(iamId);
+    this.publishInvalidation(iamId);
+  }
+
+  /**
+   * Apply an invalidation received from a replica (this one included — it is subscribed to its own broadcasts). Clears
+   * locally only: re-publishing would bounce the message around the cluster.
+   */
+  protected applyInvalidation(message: string): void {
+    let iamId: unknown;
+    try {
+      iamId = JSON.parse(message)?.iamId;
+    } catch {
+      iamId = undefined;
+    }
+    if (typeof iamId !== 'string' || !iamId) {
+      this.logger.debug(`Ignoring malformed IAM user cache invalidation message: ${message}`);
+      return;
+    }
+    this.userCache.delete(iamId);
+    // The replica that changed the user re-checks its own sockets; these are the ones on this replica. After the cache
+    // above, so the re-check reads the user as they are now.
+    revalidateWsConnectionsOf({ iamId });
+  }
+
+  /**
+   * Broadcast an invalidation to the other replicas (fire-and-forget). A no-op without `redis`.
+   *
+   * A failure is logged as a warning, not swallowed: until the entry expires on the other replicas, a withdrawn role
+   * keeps working there.
+   */
+  protected publishInvalidation(iamId: string): void {
+    const redisService = this.redisService;
+    if (!redisService?.enabled) {
+      return;
+    }
+    const warn = (error: Error) =>
+      this.logger.warn(
+        `IAM user cache invalidation could not be broadcast: ${error.message}. Other replicas keep the previous roles ` +
+          'until their cache entry expires, and their open WebSockets until the next periodic re-check.',
+      );
+    try {
+      void redisService
+        .getClient()
+        .publish(this.invalidationChannel(redisService), JSON.stringify({ iamId }))
+        .catch(warn);
+    } catch (error) {
+      warn(error as Error);
+    }
+  }
+
+  private invalidationChannel(redisService: CoreRedisService): string {
+    return redisService.key('iam-user-cache', 'invalidate');
   }
 
   // ===================================================================================================================

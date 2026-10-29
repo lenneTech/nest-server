@@ -355,8 +355,9 @@ function markStale(connection: WsConnection): void {
 
 /**
  * Re-check, at once, every open connection of a user — after a membership, role or credential change.
- * Answers the number of connections affected. Process-local: the tenant guard's Redis broadcast is
- * what carries a membership invalidation to the other replicas.
+ * Answers the number of connections affected. Process-local: the Redis broadcasts of the tenant guard
+ * (memberships) and of the Better-Auth user mapper (roles, verification) carry an invalidation to the
+ * other replicas.
  */
 export function revalidateWsConnectionsOf(identity: IWsConnectionIdentity): number {
   const userId = identity?.userId !== undefined && identity?.userId !== null ? String(identity.userId) : undefined;
