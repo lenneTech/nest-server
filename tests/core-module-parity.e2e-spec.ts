@@ -538,8 +538,9 @@ describe.each(CORE_MODULE_DRIVERS)('core module parity — %s (e2e)', (driver) =
   /**
    * @regression   DEV-3904 — the framework installs the password hashing Better-Auth uses (`nativeScryptHash`); on
    *   every database the credential must hold its hash, never the password.
-   * @seen-failing Hand Better-Auth a hash function that returns the password in better-auth.config.ts — registered as
-   *   mutation `iam-password-stored-plain` in tests/regression-mutations.json.
+   * @seen-failing Hand Better-Auth a hash / verify pair that stores and compares the password in clear in
+   *   better-auth.config.ts (sign-in keeps working) — registered as mutation `iam-password-stored-plain` in
+   *   tests/regression-mutations.json.
    */
   moduleIt('iam-password-hashed', driver, async () => {
     const email = unique('iam-hash');

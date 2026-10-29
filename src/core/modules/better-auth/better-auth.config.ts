@@ -233,9 +233,10 @@ export interface CreateBetterAuthOptions {
   serverEnv?: string;
 
   /**
-   * The `pg` pool of the SQL data source the `users` table lives in (the application role's pool of the configured
-   * engine). Set, Better-Auth runs its built-in Kysely adapter on it instead of MongoDB, with the framework's ids and
-   * table and column names — see `withSqlStorage()`.
+   * The pool of the SQL data source the `users` table lives in, as `SqlDialect.foreignPool()` hands it out: the
+   * application role's `pg` pool, or on MySQL / MariaDB its `mysql2` pool's promise wrapper. Set, Better-Auth runs its
+   * built-in Kysely adapter on it instead of MongoDB, with the framework's ids and table and column names — see
+   * `withSqlStorage()`.
    */
   sqlPool?: unknown;
 }

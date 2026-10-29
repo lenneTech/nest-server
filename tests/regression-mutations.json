@@ -4793,8 +4793,8 @@
       "id": "mysql-iam-tables-default-collation",
       "defect": "DEV-3904 — Better-Auth creates its tables without naming a collation, i.e. with the database's default, while users.id carries the framework's utf8mb4_bin: on MariaDB the foreign key from session.user_id was refused (\"Foreign key constraint is incorrectly formed\") and the boot stopped; on MySQL Better-Auth's tokens and identifiers compared case-insensitively, unlike on every other database.",
       "file": "src/core/common/persistence/sql/sql-dialect.ts",
-      "find": "      withMysqlSchemaLock(lock, (run) => withFrameworkDefaultCollation(run, migrate)),",
-      "replace": "      withMysqlSchemaLock(lock, () => (void withFrameworkDefaultCollation, migrate())),",
+      "find": "        (await anyTableMissing(run, tables)) ? withFrameworkDefaultCollation(run, migrate) : migrate(),",
+      "replace": "        (await anyTableMissing(run, tables)) ? migrate() : migrate(),",
       "specs": [
         "tests/persistence-mysql-wiring.e2e-spec.ts"
       ],
@@ -4813,10 +4813,10 @@
     },
     {
       "id": "iam-password-stored-plain",
-      "defect": "DEV-3904 — the framework installs the password hashing Better-Auth uses (nativeScryptHash); a hash function that returns the password stores it in clear in the credential account, on every database.",
+      "defect": "DEV-3904 — the framework installs the password hashing Better-Auth uses (nativeScryptHash / nativeScryptVerify); a pair that stores and compares the password in clear keeps every sign-in working while the credential account holds the password itself, on every database.",
       "file": "src/core/modules/better-auth/better-auth.config.ts",
-      "find": "        hash: nativeScryptHash,",
-      "replace": "        hash: async (password: string) => password,",
+      "find": "        hash: nativeScryptHash,\n        verify: nativeScryptVerify,",
+      "replace": "        hash: async (password: string) => password,\n        verify: async ({ hash, password }: { hash: string; password: string }) => hash === password,",
       "specs": [
         "tests/core-module-parity.e2e-spec.ts"
       ],
@@ -4830,6 +4830,17 @@
       "replace": "        void sessionToken;\n      }\n\n      // Clear cookies",
       "specs": [
         "tests/core-module-parity.e2e-spec.ts"
+      ],
+      "driverSpecific": false
+    },
+    {
+      "id": "mysql-collation-switch-every-boot",
+      "defect": "DEV-3904 review — the switch of the database's default collation for Better-Auth's migration ran on every boot. On MySQL 8.4 ALTER DATABASE takes an exclusive metadata lock on every table, so behind any open transaction it waited (lock_wait_timeout defaults to a year) while every statement on the tables it had already locked stood still; measured 2.8 s of stalled session lookups behind a 3 s transaction.",
+      "file": "src/core/common/persistence/sql/sql-dialect.ts",
+      "find": "        (await anyTableMissing(run, tables)) ? withFrameworkDefaultCollation(run, migrate) : migrate(),",
+      "replace": "        (await Promise.resolve(true)) ? withFrameworkDefaultCollation(run, migrate) : migrate(),",
+      "specs": [
+        "tests/unit/mysql-foreign-schema-lock.spec.ts"
       ],
       "driverSpecific": false
     }

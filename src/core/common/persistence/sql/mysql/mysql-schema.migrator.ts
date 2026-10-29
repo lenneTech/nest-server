@@ -111,6 +111,25 @@ export async function withMysqlSchemaLock<T>(owner: SqlExecutor, fn: (run: Run) 
 
 /** The collation of every table the framework creates — byte-wise, as identifiers and tokens compare on PostgreSQL */
 const FRAMEWORK_COLLATION = 'utf8mb4_bin';
+/**
+ * How long a collation switch waits for the metadata locks it needs, in seconds. `ALTER DATABASE` locks every table of
+ * the database exclusively, one after the other: behind an open transaction it waits, and every statement on the
+ * tables it already holds waits with it. The server's own default is a year
+ */
+const COLLATION_SWITCH_LOCK_WAIT_SECONDS = 5;
+
+/** Whether any of `tables` does not exist yet — only then does a library's migration create a table */
+export async function anyTableMissing(run: Run, tables: string[]): Promise<boolean> {
+  if (!tables.length) {
+    return false;
+  }
+  const { rows } = await run({
+    params: tables,
+    text: `SELECT COUNT(*) AS n FROM information_schema.TABLES
+      WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME IN (${tables.map((_, index) => `$${index + 1}`).join(', ')})`,
+  });
+  return Number(rows[0]?.n) < new Set(tables).size;
+}
 
 /**
  * `fn` with the database's default collation switched to the framework's and back afterwards — for a library that
@@ -120,6 +139,10 @@ const FRAMEWORK_COLLATION = 'utf8mb4_bin';
  * case-insensitively. Restored afterwards, so the project's own DDL keeps the default it was given. Runs as the owner
  * under the schema lock (`run` is the lock's connection); a process that dies in between leaves `utf8mb4_bin` behind,
  * which changes no existing table.
+ *
+ * Only for a run that creates a table (`anyTableMissing()`): a column added to an existing table takes that table's
+ * collation, and the switch locks every table of the database. Its wait is bounded, so a first boot behind a long
+ * transaction fails with an error instead of freezing the database.
  */
 export async function withFrameworkDefaultCollation<T>(run: Run, fn: () => Promise<T>): Promise<T> {
   const { rows } = await run({
@@ -134,11 +157,20 @@ export async function withFrameworkDefaultCollation<T>(run: Run, fn: () => Promi
   if (!/^\w+$/.test(charset ?? '') || !/^\w+$/.test(collation ?? '')) {
     throw new Error(`Cannot read the default collation of the database (found ${charset}/${collation})`);
   }
-  await run({ params: [], text: `ALTER DATABASE CHARACTER SET utf8mb4 COLLATE ${FRAMEWORK_COLLATION}` });
+  const { rows: timeouts } = await run({ params: [], text: 'SELECT @@SESSION.lock_wait_timeout AS timeout' });
+  const previousTimeout = Number(timeouts[0]?.timeout);
+  await run({ params: [], text: `SET SESSION lock_wait_timeout = ${COLLATION_SWITCH_LOCK_WAIT_SECONDS}` });
   try {
-    return await fn();
+    await run({ params: [], text: `ALTER DATABASE CHARACTER SET utf8mb4 COLLATE ${FRAMEWORK_COLLATION}` });
+    try {
+      return await fn();
+    } finally {
+      await run({ params: [], text: `ALTER DATABASE CHARACTER SET ${charset} COLLATE ${collation}` });
+    }
   } finally {
-    await run({ params: [], text: `ALTER DATABASE CHARACTER SET ${charset} COLLATE ${collation}` });
+    if (Number.isInteger(previousTimeout) && previousTimeout > 0) {
+      await run({ params: [], text: `SET SESSION lock_wait_timeout = ${previousTimeout}` });
+    }
   }
 }
 

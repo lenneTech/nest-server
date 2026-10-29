@@ -8,6 +8,7 @@ import {
   assertSafeMysqlApplicationAccount,
   type MysqlSchemaOptions,
   mysqlAccount,
+  anyTableMissing,
   verifyMysqlSchema,
   withFrameworkDefaultCollation,
   withMysqlSchemaLock,
@@ -110,9 +111,12 @@ function mysqlDialect(variant: MysqlVariant): SqlDialect {
     label: variant === 'mysql' ? 'MySQL' : 'MariaDB',
     verifySchema: async (app, models) => verifyMysqlSchema(app, models, await options(app)),
     // The application account's rights are granted for the whole database (`SELECT, INSERT, UPDATE, DELETE ON db.*`),
-    // which the framework's own schema run established before: the tables the library creates are covered by it. They
-    // are created with the framework's collation, which the library cannot be told
-    withForeignSchemaLock: (lock, _tables, migrate) =>
-      withMysqlSchemaLock(lock, (run) => withFrameworkDefaultCollation(run, migrate)),
+    // which the framework's own schema run established before: the tables the library creates are covered by it. A
+    // table it creates gets the framework's collation, which the library cannot be told — switched only on a run that
+    // creates one, because the switch locks every table of the database
+    withForeignSchemaLock: (lock, tables, migrate) =>
+      withMysqlSchemaLock(lock, async (run) =>
+        (await anyTableMissing(run, tables)) ? withFrameworkDefaultCollation(run, migrate) : migrate(),
+      ),
   };
 }

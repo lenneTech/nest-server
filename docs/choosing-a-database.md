@@ -32,8 +32,9 @@ Work through the steps in order; the first one that decides, decides.
      trigger-based write guard was measured and not built: it cost up to half of MariaDB's write throughput and left
      the native read open.
    - **Better-Auth's tables are created by Better-Auth** (12.1.1+), in the database's default collation — so the
-     framework switches that default to `utf8mb4_bin` for the duration of Better-Auth's migration and back, and its
-     tables compare byte-wise like the framework's. This needs the owner connection (`database.ownerUrl`), as every
+     framework switches that default to `utf8mb4_bin` and back while Better-Auth creates a table, and its tables
+     compare byte-wise like the framework's. That switch locks every table of the database, so it runs only on a boot
+     that creates one, and waits at most five seconds behind an open transaction before the boot fails. This needs the owner connection (`database.ownerUrl`), as every
      schema change does; Better-Auth's own column types apply there (`timestamp(3)`, `varchar(36)` ids).
    - **An indexed text field holds at most 255 characters** (a longer value is refused with 400); every other text is
      unbounded. Indexing an existing text field later is a type change, i.e. a reviewed migration.
