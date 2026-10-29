@@ -131,6 +131,8 @@ Same family (2026-10-04): `grep -r --include=*.ts ...` dies with `no matches fou
 `bad math expression`. For repo-wide usage scans write a small Node script that walks the tree and
 regex-matches `from '<pkg>'` / `import('<pkg>')` / `require('<pkg>')` / `createRequire(...)('<pkg>')`
 — it also catches lazy imports, which matter here (MCP SDK, AWS SDK, ioredis are all lazy).
+Also (2026-10-29): an unquoted word starting with `=` is zsh EQUALS expansion — `echo =====` fails with
+"==== not found" and aborts the whole `&&` chain. Quote separators: `echo '-----'`.
 
 ## Waiting for a foreign test run: `pgrep -f vitest` matches ITS OWN wait loop (2026-10-04)
 
