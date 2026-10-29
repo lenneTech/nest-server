@@ -1,6 +1,6 @@
 ---
 name: db-agnostic-phase0-doc-facts
-description: feat/db-agnostic phases 0-6 (DEV-3828..3833, 3848) — what the persistence docs claim vs what the code wires; silent wrong-database routes, guard leaks, fail-open recipes; changes the release guide must list
+description: feat/db-agnostic phases 0-6 + DEV-3904 (DEV-3828..3833, 3848, 3904) — what the persistence docs claim vs what the code wires; silent wrong-database routes, guard leaks, fail-open recipes; changes the release guide must list
 metadata:
   type: project
 ---
@@ -117,3 +117,16 @@ due in phase 5, DEV-3833).
 **Why:** a release-guide author following PLAN.md's "only phase 5 carries a breaking change" would omit
 these. **How to apply:** when the db-agnostic release guide is reviewed, check it lists them; see
 [[migration-guide-behavior-change-count-trap]], [[number-drift-in-tooling-prose]].
+
+**DEV-3904 (2026-10-29, 12.1.1) — Better-Auth on MySQL / MariaDB; zero findings:**
+- Verified sound: `SqlDialect.foreignPool()` hands Better-Auth the mysql2 PROMISE wrapper (`@better-auth/kysely-adapter`
+  detects `getConnection` → `new MysqlDialect(db)`, which reads `.pool`); Better-Auth's own mysql types are
+  `timestamp(3)` / `varchar(36)` (`better-auth/dist/db/get-migration.mjs`); MySQL grant is database-level and ensured by
+  the users store's schema run (`planMysqlSchema` catalog `granted`), so `withForeignSchemaLock` ignoring `tables` is
+  correct; collation switch/restore runs only with `ownerUrl`; `$1` repeats are expanded by `mysql-session.ts`;
+  `BetterAuthSqlStore` / `IamSqlQueryable` are NOT barrel-exported; `IamSqlStorage` is, but only produced by the
+  framework (additive fields).
+- Not reported: `sqlPool` JSDoc in `better-auth.config.ts` (~l.236) still says "the `pg` pool" (only
+  CoreBetterAuthModule sets it); PLAN.md l.650 cites removed mutation `mysql-iam-not-refused` (plans not shipped);
+  stale test-file headers (`core-module-parity.e2e-spec.ts` l.53, `better-auth-storage-paths.e2e-spec.ts` l.4).
+- Counts after DEV-3904: 425 mutations / 233 unit / 192 e2e (testing.md + check-mutations.mjs header agree).

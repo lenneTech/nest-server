@@ -104,6 +104,22 @@ Measured 2026-10-28 on `feat/db-agnostic` (phase 1, DEV-3829), local Postgres 18
 - Measure in the `probe` database (exists on both, owner may create): TEMPORARY tables for plans; a real table +
   `DROP TABLE` for two-session lock tests. Compilers import fine through tsx (no decorators needed).
 
+**DEV-3904 (Better-Auth on MySQL / MariaDB), reviewed 2026-10-29: one High.**
+- HIGH: `withFrameworkDefaultCollation()` runs `ALTER DATABASE … COLLATE utf8mb4_bin` + restore on EVERY boot with
+  `ownerUrl` (MySQL default `utf8mb4_0900_ai_ci`). On MySQL 8.4 ALTER DATABASE takes an EXCLUSIVE MDL on EVERY TABLE of
+  the schema (seen in `performance_schema.metadata_locks`), acquired one by one; tables already granted block all DML,
+  and the schema X blocks new connections (`USE db` at handshake). Measured with the real code path: another tx open
+  3 s that had read `zz_users` -> boot step 2.84 s, warm-pool lookup on `zz_session` max 2.82 s, new connection 2.53 s.
+  Server default `lock_wait_timeout` = 31536000 s, so unbounded. MariaDB 11.8: no wait at all. No-blocker cost ~7 ms.
+  Fix: switch only when a Better-Auth table is missing (only CREATE TABLE reads the db default) + short lock_wait_timeout.
+- Settled: Better-Auth `findSession` (derived table + LEFT JOIN users) = const/const on both servers, ~0.2 ms @20k rows.
+  Kysely adapter sets `transaction = true` for a mysql pool (same as pg); `create` outside a tx = BEGIN/INSERT/SELECT
+  by unique field/COMMIT (no RETURNING). `foreignPool()`/`.promise()` and `queryOn()` are boot-only (iamStorage call
+  sites are provider factories); PromisePool subscribes on the source pool only when someone listens on the wrapper.
+  Framework's only Better-Auth databaseHook (wsSessionRevocationPlugin) does no DB I/O -> no nested pool acquire in a tx.
+- Measure MDL effects with REAL tables in `probe` (temporary tables are not locked by ALTER DATABASE); name the hot table
+  so it sorts BEFORE the blocked one, or the probe looks unaffected (acquisition order is by name).
+
 **How to measure without DROP** (the PreToolUse hook blocks `DROP DATABASE`): register models whose fields collide on one column (`fooBar` + `foo_bar`) so `desiredTable()` throws inside the owner transaction after the lock → everything rolls back, nothing is created. Hold `pg_advisory_lock(hashtext('lenne.tech:schema'))` from a side connection to simulate another replica migrating. Scripts ran via `node_modules/.bin/tsx` as `.mts` with absolute imports of `src/**.ts`.
 
 Related: [[persistence-layer-db-agnostic-costs]]
