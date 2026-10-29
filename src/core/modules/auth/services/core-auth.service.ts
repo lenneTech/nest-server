@@ -130,16 +130,30 @@ export class CoreAuthService {
       throw new UnauthorizedException(ErrorCode.INVALID_TOKEN);
     }
 
+    // A device is ended by writing `null` for it, not by deleting its key: update() MERGES the input into the stored
+    // record, so a key that is merely missing from the input survives — and with it the refresh token this logout
+    // must end. `validateUser()` reads a `null` device as "not signed in".
+    const ended = (deviceIds: string[]) => Object.fromEntries(deviceIds.map((id) => [id, null]));
+
     // Logout from all devices
     if (serviceOptions.allDevices) {
+      const deviceIds = Object.keys(user.refreshTokens);
       user.refreshTokens = {};
-      await this.userService.update(user.id, { refreshTokens: {} }, serviceOptions);
+      await this.userService.update(
+        user.id,
+        { refreshTokens: ended(deviceIds), tempTokens: ended(Object.keys(user.tempTokens ?? {})) },
+        serviceOptions,
+      );
       return true;
     }
 
     // Logout from specific devices
     delete user.refreshTokens[deviceId];
-    await this.userService.update(user.id, { refreshTokens: user.refreshTokens }, serviceOptions);
+    await this.userService.update(
+      user.id,
+      { refreshTokens: ended([deviceId]), tempTokens: ended([deviceId]) },
+      serviceOptions,
+    );
     return true;
   }
 

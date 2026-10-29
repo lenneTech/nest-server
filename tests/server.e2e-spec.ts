@@ -753,7 +753,9 @@ describe('ServerModule (e2e)', () => {
       const userModel = userService['mainDbModel'];
 
       // Same value back — the shape every full-object write produces.
-      await expect(userModel.findByIdAndUpdate(legacyId, { roles: ['admin', 's_manager'] }).exec()).resolves.toBeTruthy();
+      await expect(
+        userModel.findByIdAndUpdate(legacyId, { roles: ['admin', 's_manager'] }).exec(),
+      ).resolves.toBeTruthy();
 
       // But ADDING a further system role on top is still refused.
       await expect(
@@ -1298,20 +1300,58 @@ describe('ServerModule (e2e)', () => {
     expect(res.roles.length).toEqual(1);
   });
 
+  const signInDevice = async () =>
+    (await testHelper.graphQl({
+      arguments: { input: { email: gEmail, password: gPassword } },
+      fields: ['token', 'refreshToken'],
+      name: 'signIn',
+      type: TestGraphQLType.MUTATION,
+    })) as { refreshToken: string; token: string };
+  const refreshStatus = async (refreshToken: string) => {
+    const res: any = await testHelper.graphQl(
+      { fields: ['token'], name: 'refreshToken', type: TestGraphQLType.MUTATION },
+      { token: refreshToken },
+    );
+    return res?.errors?.[0]?.extensions?.originalError?.statusCode ?? (res?.token ? 200 : undefined);
+  };
+
   /**
    * Logout as user on a specific device
+   *
+   * @regression   11.43.4 — a legacy logout deleted the device from `refreshTokens` and wrote the map through
+   *   `update()`, which MERGES the input into the stored record: the deleted key survived, and the logged-out
+   *   device's refresh token kept working.
+   * @seen-failing Write `{ refreshTokens: user.refreshTokens }` (the map with the key deleted) again in
+   *   CoreAuthService.logout() in src/core/modules/auth/services/core-auth.service.ts — registered as mutation
+   *   `legacy-logout-keeps-refresh-token` in tests/regression-mutations.json.
    */
   it('logout as user on one device', async () => {
-    const res: any = await testHelper.rest('/auth/logout', { token: gToken });
+    const [first, second] = [await signInDevice(), await signInDevice()];
+    const res: any = await testHelper.rest('/auth/logout', { token: first.token });
     expect(res).toBe(true);
+    expect(await refreshStatus(first.refreshToken)).toBe(401);
+    // ... and only that device
+    expect(await refreshStatus(second.refreshToken)).toBe(200);
   });
 
   /**
    * Logout as user on all devices
+   *
+   * @regression   11.43.4 — a legacy logout with `allDevices` wrote `refreshTokens: {}` through `update()`, which
+   *   merges into the stored map: every device stayed signed in.
+   * @seen-failing Write `{ refreshTokens: {} }` again in the allDevices branch of CoreAuthService.logout() in
+   *   src/core/modules/auth/services/core-auth.service.ts — registered as mutation
+   *   `legacy-logout-all-keeps-devices` in tests/regression-mutations.json.
    */
   it('logout as user on all devices', async () => {
-    const res: any = await testHelper.rest('/auth/logout?allDevices=true', { token: gToken });
+    const [first, second] = [await signInDevice(), await signInDevice()];
+    const res: any = await testHelper.rest('/auth/logout?allDevices=true', { token: first.token });
     expect(res).toBe(true);
+    expect(await refreshStatus(first.refreshToken)).toBe(401);
+    expect(await refreshStatus(second.refreshToken)).toBe(401);
+    await testHelper.rest('/auth/logout', { statusCode: 401, token: second.token });
+    // A fresh session for the steps below
+    gToken = (await signInDevice()).token;
   });
 
   /**

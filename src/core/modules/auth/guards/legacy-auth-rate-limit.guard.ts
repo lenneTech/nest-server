@@ -76,9 +76,10 @@ export class LegacyAuthRateLimitGuard implements CanActivate {
     const request = context.switchToHttp().getRequest();
     const ip = this.getClientIp(request);
 
-    // Get endpoint from URL path
-    const url = request.url || request.path || '';
-    const endpoint = url.split('/').pop() || 'unknown';
+    // The handler, never the URL: the URL carries the query string and the client's spelling of the path
+    // (Express routes case-insensitively and ignores a trailing slash), so every variant was a fresh bucket and
+    // `/auth/signin?n=1`, `?n=2`, … guessed passwords without ever reaching the limit.
+    const endpoint = context.getHandler()?.name || 'unknown';
 
     return { endpoint, ip };
   }

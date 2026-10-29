@@ -69,8 +69,8 @@ const ROOT = join(__dirname, '../..');
  * when upstream moves, not when your own reasoning stopped applying.
  */
 const DEV_ONLY_SUPPRESSIONS: { ghsa: string; pkg: string; vulnerableInProd: RegExp }[] = [
-  // via nodemon (and npm-watch) > chokidar@3
-  { ghsa: 'GHSA-vfj7-8cjw-p6xm', pkg: 'braces', vulnerableInProd: /braces@/ },
+  // via @nestjs/cli 11 > fork-ts-checker-webpack-plugin
+  { ghsa: 'GHSA-gcqx-w48m-w2h4', pkg: 'deepmerge', vulnerableInProd: /deepmerge@/ },
 ];
 
 describe('audit suppressions stay within their justification', () => {

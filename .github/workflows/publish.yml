@@ -113,10 +113,14 @@ jobs:
       # here.
       #
       # Checked out here rather than assumed present: a hosted runner has nothing but this repo.
+      #
+      # Maintenance line `release/11.x`: the starter's main is on 12.x, so the 11.x tarball is gated
+      # against the starter state that last consumed an 11.x release.
       - name: Check out the consumer project (nest-server-starter)
         uses: actions/checkout@v7
         with:
           path: consumer/nest-server-starter
+          ref: v11.43.3
           repository: lenneTech/nest-server-starter
 
       # `--fast` = the consumer's typecheck + build + full test suite. Deliberately NOT the
@@ -127,9 +131,13 @@ jobs:
       - name: Consumer gate (install the tarball into the starter and run its tests)
         run: node scripts/check-consumer.mjs --fast --starter="$GITHUB_WORKSPACE/consumer/nest-server-starter"
 
+      # Maintenance line `release/11.x`: publish under the dist-tag `v11`, never `latest`. Without
+      # it this release would become the version every plain `npm install @lenne.tech/nest-server`
+      # resolves to, moving new installs from 12.x back to 11.x.
       - uses: JS-DevTools/npm-publish@v4
         with:
           access: public
+          tag: v11
           token: ${{ secrets.NPM_TOKEN }}
 
       # A hosted runner is thrown away after the job, so this is a no-op there.

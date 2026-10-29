@@ -74,13 +74,16 @@ auditConfig:
   # extended to 4.3.0. Without it that day turns `pnpm audit` red, which is the signal to re-argue
   # the dev-only case and, if it still holds, restore the entry together with its guard in
   # tests/unit/audit-suppression-scope.spec.ts.
+  # GHSA-vfj7-8cjw-p6xm (braces <= 3.0.3, dev tooling via nodemon) was listed here from 2026-10-11 until
+  # 11.43.4: GitHub withdrew the advisory on 2026-10-23. Removed together with its scope guard, as in 12.0.0.
   ignoreGhsas:
-    # braces <= 3.0.3, HIGH: stack exhaustion through deeply nested patterns. Dev tooling only:
-    # nodemon (also via npm-watch) > chokidar@3 > braces. The patterns come from this repository's
-    # own watch configuration, never from input. chokidar@4 no longer uses braces but also dropped
-    # the glob support nodemon relies on, so the path cannot be lifted. Verified 2026-10-03: newest
-    # release is 3.0.3, no first patched version.
-    - GHSA-vfj7-8cjw-p6xm
+    # deepmerge >= 4.2.0, <= 4.3.1, LOW: mergeObject() allows prototype poisoning of returned objects.
+    # Dev tooling only: @nestjs/cli 11 > fork-ts-checker-webpack-plugin > deepmerge. It merges this
+    # repository's own build configuration, never input. Verified 2026-10-29: newest release is 4.3.1,
+    # no first patched version (advisory updated 2026-10-27), and @nestjs/cli 11 has no release without
+    # fork-ts-checker. The path leaves with @nestjs/cli 12 (nest-server 12.x carries no entry).
+    # check:overrides fails with FIX AVAILABLE once a patched version appears.
+    - GHSA-gcqx-w48m-w2h4
 
 peerDependencyRules:
   allowedVersions:
@@ -209,7 +212,10 @@ overrides:
   # it is the reference entry docs/security-overrides.md tells consumers to mirror, and a consumer
   # still on @nestjs/platform-express <=11.2.3 gets 2.2.0 without it. Key and target raised
   # 2.3.0 -> 2.4.0 in lockstep with the direct `multer` bump; update that doc alongside.
-  'multer@>=2.0.0 <2.4.0': '2.4.0'
+  # 2026-10-29 (11.43.4): LOAD-BEARING again. GHSA-q7qp-rjg7-q26m (high, DoS via a pending async
+  # fileFilter after request teardown) covers 2.4.0, patched >=2.5.0, and every @nestjs/platform-express
+  # 11.x up to 11.2.8 exact-pins 2.4.0. Key and target raised 2.4.0 -> 2.5.0 with the direct bump.
+  'multer@>=2.0.0 <2.5.0': '2.5.0'
   # Security: Memory exhaustion DoS + uninitialized memory disclosure (GHSA-96hv-2xvq-fx4p, high, patched >=8.21.0) - transitive via @nestjs/graphql>ws and @nestjs/graphql>graphql-ws>ws (resolves to vulnerable 8.20.1 without this)
   # NO LONGER LOAD-BEARING as of 2026-08-19: @nestjs/graphql 13.4.5 pins `ws: 8.21.3` itself
   # (13.4.2 pinned the vulnerable 8.20.1), and graphql-ws 6.2.1 takes ws as an optional peer. Every
@@ -360,7 +366,9 @@ overrides:
   # Pinned WITHIN the 3.x major; 4.x exists, and crossing a major to fix a transitive advisory is
   # the shape that broke a project in April 2026 (see package-management.md).
   # Remove once ajv floors it - ajv is the only importer in all 38 paths.
-  'fast-uri@<3.1.8': '3.1.8'
+  # 2026-10-29 (11.43.4): raised 3.1.8 -> 3.1.9 for GHSA-w74x-v6f9-j3xg, GHSA-wjr9-j795-jxcr (moderate),
+  # GHSA-xhq7-xmqj-769h, GHSA-333x-w4r6-6crp (low), all patched >=3.1.9: the old target had become a lock.
+  'fast-uri@<3.1.9': '3.1.9'
   # Security: ip-address ReDoS + parser confusion (high + moderate, patched >=10.3.1) - dev/transitive
   # via @modelcontextprotocol/sdk>express-rate-limit>ip-address.
   # Target raised 10.3.1 -> 10.5.0 on 2026-08-22 (key upper bound with it): the old entry pinned
@@ -434,7 +442,9 @@ overrides:
   'hono@>=4.0.0 <4.13.13': '4.13.13'
   # Security: body-parser DoS on malformed urlencoded input (GHSA-v422-hmwv-36x6, low, patched >=2.3.0) - transitive via @apollo/server, @as-integrations/express5 and express itself (22 paths)
   # Inert today. Remove once express / @apollo/server request >=2.3.0.
-  'body-parser@>=2.0.0 <2.3.0': '2.3.0'
+  # 2026-10-29 (11.43.4): raised 2.3.0 -> 2.4.0 for GHSA-27r3-jxmh-p828 (high, patched >=2.4.0): the old
+  # target had become a lock that pinned the tree to a vulnerable version.
+  'body-parser@>=2.0.0 <2.4.0': '2.4.0'
   # NOTE on the `hono` override above - read this BEFORE deleting it.
   # There IS a hono override now, and it is load-bearing. What is forbidden is the EARLIER form:
   # a bare `hono: '4.12.27'` (or any key whose range extends at or above the target). pnpm replaces
