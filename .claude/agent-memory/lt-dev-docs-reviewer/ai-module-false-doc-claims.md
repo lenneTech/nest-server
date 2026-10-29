@@ -48,9 +48,19 @@ dependency"), `README.md:549-553`, and migration guide `11.32.1-to-11.32.2.md` �
 **Still historical:** `migration-guides/11.25.x-to-11.26.0.md` likely retains the old "peer-style
 optional dependency" wording — that is a frozen release-notes artifact, not a live doc; leave it.
 
+## 3. Confirmation is NOT on by default for `mutating` tools, and absent over MCP
+
+`CoreAiService.confirmationRequiredFor()`: `destructive` → always (chat/stream only); `mutating` →
+`enforced ? true : (input.requireConfirmation ?? ai.confirmation.mutating.default)`, and that default is
+`false` (`server-options.interface.ts` ~l.1969). nuxt-extensions does not send `requireConfirmation` by
+default. `mcpCallTool()` executes without any gate. **Reintroduced 2026-10-29** by the 12.1 rewrite of the
+ROOT `README.md` ("AI Assistant & MCP" bullet: "mutating and destructive tools ask for confirmation",
+next to "MCP clients use the same tools") — reported High and corrected in the same review (the bullets
+now name `ai.confirmation.mutating` and "no confirmation gate over MCP"). Re-check them on the next review.
+
 ## How to apply
 
-Grep for `authorize(` and `modelcontextprotocol` across README / INTEGRATION-CHECKLIST /
+Grep for `authorize(`, `confirmation` and `modelcontextprotocol` across README / INTEGRATION-CHECKLIST /
 `.claude/rules/configurable-features.md` / current migration guide / module JSDoc on **every**
 AI-module review. The point is no longer "hunt for standing contradictions" (the primary surfaces are
 fixed) but "confirm a NEW surface didn't reintroduce the old framing." A correction in a code comment

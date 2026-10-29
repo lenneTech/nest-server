@@ -30,3 +30,8 @@ Use arrays or literal paths, and require a failing TEST NAME in the output, neve
 (the same rule `check:mutations` enforces with a parsed failure count).
 
 Related: [[scratch-copy-mutation-check]].
+
+**Waiting on a background log: `grep -m1 -q X <(tail -f file)` does NOT return** in this Bash tool —
+the process substitution's `tail -f` keeps the command alive until the tool's timeout (cost 400 s on
+2026-10-29). Run the long job with `run_in_background` and simply wait for its completion
+notification; do not build a wait loop.

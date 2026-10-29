@@ -25,3 +25,4 @@
 - [ESM Package Consumer-Path Facts](esm-package-consumer-path-facts.md) — 12.0.0 "type": "module": require(esm) barrel, bin/+helpers package.json, forwarder, callerDirectory file: branch — were run by no gate, pinned since 2026-10-26 (package-format-contracts, check:manifest); probes.
 - [DB-Agnostic Persistence Test Facts](db-agnostic-persistence-test-facts.md) — phases 0-6: mutations seen red; PG DB per file/project; phase 6 MySQL gaps (push/pull + aggregate tenant filter, role guard, update refusals) probed green-under-mutation.
 - [Vitest Projects Global-Setup Order](vitest-projects-global-setup-order.md) — vitest 5: project globalSetup runs BEFORE root (once); a throwing project setup aborts the whole run before root starts containers.
+- [check-overrides Guard Test Facts](check-overrides-guard-test-facts.md) — registry lookup for unnamed fixes: offline seams, CI-pinning trap for old no-fix fixtures, legacy rate-limit key facts.
