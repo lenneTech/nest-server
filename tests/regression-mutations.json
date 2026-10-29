@@ -4623,6 +4623,17 @@
       "specs": [
         "tests/unit/check-overrides.guard.spec.ts"
       ]
+    },
+    {
+      "driverSpecific": false,
+      "id": "legacy-rate-limit-keyed-on-url",
+      "defect": "11.43.4 / 12.1.0 — the legacy REST rate-limit bucket was keyed on the last segment of request.url, query string included: /auth/signin?n=1, ?n=2, … each got a fresh bucket, so password guessing never reached the limit. The mutation keys the endpoint on the URL again.",
+      "file": "src/core/modules/auth/guards/legacy-auth-rate-limit.guard.ts",
+      "find": "    const endpoint = context.getHandler()?.name || 'unknown';\n",
+      "replace": "    const endpoint = (request.url || request.path || '').split('/').pop() || 'unknown';\n",
+      "specs": [
+        "tests/unit/legacy-auth-rate-limit-guard.spec.ts"
+      ]
     }
   ]
 }
