@@ -364,10 +364,10 @@ Details: [src/core/modules/api-token/README.md](src/core/modules/api-token/READM
 
 An optional AI module (`ai` configuration) for any OpenAI-compatible model endpoint:
 
-- **Tool registry** — the assistant reaches exactly the domain operations a project registers as tools, filtered by the user's roles; tools go through a `CrudService`, so `@Restricted` and `securityCheck()` apply
-- **Plan mode and confirmations** — a full plan is authorized step by step before anything runs; mutating and destructive tools ask for confirmation
+- **Tool registry** — the assistant reaches exactly the domain operations a project registers as tools, filtered by the user's roles; a tool must route through a `CrudService` with the caller's service options, so that `@Restricted` and `securityCheck()` apply
+- **Plan mode and confirmations** — a full plan is authorized step by step before anything runs; in chat, destructive tools always ask for confirmation, mutating tools only under `ai.confirmation.mutating` (off by default, can be enforced)
 - **Token budgets** per user and per tenant, conversations, audit log, SSE streaming, admin-editable prompt fragments
-- **MCP server** at `/ai/mcp` (Streamable HTTP) with optional OAuth 2.1 (PKCE, dynamic client registration, consent page), so MCP clients use the same tools with the same rights
+- **MCP server** at `/ai/mcp` (Streamable HTTP) with optional OAuth 2.1 (PKCE, dynamic client registration, consent page), so MCP clients use the same tools with the same rights; there is no confirmation gate over MCP, the client's own approval applies
 
 Integration: [src/core/modules/ai/INTEGRATION-CHECKLIST.md](src/core/modules/ai/INTEGRATION-CHECKLIST.md).
 
