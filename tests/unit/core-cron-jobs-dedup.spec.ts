@@ -366,7 +366,7 @@ describe('CoreCronJobs multi-replica deduplication', () => {
     });
 
     it('registers a job scheduler and dispatches the worker job to the callback', async () => {
-      const redisService = fakeRedisService({ getClient: () => ({ set: vi.fn().mockResolvedValue('OK') }) });
+      const redisService = fakeRedisService({ getClient: () => ({ del: vi.fn(), set: vi.fn().mockResolvedValue('OK') }) });
       const service = new TestCronJobs(
         { job1: { cronTime: '*/5 * * * *', runOnInit: false, timeZone: 'Europe/Berlin' } },
         { bullMq, redisService },
@@ -391,7 +391,7 @@ describe('CoreCronJobs multi-replica deduplication', () => {
       const set = vi.fn().mockResolvedValue('OK');
       const service = new TestCronJobs(
         { job1: { cronTime: '*/5 * * * *', runOnInit: true } },
-        { bullMq, redisService: fakeRedisService({ getClient: () => ({ set }) }) },
+        { bullMq, redisService: fakeRedisService({ getClient: () => ({ del: vi.fn(), set }) }) },
       );
 
       await service.onApplicationBootstrap();
@@ -428,11 +428,13 @@ describe('CoreCronJobs multi-replica deduplication', () => {
     });
 
     /**
-     * A queue whose schedulers live in a Map, standing in for Redis: `restart()` loses them all, the way a Redis or
-     * Valkey restart without persistence does, and `queueClient` is the connection the service listens on.
+     * A queue whose schedulers live in a Map and a Redis whose keys live in another, standing in for one Redis shared
+     * by every replica built from it: `restart()` loses both, the way a Redis or Valkey restart without persistence
+     * does, and `queueClient` is the connection the services listen on.
      */
     function restartableBullMq() {
       const schedulers = new Map<string, unknown>();
+      const keys = new Map<string, string>();
       const queueClient = new EventEmitter() as EventEmitter & { options: Record<string, unknown> };
       const upsert = vi.fn(async (name: string, repeat: unknown) => {
         schedulers.set(name, repeat);
@@ -440,8 +442,11 @@ describe('CoreCronJobs multi-replica deduplication', () => {
       const module = {
         Queue: class {
           close = vi.fn(async () => undefined);
-          getJobScheduler = vi.fn(async (name: string) => (schedulers.has(name) ? { key: name } : undefined));
+          // As in bullmq 5.23–5.40.2, inside the peer range: a deleted scheduler still reads as an object. Only the
+          // listing tells whether it exists.
+          getJobScheduler = vi.fn(async (name: string) => ({ key: name, pattern: null }));
           getJobSchedulers = vi.fn(async () => [...schedulers.keys()].map((key) => ({ key })));
+          removeJobScheduler = vi.fn(async (name: string) => schedulers.delete(name));
           upsertJobScheduler = upsert;
         },
         Worker: class {
@@ -459,9 +464,20 @@ describe('CoreCronJobs multi-replica deduplication', () => {
           }
           return { options: { ...connectionOptions } };
         }),
-        getClient: () => ({ set: vi.fn().mockResolvedValue('OK') }),
+        getClient: () => ({
+          del: vi.fn(async (key: string) => (keys.delete(key) ? 1 : 0)),
+          get: vi.fn(async (key: string) => keys.get(key) ?? null),
+          set: vi.fn(async (key: string, value: string) => {
+            keys.set(key, value);
+            return 'OK';
+          }),
+        }),
       });
-      return { module, queueClient, redisService, restart: () => schedulers.clear(), schedulers, upsert };
+      const restart = () => {
+        schedulers.clear();
+        keys.clear();
+      };
+      return { module, queueClient, redisService, restart, schedulers, upsert };
     }
 
     async function waitUntil(check: () => boolean, message: string, timeoutMs = 2000): Promise<void> {
@@ -478,7 +494,9 @@ describe('CoreCronJobs multi-replica deduplication', () => {
      * @regression   12.1.1 (DEV-3889) — the schedulers were registered once, at bootstrap. A Redis restart without
      *   persistence removed them and nothing registered them again: no replica ran a cron job until the next deploy.
      * @seen-failing Drop the 'ready' listener from initBullMq() in src/core/common/services/core-cron-jobs.service.ts
-     *   — registered as mutation `cron-reconnect-does-not-restore` in tests/regression-mutations.json.
+     *   — registered as mutation `cron-reconnect-does-not-restore` in tests/regression-mutations.json. Asking
+     *   getJobScheduler() instead of the listing, which bullmq 5.23–5.40.2 answers with an object for a deleted
+     *   scheduler, is mutation `cron-restore-trusts-get-job-scheduler`.
      */
     it('registers lost schedulers again when the queue connection reconnects', async () => {
       const bull = restartableBullMq();
@@ -532,6 +550,45 @@ describe('CoreCronJobs multi-replica deduplication', () => {
 
       expect(bull.upsert).toHaveBeenCalledTimes(1);
       await service.onApplicationShutdown();
+    });
+
+    /**
+     * @regression   12.1.1 (DEV-3889, found in review) — in a rolling deploy the new version's bootstrap removes the
+     *   scheduler of a job it no longer runs through BullMQ, while replicas of the old version still check for it.
+     *   Their check found it missing and registered it again; for a job moved to a local timer that meant a second run
+     *   every tick until the next deploy.
+     * @seen-failing Skip the removal marker in restoreBullSchedulers() in
+     *   src/core/common/services/core-cron-jobs.service.ts — registered as mutation
+     *   `cron-restore-ignores-removal-marker` in tests/regression-mutations.json.
+     */
+    it('does not bring back a schedule that a newer version removed, but does after a data loss', async () => {
+      const bull = restartableBullMq();
+      const oldVersion = new TestCronJobs(
+        { job1: { cronTime: '*/5 * * * *', runOnInit: false } },
+        { bullMq: bull.module, redisService: bull.redisService },
+      );
+      await oldVersion.onApplicationBootstrap();
+
+      const newVersion = new TestCronJobs(
+        { job1: { cronTime: '*/5 * * * *', disabled: true } },
+        { bullMq: bull.module, redisService: bull.redisService },
+      );
+      await newVersion.onApplicationBootstrap();
+      expect(bull.schedulers.has('job1')).toBe(false);
+
+      bull.queueClient.emit('ready');
+      await flush();
+      await flush();
+      expect(bull.schedulers.has('job1')).toBe(false);
+
+      // A real data loss takes the marker with it, so the old replica restores what Redis lost.
+      bull.restart();
+      bull.queueClient.emit('ready');
+      await flush();
+      await flush();
+      expect(bull.schedulers.has('job1')).toBe(true);
+
+      await Promise.all([oldVersion.onApplicationShutdown(), newVersion.onApplicationShutdown()]);
     });
 
     /**

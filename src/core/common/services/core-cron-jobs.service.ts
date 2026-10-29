@@ -549,6 +549,7 @@ export abstract class CoreCronJobs implements OnApplicationBootstrap, OnApplicat
       for (const scheduler of await this.bullQueue.getJobSchedulers()) {
         if (scheduler?.key && known.has(scheduler.key) && !active.has(scheduler.key)) {
           await this.bullQueue.removeJobScheduler(scheduler.key);
+          await this.markBullSchedulerRemoved(scheduler.key);
           cronLogger.log(`CronJob scheduler ${scheduler.key} removed — no longer configured`);
         }
       }
@@ -571,19 +572,30 @@ export abstract class CoreCronJobs implements OnApplicationBootstrap, OnApplicat
    * from now, so the due tick would be lost. Replicas that find a scheduler missing at the same moment may both
    * register it; the second upsert replaces the first one's job with an identical one.
    *
+   * Which schedulers exist comes from the LISTING, not from `getJobScheduler()`: that method does not exist before
+   * bullmq 5.23, and up to 5.40.2 it answers a deleted scheduler with an object instead of `undefined` — both inside
+   * the peer range. A scheduler a newer version removed on purpose (see markBullSchedulerRemoved()) stays removed.
+   *
    * Only the schedule comes back: `runOnInit` and the registry entry belong to bootstrap. A tick that fell due while
    * the scheduler was gone is not run.
    */
   protected restoreBullSchedulers(): Promise<void> {
     if (!this.bullSchedulerCheck) {
       this.bullSchedulerCheck = (async () => {
+        if (!this.bullQueue || !this.bullScheduledJobs.size) {
+          return;
+        }
+        const present = await this.listBullSchedulerKeys();
+        if (!present) {
+          return;
+        }
         for (const name of this.bullScheduledJobs) {
           const config = this.jobConfigs[name];
-          if (!this.bullQueue || !config) {
+          if (!this.bullQueue || !config || present.has(name)) {
             continue;
           }
           try {
-            if (await this.bullQueue.getJobScheduler(name)) {
+            if (await this.isBullSchedulerRemoved(name)) {
               continue;
             }
             await this.upsertBullScheduler(name, config);
@@ -597,6 +609,44 @@ export abstract class CoreCronJobs implements OnApplicationBootstrap, OnApplicat
       });
     }
     return this.bullSchedulerCheck;
+  }
+
+  /** Keys of the schedulers the shared queue holds, or `undefined` when the listing failed (logged) */
+  protected async listBullSchedulerKeys(): Promise<Set<string> | undefined> {
+    try {
+      const schedulers: { key?: string }[] = await this.bullQueue.getJobSchedulers();
+      return new Set(schedulers.map((scheduler) => scheduler?.key).filter((key): key is string => !!key));
+    } catch (error) {
+      cronLogger.warn(`Failed to list the BullMQ job schedulers: ${errorMessage(error)}`);
+      return undefined;
+    }
+  }
+
+  /**
+   * Redis key marking a scheduler that removeStaleBullSchedulers() removed on purpose
+   *
+   * In a rolling deploy the new version's bootstrap removes the scheduler of a job it no longer runs through BullMQ,
+   * while replicas of the old version still have that job in `bullScheduledJobs`. Their check finds the scheduler
+   * missing and would register it again; for a job moved to a local timer that is a second run every tick until the
+   * next deploy. The marker tells them the scheduler is gone on purpose. registerBullJob() deletes it, and a real data
+   * loss takes it along with the schedulers, so restoring still works then.
+   */
+  protected bullSchedulerRemovedKey(name: string): string | undefined {
+    return this.getRedisService()?.key('cron-scheduler-removed', name);
+  }
+
+  /** Whether a newer configuration removed this job's scheduler on purpose; see bullSchedulerRemovedKey() */
+  protected async isBullSchedulerRemoved(name: string): Promise<boolean> {
+    const key = this.bullSchedulerRemovedKey(name);
+    return !!key && !!(await this.getRedisClient()?.get(key));
+  }
+
+  /** Record that this job's scheduler was removed on purpose; see bullSchedulerRemovedKey() */
+  protected async markBullSchedulerRemoved(name: string): Promise<void> {
+    const key = this.bullSchedulerRemovedKey(name);
+    if (key) {
+      await this.getRedisClient()?.set(key, new Date().toISOString());
+    }
   }
 
   /**
@@ -654,6 +704,11 @@ export abstract class CoreCronJobs implements OnApplicationBootstrap, OnApplicat
    * Register a job as BullMQ job scheduler
    */
   protected async registerBullJob(name: string, config: CronJobConfigWithTimeZone): Promise<void> {
+    // This version runs the job through BullMQ, so a removal marker an earlier configuration left no longer applies.
+    const removedKey = this.bullSchedulerRemovedKey(name);
+    if (removedKey) {
+      await this.getRedisClient()?.del(removedKey);
+    }
     await this.upsertBullScheduler(name, config);
 
     // A BullMQ scheduler never fires immediately, so runOnInit is emulated locally under a lease.

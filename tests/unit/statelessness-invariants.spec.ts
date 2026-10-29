@@ -214,9 +214,10 @@ const INVENTORY: StateEntry[] = [
   },
   {
     because:
-      'The names of the jobs this replica registered as BullMQ schedulers, from its own cron config. Every replica '
-      + 'derives the same set from the same code and config; the schedules themselves live in Redis. The set only '
-      + 'says which of them restoreBullSchedulers() must find there.',
+      'The names of the jobs this replica registered as BullMQ schedulers, from its own cron config. Replicas of one '
+      + 'version derive the same set from the same code and config; the schedules themselves live in Redis. During a '
+      + 'rolling deploy two versions disagree, which is why a scheduler a newer version removed carries a shared '
+      + 'removal marker in Redis that restoreBullSchedulers() honours.',
     classification: 'derived',
     file: 'common/services/core-cron-jobs.service.ts',
     name: 'bullScheduledJobs',
