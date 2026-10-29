@@ -39,6 +39,7 @@
 - [project-db-agnostic-phase5-mongo-optional-facts.md](project-db-agnostic-phase5-mongo-optional-facts.md) — DEV-3833: null connection breaks JWT verify, AI budget, MCP OAuth stores (fail closed), all FIXED 2026-10-28; DB-less probe recipe
 - [project-db-agnostic-phase6-mysql-facts.md](project-db-agnostic-phase6-mysql-facts.md) — DEV-3848: MySQL update compiler prototype pollution (`__proto__` path → tenant bypass); app-account check blind to roles; container probe recipe
 - [project-legacy-rate-limit-key-and-unnamed-fix-lookup.md](project-legacy-rate-limit-key-and-unnamed-fix-lookup.md) — 12.1.0: REST rate limit keyed on handler (shares GraphQL bucket); registryFix() fails loud; override drops guard
+- [project-cron-bullmq-scheduler-restore-facts.md](project-cron-bullmq-scheduler-restore-facts.md) — DEV-3889 restore sound: subset of own active config, runTick refuses unconfigured names; rolling-deploy resurrection residual
 
 ## Review Methodology
 

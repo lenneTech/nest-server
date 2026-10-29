@@ -40,3 +40,4 @@
 - [db-agnostic phase 0-6 doc facts](db-agnostic-phase0-doc-facts.md) — phase-2 guard leak, fail-open isTenantActive; phase 3 globalSetup abort; phase 5 mongo trio; phase 6 --sql template "one transaction"
 - [NSC__ env replaces shorthand values](nsc-env-merge-replaces-shorthand.md) — NSC__A__B over `a: 'string'`/`a: false` wipes the value to { b }; check docs pairing both
 - [Vendor type imports need the package](vendor-type-imports-need-the-package.md) — `import type` AND literal `import('x')` of an optional peer break a vendor tsc; every SQL driver/engine needed; probe recipe
+- [bullmq peer-range API drift](bullmq-peer-range-api-drift.md) — peer >=5.16.0: getJobScheduler absent <5.23, truthy-for-missing to 5.40.2; check new calls against the floor
