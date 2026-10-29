@@ -4964,6 +4964,28 @@
         "tests/multi-replica.e2e-spec.ts"
       ],
       "driverSpecific": false
+    },
+    {
+      "id": "cron-manual-run-decided-by-clock",
+      "defect": "DEV-3896 review — with the scheduled instant decided by the clock alone, \"Run now\" on a job the Hub had stopped on this replica, after its remembered instant had passed, counted as a scheduled tick; its key was an instant another replica had already run, and the operator's run was skipped without a word.",
+      "file": "src/core/common/services/core-cron-jobs.service.ts",
+      "find": "          if (fired === undefined || fired === lastFired || scheduledFor === undefined || fired < scheduledFor) {",
+      "replace": "          if (scheduledFor === undefined || Date.now() < scheduledFor) {",
+      "specs": [
+        "tests/unit/core-cron-jobs-dedup.spec.ts"
+      ],
+      "driverSpecific": false
+    },
+    {
+      "id": "cron-stale-instant-after-restart",
+      "defect": "DEV-3896 review — a job the Hub stopped and started again kept the instant it had remembered before the stop; its first tick after the restart took the lease of that old, long expired instant and ran next to the replica that ran the current tick.",
+      "file": "src/core/common/services/core-cron-jobs.service.ts",
+      "find": "          const instant = this.currentScheduledInstant(ref.job, scheduledFor, fired);",
+      "replace": "          const instant = scheduledFor;",
+      "specs": [
+        "tests/unit/core-cron-jobs-dedup.spec.ts"
+      ],
+      "driverSpecific": false
     }
   ]
 }

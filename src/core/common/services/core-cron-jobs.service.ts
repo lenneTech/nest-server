@@ -808,6 +808,8 @@ export abstract class CoreCronJobs implements OnApplicationBootstrap, OnApplicat
      * timers fire on either side of a second boundary computed different lease keys and both ran the tick (DEV-3896).
      */
     let scheduledFor: number | undefined;
+    /** lastDate() as of the last scheduled fire, to tell the next scheduled fire from a manual one */
+    let lastFired: number | undefined;
 
     const job = new CronJob(
       config.cronTime,
@@ -822,14 +824,17 @@ export abstract class CoreCronJobs implements OnApplicationBootstrap, OnApplicat
             this.runInitTick(name);
             return;
           }
-          // cron never fires a scheduled tick before its instant, so a fire before it is a manual fireOnTick() (the
-          // Hub's "Run now"). Keyed on the instant, it would take the NEXT tick's lease and every replica would skip
-          // that tick; a manual run gets its own key.
-          const instant = scheduledFor;
-          if (instant === undefined || Date.now() < instant) {
+          // cron advances lastDate() only when its timer fires, never before the instant; a manual fireOnTick() (the
+          // Hub's "Run now") leaves it as it was. Keyed on an instant, a manual run would take a lease another replica
+          // may already hold (the operator's run silently skipped) or the next tick's (that tick skipped everywhere),
+          // so it gets its own key.
+          const fired = ref.job.lastDate()?.getTime();
+          if (fired === undefined || fired === lastFired || scheduledFor === undefined || fired < scheduledFor) {
             await this.runDistributedTick(name, 'manual');
             return;
           }
+          lastFired = fired;
+          const instant = this.currentScheduledInstant(ref.job, scheduledFor, fired);
           scheduledFor = this.nextScheduledInstant(ref.job);
           await this.runDistributedTick(name, new Date(instant));
           return;
@@ -1021,6 +1026,34 @@ export abstract class CoreCronJobs implements OnApplicationBootstrap, OnApplicat
       tryAcquire: async (key, owner, ttlSeconds) =>
         (await redis.set(redisKey(key), owner, 'EX', ttlSeconds, 'NX')) === 'OK',
     };
+  }
+
+  /**
+   * The instant a scheduled fire belongs to: the remembered instant, moved forward to the last one at or before the
+   * fire. It stays as remembered on every regular fire; it lags only when the job did not fire for a while (stopped
+   * in the Hub and started again), and keyed on that old instant the first tick after a restart would run next to
+   * the replica that runs the current one. Not moved for a `utcOffset` job or a one-shot date, whose schedule this
+   * cannot step through.
+   */
+  protected currentScheduledInstant(job: CronJob, remembered: number, fired: number): number {
+    const cronTime = job.cronTime;
+    if (cronTime.utcOffset !== undefined || cronTime.realDate) {
+      return remembered;
+    }
+    let instant = remembered;
+    try {
+      // Bounded: a job stopped for a long time on a per-second schedule must not keep the tick busy
+      for (let step = 0; step < 10_000; step++) {
+        const next = cronTime.getNextDateFrom(new Date(instant), cronTime.timeZone).toMillis();
+        if (next > fired) {
+          break;
+        }
+        instant = next;
+      }
+    } catch {
+      // cron could not step the schedule: keep what is known
+    }
+    return instant;
   }
 
   /** The next instant the job's schedule fires at, in ms; `undefined` when cron cannot say (a past one-shot date) */

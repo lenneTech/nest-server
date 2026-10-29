@@ -749,6 +749,71 @@ describe('CoreCronJobs multi-replica deduplication', () => {
     });
 
     /**
+     * @regression   DEV-3896 review — with the scheduled instant decided by the clock alone, "Run now" on a job the Hub
+     *   had STOPPED on this replica (its remembered instant long past) counted as a scheduled tick. Its key was the
+     *   instant another replica had already run, so the operator's run was skipped without a word.
+     * @seen-failing Decide the manual run by the clock instead of lastDate() in registerLocalJob() in
+     *   src/core/common/services/core-cron-jobs.service.ts — registered as mutation
+     *   `cron-manual-run-decided-by-clock` in tests/regression-mutations.json.
+     */
+    it('runs "Run now" on a job the Hub stopped on this replica, even after another replica ran that tick', async () => {
+      vi.useFakeTimers({ now: new Date('2026-08-07T09:59:50.000Z'), toFake: ['Date', 'setTimeout', 'clearTimeout'] });
+      const jobs = { job1: { cronTime: '0 * * * * *', distributed: true, runOnInit: false } };
+      const replicaA = new TestCronJobs(jobs, { connection: fakeConnection(collection) });
+      const replicaB = new TestCronJobs(jobs, { connection: fakeConnection(collection) });
+      await replicaA.onApplicationBootstrap();
+      await replicaB.onApplicationBootstrap();
+      const jobA = cronJobOf(replicaA, 'job1');
+      const jobB = cronJobOf(replicaB, 'job1');
+
+      // Both fire for 10:00, A wins; then the Hub stops the job on B, and A runs 10:01
+      await fireAt(jobA, '2026-08-07T10:00:00.005Z');
+      await fireAt(jobB, '2026-08-07T10:00:00.009Z');
+      jobB.stop();
+      await fireAt(jobA, '2026-08-07T10:01:00.005Z');
+      // "Run now" on replica B after 10:01 has passed: cron leaves lastDate() alone on a manual fireOnTick()
+      vi.setSystemTime(new Date('2026-08-07T10:01:10.000Z'));
+      await jobB.fireOnTick();
+      for (let i = 0; i < 5; i++) {
+        await flush();
+      }
+
+      expect(replicaA.calls).toEqual(['job1', 'job1']);
+      expect(replicaB.calls).toEqual(['job1']);
+      jobA.stop();
+    });
+
+    /**
+     * @regression   DEV-3896 review — a job the Hub stopped and started again kept the instant it had remembered before
+     *   the stop. Its first tick after the restart took the lease of that old instant, which had long expired, and ran
+     *   next to the replica that ran the current tick.
+     * @seen-failing Key the tick on the remembered instant without moving it forward in registerLocalJob() in
+     *   src/core/common/services/core-cron-jobs.service.ts — registered as mutation
+     *   `cron-stale-instant-after-restart` in tests/regression-mutations.json.
+     */
+    it('keys the first tick after a Hub restart on the current instant, not the one before the stop', async () => {
+      vi.useFakeTimers({ now: new Date('2026-08-07T09:59:50.000Z'), toFake: ['Date', 'setTimeout', 'clearTimeout'] });
+      const jobs = { job1: { cronTime: '0 * * * * *', distributed: true, runOnInit: false } };
+      const replicaA = new TestCronJobs(jobs, { connection: fakeConnection(collection) });
+      const replicaB = new TestCronJobs(jobs, { connection: fakeConnection(collection) });
+      await replicaA.onApplicationBootstrap();
+      await replicaB.onApplicationBootstrap();
+      const jobB = cronJobOf(replicaB, 'job1');
+      jobB.stop();
+
+      // Two hours later B is started again; both replicas fire for 12:00
+      vi.setSystemTime(new Date('2026-08-07T11:59:50.000Z'));
+      jobB.start();
+      await fireAt(cronJobOf(replicaA, 'job1'), '2026-08-07T12:00:00.003Z');
+      await fireAt(jobB, '2026-08-07T12:00:00.009Z');
+
+      expect([...replicaA.calls, ...replicaB.calls]).toEqual(['job1']);
+      expect(collection.ids.has('job1:2026-08-07T12:00:00.000Z')).toBe(true);
+      cronJobOf(replicaA, 'job1').stop();
+      jobB.stop();
+    });
+
+    /**
      * @regression   DEV-3896 — the per-tick lease never covered the RUN: with `runParallel: false` a job that ran longer
      *   than its interval was skipped only inside its own process, so a second replica took the next tick's lease and
      *   ran it in parallel.
