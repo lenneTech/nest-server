@@ -33,6 +33,7 @@ import {
   MigrationRunner,
   MongoStateStore,
   synchronizedMigration,
+  synchronizedUp,
 } from '../../src';
 import { deriveTestDbUri } from '../db-lifecycle.reporter';
 
@@ -445,6 +446,29 @@ describe('MongoDB State Store for Migrations (e2e)', () => {
       expect(await client.db().collection(lockCollectionName).countDocuments()).toBe(0);
     }, 30000);
 
+    /**
+     * @regression   DEV-3897 — synchronizedUp() called `up` on the loaded migration state, which has none, so it threw
+     *   on every call while the README and the module's JSDoc recommended it for clustered environments.
+     * @seen-failing Call `up` on the loaded state in synchronizedUp() in src/core/modules/migrate/migration-runner.ts —
+     *   registered as mutation `synchronized-up-calls-up-on-state` in tests/regression-mutations.json.
+     */
+    it('synchronizedUp() applies a pending migration exactly once when two replicas call it at the same time', async () => {
+      const marker = path.join(dir, 'executions.marker');
+      writeSlowMigration(marker);
+      const replica = () =>
+        synchronizedUp({
+          migrationsDirectory: dir,
+          stateStore: new MongoStateStore({ collectionName, lockCollectionName, uri: mongoUrl }),
+        });
+
+      await Promise.all([replica(), replica()]);
+
+      expect(fs.readFileSync(marker, 'utf-8')).toBe('up\n');
+      const state = await client.db().collection(collectionName).find({}).toArray();
+      expect((state[0] as any).migrations.map((m: any) => m.title)).toEqual(['1699000000001-concurrent.js']);
+      expect(await client.db().collection(lockCollectionName).countDocuments()).toBe(0);
+    }, 30000);
+
     it('breaks a lock whose holder died instead of blocking the boot forever', async () => {
       // Migrations run on EVERY container boot, so a replica SIGKILLed mid-migration
       // (OOM, node drain, failed deploy) leaves a lock document nobody holds and no
@@ -521,6 +545,16 @@ describe('MongoDB State Store for Migrations (e2e)', () => {
       await expect(
         synchronizedMigration({ stateStore: new MongoStateStore(mongoUrl) }, () => Promise.resolve()),
       ).rejects.toThrow('`lockCollectionName` in MongoStateStore is not set');
+    });
+
+    it('synchronizedUp() refuses a store it cannot lock instead of running unsynchronized', async () => {
+      await expect(synchronizedUp({} as any)).rejects.toThrow('No `stateStore` in migration options');
+      await expect(synchronizedUp({ stateStore: 'migrations' } as any)).rejects.toThrow(
+        'Given `stateStore` is not `MongoStateStore`',
+      );
+      await expect(synchronizedUp({ stateStore: new MongoStateStore(mongoUrl) })).rejects.toThrow(
+        '`lockCollectionName` in MongoStateStore is not set',
+      );
     });
   });
 

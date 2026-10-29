@@ -281,15 +281,17 @@ export function multerFileToUpload(file: {
 
 /**
  * Get function to generate a random file name for multer with a certain
- * number of digits
+ * number of hexadecimal digits
+ *
+ * The digits come from `randomBytes()`: where the upload directory is served,
+ * a name from `Math.random()` could be predicted (DEV-3897).
  */
 export function multerRandomFileName(numberOfDigits = 32) {
   return (req, file, cb) => {
     // Generating a random string
-    const randomName = Array(numberOfDigits)
-      .fill(null)
-      .map(() => Math.round(Math.random() * 16).toString(16))
-      .join('');
+    const randomName = randomBytes(Math.ceil(numberOfDigits / 2))
+      .toString('hex')
+      .slice(0, numberOfDigits);
 
     // Calling the callback passing the random name generated with the
     // original extension name

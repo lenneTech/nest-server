@@ -5,7 +5,7 @@
 - [Single E2E File Run Gotcha](single-e2e-file-run-gotcha.md) — `pnpm run test:e2e -- <file>` does NOT filter; the nested `pnpm run vitest` alias swallows the `--` positional and the WHOLE suite runs. Call vitest directly to isolate one file.
 - [Hub Module Test Coverage](hub-module-test-coverage.md) — operator cockpit first review: mutating actions (cron/deleteFile/migrations) + collector crash-safety branches untested; masking sentinel is a true-positive; forRoot metadata-pollution fix only implicitly covered; cheap testability facts to close the gaps.
 - [Check Gate Coverage Blind Spots](check-gate-coverage-blind-spots.md) — `scripts/*.ts` outside every gate, hung SIGTERM invisible, structural specs satisfied by comments or blind to call sites outside a marked block.
-- [Migrate Module Test Coverage](migrate-module-test-coverage.md) — 2026-07 review: down() paths and CLI parseArgs untested; testability facts that make closing them cheap.
+- [Migrate Module Test Coverage](migrate-module-test-coverage.md) — 2026-07: down()/parseArgs untested; 2026-10: up() lock has no registered mutation, concurrency tests probed non-vacuous.
 - [API Token Module Test Coverage](api-token-module-test-coverage.md) — layer that really produces each 403; route-level AuthGuard refusals provable only in unit (APP_GUARDs run first); cacheTtlMs:0 everywhere.
 - [S3 RustFS Multipart Facts](s3-rustfs-multipart-facts.md) — RustFS lists pending multipart uploads without Prefix (abort assertions are real); lib-storage abort deterministic; empty stream OK.
 - [TUS + compression end-callback facts](tus-compression-end-callback-facts.md) — only null-body (204) TUS responses hit srvx res.end(cb); needs Accept-Encoding; defect = hang not 500; mutation run ~5 min.

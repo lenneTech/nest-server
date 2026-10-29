@@ -48,7 +48,8 @@ const SHARED_READ_CHUNK = 64;
  *
  * **Writes are fire-and-forget.** The collectors sit in hot paths (every log line, every
  * request) and their API towards callers must stay synchronous. A Redis failure is logged at
- * debug level; reads then fall back to the local buffer rather than failing the panel.
+ * debug level; a read then answers with the client's cursor and no entries rather than failing
+ * the panel, and the next successful poll delivers what was missed.
  */
 export class HubBuffer<T extends HubBufferEntry> {
   protected readonly listKey: string;
@@ -116,11 +117,16 @@ export class HubBuffer<T extends HubBufferEntry> {
     }
   }
 
-  /** Entries oldest→newest, optionally only those newer than `since`. */
+  /**
+   * Entries oldest→newest, optionally only those newer than `since`.
+   *
+   * When the shared read fails, the answer keeps the client's cursor and carries no entries. The
+   * local buffer is no fallback there: its seq counts on this replica's own scale, and handing out
+   * its cursor made the next successful poll repeat or skip entries (DEV-3897).
+   */
   async read(since?: number, limit?: number): Promise<HubBufferData<T>> {
-    const shared = this.redis ? await this.readShared(since, limit) : undefined;
-    if (shared) {
-      return shared;
+    if (this.redis) {
+      return (await this.readShared(since, limit)) ?? { cursor: since ?? -1, dropped: -1, entries: [] };
     }
     return {
       cursor: this.local.lastSeq,
@@ -130,7 +136,7 @@ export class HubBuffer<T extends HubBufferEntry> {
   }
 
   /**
-   * Read the shared list, or undefined when Redis is unreachable (caller falls back to local).
+   * Read the shared list, or undefined when Redis is unreachable.
    *
    * The list is newest-first, so the entry with seq `s` sits at index `total - 1 - s` and the
    * entries a client with cursor `since` still needs are exactly the first `total - 1 - since`.
@@ -167,7 +173,7 @@ export class HubBuffer<T extends HubBufferEntry> {
       }
     } catch (err) {
       // console, NOT Logger — same re-entrancy as in mirror() above
-      console.debug(`Hub buffer read failed (${this.listKey}), using the local buffer: ${(err as Error).message}`);
+      console.debug(`Hub buffer read failed (${this.listKey}): ${(err as Error).message}`);
       return undefined;
     }
   }

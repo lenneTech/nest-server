@@ -196,8 +196,11 @@ shows the merged cluster-wide view and "clear" clears it everywhere. Sequence nu
 from a shared counter, so the panels' cursor-based polling keeps working across replicas.
 
 Writes are fire-and-forget — the collectors sit in hot paths and their API stays synchronous.
-If Redis is unreachable a read silently falls back to the local buffer (a diagnostics panel
-must not be the thing that breaks), so a partial view during an outage is expected.
+If Redis is unreachable a read answers with the client's cursor and no entries (a diagnostics
+panel must not be the thing that breaks), so the panels show nothing new during an outage, and
+the first poll after it delivers what was missed. Until 12.1.0 the read fell back to the local
+buffer, whose sequence numbers count per replica: the next poll after the outage then repeated
+or skipped entries.
 
 #### Cost: Redis write volume scales with your traffic
 

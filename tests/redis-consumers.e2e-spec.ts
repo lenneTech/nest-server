@@ -327,16 +327,17 @@ describe('Redis consumers across replicas (real Redis)', () => {
     it('survives Redis being unavailable instead of taking the request down', async () => {
       // The mirror is fire-and-forget by design: an observability feature must
       // never fail the request it is observing.
-      // HubBuffer reports the fallback on console.debug (deliberately not the Logger — see hub-buffer.ts).
+      // HubBuffer reports the failed read on console.debug (deliberately not the Logger — see hub-buffer.ts).
       // Expected here, and asserted: the degradation is reported, not silent.
       const debug = vi.spyOn(console, 'debug').mockImplementation(() => undefined);
       const severed = createRedis();
       const buffer = new HubBuffer<LogEntry>(10, 'logs-severed', severed);
 
       expect(() => buffer.add({ message: 'no redis here' } as Omit<LogEntry, 'seq' | 'timestamp'>)).not.toThrow();
-      expect((await buffer.read()).entries.map(entry => entry.message)).toContain('no redis here');
+      // No entries rather than the local buffer: its cursor counts on this replica's own scale (DEV-3897)
+      expect(await buffer.read()).toEqual({ cursor: -1, dropped: -1, entries: [] });
       await severed.onApplicationShutdown();
-      expect(debug.mock.calls.flat().join('\n')).toContain('using the local buffer');
+      expect(debug.mock.calls.flat().join('\n')).toContain('Hub buffer read failed');
     }, 30_000);
   });
 });

@@ -20,6 +20,9 @@ Static review of the Hub admin cockpit (new, first landed uncommitted on `develo
 - **getVersion()** (`meta.helper.ts`) cached via module-level `cachedVersion` (undefined=unlooked, null=looked-not-found); walks ≤6 dirs once. Test asserts idempotency.
 - Driver-event handlers wrapped in `safe()` (must swallow — throwing into the driver's sync `emit()` would crash the process). Trace record + email capture also try/caught.
 
+## HubBuffer.read() on a Redis outage (DEV-3897, 2026-10-29)
+With Redis configured a failed shared read now returns `{ cursor: since ?? -1, dropped: -1, entries: [] }` instead of falling back to the local ring buffer — strictly less work on the outage path, success path unchanged. A client that got cursor `-1` polls the full window once afterwards: at most 2 round trips (64-chunk then widened to `needed`), bounded by `capacity` via LTRIM. The outage latency itself is the ioredis offline-queue/retry behaviour, unchanged by that diff. Do not re-flag.
+
 ## Still open (all Low / Low-Moderate) — re-check these
 1. **db.json**: `core-hub-db.service.ts:40` runs N sequential `$collStats` (one per collection) every 5s while the DB panel is active. Cheap metadata reads but wall-clock grows with collection count. Consider bounded `Promise.all` or short-TTL cache.
 2. **Profiler self-noise**: Hub's own db.json commands (`aggregate`/`dbstats`/`listcollections`) are NOT in the profiler `DEFAULT_IGNORE`, so they get recorded as queries every 5s when both features are on. (`listindexes` IS ignored.)
