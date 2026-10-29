@@ -4656,6 +4656,72 @@
       "specs": [
         "tests/unit/legacy-auth-rate-limit-guard.spec.ts"
       ]
+    },
+    {
+      "id": "cron-reconnect-does-not-restore",
+      "defect": "12.1.1 (DEV-3889) — the BullMQ job schedulers were written into Redis once, at bootstrap. A Redis or Valkey restart without persistence removed them, and nothing registered them again after the reconnect: no replica ran a cron job until the next deploy, without a log line.",
+      "file": "src/core/common/services/core-cron-jobs.service.ts",
+      "find": "    queueConnection.on?.('ready', this.onBullQueueReady);",
+      "replace": "    void queueConnection;",
+      "specs": [
+        "tests/unit/core-cron-jobs-dedup.spec.ts"
+      ],
+      "driverSpecific": false
+    },
+    {
+      "id": "cron-restore-upserts-existing-schedulers",
+      "defect": "12.1.1 (DEV-3889) — the paired refusal: re-registering a scheduler that still exists is not free. BullMQ's upsert removes the job the scheduler planned last, also one that is due and waits for a free worker slot, and plans from now, so a periodic blind upsert would drop exactly the tick nobody had picked up yet.",
+      "file": "src/core/common/services/core-cron-jobs.service.ts",
+      "find": "          if (!this.bullQueue || !config || present.has(name)) {",
+      "replace": "          if (!this.bullQueue || !config) {",
+      "specs": [
+        "tests/unit/core-cron-jobs-dedup.spec.ts"
+      ],
+      "driverSpecific": false
+    },
+    {
+      "id": "cron-restore-trusts-get-job-scheduler",
+      "defect": "12.1.1 (DEV-3889, found in review) — whether a scheduler exists was asked through getJobScheduler(). That method does not exist before bullmq 5.23, and up to 5.40.2 it answers a deleted scheduler with an object instead of undefined, both inside the peer range >=5.16.0: the restore then never ran, silently.",
+      "file": "src/core/common/services/core-cron-jobs.service.ts",
+      "find": "      const schedulers: { key?: string }[] = await this.bullQueue.getJobSchedulers();",
+      "replace": "      const schedulers: { key?: string }[] = await Promise.all([...this.bullScheduledJobs].map((name) => this.bullQueue.getJobScheduler(name)));",
+      "specs": [
+        "tests/unit/core-cron-jobs-dedup.spec.ts"
+      ],
+      "driverSpecific": false
+    },
+    {
+      "id": "cron-restore-ignores-removal-marker",
+      "defect": "12.1.1 (DEV-3889, found in review) — in a rolling deploy an old replica found the scheduler a newer version had removed on purpose and registered it again; a job moved to a local timer then ran twice every tick until the next deploy.",
+      "file": "src/core/common/services/core-cron-jobs.service.ts",
+      "find": "            if (await this.isBullSchedulerRemoved(name)) {",
+      "replace": "            if (false) {",
+      "specs": [
+        "tests/unit/core-cron-jobs-dedup.spec.ts"
+      ],
+      "driverSpecific": false
+    },
+    {
+      "id": "cron-scheduler-check-timer-missing",
+      "defect": "12.1.1 (DEV-3889) — a FLUSHDB or an eviction under maxmemory removes the BullMQ schedulers without closing a connection, so the reconnect never notices; without the periodic check no replica ran a cron job until the next deploy.",
+      "file": "src/core/common/services/core-cron-jobs.service.ts",
+      "find": "    this.bullSchedulerCheckTimer = setInterval(this.onBullQueueReady, this.bullSchedulerCheckIntervalMs);",
+      "replace": "    this.bullSchedulerCheckTimer = setTimeout(() => undefined, 0);",
+      "specs": [
+        "tests/unit/core-cron-jobs-dedup.spec.ts"
+      ],
+      "driverSpecific": false
+    },
+    {
+      "id": "cron-e2e-scheduler-check-missing",
+      "defect": "12.1.1 (DEV-3889) — a FLUSHDB or an eviction under maxmemory removes the BullMQ schedulers without closing a connection, so the reconnect never notices; without the periodic check no replica ran a cron job until the next deploy.",
+      "file": "src/core/common/services/core-cron-jobs.service.ts",
+      "find": "    this.bullSchedulerCheckTimer = setInterval(this.onBullQueueReady, this.bullSchedulerCheckIntervalMs);",
+      "replace": "    this.bullSchedulerCheckTimer = setTimeout(() => undefined, 0);",
+      "specs": [
+        "tests/multi-replica.e2e-spec.ts"
+      ],
+      "driverSpecific": false
     }
   ]
 }

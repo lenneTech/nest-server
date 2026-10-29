@@ -214,6 +214,25 @@ const INVENTORY: StateEntry[] = [
   },
   {
     because:
+      'The names of the jobs this replica registered as BullMQ schedulers, from its own cron config. Replicas of one '
+      + 'version derive the same set from the same code and config; the schedules themselves live in Redis. During a '
+      + 'rolling deploy two versions disagree, which is why a scheduler a newer version removed carries a shared '
+      + 'removal marker in Redis that restoreBullSchedulers() honours.',
+    classification: 'derived',
+    file: 'common/services/core-cron-jobs.service.ts',
+    name: 'bullScheduledJobs',
+  },
+  {
+    because:
+      'The periodic check that the BullMQ schedules still exist in Redis. Every replica runs its own and they need '
+      + 'not agree: each one only registers a schedule Redis no longer has, and two replicas doing that at once write '
+      + 'the identical schedule. Cleared on shutdown and unref\'d, so it never holds the event loop open.',
+    classification: 'local',
+    file: 'common/services/core-cron-jobs.service.ts',
+    name: 'bullSchedulerCheckTimer',
+  },
+  {
+    because:
       'Subscriber callbacks — functions cannot be serialized, so they are local by definition. '
       + 'What crosses replicas is the MESSAGE, published through Redis; these maps only route it '
       + 'to the handlers registered in THIS process.',

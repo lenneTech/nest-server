@@ -101,6 +101,24 @@ export abstract class CoreCronJobs implements OnApplicationBootstrap, OnApplicat
   /** Shared BullMQ queue, created only in BullMQ mode */
   protected bullQueue?: any;
 
+  /** Redis connection of the shared queue; its `ready` event triggers the scheduler check after a reconnect */
+  protected bullQueueConnection?: any;
+
+  /** Names of the jobs registered as BullMQ job schedulers, i.e. the schedules that must exist in Redis */
+  protected bullScheduledJobs = new Set<string>();
+
+  /** Running scheduler check, so a reconnect and the timer never check twice at once */
+  protected bullSchedulerCheck?: Promise<void>;
+
+  /**
+   * How often to check that every BullMQ scheduler still exists in Redis, in ms. `0` switches the time-based check
+   * off; the check after a reconnect of the queue connection stays. See restoreBullSchedulers().
+   */
+  protected bullSchedulerCheckIntervalMs = 60_000;
+
+  /** Timer of the periodic scheduler check */
+  protected bullSchedulerCheckTimer?: ReturnType<typeof setInterval>;
+
   /** Shared BullMQ worker, created only in BullMQ mode */
   protected bullWorker?: any;
 
@@ -119,6 +137,14 @@ export abstract class CoreCronJobs implements OnApplicationBootstrap, OnApplicat
    * docs/native-driver-security.md) keeps the 12.0.0 document so older replicas dedupe against it
    */
   protected readonly leaseOwner = `cron:${process.pid}:${Math.random().toString(36).slice(2)}`;
+
+  /**
+   * Listener for the `ready` event of the queue connection. An arrow function, so shutdown can remove exactly this
+   * listener. `void` is safe: restoreBullSchedulers() catches every failure per job and never rejects.
+   */
+  protected readonly onBullQueueReady = (): void => {
+    void this.restoreBullSchedulers();
+  };
 
   // ===================================================================================================================
   // Initializations
@@ -156,6 +182,9 @@ export abstract class CoreCronJobs implements OnApplicationBootstrap, OnApplicat
    * Close the BullMQ worker and queue
    */
   async onApplicationShutdown(): Promise<void> {
+    this.stopBullSchedulerCheck();
+    // A check already running finishes its current job before the queue closes; it never rejects.
+    await this.bullSchedulerCheck;
     await this.drainRunningJobs();
 
     // Settled, not sequential-and-throwing: a rejection from the worker's close would abort the
@@ -181,7 +210,7 @@ export abstract class CoreCronJobs implements OnApplicationBootstrap, OnApplicat
     }
 
     const bullMqActive = await this.initBullMq();
-    const bullScheduled = new Set<string>();
+    this.bullScheduledJobs.clear();
 
     // Init cron jobs
     for (const [name, CronExpressionOrConfig] of Object.entries(this.cronJobs)) {
@@ -239,7 +268,7 @@ export abstract class CoreCronJobs implements OnApplicationBootstrap, OnApplicat
       if (bullMqActive && distributed) {
         if (typeof config.cronTime === 'string' && !config.utcOffset) {
           await this.registerBullJob(name, config);
-          bullScheduled.add(name);
+          this.bullScheduledJobs.add(name);
           continue;
         }
         cronLogger.debug(
@@ -253,8 +282,9 @@ export abstract class CoreCronJobs implements OnApplicationBootstrap, OnApplicat
       this.registerLocalJob(name, config, distributed);
     }
 
-    await this.removeStaleBullSchedulers(bullScheduled);
+    await this.removeStaleBullSchedulers(this.bullScheduledJobs);
     this.startBullWorker();
+    this.startBullSchedulerCheck();
   }
 
   /**
@@ -436,10 +466,16 @@ export abstract class CoreCronJobs implements OnApplicationBootstrap, OnApplicat
     // same outage a real rejection that the caller can report.
     const queueOptions = { commandTimeout: 10_000, maxRetriesPerRequest: 3 };
 
+    const queueConnection = service.createClient('cron-queue', queueOptions);
     this.bullQueue = new bullmq.Queue(CRON_QUEUE_NAME, {
-      connection: service.createClient('cron-queue', queueOptions),
+      connection: queueConnection,
       prefix,
     });
+
+    // A Redis or Valkey restart without persistence loses every scheduler, and the reconnect is the first moment a
+    // replica can notice it — see restoreBullSchedulers().
+    this.bullQueueConnection = queueConnection;
+    queueConnection.on?.('ready', this.onBullQueueReady);
 
     const workerConnection = service.createClient('cron-worker', blockingOptions);
     // autorun: false — initBullMq() runs BEFORE the loop that fills `jobConfigs`, so a worker
@@ -513,6 +549,7 @@ export abstract class CoreCronJobs implements OnApplicationBootstrap, OnApplicat
       for (const scheduler of await this.bullQueue.getJobSchedulers()) {
         if (scheduler?.key && known.has(scheduler.key) && !active.has(scheduler.key)) {
           await this.bullQueue.removeJobScheduler(scheduler.key);
+          await this.markBullSchedulerRemoved(scheduler.key);
           cronLogger.log(`CronJob scheduler ${scheduler.key} removed — no longer configured`);
         }
       }
@@ -520,6 +557,121 @@ export abstract class CoreCronJobs implements OnApplicationBootstrap, OnApplicat
       // Reconciliation is housekeeping: a failure here must not stop the jobs from starting.
       cronLogger.warn(`Failed to reconcile BullMQ job schedulers: ${errorMessage(error)}`);
     }
+  }
+
+  /**
+   * Register every BullMQ scheduler again that Redis no longer has.
+   *
+   * `upsertJobScheduler` writes a schedule into Redis once, at bootstrap. A Redis or Valkey restart without
+   * persistence, a FLUSHDB or an eviction under `maxmemory` removes it, and before 12.1.1 nothing registered it
+   * again: no replica ran the job until the next deploy, without a log line, because the worker kept polling an empty
+   * queue. This runs after every reconnect of the queue connection and every `bullSchedulerCheckIntervalMs`.
+   *
+   * Only MISSING schedulers are registered. An upsert of an existing one is not free: BullMQ removes the job the
+   * scheduler planned last, also one that is already due and waits for a free worker slot, and plans the next one
+   * from now, so the due tick would be lost. Replicas that find a scheduler missing at the same moment may both
+   * register it; the second upsert replaces the first one's job with an identical one.
+   *
+   * Which schedulers exist comes from the LISTING, not from `getJobScheduler()`: that method does not exist before
+   * bullmq 5.23, and up to 5.40.2 it answers a deleted scheduler with an object instead of `undefined` — both inside
+   * the peer range. A scheduler a newer version removed on purpose (see markBullSchedulerRemoved()) stays removed.
+   *
+   * Only the schedule comes back: `runOnInit` and the registry entry belong to bootstrap. A tick that fell due while
+   * the scheduler was gone is not run.
+   */
+  protected restoreBullSchedulers(): Promise<void> {
+    if (!this.bullSchedulerCheck) {
+      this.bullSchedulerCheck = (async () => {
+        if (!this.bullQueue || !this.bullScheduledJobs.size) {
+          return;
+        }
+        const present = await this.listBullSchedulerKeys();
+        if (!present) {
+          return;
+        }
+        for (const name of this.bullScheduledJobs) {
+          const config = this.jobConfigs[name];
+          if (!this.bullQueue || !config || present.has(name)) {
+            continue;
+          }
+          try {
+            if (await this.isBullSchedulerRemoved(name)) {
+              continue;
+            }
+            await this.upsertBullScheduler(name, config);
+            cronLogger.warn(`CronJob scheduler ${name} was missing in Redis and has been registered again`);
+          } catch (error) {
+            cronLogger.warn(`Failed to check the BullMQ scheduler of CronJob ${name}: ${errorMessage(error)}`);
+          }
+        }
+      })().finally(() => {
+        this.bullSchedulerCheck = undefined;
+      });
+    }
+    return this.bullSchedulerCheck;
+  }
+
+  /** Keys of the schedulers the shared queue holds, or `undefined` when the listing failed (logged) */
+  protected async listBullSchedulerKeys(): Promise<Set<string> | undefined> {
+    try {
+      const schedulers: { key?: string }[] = await this.bullQueue.getJobSchedulers();
+      return new Set(schedulers.map((scheduler) => scheduler?.key).filter((key): key is string => !!key));
+    } catch (error) {
+      cronLogger.warn(`Failed to list the BullMQ job schedulers: ${errorMessage(error)}`);
+      return undefined;
+    }
+  }
+
+  /**
+   * Redis key marking a scheduler that removeStaleBullSchedulers() removed on purpose
+   *
+   * In a rolling deploy the new version's bootstrap removes the scheduler of a job it no longer runs through BullMQ,
+   * while replicas of the old version still have that job in `bullScheduledJobs`. Their check finds the scheduler
+   * missing and would register it again; for a job moved to a local timer that is a second run every tick until the
+   * next deploy. The marker tells them the scheduler is gone on purpose. registerBullJob() deletes it, and a real data
+   * loss takes it along with the schedulers, so restoring still works then.
+   */
+  protected bullSchedulerRemovedKey(name: string): string | undefined {
+    return this.getRedisService()?.key('cron-scheduler-removed', name);
+  }
+
+  /** Whether a newer configuration removed this job's scheduler on purpose; see bullSchedulerRemovedKey() */
+  protected async isBullSchedulerRemoved(name: string): Promise<boolean> {
+    const key = this.bullSchedulerRemovedKey(name);
+    return !!key && !!(await this.getRedisClient()?.get(key));
+  }
+
+  /** Record that this job's scheduler was removed on purpose; see bullSchedulerRemovedKey() */
+  protected async markBullSchedulerRemoved(name: string): Promise<void> {
+    const key = this.bullSchedulerRemovedKey(name);
+    if (key) {
+      await this.getRedisClient()?.set(key, new Date().toISOString());
+    }
+  }
+
+  /**
+   * Arm the periodic scheduler check. Only the reconnect notices a Redis restart; a FLUSHDB or an eviction closes no
+   * connection, so only a timer finds those. Unref'd, so the timer never keeps a process alive on its own.
+   */
+  protected startBullSchedulerCheck(): void {
+    if (!this.bullQueue || !this.bullScheduledJobs.size || !(this.bullSchedulerCheckIntervalMs > 0)) {
+      return;
+    }
+    this.bullSchedulerCheckTimer = setInterval(this.onBullQueueReady, this.bullSchedulerCheckIntervalMs);
+    this.bullSchedulerCheckTimer.unref?.();
+  }
+
+  /**
+   * Stop the scheduler check before the queue closes, so neither the timer nor a reconnect touches a closed queue
+   */
+  protected stopBullSchedulerCheck(): void {
+    if (this.bullSchedulerCheckTimer) {
+      clearInterval(this.bullSchedulerCheckTimer);
+      this.bullSchedulerCheckTimer = undefined;
+    }
+    this.bullQueueConnection?.off?.('ready', this.onBullQueueReady);
+    this.bullQueueConnection = undefined;
+    this.bullScheduledJobs.clear();
   }
 
   /**
@@ -552,11 +704,12 @@ export abstract class CoreCronJobs implements OnApplicationBootstrap, OnApplicat
    * Register a job as BullMQ job scheduler
    */
   protected async registerBullJob(name: string, config: CronJobConfigWithTimeZone): Promise<void> {
-    await this.bullQueue.upsertJobScheduler(
-      name,
-      { pattern: config.cronTime as string, tz: config.timeZone ?? undefined },
-      { name },
-    );
+    // This version runs the job through BullMQ, so a removal marker an earlier configuration left no longer applies.
+    const removedKey = this.bullSchedulerRemovedKey(name);
+    if (removedKey) {
+      await this.getRedisClient()?.del(removedKey);
+    }
+    await this.upsertBullScheduler(name, config);
 
     // A BullMQ scheduler never fires immediately, so runOnInit is emulated locally under a lease.
     // Not awaited, so bootstrap is not blocked by the first run — same as the local timer path.
@@ -592,6 +745,17 @@ export abstract class CoreCronJobs implements OnApplicationBootstrap, OnApplicat
     if (this.config.log) {
       cronLogger.log(`CronJob ${name} initialized with "${config.cronTime}" (BullMQ scheduler)`);
     }
+  }
+
+  /**
+   * Write the job's schedule into Redis — at bootstrap and when restoreBullSchedulers() finds it missing
+   */
+  protected upsertBullScheduler(name: string, config: CronJobConfigWithTimeZone): Promise<unknown> {
+    return this.bullQueue.upsertJobScheduler(
+      name,
+      { pattern: config.cronTime as string, tz: config.timeZone ?? undefined },
+      { name },
+    );
   }
 
   /**
