@@ -3,7 +3,7 @@
 > **Status: specification, not implemented yet.** Phase 1 of the offline-sync epic (DEV-3819, this phase DEV-3898).
 > Nothing described here exists in the package before the sync module ships (phase 4). The implementation plan, the
 > port extensions and the reasoning live in the framework repository under `.claude/plans/offline-sync/PLAN.md`.
-> Points the cursor prototype (phase 2) or the owner still decides are marked **OPEN** and listed in §15.
+> Points the cursor prototype (phase 2) still decides are marked **OPEN** and listed in §15, next to the owner's decisions.
 
 Clients read and write while disconnected and reconcile with the server when they are back: they pull what changed
 since their cursor, push what they changed locally, and receive tombstones for deletions. The protocol is HTTP with
@@ -37,7 +37,7 @@ supports (MongoDB, PostgreSQL with any engine, MySQL / MariaDB) with the same ob
 | `version` | An integer the server increments on every change of the record, starting at 1. Never set by a client. |
 | `updatedAt` | The server's time of the last change. Informational; ordering never relies on it. |
 | `deletedAt` | `null` for a live record, the deletion time for a tombstone. |
-| Tombstone | What remains of a deleted record: `id`, `version`, `deletedAt`, `updatedAt` and, on a tenant-scoped model, `tenantId`. No content field. |
+| Tombstone | What remains of a deleted record: `id`, `version`, `deletedAt`, `updatedAt`, on a tenant-scoped model `tenantId`, and the user-id fields the model declares as its scope (e.g. `ownerId`). No content field. |
 | Cursor | Opaque string the server returns with every pull page; the client sends it back to continue. |
 | Retention horizon | How long tombstones are kept. A cursor older than the horizon cannot be continued (§8). |
 | Mutation id | A unique id the client gives every pushed change, so a repeated push is recognised (§6.5). |
@@ -74,9 +74,9 @@ representations are verified by the prototype before phase 3 builds on them.
 caller may see it (§6.5) — without comparing the stored values with `data`: an answer that depended on the comparison
 would let the caller test guesses for fields hidden from them. Taken by a record or tombstone the caller may **not**
 see, the item is refused with `ID_UNAVAILABLE` — the same answer,
-same timing, for every reason an id cannot be used; it carries no tenant, owner, content or deletion state. **OPEN
-(owner, O2):** that an id is occupied stays observable; the push rate limit bounds probing. The alternative, ids unique
-per tenant, is recorded in §15.
+same timing, for every reason an id cannot be used; it carries no tenant, owner, content or deletion state. That an id
+is occupied stays observable — decided (O2, §15): ids stay unique across tenants, the push rate limit bounds probing,
+and a uuidv7 id of someone else cannot be guessed in the first place.
 
 ## 4. Requests and authentication
 
@@ -314,9 +314,9 @@ Error bodies use the framework's error-code format (`#LTNS_…` codes, registere
   request, with the operation roles the model declares for sync (§1); hints reach only callers with the pull roles.
 * A pull never delivers a record or tombstone of another tenant; a push never changes one and never reveals that one
   exists (`not_found` / `ID_UNAVAILABLE`, §3, §7).
-* Tombstones carry no content field. **OPEN (owner, O1):** on a model whose records only their owner may see, a
-  tombstone is filtered by tenant, not by owner, so a pull reveals ids and deletion times of other users' deleted
-  records in the same tenant. Proposal in §15.
+* Tombstones carry no content field. On a model whose records only certain users may see, the tombstone keeps the
+  user-id fields the model declares as its scope (e.g. `ownerId`, decided O1, §15), so it reaches exactly the users who
+  could see the record — never the rest of the tenant.
 * Hard deletes are not reachable through sync.
 * Changes are never lost by the cursor (§5.3) and never duplicated by retries (§6.5).
 * Idempotency records, rate-limit counters and the retention horizon live in infrastructure stores with an explicit
@@ -336,7 +336,7 @@ Every requirement of DEV-3819 and where this document meets it (P = `.claude/pla
 | HTTP with JSON, fully documented, client needs only `fetch` | §1, §4–§10 |
 | No per-device server state; opaque client-owned cursor, one per device/tab | §1, §5.2 |
 | Clients create ids in the server format, repeated create idempotent after days, format checked | §3, §6.5 |
-| Id collision with a foreign record does not reveal it | §3, §7 (`ID_UNAVAILABLE`), §15 O2 |
+| Id collision with a foreign record does not reveal it | §3, §7 (`ID_UNAVAILABLE`), decided O2 (§15) |
 | Pull pages bounded by count and size; full state without cursor; resume after abort | §5.1, §5.2 |
 | Cursor behind the tombstone horizon → clear "resync" (410) | §8 |
 | Optional, exchangeable hint channel: GraphQL subscription and SSE; pull-only works | §9 |
@@ -356,7 +356,7 @@ Every requirement of DEV-3819 and where this document meets it (P = `.claude/pla
 | Hints via `capabilities.changeFeed` where present, else emitted by the CrudService via in-process / Redis pub/sub | §9, P §3.9 |
 | Idempotency keys, rate-limit counters, retention horizon in infrastructure stores with explicit expiry; cron sweep under `LockStore` | §12, P §3.7 |
 | Every pull/push through the full pipeline; no `pullLean` | §1, §12 |
-| Tombstones carry `tenantId` and only `id`, `version`, `deletedAt`, `updatedAt` | §2, §12, §15 O1 |
+| Tombstones carry `tenantId` and only `id`, `version`, `deletedAt`, `updatedAt` | §2, §12; plus declared user-id scope fields, decided O1 (§15) |
 | Hard delete not reachable through sync | §6.2, §12 |
 | Access loss → client deletes local copies; at least a forced full resync | §8 |
 | Integration doc says what a client deletes on logout | §11 (detailed in the module's checklist, phase 6) |
@@ -372,5 +372,5 @@ Every requirement of DEV-3819 and where this document meets it (P = `.claude/pla
 | P2-3 | MongoDB collections holding ObjectId and string `_id` side by side: casting, populate, sort, references | phase 2 | §3 |
 | P2-4 | Partial unique index on MongoDB with `{ deletedAt: { $type: 'null' } }`, on MySQL / MariaDB through virtual live-key columns (both refuse a plain partial unique index) | phase 2 contract case | P §3.6 |
 | P2-5 | Whether `capabilities.changeFeed` (change streams on a replica set, `LISTEN/NOTIFY` on PostgreSQL) is worth it for hints, measured against CrudService-emitted events | phase 2 | §9 |
-| O1 | Tombstones on per-user-visibility models: allow declared visibility fields (e.g. `ownerId`) on a tombstone, deviating from "only id, version, deletedAt, updatedAt, tenantId" | owner, before phase 4 | §12 |
-| O2 | Id collision: keep the uniform `ID_UNAVAILABLE` (occupied-bit observable, bounded by rate limit), or make ids unique per tenant (composite key; invasive) | owner, before phase 4 | §3 |
+| O1 | Tombstones on per-user-visibility models | **decided 2026-10-29 (owner):** a tombstone keeps the user-id fields the model declares as its scope (`syncScope`, e.g. `ownerId`) — only user ids, never content | §2, §12; otherwise a tombstone either reaches the whole tenant (ids and deletion times of other users' records) or nobody (a deletion never reaches the owner's other devices) |
+| O2 | Id collision with a record the caller may not see | **decided 2026-10-29 (owner):** the uniform `ID_UNAVAILABLE` stays, ids stay unique across tenants | §3; ids unique per tenant would change every lookup, reference and route by id in the framework |

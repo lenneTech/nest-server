@@ -141,8 +141,8 @@ server's secrets), so it stays opaque, cannot be edited into another user's or m
 ### 3.5 Identifiers
 
 Both formats for sync models (decision 2026-10-29); every other model keeps ObjectId-hex only. The protocol §3 states
-the client rules. Collision with an invisible record → uniform `ID_UNAVAILABLE`; the remaining observable bit and the
-per-tenant alternative are open question O2 (§10). A uuidv7 validator joins `id-format.ts` beside `isWellFormedId()`
+the client rules. Collision with an invisible record → uniform `ID_UNAVAILABLE`, ids unique across tenants (decided O2, §11): the one
+observable bit carries no tenant, owner or content. A uuidv7 validator joins `id-format.ts` beside `isWellFormedId()`
 (version nibble `7`, variant `8–b`, lowercase).
 
 ### 3.6 Tombstones and unique indexes
@@ -155,7 +155,8 @@ unique index becomes a VIRTUAL column `IF(deleted_at IS NULL, IFNULL(<field>, <s
 one the existing null-sentinel columns use, so a live `NULL` still collides like on MongoDB; a sparse unique index
 leaves it out) and the unique index spans
 those columns — a tombstone yields `NULL` in every part, and MySQL lets `NULL` repeat. A tombstone keeps `id`, `version`,
-`deletedAt`, `updatedAt`, the cursor field(s) and `tenantId`; every content field is cleared in the same atomic update
+`deletedAt`, `updatedAt`, the cursor field(s), `tenantId` and the `syncScope` user-id fields (decided O1, §11 — so the
+tombstone reaches exactly the users who could see the record); every content field is cleared in the same atomic update
 (on SQL set to `NULL`, on MongoDB `$unset`). This needs no schema change: on SQL every column but `id` is nullable (the database never enforces `required`, validation does —
 `sql/postgres/postgres-schema.compiler.ts`), and MongoDB runs no update validators; only the input validators must not
 apply to the tombstone write. **OPEN (P2-4):** verified as a contract case in phase 2.
@@ -235,8 +236,8 @@ model routed to a source whose store lacks a capability sync needs fails the boo
 | Hidden fields | no answer depends on a value the caller may not read (repeated create: always `conflict`, §3.7) |
 | Server ids | a server id a client occupied is replaced, never a failed create (E6) |
 | Tenant | tenant policy before every store call, row check after every read, RLS on PostgreSQL — unchanged; tombstones carry `tenantId` and pass the same filter |
-| Foreign ids | update/delete: `not_found` exactly like a missing id; create: `ID_UNAVAILABLE` (O2) |
-| Tombstone content | cleared on delete; pull returns only the system fields (O1 for per-user visibility) |
+| Foreign ids | update/delete: `not_found` exactly like a missing id; create: `ID_UNAVAILABLE` (decided O2) |
+| Tombstone content | cleared on delete; pull returns the system fields plus the `syncScope` user ids it is filtered by (decided O1) |
 | No hard delete | push `delete` is a soft delete through `update()`; the purge is internal |
 | Cookie push | SameSite=lax + CORS + `Content-Type: application/json` + Origin / `Sec-Fetch-Site` check (protocol §4) |
 | API tokens | refused unless the project releases a sync scope (`@ApiTokenScopes`) |
@@ -338,8 +339,8 @@ Phase 2 ~1,500 (prototypes, infra) · Phase 3 ~3,000 · Phase 4 ~3,500 · Phase 
 
 ## 10. Open questions
 
-The protocol's §15 is the list (P2-1 … P2-5 for phase 2, O1 and O2 for the owner before phase 4). Resolved entries
-move to §11 with date and reason.
+The protocol's §15 is the list: P2-1 … P2-5 for phase 2. O1 and O2 are decided (§11). Resolved entries move to §11
+with date and reason.
 
 ## 11. Decisions
 
@@ -347,9 +348,14 @@ move to §11 with date and reason.
 the core plus GraphQL subscription; documented protocol plus test clients (PWA, Node + SQLite), the Nuxt composable as
 a follow-up in `nuxt-extensions`; the cursor decided by the prototype; no pilot project.
 
+**Owner, 2026-10-29 (DEV-3898):** O1 — a tombstone keeps the `syncScope` user-id fields (e.g. `ownerId`), only user ids,
+never content; without them it reaches either the whole tenant or nobody. O2 — the uniform `ID_UNAVAILABLE` stays and
+ids stay unique across tenants; ids unique per tenant would change every lookup, reference and route by id. The id
+answer should be as safe as possible; how ObjectId and uuidv7 coexist (P2-3) is weighed with that in mind.
+
 **Phase 1, autopilot (DEV-3898, recorded as assumptions on the ticket):** protocol in `docs/` rather than
 `src/core/modules/sync/` (a directory there is listed as a core module by the FRAMEWORK-API generator before the module
 exists); `mutationId` idempotency in an infrastructure store with explicit expiry; access fingerprint + per-(model,
 tenant) epoch in the cursor; cookie push additionally requires JSON and a trusted Origin; the conditional change uses
-the existing atomic `updateOne`; live records carry `deletedAt: null` for partial unique indexes; hint channels are
+the existing atomic `updateOne`, reached through `CrudService.update()` (`expectedVersion`, E1); live records carry `deletedAt: null` for partial unique indexes; hint channels are
 re-checked like WebSockets; API tokens refused on sync routes by default.
