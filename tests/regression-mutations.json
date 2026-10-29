@@ -4755,6 +4755,17 @@
         "tests/redis-consumers.e2e-spec.ts"
       ],
       "driverSpecific": false
+    },
+    {
+      "id": "mutation-gate-exit-drops-verdicts",
+      "defect": "12.1.0 publish (issue #653) — the regression-evidence gate ended with process.exit(), which on a pipe drops stdout that is still queued. The parallel path writes all verdict blocks at the end, so CI showed 359 of 407 blocks and no summary: a red gate that named no failing mutation.",
+      "file": "scripts/check-mutations.mjs",
+      "find": "  process.exitCode = failed.length ? 1 : 0;",
+      "replace": "  process.exit(failed.length ? 1 : 0);",
+      "specs": [
+        "tests/unit/check-mutations-exit.spec.ts"
+      ],
+      "driverSpecific": false
     }
   ]
 }
