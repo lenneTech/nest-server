@@ -40,6 +40,7 @@
 - [project-db-agnostic-phase6-mysql-facts.md](project-db-agnostic-phase6-mysql-facts.md) — DEV-3848: MySQL update compiler prototype pollution (`__proto__` path → tenant bypass); app-account check blind to roles; container probe recipe
 - [project-legacy-rate-limit-key-and-unnamed-fix-lookup.md](project-legacy-rate-limit-key-and-unnamed-fix-lookup.md) — 12.1.0: REST rate limit keyed on handler (shares GraphQL bucket); registryFix() fails loud; override drops guard
 - [project-cron-bullmq-scheduler-restore-facts.md](project-cron-bullmq-scheduler-restore-facts.md) — DEV-3889 restore sound: subset of own active config, runTick refuses unconfigured names; rolling-deploy resurrection residual
+- [project-redis-channel-registry-resubscribe-facts.md](project-redis-channel-registry-resubscribe-facts.md) — DEV-3894 channel refcount + ready re-subscribe sound; ioredis 6 nextTick ready order; TCP-proxy probe
 
 ## Review Methodology
 
