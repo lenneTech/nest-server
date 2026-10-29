@@ -351,12 +351,6 @@ When releasing MINOR or MAJOR versions, create migration guides in `migration-gu
 - Ask developer for additional projects to analyze
 - See `.claude/rules/migration-guides.md` for complete process
 
-## Active Plans
-
-| Plan | Read when |
-|------|-----------|
-| `.claude/plans/db-agnostic/PLAN.md` | Working on the branch `feat/db-agnostic`, or asked anything about supporting PostgreSQL (or any other database) alongside MongoDB/Mongoose. Contains the design (one CrudService over a store port), the comparison with the superseded August plan, the prototype evidence, the phases (Linear epic DEV-3827) and the non-negotiable constraints. **Read it fully before writing code** — the task list without the reasoning produces the wrong thing. Not shipped to consumers (`.claude/plans/` is outside the npm `files` set). Remove this row when the branch merges. |
-
 ## Modular Rules
 
 Detailed documentation in `.claude/rules/`:

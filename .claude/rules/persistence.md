@@ -1,7 +1,7 @@
 # Persistence Rules (MongoDB, PostgreSQL, MySQL and MariaDB)
 
-These rules apply to every model, service and query — in `src/core/` and in projects. The design is in
-`.claude/plans/db-agnostic/PLAN.md` while the plan is active; which database a project uses is decided by
+These rules apply to every model, service and query — in `src/core/` and in projects. The design and its
+reasoning are in `.claude/plans/db-agnostic/PLAN.md` (framework repository); which database a project uses is decided by
 `docs/choosing-a-database.md`; the configuration reference is the "Data Sources" row of
 `.claude/rules/configurable-features.md`.
 
