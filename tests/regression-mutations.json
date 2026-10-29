@@ -3924,8 +3924,8 @@
       "id": "iam-required-user-column-not-null",
       "defect": "DEV-3831 (db-agnostic phase 3) — Better-Auth added name as NOT NULL on users; framework-created users failed to insert.",
       "file": "src/core/modules/better-auth/better-auth-sql.helper.ts",
-      "find": "    if (field.defaultValue === undefined && !existing.has(column) && SQL_TYPES[field.type]) {",
-      "replace": "    if (field.defaultValue === undefined && !existing.has(column) && SQL_TYPES[field.type] && false) {",
+      "find": "    if (field.defaultValue === undefined && !existing.has(column) && types[field.type]) {",
+      "replace": "    if (field.defaultValue === undefined && !existing.has(column) && types[field.type] && false) {",
       "specs": [
         "tests/stories/bidirectional-auth-sync.e2e-spec.ts"
       ]
@@ -4034,8 +4034,8 @@
       "id": "iam-migration-status-capped-at-a-page",
       "defect": "DEV-3831: on SQL the migration status read the credential accounts through Better-Auth's findMany(), which stops at 100 rows without a limit, so it never counted more than 100 migrated users",
       "file": "src/core/modules/better-auth/core-better-auth-sql.store.ts",
-      "find": "(SELECT count(*) FROM ${users} u WHERE u.${iamId} IS NOT NULL AND ${migrated})::int AS \"fullyMigrated\"",
-      "replace": "(SELECT count(*) FROM (SELECT 1 FROM ${users} u WHERE u.${iamId} IS NOT NULL AND ${migrated} LIMIT 100) page)::int AS \"fullyMigrated\"",
+      "find": "(SELECT count(*) FROM ${users} u WHERE u.${iamId} IS NOT NULL AND ${migrated}) AS ${quote('fullyMigrated')}",
+      "replace": "(SELECT count(*) FROM (SELECT 1 FROM ${users} u WHERE u.${iamId} IS NOT NULL AND ${migrated} LIMIT 100) page) AS ${quote('fullyMigrated')}",
       "specs": [
         "tests/stories/better-auth-migration-status.e2e-spec.ts"
       ]
@@ -4417,17 +4417,6 @@
     },
     {
       "driverSpecific": false,
-      "id": "mysql-iam-not-refused",
-      "defect": "DEV-3848 (db-agnostic phase 6): Better-Auth is not wired for MySQL / MariaDB; with the user model routed there the boot must refuse instead of running Better-Auth against a database it cannot serve",
-      "file": "src/core/common/persistence/data-source.runtime.ts",
-      "find": "    if (source.driver !== 'postgres') {",
-      "replace": "    if (false) {",
-      "specs": [
-        "tests/persistence-mysql-wiring.e2e-spec.ts"
-      ]
-    },
-    {
-      "driverSpecific": false,
       "id": "mysql-long-index-not-prefixed",
       "defect": "DEV-3848 (db-agnostic phase 6): a lookup index over four text fields exceeds InnoDB's 3072-byte key limit; created over the full columns it stopped the boot of every application with the AI module (ai_slots)",
       "file": "src/core/common/persistence/sql/mysql/mysql-schema.compiler.ts",
@@ -4797,6 +4786,50 @@
       "replace": "    void revalidateWsConnectionsOf;",
       "specs": [
         "tests/unit/better-auth-user-cache-invalidation.spec.ts"
+      ],
+      "driverSpecific": false
+    },
+    {
+      "id": "mysql-iam-tables-default-collation",
+      "defect": "DEV-3904 — Better-Auth creates its tables without naming a collation, i.e. with the database's default, while users.id carries the framework's utf8mb4_bin: on MariaDB the foreign key from session.user_id was refused (\"Foreign key constraint is incorrectly formed\") and the boot stopped; on MySQL Better-Auth's tokens and identifiers compared case-insensitively, unlike on every other database.",
+      "file": "src/core/common/persistence/sql/sql-dialect.ts",
+      "find": "      withMysqlSchemaLock(lock, (run) => withFrameworkDefaultCollation(run, migrate)),",
+      "replace": "      withMysqlSchemaLock(lock, () => (void withFrameworkDefaultCollation, migrate())),",
+      "specs": [
+        "tests/persistence-mysql-wiring.e2e-spec.ts"
+      ],
+      "driverSpecific": false
+    },
+    {
+      "id": "iam-roles-input-reopened",
+      "defect": "DEV-3904 — Better-Auth's update-user route takes every field its schema declares as input; roles stay out only because buildUserFields() re-asserts input: false after the project's fields are merged. Without it a signed-in user makes themselves an administrator — pinned on every database the adapter runs on, MySQL and MariaDB included.",
+      "file": "src/core/modules/better-auth/better-auth.config.ts",
+      "find": "    if (coreFields[key]) {\n      coreFields[key].input = false;\n    }",
+      "replace": "    if (coreFields[key]) {\n      coreFields[key].input = key === 'roles';\n    }",
+      "specs": [
+        "tests/core-module-parity.e2e-spec.ts"
+      ],
+      "driverSpecific": false
+    },
+    {
+      "id": "iam-password-stored-plain",
+      "defect": "DEV-3904 — the framework installs the password hashing Better-Auth uses (nativeScryptHash); a hash function that returns the password stores it in clear in the credential account, on every database.",
+      "file": "src/core/modules/better-auth/better-auth.config.ts",
+      "find": "        hash: nativeScryptHash,",
+      "replace": "        hash: async (password: string) => password,",
+      "specs": [
+        "tests/core-module-parity.e2e-spec.ts"
+      ],
+      "driverSpecific": false
+    },
+    {
+      "id": "iam-sign-out-keeps-session",
+      "defect": "DEV-3904 — POST /iam/sign-out is the framework's controller; clearing the cookies without revoking the session in Better-Auth's table leaves a captured session token working, on every database.",
+      "file": "src/core/modules/better-auth/core-better-auth.controller.ts",
+      "find": "        await this.betterAuthService.revokeSession(sessionToken);\n      }\n\n      // Clear cookies",
+      "replace": "        void sessionToken;\n      }\n\n      // Clear cookies",
+      "specs": [
+        "tests/core-module-parity.e2e-spec.ts"
       ],
       "driverSpecific": false
     }

@@ -6,6 +6,7 @@ import { configDefaults, defineConfig } from 'vitest/config';
 import { countOtherActiveRuns } from './tests/e2e-run-slots.mjs';
 import {
   E2E_TEST_INCLUDE,
+  IAM_MYSQL_VARIANTS,
   IAM_SQL_ENGINES,
   IAM_SQL_TEST_INCLUDE,
   POSTGRES_E2E_ENGINE,
@@ -230,6 +231,17 @@ export default defineConfig({
           globalSetup: ['tests/iam-sql.global-setup.ts'],
           include: IAM_SQL_TEST_INCLUDE,
           name: `iam-sql-${engine}`,
+          setupFiles: ['tests/iam-sql.setup.ts', 'tests/setup.ts'],
+        },
+      })),
+      // The same IAM suites with MySQL / MariaDB as the default data source (DEV-3904), one database per project
+      ...IAM_MYSQL_VARIANTS.map((variant) => ({
+        extends: true as const,
+        test: {
+          env: { LT_LOG_AUTH_URLS: '0', LT_TEST_IAM_SQL_SERVER: variant },
+          globalSetup: ['tests/iam-sql.global-setup.ts'],
+          include: IAM_SQL_TEST_INCLUDE,
+          name: `iam-${variant}`,
           setupFiles: ['tests/iam-sql.setup.ts', 'tests/setup.ts'],
         },
       })),

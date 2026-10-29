@@ -109,6 +109,39 @@ export async function withMysqlSchemaLock<T>(owner: SqlExecutor, fn: (run: Run) 
   });
 }
 
+/** The collation of every table the framework creates — byte-wise, as identifiers and tokens compare on PostgreSQL */
+const FRAMEWORK_COLLATION = 'utf8mb4_bin';
+
+/**
+ * `fn` with the database's default collation switched to the framework's and back afterwards — for a library that
+ * creates its tables without naming a collation (Better-Auth). Its tables then compare byte-wise like the framework's,
+ * and its foreign keys to them can be created at all: MariaDB refuses a key between `utf8mb4_bin` (`users.id`) and the
+ * server's default (`Foreign key constraint is incorrectly formed`), and on MySQL tokens and identifiers would compare
+ * case-insensitively. Restored afterwards, so the project's own DDL keeps the default it was given. Runs as the owner
+ * under the schema lock (`run` is the lock's connection); a process that dies in between leaves `utf8mb4_bin` behind,
+ * which changes no existing table.
+ */
+export async function withFrameworkDefaultCollation<T>(run: Run, fn: () => Promise<T>): Promise<T> {
+  const { rows } = await run({
+    params: [],
+    text: `SELECT DEFAULT_CHARACTER_SET_NAME AS charset, DEFAULT_COLLATION_NAME AS collation
+      FROM information_schema.SCHEMATA WHERE SCHEMA_NAME = DATABASE()`,
+  });
+  const { charset, collation } = (rows[0] ?? {}) as { charset?: string; collation?: string };
+  if (collation === FRAMEWORK_COLLATION) {
+    return fn();
+  }
+  if (!/^\w+$/.test(charset ?? '') || !/^\w+$/.test(collation ?? '')) {
+    throw new Error(`Cannot read the default collation of the database (found ${charset}/${collation})`);
+  }
+  await run({ params: [], text: `ALTER DATABASE CHARACTER SET utf8mb4 COLLATE ${FRAMEWORK_COLLATION}` });
+  try {
+    return await fn();
+  } finally {
+    await run({ params: [], text: `ALTER DATABASE CHARACTER SET ${charset} COLLATE ${collation}` });
+  }
+}
+
 /** Apply every automatic change as the OWNER, under the schema lock; refuse when a migration is needed. */
 export async function applyMysqlSchema(
   owner: SqlExecutor,

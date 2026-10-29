@@ -4,7 +4,7 @@ import { getMigrations } from 'better-auth/db/migration';
 import { DataSourceConfigError } from '../../common/persistence/data-source.config.js';
 import { generateId } from '../../common/persistence/id-format.js';
 import { type IamSqlStorage, registerForeignColumns } from '../../common/persistence/persistence-runtime.registry.js';
-import { columnName, quoteIdentifier } from '../../common/persistence/sql/sql-naming.js';
+import { columnName, quoteIdentifier, quoteMysqlIdentifier } from '../../common/persistence/sql/sql-naming.js';
 
 /** The table Better-Auth shares with the user model — created and owned by the framework */
 const USERS_TABLE = 'users';
@@ -15,15 +15,38 @@ const USERS_TABLE = 'users';
  */
 registerForeignColumns(USERS_TABLE, ['email_verified', 'image', 'name']);
 
-/** Postgres column type of a Better-Auth field, for a column the framework adds before Better-Auth's migration */
-const SQL_TYPES: Record<string, string> = {
-  boolean: 'boolean',
-  date: 'timestamptz',
-  json: 'jsonb',
-  number: 'integer',
-  'number[]': 'jsonb',
-  string: 'text',
-  'string[]': 'jsonb',
+/**
+ * Column type of a Better-Auth field per database, for a column the framework adds before Better-Auth's migration —
+ * the type Better-Auth's own migrator would choose, so it finds nothing to report about the column afterwards
+ */
+const SQL_TYPES: Record<IamSqlStorage['driver'], Record<string, string>> = {
+  mariadb: {
+    boolean: 'boolean',
+    date: 'timestamp(3)',
+    json: 'json',
+    number: 'integer',
+    'number[]': 'json',
+    string: 'text',
+    'string[]': 'json',
+  },
+  mysql: {
+    boolean: 'boolean',
+    date: 'timestamp(3)',
+    json: 'json',
+    number: 'integer',
+    'number[]': 'json',
+    string: 'text',
+    'string[]': 'json',
+  },
+  postgres: {
+    boolean: 'boolean',
+    date: 'timestamptz',
+    json: 'jsonb',
+    number: 'integer',
+    'number[]': 'jsonb',
+    string: 'text',
+    'string[]': 'jsonb',
+  },
 };
 
 /** The tables Better-Auth's own options name (models of plugins come from the plugins) */
@@ -32,8 +55,9 @@ const CORE_MODELS = ['user', 'session', 'account', 'verification'] as const;
 type Options = Record<string, any>;
 
 /**
- * Better-Auth on a SQL data source: its built-in Kysely adapter on the given `pg` pool (Better-Auth recognises the
- * pool and builds its own Kysely instance — the core imports no Kysely), ids in the framework's format, and every table
+ * Better-Auth on a SQL data source: its built-in Kysely adapter on the given pool — `pg`, or on MySQL / MariaDB the
+ * `mysql2` pool's promise wrapper (Better-Auth recognises the pool and builds its own Kysely instance — the core imports
+ * no Kysely), ids in the framework's format, and every table
  * and column named the way the framework names it.
  *
  * Naming is not cosmetic. Better-Auth and the user model share ONE row per user in `users`: the framework creates that
@@ -114,8 +138,10 @@ export function betterAuthOwnedTables(options: Options): string[] {
  * Without an owner connection it only checks, and a pending change stops the boot like a framework table would.
  */
 export async function applyBetterAuthSchema(options: Options, storage: IamSqlStorage): Promise<void> {
-  await storage.applySchema(async (pool, asOwner) => {
-    const nullable = asOwner ? await addRequiredUserColumnsAsNullable(options, pool as PgPool) : new Set<string>();
+  await storage.applySchema(async (pool, asOwner, query) => {
+    const nullable = asOwner
+      ? await addRequiredUserColumnsAsNullable(options, query, storage.driver)
+      : new Set<string>();
     const { runMigrations, toBeAdded, toBeCreated } = await getMigrations({
       ...options,
       database: pool,
@@ -135,10 +161,6 @@ export async function applyBetterAuthSchema(options: Options, storage: IamSqlSto
   }, betterAuthOwnedTables(options));
 }
 
-interface PgPool {
-  query(text: string, params?: unknown[]): Promise<{ rows: any[] }>;
-}
-
 /**
  * A field Better-Auth declares required without a default (`name`) becomes a NOT NULL column when Better-Auth adds it —
  * and every user the FRAMEWORK creates (legacy sign-up, user service, system setup) would then fail to insert, because the
@@ -146,10 +168,19 @@ interface PgPool {
  * first, nullable like every column it creates (the database does not enforce `required`, as on MongoDB); Better-Auth
  * then finds them and adds nothing. Returns every required user column that is nullable by the framework's design.
  */
-async function addRequiredUserColumnsAsNullable(options: Options, pool: PgPool): Promise<Set<string>> {
+export async function addRequiredUserColumnsAsNullable(
+  options: Options,
+  query: IamSqlStorage['query'],
+  driver: IamSqlStorage['driver'],
+): Promise<Set<string>> {
   const users = (getAuthTables(options as any) as Record<string, any>).user;
-  const { rows } = await pool.query(
-    'SELECT column_name FROM information_schema.columns WHERE table_schema = current_schema() AND table_name = $1',
+  const postgres = driver === 'postgres';
+  const quote = postgres ? quoteIdentifier : quoteMysqlIdentifier;
+  const types = SQL_TYPES[driver];
+  const { rows } = await query(
+    postgres
+      ? 'SELECT column_name FROM information_schema.columns WHERE table_schema = current_schema() AND table_name = $1'
+      : 'SELECT COLUMN_NAME AS column_name FROM information_schema.columns WHERE table_schema = DATABASE() AND table_name = $1',
     [users.modelName],
   );
   const existing = new Set(rows.map((row) => row.column_name as string));
@@ -161,9 +192,10 @@ async function addRequiredUserColumnsAsNullable(options: Options, pool: PgPool):
     }
     // Every column the framework created for a field is nullable — the user model's `email` and timestamps included
     nullable.add(column);
-    if (field.defaultValue === undefined && !existing.has(column) && SQL_TYPES[field.type]) {
-      await pool.query(
-        `ALTER TABLE ${quoteIdentifier(users.modelName)} ADD COLUMN IF NOT EXISTS ${quoteIdentifier(column)} ${SQL_TYPES[field.type]}`,
+    if (field.defaultValue === undefined && !existing.has(column) && types[field.type]) {
+      // MySQL has no ADD COLUMN IF NOT EXISTS; the catalog read above and the schema lock make it unnecessary
+      await query(
+        `ALTER TABLE ${quote(users.modelName)} ADD COLUMN ${postgres ? 'IF NOT EXISTS ' : ''}${quote(column)} ${types[field.type]}`,
       );
     }
   }

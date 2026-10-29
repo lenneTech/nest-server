@@ -33,7 +33,7 @@ import {
   bootApiTokenIamApp,
   signUpAndSignIn,
 } from './helpers/api-token-e2e.helpers';
-import { createPostgresTestDatabase, type PostgresTestDatabase } from './helpers/postgres-test-db';
+import { createOwnSqlTestDatabase, type OwnSqlTestDatabase } from './helpers/sql-test-db';
 import { type IamTestDb, openIamTestDb } from './helpers/iam-test-db';
 
 @Schema({ timestamps: true })
@@ -90,9 +90,9 @@ describe('MCP OAuth — tenant context for an OAuth access token (e2e)', () => {
   let iamDb: IamTestDb;
   let oauth: CoreAiMcpOAuthService;
   let previousConfig: any;
-  // In the postgres and iam-sql projects: a PostgreSQL database of this suite's own. Its configuration (multiTenancy) isolates the
-  // tenant-scoped AI tables, and the project's shared database is used by suites without multiTenancy
-  let sqlDatabase: PostgresTestDatabase | undefined;
+  // In the SQL projects: a database of this suite's own on the project's server. Its configuration (multiTenancy)
+  // isolates the tenant-scoped AI tables, and the project's shared database is used by suites without multiTenancy
+  let sqlDatabase: OwnSqlTestDatabase | undefined;
 
   const suffix = `${Date.now()}`;
   const tenantA = `mcp-tenant-a-${suffix}`;
@@ -116,9 +116,7 @@ describe('MCP OAuth — tenant context for an OAuth access token (e2e)', () => {
 
   beforeAll(async () => {
     previousConfig = ConfigService.configFastButReadOnly;
-    if (process.env.NSC__DATABASE__OWNER_URL) {
-      sqlDatabase = await createPostgresTestDatabase(`mcp-oauth-tenant-${process.pid}`);
-    }
+    sqlDatabase = await createOwnSqlTestDatabase(`mcp-oauth-tenant-${process.pid}`);
     const config = apiTokenIamConfig('mcp-oauth-tenant', {
       ...(sqlDatabase
         ? {

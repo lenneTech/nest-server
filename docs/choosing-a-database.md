@@ -2,8 +2,8 @@
 
 Since 12.1.0 a `@lenne.tech/nest-server` project stores its data in **MongoDB** (the default), in **PostgreSQL**, in
 **MySQL 8.4 / MariaDB 11.8**, or in several of them, model by model. The framework's own modules (users, tenants, API
-tokens, AI, file metadata, locks, migrations) run on each, behind one `CrudService` and one security pipeline;
-Better-Auth runs on MongoDB and PostgreSQL. This document is the decision
+tokens, AI, file metadata, locks, migrations) run on each, behind one `CrudService` and one security pipeline, and so
+does Better-Auth (on MySQL / MariaDB since 12.1.1). This document is the decision
 procedure — for a developer starting a project and for an AI agent asked to set one up. Configuration details are in
 `.claude/rules/configurable-features.md` (row "Data Sources"); the code rules in `.claude/rules/persistence.md`.
 
@@ -31,8 +31,10 @@ Work through the steps in order; the first one that decides, decides.
      own reaches every tenant's rows unless it filters by `tenantId` itself. The boot says so once per source. A
      trigger-based write guard was measured and not built: it cost up to half of MariaDB's write throughput and left
      the native read open.
-   - **Better-Auth does not run there yet:** keep the user model (`users`) on PostgreSQL or MongoDB
-     (`database.models`), or sign in through the legacy endpoints only. The boot refuses the combination.
+   - **Better-Auth's tables are created by Better-Auth** (12.1.1+), in the database's default collation — so the
+     framework switches that default to `utf8mb4_bin` for the duration of Better-Auth's migration and back, and its
+     tables compare byte-wise like the framework's. This needs the owner connection (`database.ownerUrl`), as every
+     schema change does; Better-Auth's own column types apply there (`timestamp(3)`, `varchar(36)` ids).
    - **An indexed text field holds at most 255 characters** (a longer value is refused with 400); every other text is
      unbounded. Indexing an existing text field later is a type change, i.e. a reviewed migration.
    - **Schema changes are not transactional:** MySQL commits every DDL statement on its own, so a failed change leaves

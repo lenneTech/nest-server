@@ -1,5 +1,6 @@
 import type { DataStore } from '../../common/persistence/data-store.interface.js';
-import { quoteIdentifier } from '../../common/persistence/sql/sql-naming.js';
+import type { IamSqlStorage } from '../../common/persistence/persistence-runtime.registry.js';
+import { quoteIdentifier, quoteMysqlIdentifier } from '../../common/persistence/sql/sql-naming.js';
 import { RequestContext } from '../../common/services/request-context.service.js';
 import type { BetterAuthInstance } from './better-auth.config.js';
 
@@ -28,10 +29,8 @@ export interface IamMigrationCounts {
   withIamId: number;
 }
 
-/** What the store needs of the `pg` pool Better-Auth runs on */
-export interface IamSqlQueryable {
-  query(text: string, values?: unknown[]): Promise<{ rows: any[] }>;
-}
+/** What the store needs to count in the database Better-Auth runs on: which one it is, and a statement runner */
+export type IamSqlQueryable = Pick<IamSqlStorage, 'driver' | 'query'>;
 
 /** A passkey challenge mapping as `CoreBetterAuthChallengeService` keeps it */
 export interface IamChallengeMapping {
@@ -60,7 +59,7 @@ export class BetterAuthSqlStore {
   constructor(
     readonly users: DataStore<any>,
     protected readonly auth: BetterAuthInstance,
-    protected readonly pool?: IamSqlQueryable,
+    protected readonly sql?: IamSqlQueryable,
   ) {}
 
   // ---------------------------------------------------------------------------------------------
@@ -144,39 +143,47 @@ export class BetterAuthSqlStore {
    * The IAM migration counts, computed in the database over every user and account — the definitions of the MongoDB
    * aggregation (`CoreBetterAuthUserMapper.getMigrationStatus()`). Never a page of rows: Better-Auth's `findMany()`
    * stops at 100 without a limit, which capped the status at 100 migrated users. Table and column names come from
-   * Better-Auth's own schema, so they follow what `withSqlStorage()` mapped.
+   * Better-Auth's own schema, so they follow what `withSqlStorage()` mapped. The same statements on every SQL database,
+   * only the identifier quotes differ; counts are converted here because MySQL answers them as strings.
    */
   async migrationCounts(pendingEmailLimit: number): Promise<IamMigrationCounts> {
-    if (!this.pool) {
-      throw new Error('BetterAuthSqlStore: migration counts need the pool Better-Auth runs on');
+    if (!this.sql) {
+      throw new Error('BetterAuthSqlStore: migration counts need the database Better-Auth runs on');
     }
+    const quote = this.sql.driver === 'postgres' ? quoteIdentifier : quoteMysqlIdentifier;
     const { tables } = await this.context();
-    const table = (model: string) => quoteIdentifier(tables[model].modelName);
-    const column = (model: string, field: string) => quoteIdentifier(tables[model].fields[field]?.fieldName ?? field);
+    const table = (model: string) => quote(tables[model].modelName);
+    const column = (model: string, field: string) => quote(tables[model].fields[field]?.fieldName ?? field);
     const users = table('user');
     const accounts = table('account');
     const iamId = column('user', 'iamId');
     const userId = column('account', 'userId');
     const providerId = column('account', 'providerId');
-    const migrated = `EXISTS (SELECT 1 FROM ${accounts} a WHERE a.${userId} = u."id" AND a.${providerId} = $1)`;
+    const migrated = `EXISTS (SELECT 1 FROM ${accounts} a WHERE a.${userId} = u.${quote('id')} AND a.${providerId} = $1)`;
     const {
       rows: [counts],
-    } = await this.pool.query(
-      `SELECT (SELECT count(*) FROM ${users})::int AS "total",
-              (SELECT count(*) FROM ${users} WHERE ${iamId} IS NOT NULL)::int AS "withIamId",
-              (SELECT count(DISTINCT ${userId}) FROM ${accounts} WHERE ${providerId} = $1)::int AS "withIamAccount",
-              (SELECT count(*) FROM ${users} u WHERE u.${iamId} IS NOT NULL AND ${migrated})::int AS "fullyMigrated"`,
+    } = await this.sql.query(
+      `SELECT (SELECT count(*) FROM ${users}) AS ${quote('total')},
+              (SELECT count(*) FROM ${users} WHERE ${iamId} IS NOT NULL) AS ${quote('withIamId')},
+              (SELECT count(DISTINCT ${userId}) FROM ${accounts} WHERE ${providerId} = $1) AS ${quote('withIamAccount')},
+              (SELECT count(*) FROM ${users} u WHERE u.${iamId} IS NOT NULL AND ${migrated}) AS ${quote('fullyMigrated')}`,
       ['credential'],
     );
     const pending =
       pendingEmailLimit > 0
-        ? await this.pool.query(
-            `SELECT u.${column('user', 'email')} AS "email" FROM ${users} u
-              WHERE u.${iamId} IS NULL OR NOT ${migrated} ORDER BY u."id" LIMIT $2`,
+        ? await this.sql.query(
+            `SELECT u.${column('user', 'email')} AS ${quote('email')} FROM ${users} u
+              WHERE u.${iamId} IS NULL OR NOT ${migrated} ORDER BY u.${quote('id')} LIMIT $2`,
             ['credential', pendingEmailLimit],
           )
         : { rows: [] };
-    return { ...counts, pendingEmails: pending.rows.map((row) => row.email).filter(Boolean) };
+    return {
+      fullyMigrated: Number(counts.fullyMigrated),
+      pendingEmails: pending.rows.map((row) => row.email).filter(Boolean),
+      total: Number(counts.total),
+      withIamAccount: Number(counts.withIamAccount),
+      withIamId: Number(counts.withIamId),
+    };
   }
 
   /** A session by its token with its user; `null` when unknown — expiry is the caller's check, as on MongoDB */

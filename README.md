@@ -330,7 +330,7 @@ async updateProject(@CurrentTenant() tenantId: string) { ... }
 
 A project keeps its data in **MongoDB** (the default), in **PostgreSQL**, in **MySQL 8.4 / MariaDB 11.8**, or in several
 of them, model by model — the framework's own modules (users, tenants, API tokens, AI, file metadata, locks,
-migrations) run on each; Better-Auth on MongoDB and PostgreSQL:
+migrations) and Better-Auth run on each (Better-Auth on MySQL / MariaDB since 12.1.1):
 
 ```typescript
 // config.env.ts — PostgreSQL as the default source
@@ -345,7 +345,8 @@ Models are registered with `CorePersistenceModule.forFeature()` and declared wit
 `SchemaFactory` (same names as `@nestjs/mongoose`). `mongoose`, `@nestjs/mongoose` and `mongodb` are optional peers: a
 project on PostgreSQL alone installs none of them (in vendor mode it keeps them as `devDependencies` for the types the
 vendored core imports). On MySQL and MariaDB (`mysql2` plus the engine) there is no row-level security: tenant isolation
-is the store's, and native access to a tenant table must filter by tenant itself. Which database to choose:
+is the store's, and native access to a tenant table must filter by tenant itself; Better-Auth's tables are created in
+the framework's collation `utf8mb4_bin` whatever the database's default. Which database to choose:
 [docs/choosing-a-database.md](docs/choosing-a-database.md);
 the rules for code: [.claude/rules/persistence.md](.claude/rules/persistence.md).
 

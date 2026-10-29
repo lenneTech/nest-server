@@ -10,6 +10,7 @@ import {
   ComparisonOperatorEnum,
   CoreApiTokenService,
   CoreBetterAuthModule,
+  CoreBetterAuthService,
   CoreModule,
   CorePersistenceModule,
   CoreTenantGuard,
@@ -145,6 +146,7 @@ class ParityTenantController {
 
 interface Harness {
   app: any;
+  betterAuth: CoreBetterAuthService;
   database?: MysqlTestDatabase | PostgresTestDatabase;
   moduleRef: TestingModule;
   apiTokens: DataStore<any>;
@@ -170,9 +172,8 @@ async function boot(driver: CoreModuleDriver): Promise<Harness> {
       // Every case signs in several times; the limit is a separate concern with its own suites
       rateLimit: { enabled: false },
     },
-    // Users on SQL: the column signs in through the legacy endpoints only — Better-Auth runs on PostgreSQL in the IAM
-    // projects, and is refused on MySQL / MariaDB
-    ...(database ? { betterAuth: false, database: { ownerUrl: database.ownerUrl, url: database.appUrl } } : {}),
+    // Users on SQL: Better-Auth beside the legacy endpoints, as on MongoDB — its adapter runs on every database
+    ...(database ? { database: { ownerUrl: database.ownerUrl, url: database.appUrl } } : {}),
     mongoose: { ...envConfig.mongoose, uri: deriveTestDbUri(`module-parity-${driver}`) },
     apiTokens: { encryptionKey: API_TOKEN_TEST_ENCRYPTION_KEY, scopes: ['read', 'export'] },
     multiTenancy: {
@@ -211,6 +212,7 @@ async function boot(driver: CoreModuleDriver): Promise<Harness> {
   await app.init();
   return {
     app,
+    betterAuth: moduleRef.get(CoreBetterAuthService, { strict: false }),
     database,
     moduleRef,
     apiTokens: moduleRef.get(getStoreToken('ApiToken'), { strict: false }),
@@ -473,6 +475,102 @@ describe.each(CORE_MODULE_DRIVERS)('core module parity — %s (e2e)', (driver) =
     expect(await users.findById(user.id)).toBeNull();
     expect(statusOf(await signIn(email))).toBe(401);
   });
+
+  // --- IAM (Better-Auth) ---------------------------------------------------------------------------------------
+
+  /**
+   * An IAM sign-up and sign-in; answers the user's id, the token the sign-in hands out (a JWT here) and the session's
+   * own token as Better-Auth stores it
+   */
+  const iamSignUp = async (email: string, extra: Record<string, unknown> = {}) => {
+    const created = await testHelper.rest('/iam/sign-up/email', {
+      method: 'POST',
+      payload: { email, name: 'Parity Iam', password: PASSWORD, termsAndPrivacyAccepted: true, ...extra },
+      statusCode: 201,
+    });
+    const signedIn = await testHelper.rest('/iam/sign-in/email', {
+      method: 'POST',
+      payload: { email, password: PASSWORD },
+      statusCode: 200,
+    });
+    const id = String(created.user.id);
+    const sessionToken = (await harness.betterAuth.getActiveSessionForUser(id)).session?.token;
+    return { id, sessionToken: String(sessionToken ?? ''), token: String(signedIn.token) };
+  };
+
+  moduleIt('iam-sign-up-and-sign-in', driver, async () => {
+    const email = unique('iam-sign-in');
+    const { id, sessionToken, token } = await iamSignUp(email);
+    // One user, the one the user model reads — with the framework's fields beside Better-Auth's
+    expect(await users.count({ email } as any)).toBe(1);
+    expect(await users.findById(id)).toMatchObject({ email, roles: [] });
+    // The session resolves to the user, and the token the sign-in handed out authenticates them (403 on an
+    // administrator's route, not 401)
+    expect((await harness.betterAuth.getSessionByToken(sessionToken)).user).toMatchObject({ email, id });
+    expect(statusOf(await gql('findUsers', {}, ['id'], token, true))).toBe(403);
+
+    await testHelper.rest('/iam/sign-in/email', {
+      method: 'POST',
+      payload: { email, password: 'Wrong-Password-1!' },
+      statusCode: 401,
+    });
+  });
+
+  /**
+   * @regression   DEV-3904 — Better-Auth's update-user route takes any field its schema declares as input; `roles` is
+   *   kept out only by `input: false`, which `buildUserFields()` re-asserts after a project's fields are merged. Pinned
+   *   on every database the adapter now runs on, MySQL and MariaDB included.
+   * @seen-failing Re-assert `input: true` for `roles` in buildUserFields() in
+   *   src/core/modules/better-auth/better-auth.config.ts — registered as mutation `iam-roles-input-reopened` in
+   *   tests/regression-mutations.json.
+   */
+  moduleIt('iam-roles-not-input', driver, async () => {
+    const email = unique('iam-roles');
+    const { id, token } = await iamSignUp(email, { roles: ['admin'] });
+    expect((await users.findById(id)).roles).toEqual([]);
+
+    await testHelper.rest('/iam/update-user', { method: 'POST', payload: { roles: ['admin'] }, statusCode: 400, token });
+    expect((await users.findById(id)).roles).toEqual([]);
+    // An administrator's route stays closed to the user
+    expect(statusOf(await gql('findUsers', {}, ['id'], token, true))).toBe(403);
+  });
+
+  /**
+   * @regression   DEV-3904 — the framework installs the password hashing Better-Auth uses (`nativeScryptHash`); on
+   *   every database the credential must hold its hash, never the password.
+   * @seen-failing Hand Better-Auth a hash function that returns the password in better-auth.config.ts — registered as
+   *   mutation `iam-password-stored-plain` in tests/regression-mutations.json.
+   */
+  moduleIt('iam-password-hashed', driver, async () => {
+    const email = unique('iam-hash');
+    const { id } = await iamSignUp(email);
+    const context = await (harness.betterAuth.getInstance() as any).$context;
+    const credential = await context.internalAdapter.findCredentialAccount(id);
+    // Better-Auth's `salt:key` scrypt format
+    expect(credential?.password).toMatch(/^[0-9a-f]+:[0-9a-f]+$/);
+    expect(credential.password).not.toContain(PASSWORD);
+    // The legacy password the sign-up synchronised: a bcrypt hash
+    const stored = await users.findById(id);
+    expect(stored.password).toMatch(/^\$2[aby]\$/);
+  });
+
+  /**
+   * @regression   DEV-3904 — `POST /iam/sign-out` is the framework's controller; it must end the session in Better-Auth's
+   *   table, not only clear the cookies, or a captured token keeps working.
+   * @seen-failing Skip revokeSession() in CoreBetterAuthController.signOut() in
+   *   src/core/modules/better-auth/core-better-auth.controller.ts — registered as mutation `iam-sign-out-keeps-session`
+   *   in tests/regression-mutations.json.
+   */
+  moduleIt('iam-session-revoked', driver, async () => {
+    const email = unique('iam-sign-out');
+    const { id, sessionToken } = await iamSignUp(email);
+    expect((await harness.betterAuth.getSessionByToken(sessionToken)).user?.id).toBe(id);
+
+    await testHelper.rest('/iam/sign-out', { method: 'POST', statusCode: 201, token: sessionToken });
+
+    expect((await harness.betterAuth.getSessionByToken(sessionToken)).session).toBeFalsy();
+  });
+
   // --- tenants -------------------------------------------------------------------------------------------------
 
   /** A tenant id as the project's tenant model would hand it out */

@@ -20,8 +20,6 @@ import {
   type PersistenceOverview,
   type PersistenceRuntime,
 } from './persistence-runtime.registry.js';
-import { grantStatement } from './sql/postgres/postgres-schema.compiler.js';
-import { assertSafeApplicationRole, SCHEMA_LOCK_SQL } from './sql/postgres/postgres-schema.migrator.js';
 import { type SqlDialect, sqlDialect } from './sql/sql-dialect.js';
 import { createSqlExecutor } from './sql/sql-executor.factory.js';
 import type { SqlExecutor } from './sql/sql-executor.interface.js';
@@ -120,19 +118,16 @@ export class DataSourceRuntime implements PersistenceRuntime {
     if (!registration || !source || source.driver === 'mongodb') {
       return undefined;
     }
-    if (source.driver !== 'postgres') {
-      throw new Error(
-        `Better-Auth cannot run on ${this.dialect(source).label} yet: the user model (table ${USERS_TABLE}) is routed to ` +
-          `the source "${source.name}". Keep the user model on PostgreSQL or MongoDB (database.models), or switch Better-Auth off.`,
-      );
-    }
     // Opening the store brings `users` up to date first: Better-Auth only adds its columns to the table the user model
-    // defines, never the other way round
+    // defines, never the other way round — and on MySQL / MariaDB that run also grants the application account its
+    // rights on the database, which then cover Better-Auth's tables
     const users = await this.resolveStore(registration.name, undefined);
     const app = await this.executor(source);
     return {
       applySchema: (migrate, tables) => this.applyForeignSchema(source, app, migrate, tables),
-      pool: app.driverPool,
+      driver: source.driver as IamSqlStorage['driver'],
+      pool: this.dialect(source).foreignPool(app),
+      query: queryOn(app),
       source: source.name,
       users,
     };
@@ -270,11 +265,12 @@ export class DataSourceRuntime implements PersistenceRuntime {
   private async applyForeignSchema(
     source: ResolvedDataSource,
     app: SqlExecutor,
-    migrate: (pool: unknown, asOwner: boolean) => Promise<void>,
+    migrate: Parameters<IamSqlStorage['applySchema']>[0],
     tables: string[],
   ): Promise<void> {
+    const dialect = this.dialect(source);
     if (!source.ownerUrl) {
-      await migrate(app.driverPool, false);
+      await migrate(dialect.foreignPool(app), false, queryOn(app));
     } else {
       const connect = (maxConnections: number) =>
         createSqlExecutor({
@@ -284,20 +280,15 @@ export class DataSourceRuntime implements PersistenceRuntime {
           url: source.ownerUrl,
         });
       const [lock, migrator] = await Promise.all([connect(1), connect(2)]);
-      const appRole = decodeURIComponent(new URL(source.url).username);
       try {
-        await lock.transaction(async (tx) => {
-          await tx.run({ params: [], text: SCHEMA_LOCK_SQL }, SYSTEM);
-          await migrate(migrator.driverPool, true);
-          for (const table of tables) {
-            await tx.run({ params: [], text: grantStatement(table, appRole) }, SYSTEM);
-          }
-        });
+        await dialect.withForeignSchemaLock(lock, tables, () =>
+          migrate(dialect.foreignPool(migrator), true, queryOn(migrator)),
+        );
       } finally {
         await Promise.all([lock.close(), migrator.close()]);
       }
     }
-    await assertSafeApplicationRole(app, tables);
+    await dialect.assertSafeApplication(app, tables);
   }
 
   private dialect(source: ResolvedDataSource): SqlDialect {
@@ -345,6 +336,11 @@ export class DataSourceRuntime implements PersistenceRuntime {
 const USERS_TABLE = 'users';
 
 const SYSTEM = { kind: 'system' } as const;
+
+/** One statement on an executor as system work, `$1`-numbered parameters, its rows back */
+function queryOn(executor: SqlExecutor): IamSqlStorage['query'] {
+  return async (text, params = []) => ({ rows: (await executor.run({ params, text }, SYSTEM)).rows });
+}
 
 async function closeExecutor(pending: Promise<SqlExecutor>): Promise<void> {
   await (await pending.catch(() => undefined))?.close();

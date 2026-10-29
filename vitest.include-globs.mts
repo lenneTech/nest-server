@@ -117,3 +117,10 @@ export const IAM_SQL_TEST_INCLUDE = [
 
 /** The SQL engines the IAM suites run on besides the `postgres` project's default engine (plan §3.10) */
 export const IAM_SQL_ENGINES = ['kysely', 'drizzle'] as const;
+
+/**
+ * The servers the IAM suites run on besides PostgreSQL (DEV-3904): projects `iam-mysql` and `iam-mariadb`, MySQL 8.4 /
+ * MariaDB 11.8 as the default data source with the default engine. Better-Auth runs its own Kysely adapter on the
+ * source's `mysql2` pool, whichever engine the framework's stores use.
+ */
+export const IAM_MYSQL_VARIANTS = ['mysql', 'mariadb'] as const;
