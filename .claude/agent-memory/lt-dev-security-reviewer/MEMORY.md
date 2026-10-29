@@ -43,6 +43,7 @@
 - [project-cron-bullmq-scheduler-restore-facts.md](project-cron-bullmq-scheduler-restore-facts.md) — DEV-3889 restore + DEV-3896 running lease traced sound (Lua KEYS/ARGV, owner-checked, Hub name via registry)
 - [project-redis-channel-registry-resubscribe-facts.md](project-redis-channel-registry-resubscribe-facts.md) — DEV-3894 channel refcount + ready re-subscribe sound; ioredis 6 nextTick ready order; TCP-proxy probe
 - [project-synchronized-up-lock-and-hub-cursor-facts.md](project-synchronized-up-lock-and-hub-cursor-facts.md) — DEV-3897: synchronizedUp precheck vs withMigrationLock ('' / lock:false run unlocked by design); not HTTP-reachable
+- [project-offline-sync-spec-dev3898-facts.md](project-offline-sync-spec-dev3898-facts.md) — DEV-3898 sync spec: route @Roles not carried to /sync, create-repeat oracle, ObjectId squatting; re-check in phase 4
 
 ## Review Methodology
 
