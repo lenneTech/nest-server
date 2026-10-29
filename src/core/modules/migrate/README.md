@@ -126,16 +126,19 @@ const migrationOptions = {
   migrationsDirectory: './migrations',
 };
 
-// Custom migration logic
+// Run all pending migrations: a MigrationRunner under the lock
+await synchronizedUp(migrationOptions);
+
+// Or custom logic under the same lock. `migrationSet` is the loaded state (`lastRun`, `migrations`), not something
+// that runs migrations
 await synchronizedMigration(migrationOptions, async (migrationSet) => {
   // Only one instance at a time will execute this code
-  console.log('Running migrations...');
-  await promisify(migrationSet.up).call(migrationSet);
+  console.log(`${migrationSet.migrations.length} migration(s) recorded`);
 });
-
-// Or use the convenience function to run all pending migrations
-await synchronizedUp(migrationOptions);
 ```
+
+`synchronizedUp()` threw on every call until 12.1.0 (it called `up` on the loaded state, which has none). Since 12.1.1
+it runs the `MigrationRunner` — the same runner as `migrate up` — under the lock.
 
 ### SQL migrations (PostgreSQL data sources)
 
@@ -257,10 +260,16 @@ async function synchronizedMigration(
 
 #### synchronizedUp
 
-Convenience function that executes all pending migrations in a synchronized manner.
+Executes all pending migrations in a synchronized manner: a `MigrationRunner` under the state store's lock. Refuses a
+`MongoStateStore` without `lockCollectionName` instead of running unsynchronized.
 
 ```typescript
-async function synchronizedUp(opts: MigrationOptions): Promise<void>;
+interface SynchronizedUpOptions extends MigrationOptions {
+  migrationsDirectory?: string; // default: `migrations` in the working directory, as for the `migrate` CLI
+  pattern?: RegExp; // default: `*.ts` and `*.js`, never `*.d.ts`
+}
+
+async function synchronizedUp(opts: SynchronizedUpOptions): Promise<void>;
 ```
 
 ## How It Works
@@ -589,9 +598,8 @@ are **not** re-run after the switch, and no state rewrite is needed. If both `fo
 `foo.js` are present in the migrations directory (e.g. an overlapping `outDir`), they count
 as ONE migration: only the `.js` file is loaded and executed, and a warning is emitted.
 
-Note: identity normalization applies to the `MigrationRunner`/CLI path only. The legacy
-`synchronizedUp()` helper drives the external `migrate` package's own state handling and
-keeps raw-filename identity.
+Identity normalization applies to every path that runs migrations: the `MigrationRunner`, the CLI and, since 12.1.1,
+`synchronizedUp()`, which runs the `MigrationRunner`.
 
 ### Missing migration files & strict mode
 

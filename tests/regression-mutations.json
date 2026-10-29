@@ -4843,6 +4843,50 @@
         "tests/unit/mysql-foreign-schema-lock.spec.ts"
       ],
       "driverSpecific": false
+    },
+    {
+      "id": "upload-name-from-math-random",
+      "defect": "DEV-3897 — multerRandomFileName() built upload names from Math.random(): not a cryptographic source, unevenly distributed and 32 to 64 characters long. Where the upload directory is served, the names of other users' files could be predicted.",
+      "file": "src/core/common/helpers/file.helper.ts",
+      "find": "    const randomName = randomBytes(Math.ceil(numberOfDigits / 2))\n      .toString('hex')\n      .slice(0, numberOfDigits);",
+      "replace": "    const randomName = Array(numberOfDigits)\n      .fill(null)\n      .map(() => Math.round(Math.random() * 16).toString(16))\n      .join('');",
+      "specs": [
+        "tests/unit/file.helper.spec.ts"
+      ],
+      "driverSpecific": false
+    },
+    {
+      "id": "hub-cursor-local-fallback",
+      "defect": "DEV-3897 — a failed shared Hub buffer read fell back to the local buffer, whose cursor counts per replica: the client's next successful poll repeated or skipped entries.",
+      "file": "src/core/modules/hub/hub-buffer.ts",
+      "find": "      return (await this.readShared(since, limit)) ?? { cursor: since ?? -1, dropped: -1, entries: [] };\n    }\n",
+      "replace": "      const shared = await this.readShared(since, limit);\n      if (shared) {\n        return shared;\n      }\n    }\n",
+      "specs": [
+        "tests/unit/hub-buffer.spec.ts"
+      ],
+      "driverSpecific": false
+    },
+    {
+      "id": "redis-release-channel-ignores-holders",
+      "defect": "DEV-3897 — two CoreRedisPubSub instances share the subscriber connection; when one dropped its last handler for a trigger it unsubscribed the channel, and the other's subscriptions to the same trigger received nothing from then on.",
+      "file": "src/core/common/services/core-redis.service.ts",
+      "find": "    const holders = (this.subscribedChannels.get(channel) ?? 0) - 1;",
+      "replace": "    const holders = 0;",
+      "specs": [
+        "tests/unit/core-redis.service.spec.ts"
+      ],
+      "driverSpecific": false
+    },
+    {
+      "id": "synchronized-up-calls-up-on-state",
+      "defect": "DEV-3897 — synchronizedUp() called `up` on the loaded migration state, which has none, so it threw on every call although the README and the module's JSDoc recommended it for clustered environments.",
+      "file": "src/core/modules/migrate/migration-runner.ts",
+      "find": "  await new MigrationRunner({\n    migrationsDirectory: opts.migrationsDirectory ?? path.resolve(process.cwd(), 'migrations'),\n    pattern: opts.pattern,\n    stateStore: opts.stateStore,\n  }).up();",
+      "replace": "  await withMigrationLock(opts.stateStore, async () => {\n    const loadedSet: any = await opts.stateStore.loadAsync();\n    await new Promise((resolve, reject) => loadedSet.up((err?: Error) => (err ? reject(err) : resolve(undefined))));\n  });",
+      "specs": [
+        "tests/migrate/mongo-state-store.e2e-spec.ts"
+      ],
+      "driverSpecific": false
     }
   ]
 }

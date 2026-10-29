@@ -21,6 +21,7 @@
  *
  * // Using synchronized migration for clustered environments
  * await synchronizedUp({
+ *   migrationsDirectory: './migrations',
  *   stateStore: new MongoStateStore({
  *     uri: 'mongodb://localhost/mydb',
  *     lockCollectionName: 'migration_lock'

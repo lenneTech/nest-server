@@ -237,16 +237,38 @@ describe('HubBuffer', () => {
       expect(data.entries.map(e => e.seq)).toEqual(Array.from({ length: 200 }, (_, i) => i + 1));
     });
 
-    it('falls back to the local buffer when Redis reads fail', async () => {
+    /**
+     * @regression   DEV-3897 — a failed shared read fell back to the LOCAL buffer, whose cursor counts on this
+     *   replica's own scale. A client holding the shared cursor received the local one, and its next poll after the
+     *   outage got every entry since then again (or, the other way round, skipped entries).
+     * @seen-failing Restore the local fallback in HubBuffer.read() in src/core/modules/hub/hub-buffer.ts — registered
+     *   as mutation `hub-cursor-local-fallback` in tests/regression-mutations.json.
+     */
+    it('keeps the client cursor on a failed shared read, so the next poll neither repeats nor skips', async () => {
       const { redis } = makeRedis();
-      const buffer = new HubBuffer<TestEntry>(10, 'logs', redis);
-      buffer.add({ message: 'a' });
+      const working = redis.getClient;
+      const replicaA = new HubBuffer<TestEntry>(10, 'logs', redis);
+      const replicaB = new HubBuffer<TestEntry>(10, 'logs', redis);
+      replicaA.add({ message: 'a1' });
+      replicaB.add({ message: 'b1' });
+      replicaB.add({ message: 'b2' });
+      replicaB.add({ message: 'b3' });
       await settle();
+      const { cursor } = await replicaA.read();
+      expect(cursor).toBe(3);
+
       redis.getClient = () => {
         throw new Error('connection lost');
       };
+      const duringOutage = await replicaA.read(cursor);
+      expect(duringOutage).toEqual({ cursor: 3, dropped: -1, entries: [] });
+      // A first load during the outage has no cursor to keep: the next poll then reads the whole window
+      expect(await replicaA.read()).toEqual({ cursor: -1, dropped: -1, entries: [] });
 
-      expect((await buffer.read()).entries.map((e) => e.message)).toEqual(['a']);
+      redis.getClient = working;
+      replicaB.add({ message: 'b4' });
+      await settle();
+      expect((await replicaA.read(duringOutage.cursor)).entries.map((e) => e.message)).toEqual(['b4']);
     });
   });
 });

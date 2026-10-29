@@ -1,6 +1,12 @@
-import { describe, expect, it } from 'vitest';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 
-import { IMAGE_UPLOAD_ALLOW_LIST, multerFileFilter, multerOptionsForImageUpload, UploadAllowList } from '../../src/core/common/helpers/file.helper';
+import {
+  IMAGE_UPLOAD_ALLOW_LIST,
+  multerFileFilter,
+  multerOptionsForImageUpload,
+  multerRandomFileName,
+  UploadAllowList,
+} from '../../src/core/common/helpers/file.helper';
 
 /**
  * The filter used to be ONE unanchored `RegExp`, `.test()`ed against the
@@ -141,5 +147,43 @@ describe('multerOptionsForImageUpload', () => {
   it('honours an explicit allowList', () => {
     const filter = multerOptionsForImageUpload({ allowList: DOCUMENTS }).fileFilter!;
     expect(verdict(filter as any, 'application/pdf', 'report.pdf').accepted).toBe(true);
+  });
+});
+
+describe('multerRandomFileName', () => {
+  afterEach(() => {
+    vi.restoreAllMocks();
+  });
+
+  /** Run the name function the way multer's disk storage does and return the name */
+  function generate(numberOfDigits?: number): string {
+    let name = '';
+    multerRandomFileName(numberOfDigits)({}, { originalname: 'photo.png' }, (_err: unknown, value: string) => {
+      name = value;
+    });
+    return name;
+  }
+
+  /**
+   * @regression   DEV-3897 — the name came from `Math.random()`: not a cryptographic source, unevenly distributed
+   *   (`Math.round(x * 16)` yields 0 and 16 half as often as the rest, and 16 is the two characters "10"), 32 to 64
+   *   characters long. Where the upload directory is served, the names of other users' files could be predicted.
+   * @seen-failing Restore the `Math.random()` digits in multerRandomFileName() in src/core/common/helpers/file.helper.ts
+   *   — registered as mutation `upload-name-from-math-random` in tests/regression-mutations.json.
+   */
+  it('takes the name from a cryptographic source, not from Math.random()', () => {
+    vi.spyOn(Math, 'random').mockReturnValue(0.99);
+
+    const first = generate();
+    const second = generate();
+
+    expect(first).toMatch(/^[0-9a-f]{32}\.png$/);
+    expect(second).toMatch(/^[0-9a-f]{32}\.png$/);
+    expect(first).not.toBe(second);
+  });
+
+  it('honours the number of digits, odd numbers included', () => {
+    expect(generate(8)).toMatch(/^[0-9a-f]{8}\.png$/);
+    expect(generate(7)).toMatch(/^[0-9a-f]{7}\.png$/);
   });
 });
