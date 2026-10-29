@@ -133,9 +133,11 @@ export class CoreRedisService implements OnApplicationShutdown, OnModuleInit {
   /**
    * Ask Redis once at boot and say so when it does not answer.
    *
-   * The boot continues either way: every Redis consumer has a documented fallback, and failing the boot would take
-   * the whole fleet down with Redis. But without this line an outage at boot showed up only as each user's own
-   * timeout. Bounded, so an unreachable Redis delays the boot by at most a few seconds.
+   * The boot continues either way: failing it would take the whole fleet down with Redis, and most consumers degrade
+   * (rate limits, cron leases, the MCP session registry and the tenant broadcast fall back to process-local behaviour).
+   * GraphQL subscriptions and TUS upload locks have no fallback and fail until Redis answers — which is why the outage
+   * deserves a line here; before, it showed up only as each user's own timeout. Bounded, so an unreachable Redis
+   * delays the boot by at most a few seconds.
    */
   protected async checkReachableAtBoot(timeoutMs = 3000): Promise<void> {
     const client = this.sharedClient;
@@ -157,8 +159,9 @@ export class CoreRedisService implements OnApplicationShutdown, OnModuleInit {
     } catch (error) {
       this.logger.warn(
         `Redis is configured but not reachable at boot (${error instanceof Error ? error.message : String(error)}). ` +
-          'The application starts anyway; Redis consumers use their fallbacks until the connection is up, and ' +
-          'subscriptions are established once it is.',
+          'The application starts anyway. Rate limits, cron leases and the tenant broadcast fall back to ' +
+          'process-local behaviour; GraphQL subscriptions and resumable uploads (TUS) fail until Redis answers. ' +
+          'Subscriptions are established once it does.',
       );
     } finally {
       clearTimeout(timer);
