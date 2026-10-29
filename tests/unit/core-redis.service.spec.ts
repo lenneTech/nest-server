@@ -14,13 +14,18 @@ const redisMock = vi.hoisted(() => ({
   /** Every constructor argument list, in call order. */
   constructorArgs: [] as unknown[][],
   instances: [] as any[],
+  ping: vi.fn().mockResolvedValue('PONG'),
   quit: vi.fn().mockResolvedValue('OK'),
 }));
 
 vi.mock('ioredis', () => {
   class FakeRedis {
     handlers = new Map<string, (...args: unknown[]) => void>();
+    ping = redisMock.ping;
     quit = redisMock.quit;
+    status = 'ready';
+    subscribe = vi.fn().mockResolvedValue(1);
+    unsubscribe = vi.fn().mockResolvedValue(0);
     constructor(...args: unknown[]) {
       redisMock.constructorArgs.push(args);
       redisMock.instances.push(this);
@@ -66,6 +71,7 @@ describe('CoreRedisService', () => {
     redisMock.constructorArgs.length = 0;
     redisMock.instances.length = 0;
     redisMock.quit.mockClear();
+    redisMock.ping.mockReset().mockResolvedValue('PONG');
   });
 
   afterEach(() => {
@@ -183,6 +189,83 @@ describe('CoreRedisService', () => {
       service.createClient('extra');
       await service.onApplicationShutdown();
       expect(redisMock.quit).toHaveBeenCalledTimes(3);
+    });
+  });
+
+  describe('readiness', () => {
+    it('isReady() follows the shared connection and is false without redis', async () => {
+      expect(createService(undefined).isReady()).toBe(false);
+
+      const service = createService(true);
+      await service.onModuleInit();
+      expect(service.isReady()).toBe(true);
+      redisMock.instances[0].status = 'reconnecting';
+      expect(service.isReady()).toBe(false);
+    });
+
+    it('warns at boot when Redis does not answer, and boots anyway', async () => {
+      const warn = vi.spyOn(Logger.prototype, 'warn').mockImplementation(() => undefined);
+      vi.spyOn(Logger.prototype, 'log').mockImplementation(() => undefined);
+      redisMock.ping.mockRejectedValueOnce(new Error('connect ECONNREFUSED'));
+      const service = createService(true);
+      await service.onModuleInit();
+
+      expect(warn).toHaveBeenCalledWith(expect.stringContaining('not reachable'));
+      expect(() => service.getClient()).not.toThrow();
+    });
+  });
+
+  describe('channel subscriptions on the shared subscriber', () => {
+    /**
+     * @regression   12.1.1 (DEV-3894) — a SUBSCRIBE that failed while Redis was down was never repeated, and ioredis
+     *   re-subscribes on reconnect only what once succeeded: the tenant invalidation of a replica that booted during an
+     *   outage stayed deaf for the replica's whole life.
+     * @seen-failing Drop the 'ready' listener from getSubscriber() in src/core/common/services/core-redis.service.ts —
+     *   registered as mutation `redis-ready-resubscribe-missing` in tests/regression-mutations.json.
+     */
+    it('subscribes every registered channel again when the subscriber connection is ready again', async () => {
+      const service = createService(true);
+      await service.onModuleInit();
+      await service.subscribeChannel('chan-a');
+      await service.subscribeChannel('chan-b');
+      const subscriber = service.getSubscriber() as any;
+      subscriber.subscribe.mockClear();
+
+      subscriber.handlers.get('ready')();
+      await Promise.resolve();
+
+      expect(subscriber.subscribe).toHaveBeenCalledWith('chan-a', 'chan-b');
+    });
+
+    it('keeps a registered channel when its subscribe failed, so the next ready subscribes it', async () => {
+      const service = createService(true);
+      await service.onModuleInit();
+      const subscriber = service.getSubscriber() as any;
+      subscriber.subscribe.mockRejectedValueOnce(new Error('Command timed out'));
+
+      await expect(service.subscribeChannel('chan-a')).rejects.toThrow('Command timed out');
+      subscriber.handlers.get('ready')();
+      await Promise.resolve();
+
+      expect(subscriber.subscribe).toHaveBeenLastCalledWith('chan-a');
+    });
+
+    it('unsubscribes only when the last holder of a channel releases it', async () => {
+      const service = createService(true);
+      await service.onModuleInit();
+      const subscriber = service.getSubscriber() as any;
+      await service.subscribeChannel('chan-a');
+      await service.subscribeChannel('chan-a');
+
+      await service.releaseChannel('chan-a');
+      expect(subscriber.unsubscribe).not.toHaveBeenCalled();
+      await service.releaseChannel('chan-a');
+      expect(subscriber.unsubscribe).toHaveBeenCalledWith('chan-a');
+
+      subscriber.subscribe.mockClear();
+      subscriber.handlers.get('ready')();
+      await Promise.resolve();
+      expect(subscriber.subscribe).not.toHaveBeenCalled();
     });
   });
 

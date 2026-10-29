@@ -44,6 +44,12 @@ export class CoreRedisService implements OnApplicationShutdown, OnModuleInit {
   /** Dedicated subscriber connection (a subscribing client cannot run commands) */
   protected subscriberClient?: Redis;
 
+  /**
+   * Channels the shared subscriber must stay subscribed to, with the number of holders of each. Kept so every `ready`
+   * of the subscriber connection can subscribe them again — see subscribeChannel().
+   */
+  protected readonly subscribedChannels = new Map<string, number>();
+
   constructor(protected readonly configService: ConfigService) {
     const raw = this.configService.getFastButReadOnly<boolean | IRedisConfig | undefined>('redis');
     if (raw === undefined || raw === null || raw === false) {
@@ -75,6 +81,14 @@ export class CoreRedisService implements OnApplicationShutdown, OnModuleInit {
    */
   get enabled(): boolean {
     return !!this.config;
+  }
+
+  /**
+   * Whether the shared connection is up right now. `enabled` only says Redis is configured; a consumer that wants to
+   * know whether a command can succeed asks this. `false` without Redis.
+   */
+  isReady(): boolean {
+    return this.sharedClient?.status === 'ready';
   }
 
   /**
@@ -113,6 +127,45 @@ export class CoreRedisService implements OnApplicationShutdown, OnModuleInit {
     }
     this.sharedClient = this.newConnection('shared');
     this.logActivationSummary();
+    await this.checkReachableAtBoot();
+  }
+
+  /**
+   * Ask Redis once at boot and say so when it does not answer.
+   *
+   * The boot continues either way: failing it would take the whole fleet down with Redis, and most consumers degrade
+   * (rate limits, cron leases, the MCP session registry and the tenant broadcast fall back to process-local behaviour).
+   * GraphQL subscriptions and TUS upload locks have no fallback and fail until Redis answers — which is why the outage
+   * deserves a line here; before, it showed up only as each user's own timeout. Bounded, so an unreachable Redis
+   * delays the boot by at most a few seconds.
+   */
+  protected async checkReachableAtBoot(timeoutMs = 3000): Promise<void> {
+    const client = this.sharedClient;
+    if (!client) {
+      return;
+    }
+    const ping = client.ping();
+    // The ping may settle after the timeout; its rejection must not surface as unhandled.
+    ping.catch(() => undefined);
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    try {
+      await Promise.race([
+        ping,
+        new Promise((_resolve, reject) => {
+          timer = setTimeout(() => reject(new Error(`no answer within ${timeoutMs} ms`)), timeoutMs);
+          timer.unref?.();
+        }),
+      ]);
+    } catch (error) {
+      this.logger.warn(
+        `Redis is configured but not reachable at boot (${error instanceof Error ? error.message : String(error)}). ` +
+          'The application starts anyway. Rate limits, cron leases and the tenant broadcast fall back to ' +
+          'process-local behaviour; GraphQL subscriptions and resumable uploads (TUS) fail until Redis answers. ' +
+          'Subscriptions are established once it does.',
+      );
+    } finally {
+      clearTimeout(timer);
+    }
   }
 
   /**
@@ -183,9 +236,54 @@ export class CoreRedisService implements OnApplicationShutdown, OnModuleInit {
     this.getClient();
     if (!this.subscriberClient) {
       this.subscriberClient = this.newConnection('subscriber');
+      // ioredis re-subscribes on reconnect only the channels whose SUBSCRIBE succeeded. One that failed while Redis was
+      // down (at boot, typically) is lost for good, so every `ready` subscribes the registered channels again.
+      this.subscriberClient.on?.('ready', this.onSubscriberReady);
     }
     return this.subscriberClient;
   }
+
+  /**
+   * Subscribe the shared subscriber connection to `channel` and keep it subscribed.
+   *
+   * The channel stays registered until releaseChannel() and is subscribed again on every `ready` of the subscriber
+   * connection (Redis SUBSCRIBE is idempotent). Rejects when Redis does not answer; the channel stays registered then,
+   * so the next `ready` subscribes it. Several holders of one channel are counted.
+   */
+  async subscribeChannel(channel: string): Promise<void> {
+    const subscriber = this.getSubscriber();
+    this.subscribedChannels.set(channel, (this.subscribedChannels.get(channel) ?? 0) + 1);
+    await subscriber.subscribe(channel);
+  }
+
+  /**
+   * Release one hold on `channel`; the last holder unsubscribes it
+   */
+  async releaseChannel(channel: string): Promise<void> {
+    const holders = (this.subscribedChannels.get(channel) ?? 0) - 1;
+    if (holders > 0) {
+      this.subscribedChannels.set(channel, holders);
+      return;
+    }
+    this.subscribedChannels.delete(channel);
+    await this.subscriberClient?.unsubscribe(channel);
+  }
+
+  /**
+   * Subscribe every registered channel again. An arrow function, so it keeps `this` as an event listener; `void` is
+   * safe because the failure is caught here.
+   */
+  protected readonly onSubscriberReady = (): void => {
+    const channels = [...this.subscribedChannels.keys()];
+    if (!channels.length || !this.subscriberClient) {
+      return;
+    }
+    void this.subscriberClient.subscribe(...channels).catch((error: unknown) => {
+      this.logger.warn(
+        `Re-subscribing ${channels.length} Redis channel(s) failed: ${error instanceof Error ? error.message : String(error)}`,
+      );
+    });
+  };
 
   /**
    * Create a NEW dedicated connection (e.g. for BullMQ, blocking commands).
@@ -215,6 +313,7 @@ export class CoreRedisService implements OnApplicationShutdown, OnModuleInit {
     this.clients = [];
     this.sharedClient = undefined;
     this.subscriberClient = undefined;
+    this.subscribedChannels.clear();
   }
 
   /**

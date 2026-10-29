@@ -32,3 +32,4 @@
 - [db-agnostic phase 5 (DEV-3833)](project_db-agnostic-phase5.md) — postgres e2e keeps mongoose connected: null-connection path untested; 2 Highs (DeclaredSchema.path, AI store lookup), both FIXED 2026-10-28 (computedDefault, getModelStore).
 - [db-agnostic phase 6 (DEV-3848)](project_db-agnostic-phase6.md) — MySQL: pushToArray with 2+ modifiers fails (1054); unique on existing column → unrunnable migration (High).
 - [Cron BullMQ scheduler restore (12.1.1)](project_cron-bullmq-restore.md) — BullMQ 6.5 semantics verified; High: old replica resurrects a scheduler removeStale removed (rolling deploy).
+- [Redis channel registry (DEV-3894)](project_redis-channel-registry.md) — boot ping/isReady/refcount re-subscribe probed sound on ioredis 6; isReady is shared client only; probe recipe.

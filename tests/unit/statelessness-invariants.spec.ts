@@ -247,6 +247,15 @@ const INVENTORY: StateEntry[] = [
     name: 'subscriptions',
   },
   {
+    because:
+      'The channels THIS process subscribes on its own subscriber connection, counted per holder, so every `ready` '
+      + 'of that connection can subscribe them again. A subscription belongs to a connection, so it is local by '
+      + 'definition; what crosses replicas is the published message.',
+    classification: 'local',
+    file: 'common/services/core-redis.service.ts',
+    name: 'subscribedChannels',
+  },
+  {
     because: 'Per-channel handler set; see `handlers` above.',
     classification: 'local',
     file: 'common/services/core-redis-pubsub.ts',

@@ -41,3 +41,4 @@
 - [NSC__ env replaces shorthand values](nsc-env-merge-replaces-shorthand.md) — NSC__A__B over `a: 'string'`/`a: false` wipes the value to { b }; check docs pairing both
 - [Vendor type imports need the package](vendor-type-imports-need-the-package.md) — `import type` AND literal `import('x')` of an optional peer break a vendor tsc; every SQL driver/engine needed; probe recipe
 - [bullmq peer-range API drift](bullmq-peer-range-api-drift.md) — peer >=5.16.0: getJobScheduler absent <5.23, truthy-for-missing to 5.40.2; check new calls against the floor
+- [Redis outage fallback claims](redis-outage-fallback-claims.md) — configured-but-down Redis: TUS locker + CoreRedisPubSub have NO fallback; "every consumer falls back" is false

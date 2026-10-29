@@ -32,6 +32,7 @@
 - [Path regex + ESM switch costs](path-regex-and-esm-switch-costs.md) — `/\/+$/` on req path O(n²) ~120-150 ms @16 KB URL (URL counts toward maxHeaderSize; FIXED: normalizeIamRoutePath); callerDirectory ~6 us.
 - [Better-Auth JWT verify costs](better-auth-jwt-verify-costs.md) — measured: Bearer verify ~133 us (importJWK uncached + DB jwks lookup); instance.options is a plain data prop (~2 ns).
 - [Cron BullMQ scheduler check costs](cron-bullmq-scheduler-check-costs.md) — measured: 50-job check 10.6 ms / ~1.6 ms Redis CPU; outage commands settle <=10 s; shutdown waits one command.
+- [Redis boot ping + resubscribe costs](redis-boot-ping-and-resubscribe-costs.md) — measured: ping +10-25 ms up / 2 s down; leftover ping makes outage shutdown 2 s+2 s (same as develop after any command); 2 SUBSCRIBE per reconnect, fine.
 
 ## Test Pipeline
 - [e2e low-resource CI trigger](e2e-low-resource-ci-trigger.md) — load signal fires on EVERY CI build (own unit step); A/B measured the 2-worker cap at +25 % e2e time, so it is skipped on github-hosted runners (not on GitLab).

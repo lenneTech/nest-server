@@ -27,3 +27,4 @@
 - [Vitest Projects Global-Setup Order](vitest-projects-global-setup-order.md) — vitest 5: project globalSetup runs BEFORE root (once); a throwing project setup aborts the whole run before root starts containers.
 - [check-overrides Guard Test Facts](check-overrides-guard-test-facts.md) — registry lookup for unnamed fixes: offline seams, CI-pinning trap for old no-fix fixtures, legacy rate-limit key facts.
 - [Cron BullMQ Restore Test Facts](cron-bullmq-restore-test-facts.md) — DEV-3889: 4 mutations red for the right reason; e2e "2 red" = e2e+postgres projects; restore-vs-reconcile below bar.
+- [Redis Resubscribe Test Facts](redis-resubscribe-test-facts.md) — ioredis offline-queue flush vs commandTimeout decides vacuity of "Redis down at boot" tests; DEV-3894 mutations measured; exit spec accepts a commented line.
