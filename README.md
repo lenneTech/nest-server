@@ -1,10 +1,10 @@
 # lenne.Tech Nest Server
 
-An enterprise-grade extension layer on top of [NestJS](https://nestjs.com/) for building secure, scalable server applications with **GraphQL**, **REST/Swagger**, and **MongoDB**.
+An enterprise-grade extension layer on top of [NestJS](https://nestjs.com/) for building secure, scalable server applications with **GraphQL**, **REST/Swagger** and **MongoDB, PostgreSQL, MySQL or MariaDB**.
 
 [![License](https://img.shields.io/github/license/lenneTech/nest-server)](/LICENSE)
 [![npm version](https://img.shields.io/npm/v/@lenne.tech/nest-server)](https://www.npmjs.com/package/@lenne.tech/nest-server)
-[![Node.js](https://img.shields.io/badge/node-%3E%3D%2020-brightgreen)](https://nodejs.org/)
+[![Node.js](https://img.shields.io/badge/node-%3E%3D%2022.15-brightgreen)](https://nodejs.org/)
 
 ## Table of Contents
 
@@ -16,6 +16,9 @@ An enterprise-grade extension layer on top of [NestJS](https://nestjs.com/) for 
 - [Roles & Permissions](#roles--permissions)
 - [Multi-Tenancy](#multi-tenancy)
 - [Databases](#databases)
+- [API Tokens](#api-tokens)
+- [AI Assistant & MCP](#ai-assistant--mcp)
+- [Operator Hub](#operator-hub)
 - [Scalability](#scalability)
 - [API Versioning](#api-versioning)
 - [Webhook Support](#webhook-support)
@@ -56,16 +59,18 @@ This generates a complete module with model, inputs, resolver, controller, and s
 | Category | Features |
 |----------|----------|
 | **API-First** | GraphQL (Apollo Server) + REST with Swagger/OpenAPI, dual API surface from single codebase |
-| **Authentication** | BetterAuth (IAM) with JWT, sessions, 2FA/TOTP, Passkey/WebAuthn, social login; Legacy JWT auth |
-| **Authorization** | Extensible role-based access control, field-level restrictions, system roles, hierarchy roles |
-| **Database** | MongoDB (Mongoose), PostgreSQL, MySQL or MariaDB (TypeORM, Kysely or Drizzle) — per project or per model — behind one CrudService and security pipeline; tenant isolation enforced by row-level security on PostgreSQL; advanced filtering & pagination |
-| **Multi-Tenancy** | Header-based tenant isolation, membership management, hierarchy roles, auto-filtering |
-| **File Handling** | GridFS, S3 or filesystem storage, resumable uploads via TUS protocol (up to 50 GB) |
-| **Security** | Defense-in-depth: input validation, password hashing, role guard, audit fields, response filtering |
+| **Authentication** | BetterAuth (IAM) with JWT, sessions, 2FA/TOTP, Passkey/WebAuthn, social login; Legacy JWT auth (opt-in); scoped API tokens for users and tenants |
+| **Authorization** | Extensible role-based access control, field-level restrictions (also on nested types), system roles, hierarchy roles; every entry point checked, not just the route |
+| **Database** | MongoDB (Mongoose), PostgreSQL, MySQL or MariaDB (TypeORM, Kysely or Drizzle) — per project or per model — behind one CrudService and security pipeline; tenant isolation enforced by row-level security on PostgreSQL; schema evolution and SQL migrations by the framework; advanced filtering & pagination |
+| **Multi-Tenancy** | Header-based tenant isolation, membership management, hierarchy roles, auto-filtering, a tenant row check after every read, deactivatable tenants |
+| **File Handling** | GridFS, S3 or filesystem storage, presigned downloads, resumable uploads via TUS protocol (up to 50 GB, S3 staging) |
+| **AI** | AI assistant with tool registry, plan mode, confirmation policy, token budgets, conversations and SSE streaming; MCP server (`/ai/mcp`) with OAuth 2.1 |
+| **Security** | Defense-in-depth: input validation, password hashing, role guard, audit fields, response filtering, security headers, SSRF guard for user-entered URLs, re-checked WebSocket subscriptions |
 | **Integration** | SCIM support, OAuth providers, multi-provider email (Mailjet/Brevo/SMTP), webhook support via lifecycle hooks |
-| **Scalability** | Stateless design, distributed migration locking, request-scoped isolation, query complexity analysis |
+| **Scalability** | Stateless design; optional Redis and S3 for multi-replica deployments (shared rate limits, cron deduplication, GraphQL subscriptions, cache invalidation, file storage); distributed locks; graceful shutdown; query complexity analysis |
 | **API Versioning** | NestJS-native URI/header/media-type versioning, GraphQL schema evolution with deprecations |
-| **DevOps** | Health checks, database migrations, cron jobs, permissions reporting, system setup |
+| **DevOps** | Operator Hub (`/hub`), health checks, database migrations (MongoDB and SQL), cron jobs, permissions reporting, system setup |
+| **Platform** | NestJS 12, ESM package that CommonJS projects load as well; npm or vendor mode (the core copied into the project) |
 
 ## Architecture
 
@@ -105,6 +110,7 @@ Every core module supports both **auto-registration** (zero-config) and **manual
 - [Mongoose](https://mongoosejs.com/) — MongoDB ODM (optional peer since 12.1.0)
 - [PostgreSQL](https://www.postgresql.org/), [MySQL](https://www.mysql.com/) or [MariaDB](https://mariadb.org/) via TypeORM, Kysely or Drizzle — optional, see [Databases](#databases)
 - [Swagger/OpenAPI](https://swagger.io/) — REST API documentation
+- [Redis](https://redis.io/) and S3-compatible storage — optional, for multi-replica deployments (see [Scalability](#scalability))
 
 ## API-First Design
 
@@ -224,7 +230,7 @@ BetterAuth provides **lifecycle hooks** for reacting to authentication events (s
 
 ### Legacy Auth (JWT)
 
-Passport-based JWT authentication with sign-in, sign-up, refresh tokens, and rate limiting. Runs in parallel with BetterAuth during migration. Legacy endpoints can be disabled via `auth.legacyEndpoints.enabled: false`.
+Passport-based JWT authentication with sign-in, sign-up, refresh tokens, and rate limiting. Runs in parallel with BetterAuth during migration. Since 11.38.0 the legacy endpoints are off unless a project opts in with `auth.legacyEndpoints.enabled: true`; disabled endpoints answer 410 Gone.
 
 A built-in **migration status query** (`betterAuthMigrationStatus`) tracks progress and indicates when legacy auth can be safely disabled.
 
@@ -312,8 +318,9 @@ async updateProject(@CurrentTenant() tenantId: string) { ... }
 
 - **Membership validation** — `CoreTenantGuard` validates membership on every request
 - **Hierarchy roles** — Level comparison (higher includes lower), custom via `createHierarchyRoles()`
-- **Automatic data isolation** — Mongoose tenant plugin filters all queries by tenant context
-- **Defense-in-depth** — Guard validation + Mongoose plugin Safety Net combination
+- **Automatic data isolation** — the tenant policy filters all queries by tenant context (Mongoose plugin on MongoDB, the data store and row-level security on PostgreSQL)
+- **Defense-in-depth** — Guard validation, the tenant policy, and a tenant row check that refuses any read result containing another tenant's row
+- **Every transport** — GraphQL subscriptions over WebSocket get the same validated tenant context, and open sockets are re-checked when rights change
 - **Multi-membership** — Users can belong to multiple tenants with different roles
 - **Status management** — ACTIVE, INVITED, SUSPENDED membership states
 - **`@SkipTenantCheck()`** — Opt out per endpoint
@@ -342,16 +349,46 @@ is the store's, and native access to a tenant table must filter by tenant itself
 [docs/choosing-a-database.md](docs/choosing-a-database.md);
 the rules for code: [.claude/rules/persistence.md](.claude/rules/persistence.md).
 
+## API Tokens
+
+Opt-in bearer tokens for integrations and scripts (`apiTokens` configuration):
+
+- **User tokens** act as their user, with global roles removed (no admin bypass through a token)
+- **Tenant tokens** act with the lowest hierarchy role inside their own tenant (requires `multiTenancy`)
+- **Deny by default** — a token is refused on every route that does not release a scope via `@ApiTokenScopes()`, public routes included
+- **Signed short-lived assertions** with encrypted signing keys, a per-token rate limit, and a separate Swagger view with only the routes a token may call
+
+Details: [src/core/modules/api-token/README.md](src/core/modules/api-token/README.md).
+
+## AI Assistant & MCP
+
+An optional AI module (`ai` configuration) for any OpenAI-compatible model endpoint:
+
+- **Tool registry** — the assistant reaches exactly the domain operations a project registers as tools, filtered by the user's roles; tools go through a `CrudService`, so `@Restricted` and `securityCheck()` apply
+- **Plan mode and confirmations** — a full plan is authorized step by step before anything runs; mutating and destructive tools ask for confirmation
+- **Token budgets** per user and per tenant, conversations, audit log, SSE streaming, admin-editable prompt fragments
+- **MCP server** at `/ai/mcp` (Streamable HTTP) with optional OAuth 2.1 (PKCE, dynamic client registration, consent page), so MCP clients use the same tools with the same rights
+
+Integration: [src/core/modules/ai/INTEGRATION-CHECKLIST.md](src/core/modules/ai/INTEGRATION-CHECKLIST.md).
+
+## Operator Hub
+
+A build-free, ADMIN-only operator cockpit at `/hub`, enabled per environment (`hub` configuration): dashboard and
+diagnostics, logs, request traces, query profiler, cron jobs, database and models, migrations, files, configuration,
+routes and permissions, error codes, e-mail preview and mailbox, AI. Mutating actions require a confirmation keyword
+and are written to an audit log. Details: [src/core/modules/hub/README.md](src/core/modules/hub/README.md).
+
 ## Scalability
 
 The architecture is designed for horizontal scalability:
 
-- **Stateless request handling** — No server-side session state required (JWT or BetterAuth sessions in MongoDB)
+- **Stateless request handling** — No server-side session state in the process (JWT, or Better-Auth sessions in the database)
+- **Optional central infrastructure** — with `redis` configured, rate limits hold across replicas, cron jobs run once per tick (BullMQ), GraphQL subscriptions reach every replica and tenant-cache invalidations are broadcast; with `s3` configured, files and resumable uploads live in shared storage. Without the configuration every feature keeps its process-local behaviour
+- **Distributed locks** — migrations, cron leases and the initial admin setup are serialized across instances, on MongoDB or SQL
+- **Graceful shutdown** — `installGracefulShutdown(app)` with `shutdownDelayMs` lets a load balancer deregister the instance before it closes
 - **Request-scoped isolation** — `AsyncLocalStorage`-based `RequestContext` ensures safe concurrent request processing without shared mutable state
-- **Distributed migration locking** — MongoDB-based distributed locks via `synchronizedMigration()` for safe multi-instance deployments
 - **Query complexity analysis** — Configurable complexity limits prevent expensive GraphQL queries from consuming excessive resources
-- **Connection pooling** — Managed transparently via Mongoose/MongoDB driver
-- **Configurable MongoDB** — Support for replica sets and connection options via `mongoose.uri` configuration
+- **Connection pooling** — Managed by the Mongoose/MongoDB driver and by one pool per SQL source
 
 ## External System Integration
 
@@ -387,16 +424,19 @@ The Module Inheritance Pattern ensures any core module can be extended to integr
 
 | Module | Purpose |
 |--------|---------|
-| **Auth** | Legacy JWT authentication with Passport strategies |
-| **BetterAuth** | Modern auth (2FA, Passkey, Social, sessions, lifecycle hooks) |
+| **AI** | AI assistant with tool registry, budgets, conversations and an MCP server with OAuth 2.1 |
+| **ApiToken** | Scoped user and tenant tokens, deny by default |
+| **Auth** | Legacy JWT authentication with Passport strategies (opt-in) |
+| **BetterAuth** | Modern auth (2FA, Passkey, Social, sessions, lifecycle hooks) on MongoDB or PostgreSQL |
 | **User** | User management, profile, roles, verification |
 | **Tenant** | Multi-tenancy with membership and hierarchy roles |
-| **File** | File upload/download with MongoDB GridFS |
+| **File** | File upload/download with GridFS, S3 or filesystem storage |
 | **Tus** | Resumable file uploads via [tus.io](https://tus.io/) protocol (up to 50 GB) |
 | **ErrorCode** | Centralized error codes with unique identifiers |
-| **HealthCheck** | REST (`/health`) and GraphQL health monitoring |
-| **Migrate** | MongoDB migration system with distributed locking for cluster deployments |
-| **Permissions** | Security audit dashboard (HTML, JSON, Markdown reports) |
+| **HealthCheck** | REST (`/health-check`) and GraphQL health monitoring, per database source |
+| **Hub** | ADMIN-only operator cockpit at `/hub` |
+| **Migrate** | Migrations for MongoDB and SQL with distributed locking for cluster deployments |
+| **Permissions** | Security map report: routes, roles and `@Restricted` fields (HTML, JSON, Markdown) |
 | **SystemSetup** | Initial admin creation for fresh deployments |
 
 ### CrudService
@@ -426,11 +466,11 @@ Defense-in-depth security architecture with three layers:
 - `@UnifiedField()` — Single decorator for GraphQL, Swagger, and validation
 - `securityCheck()` — Resource-level security on model instances
 
-**Layer 3: Mongoose Plugins (Safety Net)**
-- Password Plugin — Automatic BCrypt hashing
-- Role Guard Plugin — Prevents unauthorized role escalation at DB level
-- Audit Fields Plugin — Automatic `createdBy`/`updatedBy` tracking
-- Tenant Isolation Plugin — Automatic tenant filtering
+**Layer 3: Data Layer (Safety Net)** — the same policies on every database: as Mongoose plugins on MongoDB, in the data store on SQL
+- Password policy — Automatic password hashing
+- Role guard — Prevents unauthorized role escalation at DB level; system roles can never be stored
+- Audit fields — Automatic `createdBy`/`updatedBy` tracking
+- Tenant isolation — Automatic tenant filtering, plus a tenant row check after every read and row-level security on PostgreSQL
 
 **Interceptor Chain:**
 - ResponseModelInterceptor — Plain objects to CoreModel conversion
@@ -451,7 +491,7 @@ export const config = {
   local: {
     port: 3000,
     graphQl: { driver: 'apollo' },
-    mongoose: { uri: 'mongodb://localhost/my-app' },
+    mongoose: { uri: 'mongodb://localhost/my-app' }, // or: database: 'postgres://…' (see Databases)
     betterAuth: { secret: 'my-secret', jwt: true, twoFactor: true },
     multiTenancy: { roleHierarchy: { member: 1, manager: 2, owner: 3 } },
   },
@@ -473,7 +513,7 @@ Three methods to override configuration:
 
 ## Development
 
-**Requirements:** Node.js >= 20, MongoDB, pnpm
+**Requirements:** Node.js >= 22.15, pnpm 11, MongoDB and Docker for the e2e suite (the Redis, S3, PostgreSQL, MySQL and MariaDB test containers start automatically)
 
 ```bash
 # Install dependencies
@@ -482,11 +522,14 @@ pnpm install
 # Start in development mode
 pnpm run start:dev
 
-# Run tests (Vitest E2E)
+# Run tests (Vitest: unit + e2e, the e2e suite on MongoDB and on PostgreSQL)
 pnpm test
 
 # Run tests with coverage
-pnpm run vitest:cov
+pnpm run test:cov
+
+# Everything a release needs: audit, format, lint, type checks, tests, build, module-format checks
+pnpm run check
 
 # Lint (oxlint) & format (oxfmt)
 pnpm run lint
@@ -512,7 +555,7 @@ docker run -e NSC__MONGOOSE__URI=mongodb://host:27017/mydb -p 3000:3000 api
 docker build --build-arg API_DIR=projects/api -t api .
 ```
 
-The `docker-entrypoint.sh` runs database migrations before starting the server. The migration store reads `NSC__MONGOOSE__URI` for the MongoDB connection.
+The `docker-entrypoint.sh` runs database migrations before starting the server. On MongoDB the migration store reads `NSC__MONGOOSE__URI`; on SQL, `createMigrationStore()` connects with the owner URL and keeps its state in `lt_migrations`.
 
 ### Debugging as package
 
@@ -534,6 +577,10 @@ pnpm run unlink:nest-server   # pnpm unlink @lenne.tech/nest-server && pnpm inst
 ## Documentation
 
 - [Request Lifecycle](docs/REQUEST-LIFECYCLE.md) — Complete request pipeline, security architecture, interceptor chain
+- [Choosing a Database](docs/choosing-a-database.md) — MongoDB, PostgreSQL, MySQL/MariaDB or several, and which SQL engine
+- [Native Driver Security](docs/native-driver-security.md) — What native database access bypasses, and the safe alternatives
+- [process() Performance](docs/process-performance-optimization.md) — The CrudService pipeline on hot paths, subdocument arrays
+- [Framework API](FRAMEWORK-API.md) — Generated reference of interfaces, `CoreModule.forRoot()` and CrudService methods
 - [Security Overrides](docs/security-overrides.md) — **Read this**: pnpm `overrides:` are not inherited from this package, so two known-vulnerable transitive deps need an entry in *your* project
 - [Migration Guides](migration-guides/) — Version upgrade instructions
 - [Starter Project](https://github.com/lenneTech/nest-server-starter) — Reference implementation
