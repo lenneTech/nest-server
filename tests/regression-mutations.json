@@ -4656,6 +4656,50 @@
       "specs": [
         "tests/unit/legacy-auth-rate-limit-guard.spec.ts"
       ]
+    },
+    {
+      "id": "cron-reconnect-does-not-restore",
+      "defect": "12.1.1 (DEV-3889) — the BullMQ job schedulers were written into Redis once, at bootstrap. A Redis or Valkey restart without persistence removed them, and nothing registered them again after the reconnect: no replica ran a cron job until the next deploy, without a log line.",
+      "file": "src/core/common/services/core-cron-jobs.service.ts",
+      "find": "    queueConnection.on?.('ready', this.onBullQueueReady);",
+      "replace": "    void queueConnection;",
+      "specs": [
+        "tests/unit/core-cron-jobs-dedup.spec.ts"
+      ],
+      "driverSpecific": false
+    },
+    {
+      "id": "cron-restore-upserts-existing-schedulers",
+      "defect": "12.1.1 (DEV-3889) — the paired refusal: re-registering a scheduler that still exists is not free. BullMQ's upsert removes the job the scheduler planned last, also one that is due and waits for a free worker slot, and plans from now, so a periodic blind upsert would drop exactly the tick nobody had picked up yet.",
+      "file": "src/core/common/services/core-cron-jobs.service.ts",
+      "find": "            if (await this.bullQueue.getJobScheduler(name)) {",
+      "replace": "            if (false) {",
+      "specs": [
+        "tests/unit/core-cron-jobs-dedup.spec.ts"
+      ],
+      "driverSpecific": false
+    },
+    {
+      "id": "cron-scheduler-check-timer-missing",
+      "defect": "12.1.1 (DEV-3889) — a FLUSHDB or an eviction under maxmemory removes the BullMQ schedulers without closing a connection, so the reconnect never notices; without the periodic check no replica ran a cron job until the next deploy.",
+      "file": "src/core/common/services/core-cron-jobs.service.ts",
+      "find": "    this.bullSchedulerCheckTimer = setInterval(this.onBullQueueReady, this.bullSchedulerCheckIntervalMs);",
+      "replace": "    this.bullSchedulerCheckTimer = setTimeout(() => undefined, 0);",
+      "specs": [
+        "tests/unit/core-cron-jobs-dedup.spec.ts"
+      ],
+      "driverSpecific": false
+    },
+    {
+      "id": "cron-e2e-scheduler-check-missing",
+      "defect": "12.1.1 (DEV-3889) — a FLUSHDB or an eviction under maxmemory removes the BullMQ schedulers without closing a connection, so the reconnect never notices; without the periodic check no replica ran a cron job until the next deploy.",
+      "file": "src/core/common/services/core-cron-jobs.service.ts",
+      "find": "    this.bullSchedulerCheckTimer = setInterval(this.onBullQueueReady, this.bullSchedulerCheckIntervalMs);",
+      "replace": "    this.bullSchedulerCheckTimer = setTimeout(() => undefined, 0);",
+      "specs": [
+        "tests/multi-replica.e2e-spec.ts"
+      ],
+      "driverSpecific": false
     }
   ]
 }

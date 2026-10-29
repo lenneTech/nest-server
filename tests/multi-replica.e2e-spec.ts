@@ -114,6 +114,26 @@ class ReplicaCronJobs extends CoreCronJobs {
   }
 }
 
+/** A cron service in the real BullMQ mode (bullmq is a devDependency), with a short scheduler check */
+class BullCronJobs extends CoreCronJobs {
+  constructor(jobs: Record<string, any>, redisService: CoreRedisService, schedulerCheckIntervalMs: number) {
+    super(
+      { addCronJob: () => undefined, doesExist: () => false, getCronJob: () => ({}) } as unknown as SchedulerRegistry,
+      jobs,
+      { log: false, redisService },
+    );
+    this.bullSchedulerCheckIntervalMs = schedulerCheckIntervalMs;
+  }
+
+  get queue(): any {
+    return this.bullQueue;
+  }
+
+  protected async report() {
+    return undefined;
+  }
+}
+
 /** cronTime that never fires on its own during the test run */
 const NEVER = '0 0 1 1 *';
 
@@ -213,6 +233,46 @@ describe('Multi-replica behavior (real Redis)', () => {
     ]);
 
     await Promise.all([replicaA.onApplicationShutdown(), replicaB.onApplicationShutdown()]);
+  });
+
+  /**
+   * @regression   12.1.1 (DEV-3889) — the BullMQ schedulers were written into Redis once, at bootstrap. When Redis lost
+   *   its data (a restart without persistence, a FLUSHDB, an eviction), nothing wrote them again and no replica ran a
+   *   cron job until the next deploy.
+   * @seen-failing Do not arm the timer in startBullSchedulerCheck() in
+   *   src/core/common/services/core-cron-jobs.service.ts — registered as mutation `cron-e2e-scheduler-check-missing`
+   *   in tests/regression-mutations.json.
+   */
+  it('registers the BullMQ schedulers again after their Redis data is gone', async () => {
+    const scope = 'bull-restore';
+    const redis = createRedisService(scope);
+    services.push(redis);
+    await redis.onModuleInit();
+
+    const replica = new BullCronJobs({ report: { cronTime: NEVER, runOnInit: false } }, redis, 200);
+    await replica.onApplicationBootstrap();
+    try {
+      expect(await replica.queue.getJobScheduler('report')).toBeTruthy();
+
+      // Lose this application's queue data, the way a Redis restart without persistence does. Only its own keys:
+      // other suites share this database, so a FLUSHDB would pull their data away mid-run.
+      const client = redis.getClient();
+      const keys = await scanKeys(client, `${RUN_PREFIX}:${scope}:bull:*`);
+      expect(keys.length).toBeGreaterThan(0);
+      await client.del(...keys);
+      expect(await replica.queue.getJobScheduler('report')).toBeUndefined();
+
+      // Back within one check interval (200 ms here); the deadline leaves room for a loaded machine.
+      const deadline = Date.now() + 5000;
+      let restored = await replica.queue.getJobScheduler('report');
+      while (!restored && Date.now() < deadline) {
+        await new Promise(resolve => setTimeout(resolve, 50));
+        restored = await replica.queue.getJobScheduler('report');
+      }
+      expect(restored?.pattern).toBe(NEVER);
+    } finally {
+      await replica.onApplicationShutdown();
+    }
   });
 
   it('enforces ONE rate limit across replicas instead of one per replica', async () => {
