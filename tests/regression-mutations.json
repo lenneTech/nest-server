@@ -3924,8 +3924,8 @@
       "id": "iam-required-user-column-not-null",
       "defect": "DEV-3831 (db-agnostic phase 3) — Better-Auth added name as NOT NULL on users; framework-created users failed to insert.",
       "file": "src/core/modules/better-auth/better-auth-sql.helper.ts",
-      "find": "    if (field.defaultValue === undefined && !existing.has(column) && SQL_TYPES[field.type]) {",
-      "replace": "    if (field.defaultValue === undefined && !existing.has(column) && SQL_TYPES[field.type] && false) {",
+      "find": "    if (field.defaultValue === undefined && !existing.has(column) && types[field.type]) {",
+      "replace": "    if (field.defaultValue === undefined && !existing.has(column) && types[field.type] && false) {",
       "specs": [
         "tests/stories/bidirectional-auth-sync.e2e-spec.ts"
       ]
@@ -4034,8 +4034,8 @@
       "id": "iam-migration-status-capped-at-a-page",
       "defect": "DEV-3831: on SQL the migration status read the credential accounts through Better-Auth's findMany(), which stops at 100 rows without a limit, so it never counted more than 100 migrated users",
       "file": "src/core/modules/better-auth/core-better-auth-sql.store.ts",
-      "find": "(SELECT count(*) FROM ${users} u WHERE u.${iamId} IS NOT NULL AND ${migrated})::int AS \"fullyMigrated\"",
-      "replace": "(SELECT count(*) FROM (SELECT 1 FROM ${users} u WHERE u.${iamId} IS NOT NULL AND ${migrated} LIMIT 100) page)::int AS \"fullyMigrated\"",
+      "find": "(SELECT count(*) FROM ${users} u WHERE u.${iamId} IS NOT NULL AND ${migrated}) AS ${quote('fullyMigrated')}",
+      "replace": "(SELECT count(*) FROM (SELECT 1 FROM ${users} u WHERE u.${iamId} IS NOT NULL AND ${migrated} LIMIT 100) page) AS ${quote('fullyMigrated')}",
       "specs": [
         "tests/stories/better-auth-migration-status.e2e-spec.ts"
       ]
@@ -4132,10 +4132,10 @@
     {
       "driverSpecific": false,
       "id": "ai-prompt-tenant-written-as-null",
-      "defect": "DEV-3832 review: creating a personal AI prompt inside a tenant wrote tenantId undefined, which a SQL store writes as NULL; row-level security refused it with 403 and left an orphan row",
+      "defect": "DEV-3832 review: creating a personal AI prompt inside a tenant wrote a tenantId over the one the insert had stamped; a SQL store wrote NULL, row-level security refused the row with 403 and left an orphan. Since DEV-3833 the SQL update compiler also skips a field given as undefined (mutation sql-update-writes-undefined), so the service's own guard is pinned by writing an explicit null, the shape a typed $set invites.",
       "file": "src/core/modules/ai/services/core-ai-prompt.service.ts",
       "find": "      $set: { ownerId: String(user.id), scope, ...(tenantId !== undefined ? { tenantId } : {}) },",
-      "replace": "      $set: { ownerId: String(user.id), scope, tenantId },",
+      "replace": "      $set: { ownerId: String(user.id), scope, tenantId: tenantId ?? null },",
       "specs": [
         "tests/ai-mcp-oauth-tenant.e2e-spec.ts"
       ]
@@ -4410,17 +4410,6 @@
       "defect": "DEV-3848 (db-agnostic phase 6): MySQL and MariaDB have no row-level security; without the boot warning a project would not learn that native access to a tenant table is not stopped by the database",
       "file": "src/core/common/persistence/data-source.runtime.ts",
       "find": "    if (isolated && source.driver !== 'postgres' && !this.isolationReported.has(source.name)) {",
-      "replace": "    if (false) {",
-      "specs": [
-        "tests/persistence-mysql-wiring.e2e-spec.ts"
-      ]
-    },
-    {
-      "driverSpecific": false,
-      "id": "mysql-iam-not-refused",
-      "defect": "DEV-3848 (db-agnostic phase 6): Better-Auth is not wired for MySQL / MariaDB; with the user model routed there the boot must refuse instead of running Better-Auth against a database it cannot serve",
-      "file": "src/core/common/persistence/data-source.runtime.ts",
-      "find": "    if (source.driver !== 'postgres') {",
       "replace": "    if (false) {",
       "specs": [
         "tests/persistence-mysql-wiring.e2e-spec.ts"
@@ -4797,6 +4786,61 @@
       "replace": "    void revalidateWsConnectionsOf;",
       "specs": [
         "tests/unit/better-auth-user-cache-invalidation.spec.ts"
+      ],
+      "driverSpecific": false
+    },
+    {
+      "id": "mysql-iam-tables-default-collation",
+      "defect": "DEV-3904 — Better-Auth creates its tables without naming a collation, i.e. with the database's default, while users.id carries the framework's utf8mb4_bin: on MariaDB the foreign key from session.user_id was refused (\"Foreign key constraint is incorrectly formed\") and the boot stopped; on MySQL Better-Auth's tokens and identifiers compared case-insensitively, unlike on every other database.",
+      "file": "src/core/common/persistence/sql/sql-dialect.ts",
+      "find": "        (await anyTableMissing(run, tables)) ? withFrameworkDefaultCollation(run, migrate) : migrate(),",
+      "replace": "        (await anyTableMissing(run, tables)) ? migrate() : migrate(),",
+      "specs": [
+        "tests/persistence-mysql-wiring.e2e-spec.ts"
+      ],
+      "driverSpecific": false
+    },
+    {
+      "id": "iam-roles-input-reopened",
+      "defect": "DEV-3904 — Better-Auth's update-user route takes every field its schema declares as input; roles stay out only because buildUserFields() re-asserts input: false after the project's fields are merged. Without it a signed-in user makes themselves an administrator — pinned on every database the adapter runs on, MySQL and MariaDB included.",
+      "file": "src/core/modules/better-auth/better-auth.config.ts",
+      "find": "    if (coreFields[key]) {\n      coreFields[key].input = false;\n    }",
+      "replace": "    if (coreFields[key]) {\n      coreFields[key].input = key === 'roles';\n    }",
+      "specs": [
+        "tests/core-module-parity.e2e-spec.ts"
+      ],
+      "driverSpecific": false
+    },
+    {
+      "id": "iam-password-stored-plain",
+      "defect": "DEV-3904 — the framework installs the password hashing Better-Auth uses (nativeScryptHash / nativeScryptVerify); a pair that stores and compares the password in clear keeps every sign-in working while the credential account holds the password itself, on every database.",
+      "file": "src/core/modules/better-auth/better-auth.config.ts",
+      "find": "        hash: nativeScryptHash,\n        verify: nativeScryptVerify,",
+      "replace": "        hash: async (password: string) => password,\n        verify: async ({ hash, password }: { hash: string; password: string }) => hash === password,",
+      "specs": [
+        "tests/core-module-parity.e2e-spec.ts"
+      ],
+      "driverSpecific": false
+    },
+    {
+      "id": "iam-sign-out-keeps-session",
+      "defect": "DEV-3904 — POST /iam/sign-out is the framework's controller; clearing the cookies without revoking the session in Better-Auth's table leaves a captured session token working, on every database.",
+      "file": "src/core/modules/better-auth/core-better-auth.controller.ts",
+      "find": "        await this.betterAuthService.revokeSession(sessionToken);\n      }\n\n      // Clear cookies",
+      "replace": "        void sessionToken;\n      }\n\n      // Clear cookies",
+      "specs": [
+        "tests/core-module-parity.e2e-spec.ts"
+      ],
+      "driverSpecific": false
+    },
+    {
+      "id": "mysql-collation-switch-every-boot",
+      "defect": "DEV-3904 review — the switch of the database's default collation for Better-Auth's migration ran on every boot. On MySQL 8.4 ALTER DATABASE takes an exclusive metadata lock on every table, so behind any open transaction it waited (lock_wait_timeout defaults to a year) while every statement on the tables it had already locked stood still; measured 2.8 s of stalled session lookups behind a 3 s transaction.",
+      "file": "src/core/common/persistence/sql/sql-dialect.ts",
+      "find": "        (await anyTableMissing(run, tables)) ? withFrameworkDefaultCollation(run, migrate) : migrate(),",
+      "replace": "        (await Promise.resolve(true)) ? withFrameworkDefaultCollation(run, migrate) : migrate(),",
+      "specs": [
+        "tests/unit/mysql-foreign-schema-lock.spec.ts"
       ],
       "driverSpecific": false
     }

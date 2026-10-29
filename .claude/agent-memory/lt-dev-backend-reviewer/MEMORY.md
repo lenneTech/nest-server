@@ -34,3 +34,4 @@
 - [Cron BullMQ scheduler restore (12.1.1)](project_cron-bullmq-restore.md) — BullMQ 6.5 semantics verified; High: old replica resurrects a scheduler removeStale removed (rolling deploy).
 - [Redis channel registry (DEV-3894)](project_redis-channel-registry.md) — boot ping/isReady/refcount re-subscribe probed sound on ioredis 6; isReady is shared client only; probe recipe.
 - [IAM user-cache broadcast (DEV-3895)](project_iam-user-cache-broadcast.md) — mapper DI + channel probed in assembled CoreModule; scratchpad probes cannot use local decorators.
+- [Better-Auth on MySQL (DEV-3904)](project_better-auth-mysql-dev3904.md) — foreignPool wrapper, collation swap, PG parity, IamSqlStorage change verified clean (2026-10-29).

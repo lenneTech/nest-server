@@ -156,7 +156,7 @@ describe('Better-Auth data on the configured database: session, token, passkey c
     const stored = await iamDb.passkeyChallenge(options.challengeId);
     expect(stored).toMatchObject({ type: 'registration' });
     expect(stored?.verificationToken).toBeTruthy();
-    if (iamDb.driver === 'postgres') {
+    if (iamDb.driver !== 'mongodb') {
       // Nothing of it in MongoDB
       expect(
         await iamDb.mongo

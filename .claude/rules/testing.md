@@ -258,10 +258,11 @@ but not on PostgreSQL. The PostgreSQL environment routes the two metadata models
 The **core modules** follow it one level up: `tests/helpers/core-module-matrix.ts` declares what the framework's own
 modules answer through REST and GraphQL — users and legacy sign-in, tenant memberships and the tenant guard, API
 tokens, health check, Hub panels — and `tests/core-module-parity.e2e-spec.ts` assembles them like the reference server
-once with MongoDB alone and once with PostgreSQL as the default source (default engine; the persistence matrix covers
-the engines). `tests/unit/core-module-parity-matrix.spec.ts` is its structural guard. The PostgreSQL column signs in
-through the legacy endpoints with `betterAuth: false`, so it proves the legacy-auth path on SQL; IAM on SQL is the job of
-the projects below.
+once per database — MongoDB alone, then PostgreSQL, MySQL and MariaDB as the default source (default engine; the
+persistence matrix covers the engines). `tests/unit/core-module-parity-matrix.spec.ts` is its structural guard. Every
+column runs Better-Auth beside the legacy endpoints, as the reference server does (12.1.1+): the user cases prove the
+legacy-auth path, the `iam-*` cases Better-Auth's security rules (no role through input, hashed credentials, sign-out
+revokes the session) on every database; the IAM suites below cover Better-Auth in depth.
 
 The **whole e2e suite runs on both databases** (12.1.0+): the `e2e` project on MongoDB, the `postgres` project again
 with PostgreSQL as the default data source (`POSTGRES_E2E_ENGINE`, the default engine TypeORM). Each test file gets a
@@ -288,17 +289,18 @@ alone). Where a behaviour differs by design — PostgreSQL's CHECK constraint re
 lets a raw insert plant — the case asserts what happens instead, per `iamDb.driver`.
 
 The **IAM suites** run on the two other engines as well, through vitest projects in `vitest-e2e.config.mts`:
-`iam-sql-kysely` and `iam-sql-drizzle` (`IAM_SQL_ENGINES`), each over the files in `IAM_SQL_TEST_INCLUDE`
+`iam-sql-kysely` and `iam-sql-drizzle` (`IAM_SQL_ENGINES`) on PostgreSQL, and `iam-mysql` / `iam-mariadb`
+(`IAM_MYSQL_VARIANTS`, 12.1.1+) with MySQL / MariaDB as the default source and the default engine, each over the files in `IAM_SQL_TEST_INCLUDE`
 (`vitest.include-globs.mts`: the Better-Auth stories, privilege escalation, sign-in CSRF, migration status, the storage
 paths, the bidirectional sync, and since phase 4 the AI suite and both MCP OAuth suites). A project's global setup (`tests/iam-sql.global-setup.ts`) creates its PostgreSQL
-database per run and drops it afterwards; its setup file (`tests/iam-sql.setup.ts`) points `NSC__DATABASE__URL`,
-`NSC__DATABASE__OWNER_URL` and `NSC__DATABASE__SQL_ENGINE` at it, so the unchanged `ServerModule` boots with its users —
-and Better-Auth with them — on PostgreSQL. The suites read and prepare state through `tests/helpers/iam-test-db.ts`,
+(or MySQL / MariaDB) database per run and drops it afterwards; its setup file (`tests/iam-sql.setup.ts`) points
+`NSC__DATABASE__URL`, `NSC__DATABASE__OWNER_URL` and — for an engine project — `NSC__DATABASE__SQL_ENGINE` at it, so
+the unchanged `ServerModule` boots with its users — and Better-Auth with them — on that database. The suites read and prepare state through `tests/helpers/iam-test-db.ts`,
 which answers from whichever database the run routes the users to (camelCase fields, string ids, a column never written
 left out rather than `null`), never through a MongoDB client of their own; the AI suite does the same through
 `tests/helpers/ai-test-stores.ts` (the stores the application routes the AI models to, `system()` for fixtures that span
-tenants). `tests/ai-mcp-oauth-tenant.e2e-spec.ts` boots with `multiTenancy` and therefore creates a PostgreSQL database
-of its own in those projects: a table that loses tenant isolation stops the boot of a suite configured without it, so
+tenants). `tests/ai-mcp-oauth-tenant.e2e-spec.ts` boots with `multiTenancy` and therefore creates a database of its own on the
+project's server in those projects (`tests/helpers/sql-test-db.ts`): a table that loses tenant isolation stops the boot of a suite configured without it, so
 two suites with different `multiTenancy` must never share one. Keep the root config free of `include`: with
 `extends: true` it is merged into every project, and the IAM projects would run the whole suite. vitest runs the global
 setup of EVERY project before any test, and the project setups before the root one — so a throw in
@@ -370,7 +372,7 @@ pnpm run check:mutations -- --id=<id>       # one mutation
 pnpm run check:mutations -- --list          # the registry, without running anything
 pnpm run check:mutations -- --allow-dirty   # when the fix and its evidence share a working tree
 pnpm run check:mutations -- --jobs=4        # N mutations at a time (default: 2, or 4 on >=12 cores)
-pnpm run check:mutations -- --no-infra      # only the 233 that need no MongoDB
+pnpm run check:mutations -- --no-infra      # only the 234 that need no MongoDB
 pnpm run check:mutations -- --since=<ref>   # only mutations touching files changed since <ref>
 ```
 
@@ -389,7 +391,7 @@ when the registry, a vitest config or a setup file changed, since those can move
 commit, and in CI alongside the publish without blocking it. The price of caching is a cache that
 has to model each spec's full dependency closure correctly, and getting that wrong produces a stale
 PASS for a test that has since gone vacuous — exactly what the gate is there to prevent. Bad trade
-at 422 mutations.
+at 426 mutations.
 
 **Decided 2026-10-03 (repo owner): keep the full run.** Measured at 128 mutations, the CI job for
 11.41.6 took **14 minutes**. The trigger to revisit is that wall time, not the mutation count —
@@ -434,9 +436,9 @@ exactly the environment where the answer matters.
 
 ### The cost is vitest's cold start, not the tests
 
-Worth knowing before optimising the wrong thing: the specs behind all 189 e2e mutations add up to
+Worth knowing before optimising the wrong thing: the specs behind all 192 e2e mutations add up to
 **~40 seconds**. The step takes ~740s. The remaining ~700s is paying vitest's startup — process
-spawn, transform, module graph, mongod connect, DB create and drop — once per mutation, 422 times.
+spawn, transform, module graph, mongod connect, DB create and drop — once per mutation, 426 times.
 That work is largely single-threaded I/O and barely scales with cores: the full registry measures
 **744s on a 12-core laptop and 777s on a 4-vCPU CI runner**.
 

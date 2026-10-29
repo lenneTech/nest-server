@@ -1,4 +1,5 @@
 import { type Db, MongoClient, ObjectId } from 'mongodb';
+import { type Connection, createConnection } from 'mysql2/promise';
 import { Client } from 'pg';
 
 import {
@@ -8,20 +9,23 @@ import {
 
 /** PostgreSQL's error code for a table that does not exist */
 const UNDEFINED_TABLE = '42P01';
+/** MySQL's / MariaDB's error code for a table that does not exist */
+const NO_SUCH_TABLE = 'ER_NO_SUCH_TABLE';
 
 /** The system setup's claim in the lease table of a SQL default source: namespaced by its consumer */
 const SQL_SETUP_CLAIM = `system-setup:${SYSTEM_SETUP_LOCK_KEY}`;
 
 /**
  * Direct database access for the IAM suites, on whichever database the run routes the users to: MongoDB in the `e2e`
- * project, PostgreSQL in the `postgres` and `iam-sql-<engine>` projects (`NSC__DATABASE__OWNER_URL` is set there). A suite reads and
- * prepares state through this instead of a MongoDB client of its own, so one suite proves both databases.
+ * project, PostgreSQL in the `postgres` and `iam-sql-<engine>` projects, MySQL / MariaDB in `iam-mysql` / `iam-mariadb`
+ * (`NSC__DATABASE__OWNER_URL` is set there, its scheme names the server). A suite reads and prepares state through
+ * this instead of a MongoDB client of its own, so one suite proves every database.
  *
  * Records come back with camelCase field names and a string `id`, whichever database answered.
  */
 export interface IamTestDb {
   /** Which database the users live in */
-  readonly driver: 'mongodb' | 'postgres';
+  readonly driver: 'mariadb' | 'mongodb' | 'mysql' | 'postgres';
   /** The MongoDB database of the run — for what stays on MongoDB in both projects */
   readonly mongo: Db;
   close(): Promise<void>;
@@ -32,7 +36,7 @@ export interface IamTestDb {
   findAccount(userId: string): Promise<null | Record<string, any>>;
   /** A session of the user, the newest */
   findUserSession(userId: string): Promise<null | Record<string, any>>;
-  /** Remove the system setup's initial-admin claim: the marker document on MongoDB, the lease row on PostgreSQL */
+  /** Remove the system setup's initial-admin claim: the marker document on MongoDB, the lease row on SQL */
   clearSetupClaim(): Promise<void>;
   /** Remove users and everything Better-Auth keeps for them (sessions, accounts, 2FA, passkeys) */
   deleteUsers(match: UserMatch): Promise<void>;
@@ -83,6 +87,19 @@ export async function openIamTestDb(
   const ownerUrl = options.users === 'mongodb' ? undefined : (options.ownerUrl ?? process.env.NSC__DATABASE__OWNER_URL);
   if (!ownerUrl) {
     return new MongoIamTestDb(mongoClient, mongo);
+  }
+  const server = /^(mysql|mariadb):/.exec(ownerUrl)?.[1] as 'mariadb' | 'mysql' | undefined;
+  if (server) {
+    // mysql2 reads a mysql:// URI; the scheme only told which server it is
+    const connection = await createConnection({
+      supportBigNumbers: true,
+      timezone: 'Z',
+      typeCast: castMysqlField,
+      uri: ownerUrl.replace(/^mariadb:/, 'mysql:'),
+    });
+    // The framework's session: instants in UTC, so NOW() and the stored values agree
+    await connection.query("SET SESSION time_zone = '+00:00'");
+    return new MysqlIamTestDb(mongoClient, mongo, connection, server);
   }
   const pg = new Client({ connectionString: ownerUrl });
   await pg.connect();
@@ -400,6 +417,220 @@ class PostgresIamTestDb implements IamTestDb {
     }
     return { params: [match.email], where: `email = $${offset + 1}` };
   }
+}
+
+/**
+ * The same access on MySQL 8.4 / MariaDB 11.8 (DEV-3904): `?` placeholders, `REGEXP` for a pattern, and the values a
+ * MongoDB document carries — booleans for `TINYINT(1)`, arrays for JSON (MariaDB keeps JSON as text).
+ */
+class MysqlIamTestDb implements IamTestDb {
+  constructor(
+    protected readonly client: MongoClient,
+    readonly mongo: Db,
+    protected readonly connection: Connection,
+    readonly driver: 'mariadb' | 'mysql',
+  ) {}
+
+  /** The columns of `users`, read once */
+  protected columns?: Promise<Set<string>>;
+
+  async close(): Promise<void> {
+    await Promise.all([this.client.close(), this.connection.end()]);
+  }
+
+  async clearSetupClaim(): Promise<void> {
+    await this.rows('DELETE FROM lt_locks WHERE id = ?', [SQL_SETUP_CLAIM]);
+  }
+
+  async countUsers(match: UserMatch): Promise<number> {
+    const { params, where } = this.where(match);
+    const [row] = await this.rows(`SELECT count(*) AS n FROM users WHERE ${where}`, params);
+    return Number(row.n);
+  }
+
+  async credentialAccount(userId: string): Promise<null | Record<string, any>> {
+    const rows = await this.betterAuthRows(
+      `SELECT * FROM account WHERE user_id = ? AND provider_id = 'credential' LIMIT 1`,
+      [userId],
+    );
+    return rows[0] ? camelCase(rows[0]) : null;
+  }
+
+  async findAccount(userId: string): Promise<null | Record<string, any>> {
+    const rows = await this.betterAuthRows('SELECT * FROM account WHERE user_id = ? LIMIT 1', [userId]);
+    return rows[0] ? camelCase(rows[0]) : null;
+  }
+
+  async findUserSession(userId: string): Promise<null | Record<string, any>> {
+    const rows = await this.betterAuthRows('SELECT * FROM session WHERE user_id = ? ORDER BY created_at DESC LIMIT 1', [
+      userId,
+    ]);
+    return rows[0] ? camelCase(rows[0]) : null;
+  }
+
+  async deleteUsers(match: UserMatch): Promise<void> {
+    const { params, where } = this.where(match);
+    const ids = (await this.rows(`SELECT id FROM users WHERE ${where}`, params)).map((row) => row.id);
+    if (!ids.length) {
+      return;
+    }
+    for (const table of ['session', 'account', 'two_factor', 'passkey']) {
+      await this.rows(`DELETE FROM ${table} WHERE user_id IN (?)`, [ids]).catch(() => undefined);
+    }
+    // Reset and verification values carry the user id as their value
+    await this.rows('DELETE FROM verification WHERE value IN (?)', [ids]).catch(() => undefined);
+    await this.rows('DELETE FROM users WHERE id IN (?)', [ids]);
+  }
+
+  async expireSession(token: string): Promise<void> {
+    await this.rows('UPDATE session SET expires_at = NOW(3) - INTERVAL 1 MINUTE WHERE token = ?', [token]);
+  }
+
+  async findSession(token: string): Promise<null | Record<string, any>> {
+    const rows = await this.betterAuthRows('SELECT * FROM session WHERE token = ?', [token]);
+    return rows[0] ? camelCase(rows[0]) : null;
+  }
+
+  async findUser(match: UserMatch): Promise<null | Record<string, any>> {
+    const { params, where } = this.where(match);
+    const rows = await this.rows(`SELECT * FROM users WHERE ${where} LIMIT 1`, params);
+    return rows[0] ? camelCase(rows[0]) : null;
+  }
+
+  async insertCredentialAccount(userId: string): Promise<void> {
+    await this.rows(
+      `INSERT INTO account (id, account_id, provider_id, user_id, created_at, updated_at)
+       VALUES (?, ?, 'credential', ?, NOW(3), NOW(3))`,
+      [new ObjectId().toHexString(), userId, userId],
+    );
+  }
+
+  async insertUser(fields: Record<string, unknown>): Promise<string> {
+    const id = new ObjectId().toHexString();
+    const entries = await this.userColumns({ ...fields, id });
+    await this.rows(
+      `INSERT INTO users (${entries.map(([key]) => snakeCase(key)).join(', ')}) VALUES (${entries.map(() => '?').join(', ')})`,
+      entries.map(([, value]) => mysqlValue(value)),
+    );
+    return id;
+  }
+
+  async latestSessionToken(userId: string): Promise<null | string> {
+    const rows = await this.betterAuthRows(
+      'SELECT token FROM session WHERE user_id = ? ORDER BY created_at DESC LIMIT 1',
+      [userId],
+    );
+    return rows[0]?.token ?? null;
+  }
+
+  async passkeyChallenge(challengeId: string): Promise<null | Record<string, any>> {
+    const rows = await this.betterAuthRows('SELECT value, expires_at FROM verification WHERE identifier = ?', [
+      `lt-passkey-challenge:${challengeId}`,
+    ]);
+    return rows[0] ? { ...JSON.parse(rows[0].value), challengeId, expiresAt: rows[0].expires_at } : null;
+  }
+
+  async passwordResetTokens(userId: string): Promise<string[]> {
+    const rows = await this.betterAuthRows(
+      `SELECT identifier FROM verification WHERE identifier LIKE 'reset-password:%' AND value = ? ORDER BY created_at DESC`,
+      [userId],
+    );
+    return rows.map((row) => String(row.identifier).replace('reset-password:', ''));
+  }
+
+  async setupClaim(): Promise<null | Record<string, any>> {
+    const rows = await this.rows('SELECT * FROM lt_locks WHERE id = ?', [SQL_SETUP_CLAIM]);
+    return rows[0] ? camelCase(rows[0]) : null;
+  }
+
+  async updateUser(match: UserMatch, set: Record<string, unknown>): Promise<void> {
+    const entries = await this.userColumns(set);
+    const { params, where } = this.where(match);
+    const assignments = entries.map(([key]) => `${snakeCase(key)} = ?`).join(', ');
+    await this.rows(`UPDATE users SET ${assignments} WHERE ${where}`, [
+      ...entries.map(([, value]) => mysqlValue(value)),
+      ...params,
+    ]);
+  }
+
+  protected async rows(text: string, params: unknown[] = []): Promise<Record<string, any>[]> {
+    const [result] = await this.connection.query(text, params);
+    return Array.isArray(result) ? (result as Record<string, any>[]) : [];
+  }
+
+  /** Rows of one of Better-Auth's tables; a table never created holds nothing (see the PostgreSQL variant) */
+  protected async betterAuthRows(text: string, params: unknown[]): Promise<Record<string, any>[]> {
+    try {
+      return await this.rows(text, params);
+    } catch (error) {
+      if ((error as { code?: string }).code === NO_SUCH_TABLE) {
+        return [];
+      }
+      throw error;
+    }
+  }
+
+  /** The fields as `users` columns, without those the table does not have (see the PostgreSQL variant) */
+  protected async userColumns(fields: Record<string, unknown>): Promise<[string, unknown][]> {
+    this.columns ??= this.rows(
+      `SELECT COLUMN_NAME AS column_name FROM information_schema.columns
+        WHERE table_schema = DATABASE() AND table_name = 'users'`,
+    ).then((rows) => new Set(rows.map((row) => row.column_name as string)));
+    const columns = await this.columns;
+    return Object.entries(fields).filter(([key]) => columns.has(snakeCase(key)));
+  }
+
+  /** A WHERE clause over `users` for the match */
+  protected where(match: UserMatch): { params: unknown[]; where: string } {
+    if (match.ids) {
+      return match.ids.length ? { params: [match.ids], where: 'id IN (?)' } : { params: [], where: 'FALSE' };
+    }
+    if (match.id) {
+      return { params: [match.id], where: 'id = ?' };
+    }
+    if (match.iamId) {
+      return { params: [match.iamId], where: 'iam_id = ?' };
+    }
+    if (match.email instanceof RegExp) {
+      return { params: [match.email.source], where: 'email REGEXP ?' };
+    }
+    if (match.email === undefined) {
+      return { params: [], where: 'TRUE' };
+    }
+    return { params: [match.email], where: 'email = ?' };
+  }
+}
+
+/** A value for a MySQL parameter: arrays and objects as JSON, everything else as the driver writes it */
+function mysqlValue(value: unknown): unknown {
+  return Array.isArray(value) || (value !== null && typeof value === 'object' && !(value instanceof Date))
+    ? JSON.stringify(value)
+    : value;
+}
+
+/** `TINYINT(1)` as a boolean, and a JSON array (MySQL's type, MariaDB's text with a JSON check) as the array it holds */
+function castMysqlField(field: any, next: () => unknown): unknown {
+  if (field.type === 'TINY' && field.length === 1) {
+    const value = field.string('utf8');
+    return value === null ? null : value === '1';
+  }
+  if (field.type === 'JSON') {
+    const text = field.string('utf8');
+    return text === null ? null : JSON.parse(text);
+  }
+  if (field.type === 'BLOB' || field.type === 'VAR_STRING' || field.type === 'STRING') {
+    const value = next();
+    // MariaDB's JSON arrays (`roles`); an object stays text, as a verification value's payload does on every server
+    if (typeof value === 'string' && /^\s*\[/.test(value)) {
+      try {
+        return JSON.parse(value);
+      } catch {
+        return value;
+      }
+    }
+    return value;
+  }
+  return next();
 }
 
 function snakeCase(field: string): string {

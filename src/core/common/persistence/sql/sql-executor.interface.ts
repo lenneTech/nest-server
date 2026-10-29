@@ -42,7 +42,10 @@ export interface SqlTransaction {
 
 export interface SqlExecutor {
   close(): Promise<void>;
-  /** The node-postgres pool the executor runs on — for Better-Auth's own adapter. */
+  /**
+   * The driver's pool the executor runs on (node-postgres, or `mysql2`'s callback pool) — a library with its own adapter
+   * (Better-Auth) receives what it can run on through `SqlDialect.foreignPool()`.
+   */
   readonly driverPool: unknown;
   readonly engine: DatabaseSqlEngine;
   /** The engine's own API, outside any framework transaction. */

@@ -508,21 +508,31 @@ removed. `tests/better-auth-signin-csrf.e2e-spec.ts` does; mutations `iam-signin
 
 Better-Auth keeps its data where the user model lives. `DataSourceRuntime.iamStorage()` finds the persisted model whose
 table is `users`; when that model is routed to a SQL source, `CoreBetterAuthModule.createInstance()` hands Better-Auth
-the application role's `pg` pool of that source, and Better-Auth runs its own Kysely adapter on it (it recognises a pool
-by its `connect` method — the core imports no Kysely). On MongoDB nothing changes.
+the application role's pool of that source, and Better-Auth runs its own Kysely adapter on it — the core imports no
+Kysely. Which pool is the dialect's answer (`SqlDialect.foreignPool()`): the `pg` pool on PostgreSQL (Better-Auth
+recognises it by `connect`), and on MySQL / MariaDB (12.1.1+, DEV-3904) the `mysql2` pool's promise wrapper — Better-Auth
+recognises it by `getConnection` and builds `new MysqlDialect(wrapper)`, whose `pool` field is the callback pool Kysely
+needs. Passing the callback pool itself leaves that field empty. Either way it is the framework's own pool, so Better-Auth's
+statements run in the session the framework set up (strict mode, UTC). On MongoDB nothing changes.
 
 | Piece | Where | Rule |
 |---|---|---|
 | Naming | `withSqlStorage()` in `better-auth-sql.helper.ts` | `user` → `users`, every table and field snake_case — the plugins' too, on copies, never the plugin objects; ids are ObjectId hex (`generateId`), so a Better-Auth user id IS the framework's id and `iamId` equals it |
 | One row per user | the same helper + `registerForeignColumns('users', …)` | Better-Auth's own columns (`name`, `email_verified`, `image`) live in the framework's `users` table; its required ones are added nullable first, so a row the user model writes alone stays valid, and the framework's schema planner does not report them as undeclared |
-| Schema | `applyBetterAuthSchema()` | Better-Auth validates its schema when the instance is created, so its migrations run BEFORE, as the owner, under the framework's schema lock, followed by the grants and the safe-role check. Without an owner connection the boot stops while anything is pending — the application role never runs DDL |
+| Schema | `applyBetterAuthSchema()` | Better-Auth validates its schema when the instance is created, so its migrations run BEFORE, as the owner, under the framework's schema lock (`SqlDialect.withForeignSchemaLock()`), followed by the grants and the safe-role check. Without an owner connection the boot stops while anything is pending — the application role never runs DDL. On MySQL / MariaDB the lock is `GET_LOCK`, the database-level grant of the framework's own schema run already covers Better-Auth's tables, and the database's default collation is `utf8mb4_bin` while Better-Auth creates a table (`withFrameworkDefaultCollation()`): Better-Auth names no collation, MariaDB refuses its foreign keys to `users.id` across collations, and on MySQL its tokens would compare case-insensitively (mutation `mysql-iam-tables-default-collation`). Only on a run that creates a table (`anyTableMissing()`), and with `lock_wait_timeout` of 5 s: `ALTER DATABASE` takes an exclusive lock on every table, so on every boot it stalled all traffic behind any open transaction (mutation `mysql-collation-switch-every-boot`). The columns Better-Auth needs on `users` are added in each dialect's own SQL (`addRequiredUserColumnsAsNullable()`) |
 | Framework access | `BetterAuthSqlStore` (`core-better-auth-sql.store.ts`), reached through the import-free leaf `core-better-auth-sql.registry.ts` | framework fields of the user row go through the user model's `DataStore` (its policies apply); Better-Auth's own fields and tables go through Better-Auth's `internalAdapter` / `adapter` (its hooks run — a deleted session reaches `wsSessionRevocationPlugin()`). Every MongoDB path keeps its code; the SQL branch sits beside it (`*OnSql` in the user mapper) |
 | Passkey challenges | `storeChallenge()` | Better-Auth verification values with the identifier prefix `lt-passkey-challenge:` — no table of the framework's own, expiry checked on read, expired ones removed as new ones arrive |
 | Expired rows | `BetterAuthSqlStore.deleteExpired()`, scheduled by `CoreBetterAuthService.startExpirySweep()` | Better-Auth never deletes an expired session and clears expired verification values only when one is looked up; on MongoDB the verification TTL index does it. On SQL the expiry sweep (`scheduleExpirySweep()`, every 15 min, one replica per interval) removes both — through Better-Auth's adapter, so its naming applies. Stopped in `onModuleDestroy()`, before the data sources close (mutation `iam-expired-sessions-kept`) |
 | Per-request path | token service, middlewares, guard, web and cookie helpers | ids are strings; only `BetterAuthMongoUsers` (`core-better-auth-mongo.users.ts`) knows what an ObjectId is. Pinned by `tests/unit/iam-request-path-ids.spec.ts` |
 | Boot steps | `CoreBetterAuthService.onModuleInit()` | `ensureIndices()` and the account-issuer backfill concern MongoDB's collections and are skipped on SQL |
-| Counting | `BetterAuthSqlStore.migrationCounts()` | counts in SQL (`count(*)`, `EXISTS` over `account`), names from `$context.tables`. **Never read a whole table through Better-Auth's `adapter.findMany()`**: without a `limit` it stops at 100 rows (`defaultFindManyLimit`), which capped the migration status at 100 migrated users (mutation `iam-migration-status-capped-at-a-page`) |
+| Counting | `BetterAuthSqlStore.migrationCounts()` | counts in SQL (`count(*)`, `EXISTS` over `account`), names from `$context.tables` — one statement for every SQL database, only the identifier quotes differ, and the counts are converted to numbers (MySQL answers them as strings). **Never read a whole table through Better-Auth's `adapter.findMany()`**: without a `limit` it stops at 100 rows (`defaultFindManyLimit`), which capped the migration status at 100 migrated users (mutation `iam-migration-status-capped-at-a-page`) |
 | Readers outside the module | `CoreAiMcpOAuthService.loadUser()` | every native read of `users` needs the SQL branch too — an OAuth subject's roles came from MongoDB, i.e. nobody or a stale copy (mutation `mcp-oauth-user-on-mongo`). Find candidates with `grep -rn "collection('users')" src/core` |
+
+**The `mysql2` peer floor is load-bearing on MySQL / MariaDB.** Better-Auth's Kysely adapter sends its values through
+`mysql2`'s client-side escaping (`sql-escaper`), and `/iam/update-user` accepts any JSON for `name` and `image`. From
+`sql-escaper` 1.5.1 on, an object turns into `key = value` pairs only after a bare `SET ?`, which Kysely never writes
+(it writes `col = ?`); before that, `{"name": {"roles": "[\"admin\"]"}}` assigned `roles` — a signed-in user making
+themselves an administrator. The peer range (`>= 3.24.6`) guarantees the fixed escaper; never lower it.
 
 **Sign-up holds a pool connection while it hashes (accepted).** Better-Auth runs its Kysely adapter with transactions
 on a `pg` pool, and `/sign-up/email` hashes the password inside its transaction — on the framework's application pool
@@ -544,10 +554,12 @@ mapping was stored and no `challengeId` returned, on every database (mutation `p
 `passkey.webAuthnChallengeCookie` is the KEY; it reaches the plugin as `advanced.webAuthnChallengeCookie`, the only
 place the plugin reads it.
 
-Tests: every IAM suite runs on MongoDB and on PostgreSQL with each engine (`.claude/rules/testing.md` → the IAM
+Tests: every IAM suite runs on MongoDB, on PostgreSQL with each engine, and on MySQL and MariaDB (`.claude/rules/testing.md` → the IAM
 projects); `tests/better-auth-storage-paths.e2e-spec.ts` covers the four paths the stories pass either way (session
 token as bearer, token service, passkey challenge, e-mail verified), `tests/persistence-sql-wiring.e2e-spec.ts` the
-boot (one row, ownership, a second boot, the system setup).
+boot (one row, ownership, a second boot, the system setup), `tests/persistence-mysql-wiring.e2e-spec.ts` the MySQL /
+MariaDB boot on a database in the server's default collation, and the `iam-*` cases of the core module matrix the
+security rules on every database.
 
 ## Summary
 

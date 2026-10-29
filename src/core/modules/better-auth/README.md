@@ -1090,7 +1090,9 @@ built-in Kysely adapter on that source's application pool and shares ONE `users`
 Its tables are snake_case (`session`, `account`, `verification`, `jwks`, `two_factor`, `passkey`), ids keep the
 ObjectId format, and its migrations run at boot as the owner (`database.ownerUrl`) — without an owner connection the
 boot stops while any are pending. The two MongoDB steps above are skipped there. Nothing is copied from MongoDB.
-Details: `.claude/rules/better-auth.md` §11.
+This holds on PostgreSQL and, since 12.1.1, on MySQL 8.4 and MariaDB 11.8: there Better-Auth's tables are created in the
+framework's collation `utf8mb4_bin` whatever the database's default, and Better-Auth's own column types apply
+(`timestamp(3)`, `varchar(36)` ids). Details: `.claude/rules/better-auth.md` §11.
 
 ---
 
