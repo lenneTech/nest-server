@@ -30,9 +30,8 @@ export interface MongoStateStoreOptions {
   /**
    * Optionally specify a collection to use for locking. This is intended for
    * clusters with multiple nodes to ensure that not more than one migration
-   * can run at any given time. You must use the `synchronizedMigration` or
-   * `synchronizedUp` function, instead of triggering the migration via
-   * `migrate` directly.
+   * can run at any given time. The `migrate` CLI, `MigrationRunner`,
+   * `synchronizedUp()` and `synchronizedMigration()` all hold this lock.
    */
   lockCollectionName?: string;
   /** MongoDB connection URI */
@@ -158,8 +157,11 @@ export class MongoStateStore implements MigrationStateStore {
  *     lockCollectionName: 'migrationlock'
  *   })
  * }, async (migrationSet) => {
- *   // Only one instance at a time will execute this
- *   await promisify(migrationSet.up).call(migrationSet);
+ *   // Only one instance at a time will execute this. `migrationSet` is the loaded state
+ *   // (`lastRun`, `migrations`); to run the pending migrations use `synchronizedUp()`.
+ *   if (!migrationSet.migrations?.some((m) => m.title === 'seed-defaults')) {
+ *     await seedDefaults();
+ *   }
  * });
  * ```
  */
@@ -204,31 +206,6 @@ export async function synchronizedMigration(
       await releaseLock(stateStore.mongodbHost, lockCollectionName, lockToken);
     }
   }
-}
-
-/**
- * Executes all pending migrations in a synchronized manner (for clustered environments)
- *
- * This is a convenience function that wraps `synchronizedMigration` and automatically
- * calls the `up` method on the migration set.
- *
- * @param opts - Migration options including state store
- * @throws Error if state store is not configured correctly
- *
- * @example
- * ```typescript
- * await synchronizedUp({
- *   stateStore: new MongoStateStore({
- *     uri: 'mongodb://localhost/db',
- *     lockCollectionName: 'migrationlock'
- *   })
- * });
- * ```
- */
-export async function synchronizedUp(opts: MigrationOptions): Promise<void> {
-  await synchronizedMigration(opts, async (loadedSet) => {
-    await promisify(loadedSet.up).call(loadedSet);
-  });
 }
 
 /**

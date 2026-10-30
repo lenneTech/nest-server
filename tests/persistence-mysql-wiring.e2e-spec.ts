@@ -15,6 +15,7 @@ import {
 import { Prop, Schema, SchemaFactory } from '@nestjs/mongoose';
 import { Test, TestingModule } from '@nestjs/testing';
 import { createConnection } from 'mysql2/promise';
+import request from 'supertest';
 import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest';
 
 import {
@@ -329,58 +330,102 @@ for (const [variant, engine] of [
   });
 }
 
-describe('Better-Auth on a MySQL source (e2e)', () => {
-  let database: MysqlTestDatabase;
-
-  beforeAll(async () => {
-    database = await createMysqlTestDatabase('mysql', 'mysql-iam');
-  });
-
-  afterAll(async () => {
-    await database?.drop();
-  });
-
-  /**
-   * @regression   DEV-3848 (db-agnostic phase 6) — Better-Auth's adapter is not wired for MySQL / MariaDB yet; with the
-   *   user model routed there it must refuse at boot, not fall back to a MongoDB that holds no users.
-   * @seen-failing Drop the MySQL refusal from DataSourceRuntime.iamStorage() in
-   *   src/core/common/persistence/data-source.runtime.ts — registered as mutation `mysql-iam-not-refused` in
-   *   tests/regression-mutations.json.
-   */
-  it('refuses to boot while the user model lives on MySQL', async () => {
-    vi.spyOn(Logger.prototype, 'error').mockImplementation(() => undefined);
-    @Module({ imports: [CorePersistenceModule.forFeature([{ model: User, name: User.name, schema: UserSchema }])] })
-    class UserFeature {}
-
-    @Module({
-      imports: [
-        CoreModule.forRoot({
-          betterAuth: {
-            basePath: '/iam',
-            baseUrl: 'http://localhost:3999',
-            secret: 'TEST_BETTERAUTH_SECRET_32_CHARS_MIN',
-          },
-          database: { ownerUrl: database.ownerUrl, url: database.appUrl },
-          env: 'test',
-          graphQl: false,
-          port: 0,
-        } as any),
-        UserFeature,
-      ],
-    })
-    class IamAppModule {}
-
+for (const variant of ['mysql', 'mariadb'] as MysqlVariant[]) {
+  describe(`Better-Auth on a ${variant} source (e2e)`, () => {
+    let database: MysqlTestDatabase;
     let app: INestApplication | undefined;
-    const boot = async () => {
+    let owner: Awaited<ReturnType<typeof createConnection>>;
+    let collationBefore: string;
+
+    /** The database's default collation and the collation of each of Better-Auth's tables */
+    const collations = async () => {
+      const [[schema]] = (await owner.query(
+        'SELECT DEFAULT_COLLATION_NAME AS collation FROM information_schema.SCHEMATA WHERE SCHEMA_NAME = DATABASE()',
+      )) as any;
+      const [tables] = (await owner.query(
+        `SELECT TABLE_NAME AS name, TABLE_COLLATION AS collation FROM information_schema.TABLES
+          WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME IN ('session', 'account', 'verification')`,
+      )) as any;
+      return {
+        database: schema.collation as string,
+        tables: Object.fromEntries(tables.map((table: any) => [table.name, table.collation])),
+      };
+    };
+
+    beforeAll(async () => {
+      // A database created without options: the server's default collation, which is not the framework's
+      database = await createMysqlTestDatabase(variant, `mysql-iam-${process.pid}`, { serverCollation: true });
+      owner = await createConnection({ uri: database.ownerUrl.replace(/^mariadb:/, 'mysql:') });
+      collationBefore = (await collations()).database;
+
+      @Module({ imports: [CorePersistenceModule.forFeature([{ model: User, name: User.name, schema: UserSchema }])] })
+      class UserFeature {}
+
+      @Module({
+        imports: [
+          CoreModule.forRoot({
+            betterAuth: {
+              basePath: '/iam',
+              baseUrl: 'http://localhost:3999',
+              secret: 'TEST_BETTERAUTH_SECRET_32_CHARS_MIN',
+            },
+            database: { ownerUrl: database.ownerUrl, url: database.appUrl },
+            env: 'test',
+            graphQl: false,
+            port: 0,
+          } as any),
+          UserFeature,
+        ],
+      })
+      class IamAppModule {}
+
       const moduleRef = await Test.createTestingModule({ imports: [IamAppModule] }).compile();
       app = moduleRef.createNestApplication();
       await app.init();
-    };
-    try {
-      await expect(boot()).rejects.toThrow(/Better-Auth cannot run on MySQL yet/);
-    } finally {
+    });
+
+    afterAll(async () => {
       await app?.close().catch(() => undefined);
-      vi.restoreAllMocks();
-    }
+      await owner?.end();
+      await database?.drop();
+    });
+
+    /**
+     * @regression   DEV-3904 — Better-Auth creates its tables without a collation, i.e. with the database's default, while
+     *   `users.id` carries the framework's `utf8mb4_bin`: on MariaDB the foreign key from `session.user_id` was refused
+     *   ("Foreign key constraint is incorrectly formed") and the boot stopped; on MySQL tokens and identifiers compared
+     *   case-insensitively, unlike on every other database.
+     * @seen-failing Run Better-Auth's migration without withFrameworkDefaultCollation() in
+     *   src/core/common/persistence/sql/sql-dialect.ts — registered as mutation `mysql-iam-tables-default-collation` in
+     *   tests/regression-mutations.json.
+     */
+    it("creates Better-Auth's tables with the framework's collation, whatever the database's default", async () => {
+      expect(collationBefore).not.toBe('utf8mb4_bin');
+      const { tables } = await collations();
+      expect(tables).toEqual({ account: 'utf8mb4_bin', session: 'utf8mb4_bin', verification: 'utf8mb4_bin' });
+    });
+
+    it("leaves the database's default collation as it found it", async () => {
+      expect((await collations()).database).toBe(collationBefore);
+    });
+
+    it('signs a user up into the one users row, with a hashed credential in Better-Auth’s table', async () => {
+      const email = `mysql-iam-${variant}-${Date.now()}@test.com`;
+      const signUp = await request(app!.getHttpServer())
+        .post('/iam/sign-up/email')
+        .send({ email, name: 'Ada', password: 'Str0ng!Passw0rd', termsAndPrivacyAccepted: true })
+        .expect(201);
+      expect(signUp.body.user?.email).toBe(email);
+      const [rows] = (await owner.query('SELECT id, email, name FROM users WHERE email = ?', [email])) as any;
+      expect(rows).toHaveLength(1);
+      expect(rows[0]).toMatchObject({ email, id: signUp.body.user.id, name: 'Ada' });
+      const [accounts] = (await owner.query('SELECT provider_id, password FROM account WHERE user_id = ?', [
+        rows[0].id,
+      ])) as any;
+      expect(accounts).toHaveLength(1);
+      expect(accounts[0].provider_id).toBe('credential');
+      // Better-Auth's scrypt hash of the SHA-256 of the password (`salt:key`), never the password itself
+      expect(accounts[0].password).toMatch(/^[0-9a-f]+:[0-9a-f]+$/);
+    });
   });
-});
+}

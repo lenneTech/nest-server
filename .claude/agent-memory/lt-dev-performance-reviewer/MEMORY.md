@@ -6,7 +6,8 @@
 - [API-Token Module Performance Profile](api-token-module-perf.md) — per-request cost with feature off/on (ns-level), token-request DB budget, bounded Map/rate-limit structures.
 - [Migrate Module Performance Profile](migrate-module-perf.md) — boot/CLI-only (no HTTP path); the per-migration state save is deliberate crash-safety, do NOT flag as N+1.
 - [Persistence layer (db-agnostic) costs](persistence-layer-db-agnostic-costs.md) — measured: tenant post-read row check 16-89 ns/row (~1-4 % of hydrate), ObjectId tag check faster than instanceof.
-- [SQL store perf profile](sql-store-perf-profile.md) — phases 1-6: owner conns FIXED; BA sign-up tx starves pool; MySQL unique-sentinel index = full scan + table-wide FOR UPDATE.
+- [Offline-sync design perf](offline-sync-design-perf.md) — measured: Mongo partial index unused by `{deletedAt:null}` (COLLSCAN); tenant-wide epoch fan-out; C2 window livelock.
+- [SQL store perf profile](sql-store-perf-profile.md) — phases 1-6 + DEV-3904: BA sign-up tx starves pool; MySQL ALTER DATABASE X-locks every table (boot stall).
 
 ## Request Path
 - [Auth-gate per-request cost](auth-gate-per-request-cost.md) — the global BetterAuth middleware already authenticates PUBLIC routes; gating adds ~0 lookups, but adds a double-verify failure path and kills shared-cache eligibility.
@@ -31,6 +32,9 @@
 - [MCP OAuth consent + sign-in Request costs](mcp-oauth-consent-and-signin-request-costs.md) — measured: Web Request on sign-in ~2.7 us, cached import() ~2 us, consent render ~6 us; findOneAndDelete({clientId,code}) rides {code:1}.
 - [Path regex + ESM switch costs](path-regex-and-esm-switch-costs.md) — `/\/+$/` on req path O(n²) ~120-150 ms @16 KB URL (URL counts toward maxHeaderSize; FIXED: normalizeIamRoutePath); callerDirectory ~6 us.
 - [Better-Auth JWT verify costs](better-auth-jwt-verify-costs.md) — measured: Bearer verify ~133 us (importJWK uncached + DB jwks lookup); instance.options is a plain data prop (~2 ns).
+- [Cron BullMQ scheduler check costs](cron-bullmq-scheduler-check-costs.md) — check 10.6 ms/50 jobs; `removeOnComplete: {count}` trims in ONE Lua call (~6.5 us/job), backlog now pre-trimmed in batches; cron stepping 87-327 us/tick.
+- [Redis boot ping + resubscribe costs](redis-boot-ping-and-resubscribe-costs.md) — measured: ping +10-25 ms up / 2 s down; leftover ping makes outage shutdown 2 s+2 s (same as develop after any command); 2 SUBSCRIBE per reconnect, fine.
+- [Sync randomBytes small-size cost](sync-randombytes-small-cost.md) — measured: randomBytes(16) hex ~1.0 us, faster than the old Math.random name loop; never a sync-in-async finding at token size.
 
 ## Test Pipeline
 - [e2e low-resource CI trigger](e2e-low-resource-ci-trigger.md) — load signal fires on EVERY CI build (own unit step); A/B measured the 2-worker cap at +25 % e2e time, so it is skipped on github-hosted runners (not on GitLab).

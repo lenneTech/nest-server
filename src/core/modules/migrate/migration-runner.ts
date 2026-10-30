@@ -3,7 +3,7 @@ import * as path from 'path';
 
 import { _endMigration, _startMigration } from './migration.helper.js';
 import type { MigrationStateStore } from './migration-state-store.interface.js';
-import { withMigrationLock } from './mongo-state-store.js';
+import { type MigrationOptions, MongoStateStore, withMigrationLock } from './mongo-state-store.js';
 import { createRequire } from 'node:module';
 
 /**
@@ -94,7 +94,7 @@ export function parseStrictEnv(value: string | undefined = process.env.NSC__MIGR
  * Migration runner configuration
  */
 export interface MigrationRunnerOptions {
-  /** Directory containing migration files */
+  /** Directory containing migration files, absolute or relative to the working directory */
   migrationsDirectory: string;
   /** Pattern to match migration files (default: {@link DEFAULT_MIGRATION_FILE_PATTERN}) */
   pattern?: RegExp;
@@ -148,7 +148,13 @@ export class MigrationRunner {
   constructor(options: MigrationRunnerOptions) {
     // Resolve the strict default from the environment so NSC__MIGRATE__STRICT works
     // identically for programmatic runners and the CLI (which parses it itself).
-    this.options = { ...options, strict: options.strict ?? parseStrictEnv() };
+    // A relative directory is resolved against the working directory, as by the CLI: the files are
+    // loaded with require(), which reads `migrations/<file>` as a package name (DEV-3897).
+    this.options = {
+      ...options,
+      migrationsDirectory: path.resolve(options.migrationsDirectory),
+      strict: options.strict ?? parseStrictEnv(),
+    };
     this.pattern = options.pattern || DEFAULT_MIGRATION_FILE_PATTERN;
   }
 
@@ -411,5 +417,64 @@ export const down = async () => {
     console.log(`✓ Created migration: ${fileName}`);
 
     return filePath;
+  }
+}
+
+/**
+ * Options of {@link synchronizedUp}
+ */
+export interface SynchronizedUpOptions extends MigrationOptions {
+  /** Directory containing migration files (default: `migrations` in the working directory, as for the `migrate` CLI) */
+  migrationsDirectory?: string;
+  /** Pattern to match migration files (default: {@link DEFAULT_MIGRATION_FILE_PATTERN}) */
+  pattern?: RegExp;
+}
+
+/**
+ * Executes all pending migrations in a synchronized manner (for clustered environments)
+ *
+ * Runs a {@link MigrationRunner} under the state store's lock. Unlike `MigrationRunner.up()`, it refuses a store that
+ * cannot be locked — a `MongoStateStore` without `lockCollectionName` — instead of running unsynchronized. Until
+ * 12.1.0 it called `up` on the loaded migration state, which has none, and threw on every call (DEV-3897).
+ *
+ * @param opts - State store, plus the migrations directory and file pattern of the runner
+ * @throws Error if the state store cannot be locked
+ *
+ * @example
+ * ```typescript
+ * await synchronizedUp({
+ *   migrationsDirectory: './migrations',
+ *   stateStore: new MongoStateStore({
+ *     uri: 'mongodb://localhost/db',
+ *     lockCollectionName: 'migrationlock'
+ *   })
+ * });
+ * ```
+ */
+export async function synchronizedUp(opts: SynchronizedUpOptions): Promise<void> {
+  assertLockableStore(opts?.stateStore);
+  await new MigrationRunner({
+    migrationsDirectory: opts.migrationsDirectory ?? 'migrations',
+    pattern: opts.pattern,
+    stateStore: opts.stateStore,
+  }).up();
+}
+
+/**
+ * The checks of `synchronizedMigration()`: a store that brings its own lock, or a `MongoStateStore` with a lock
+ * collection
+ */
+function assertLockableStore(stateStore: MigrationStateStore | undefined): void {
+  if (!stateStore) {
+    throw new Error('No `stateStore` in migration options');
+  }
+  if (!(stateStore instanceof MongoStateStore)) {
+    if (typeof stateStore.withLock !== 'function') {
+      throw new Error('Given `stateStore` is not `MongoStateStore`');
+    }
+    return;
+  }
+  if (typeof stateStore.lockCollectionName !== 'string') {
+    throw new Error('`lockCollectionName` in MongoStateStore is not set');
   }
 }

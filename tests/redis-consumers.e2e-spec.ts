@@ -1,6 +1,10 @@
+import { Logger } from '@nestjs/common';
+import { Reflector } from '@nestjs/core';
+import { type AddressInfo, connect, createServer, type Socket } from 'node:net';
 import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest';
 
 import { CoreRedisService } from '../src/core/common/services/core-redis.service';
+import { CoreTenantGuard } from '../src/core/modules/tenant/core-tenant.guard';
 import { HubBuffer } from '../src/core/modules/hub/hub-buffer';
 
 import type { HubBufferEntry } from '../src/core/modules/hub/hub-ring-buffer';
@@ -50,6 +54,56 @@ const waitFor = async (check: () => boolean | Promise<boolean>, timeoutMs = 5000
     await new Promise(resolve => setTimeout(resolve, 25));
   }
 };
+
+/** A tenant guard that records every invalidation message it applies */
+class RecordingTenantGuard extends CoreTenantGuard {
+  received: string[] = [];
+
+  protected override applyInvalidation(message: string): void {
+    this.received.push(message);
+    super.applyInvalidation(message);
+  }
+}
+
+/** A TCP port nothing listens on right now */
+async function freePort(): Promise<number> {
+  const server = createServer();
+  await new Promise<void>(resolve => server.listen(0, '127.0.0.1', () => resolve()));
+  const { port } = server.address() as AddressInfo;
+  await new Promise<void>(resolve => server.close(() => resolve()));
+  return port;
+}
+
+interface TcpProxy {
+  close: () => Promise<void>;
+}
+
+/** Forward `port` on 127.0.0.1 to the test Redis — Redis becoming reachable for a client configured with `port` */
+async function openProxy(port: number, targetPort: number): Promise<TcpProxy> {
+  const sockets = new Set<Socket>();
+  const server = createServer((client) => {
+    const upstream = connect(targetPort, '127.0.0.1');
+    sockets.add(client).add(upstream);
+    const closeBoth = () => {
+      client.destroy();
+      upstream.destroy();
+    };
+    client.on('error', closeBoth).on('close', closeBoth);
+    upstream.on('error', closeBoth).on('close', closeBoth);
+    client.pipe(upstream);
+    upstream.pipe(client);
+  });
+  await new Promise<void>((resolve, reject) => server.once('error', reject).listen(port, '127.0.0.1', () => resolve()));
+  return {
+    close: () =>
+      new Promise<void>((resolve) => {
+        for (const socket of sockets) {
+          socket.destroy();
+        }
+        server.close(() => resolve());
+      }),
+  };
+}
 
 describe('Redis consumers across replicas (real Redis)', () => {
   beforeAll(async () => {
@@ -173,6 +227,62 @@ describe('Redis consumers across replicas (real Redis)', () => {
     it('uses a namespaced channel, so two deployments on one Redis do not cross-invalidate', () => {
       expect(replicaA.key('tenant-cache', 'invalidate')).toContain(RUN_ID);
     });
+
+    /**
+     * @regression   12.1.1 (DEV-3894) — when Redis was unreachable while a replica booted, its subscribe for the tenant
+     *   invalidation failed, was logged on debug and never retried. That replica received no invalidation for its whole
+     *   life: a removed membership or a deactivated tenant stayed valid there until `cacheTtlMs`.
+     * @seen-failing Drop the 'ready' listener from getSubscriber() in src/core/common/services/core-redis.service.ts —
+     *   registered as mutation `redis-subscriber-ready-not-resubscribing` in tests/regression-mutations.json; the
+     *   guard subscribing past the channel registry is mutation `tenant-guard-subscribe-unregistered`.
+     */
+    it('reaches a replica whose subscribe failed at boot, once Redis is reachable', async () => {
+      // A port nothing listens on yet. A TCP proxy to the test Redis opens there later — Redis "comes back".
+      const port = await freePort();
+      const late = new CoreRedisService({
+        getFastButReadOnly: (key: string) =>
+          key === 'redis'
+            ? {
+                db: 15,
+                host: '127.0.0.1',
+                keyPrefix: RUN_ID,
+                options: { maxRetriesPerRequest: 1, retryStrategy: () => 50 },
+                port,
+              }
+            : undefined,
+      } as unknown as ConfigService);
+      const guard = new RecordingTenantGuard(new Reflector(), {} as any, late);
+      const warn = vi.spyOn(Logger.prototype, 'warn').mockImplementation(() => undefined);
+      const error = vi.spyOn(Logger.prototype, 'error').mockImplementation(() => undefined);
+      let proxy: TcpProxy | undefined;
+      try {
+        await late.onModuleInit();
+        expect(late.isReady()).toBe(false);
+        await guard.onApplicationBootstrap();
+        expect(warn).toHaveBeenCalledWith(expect.stringContaining('not reachable'));
+        expect(warn).toHaveBeenCalledWith(expect.stringContaining('Tenant cache invalidation subscribe failed'));
+
+        // Let the failed attempts run out, so nothing queued at boot can still reach Redis on its own.
+        await new Promise(resolve => setTimeout(resolve, 300));
+        proxy = await openProxy(port, PORT);
+        expect(await waitFor(() => late.isReady(), 10_000)).toBe(true);
+
+        const message = JSON.stringify({ scope: 'user', userId: 'member-removed-while-redis-was-down' });
+        const channel = replicaA.key('tenant-cache', 'invalidate');
+        expect(
+          await waitFor(async () => {
+            await replicaA.getClient().publish(channel, message);
+            return guard.received.includes(message);
+          }, 10_000),
+        ).toBe(true);
+      } finally {
+        guard.onModuleDestroy();
+        await late.onApplicationShutdown();
+        await proxy?.close();
+        warn.mockRestore();
+        error.mockRestore();
+      }
+    }, 30_000);
   });
 
   describe('Hub buffer mirror', () => {
@@ -217,16 +327,17 @@ describe('Redis consumers across replicas (real Redis)', () => {
     it('survives Redis being unavailable instead of taking the request down', async () => {
       // The mirror is fire-and-forget by design: an observability feature must
       // never fail the request it is observing.
-      // HubBuffer reports the fallback on console.debug (deliberately not the Logger — see hub-buffer.ts).
+      // HubBuffer reports the failed read on console.debug (deliberately not the Logger — see hub-buffer.ts).
       // Expected here, and asserted: the degradation is reported, not silent.
       const debug = vi.spyOn(console, 'debug').mockImplementation(() => undefined);
       const severed = createRedis();
       const buffer = new HubBuffer<LogEntry>(10, 'logs-severed', severed);
 
       expect(() => buffer.add({ message: 'no redis here' } as Omit<LogEntry, 'seq' | 'timestamp'>)).not.toThrow();
-      expect((await buffer.read()).entries.map(entry => entry.message)).toContain('no redis here');
+      // No entries rather than the local buffer: its cursor counts on this replica's own scale (DEV-3897)
+      expect(await buffer.read()).toEqual({ cursor: -1, dropped: -1, entries: [] });
       await severed.onApplicationShutdown();
-      expect(debug.mock.calls.flat().join('\n')).toContain('using the local buffer');
+      expect(debug.mock.calls.flat().join('\n')).toContain('Hub buffer read failed');
     }, 30_000);
   });
 });

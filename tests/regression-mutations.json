@@ -1579,7 +1579,7 @@
       "id": "consumer-gate-same-section-only",
       "defect": "11.42.15 — the consumer gate (and the starter's `pnpm run update`) raised a pin only when the framework declared it in the SAME section. nest-server declares mongodb under dependencies, the starter under devDependencies, and Better-Auth's MongoDB adapter resolves its mongodb peer from that pin: raising mongoose 9.11 (mongodb ~7.7) left the starter on mongodb 7.6.0, two bson copies made the adapter's instanceof ObjectId fail, sign-in answered 401 and the gate broke on 2026-10-06.",
       "file": "scripts/check-consumer.mjs",
-      "find": "      const version = newestFrameworkVersion(framework, name, RAISE_SOURCES[section]);",
+      "find": "      const version = newestFrameworkVersion(framework, name, raiseSources(framework, name, section));",
       "replace": "      const version = framework?.[section]?.[name];",
       "specs": [
         "tests/unit/check-consumer-align.spec.ts"
@@ -1592,6 +1592,28 @@
       "file": "scripts/check-consumer.mjs",
       "find": "  dependencies: ['dependencies'],",
       "replace": "  dependencies: ['dependencies', 'devDependencies'],",
+      "specs": [
+        "tests/unit/check-consumer-align.spec.ts"
+      ],
+      "driverSpecific": false
+    },
+    {
+      "id": "consumer-gate-ignores-optional-peers",
+      "defect": "12.1.0 (found by the starter's lock-step run) — mongoose, @nestjs/mongoose and mongodb became OPTIONAL framework peers, pinned only as framework devDependencies, while a MongoDB project keeps them as dependencies. The starter's `pnpm run update` raises such a runtime pin from the framework devDependency; the consumer gate did not, so a release raising the Mongo trio would have tested the starter with its old pins.",
+      "file": "scripts/check-consumer.mjs",
+      "find": "  if (section === 'dependencies' && framework?.peerDependenciesMeta?.[name]?.optional === true) {",
+      "replace": "  if (false) {",
+      "specs": [
+        "tests/unit/check-consumer-align.spec.ts"
+      ],
+      "driverSpecific": false
+    },
+    {
+      "id": "consumer-gate-required-peer-as-optional",
+      "defect": "12.1.0 — the opposite of consumer-gate-ignores-optional-peers: counting every framework peer as optional lets a framework devDependency set a REQUIRED peer's runtime pin. better-auth is a required peer whose version the project owns (api and app must resolve the same better-auth); the gate would raise it while the starter's `pnpm run update` does not.",
+      "file": "scripts/check-consumer.mjs",
+      "find": "  if (section === 'dependencies' && framework?.peerDependenciesMeta?.[name]?.optional === true) {",
+      "replace": "  if (section === 'dependencies' && framework?.peerDependencies?.[name] !== undefined) {",
       "specs": [
         "tests/unit/check-consumer-align.spec.ts"
       ],
@@ -3902,8 +3924,8 @@
       "id": "iam-required-user-column-not-null",
       "defect": "DEV-3831 (db-agnostic phase 3) — Better-Auth added name as NOT NULL on users; framework-created users failed to insert.",
       "file": "src/core/modules/better-auth/better-auth-sql.helper.ts",
-      "find": "    if (field.defaultValue === undefined && !existing.has(column) && SQL_TYPES[field.type]) {",
-      "replace": "    if (field.defaultValue === undefined && !existing.has(column) && SQL_TYPES[field.type] && false) {",
+      "find": "    if (field.defaultValue === undefined && !existing.has(column) && types[field.type]) {",
+      "replace": "    if (field.defaultValue === undefined && !existing.has(column) && types[field.type] && false) {",
       "specs": [
         "tests/stories/bidirectional-auth-sync.e2e-spec.ts"
       ]
@@ -4012,8 +4034,8 @@
       "id": "iam-migration-status-capped-at-a-page",
       "defect": "DEV-3831: on SQL the migration status read the credential accounts through Better-Auth's findMany(), which stops at 100 rows without a limit, so it never counted more than 100 migrated users",
       "file": "src/core/modules/better-auth/core-better-auth-sql.store.ts",
-      "find": "(SELECT count(*) FROM ${users} u WHERE u.${iamId} IS NOT NULL AND ${migrated})::int AS \"fullyMigrated\"",
-      "replace": "(SELECT count(*) FROM (SELECT 1 FROM ${users} u WHERE u.${iamId} IS NOT NULL AND ${migrated} LIMIT 100) page)::int AS \"fullyMigrated\"",
+      "find": "(SELECT count(*) FROM ${users} u WHERE u.${iamId} IS NOT NULL AND ${migrated}) AS ${quote('fullyMigrated')}",
+      "replace": "(SELECT count(*) FROM (SELECT 1 FROM ${users} u WHERE u.${iamId} IS NOT NULL AND ${migrated} LIMIT 100) page) AS ${quote('fullyMigrated')}",
       "specs": [
         "tests/stories/better-auth-migration-status.e2e-spec.ts"
       ]
@@ -4110,10 +4132,10 @@
     {
       "driverSpecific": false,
       "id": "ai-prompt-tenant-written-as-null",
-      "defect": "DEV-3832 review: creating a personal AI prompt inside a tenant wrote tenantId undefined, which a SQL store writes as NULL; row-level security refused it with 403 and left an orphan row",
+      "defect": "DEV-3832 review: creating a personal AI prompt inside a tenant wrote a tenantId over the one the insert had stamped; a SQL store wrote NULL, row-level security refused the row with 403 and left an orphan. Since DEV-3833 the SQL update compiler also skips a field given as undefined (mutation sql-update-writes-undefined), so the service's own guard is pinned by writing an explicit null, the shape a typed $set invites.",
       "file": "src/core/modules/ai/services/core-ai-prompt.service.ts",
       "find": "      $set: { ownerId: String(user.id), scope, ...(tenantId !== undefined ? { tenantId } : {}) },",
-      "replace": "      $set: { ownerId: String(user.id), scope, tenantId },",
+      "replace": "      $set: { ownerId: String(user.id), scope, tenantId: tenantId ?? null },",
       "specs": [
         "tests/ai-mcp-oauth-tenant.e2e-spec.ts"
       ]
@@ -4395,17 +4417,6 @@
     },
     {
       "driverSpecific": false,
-      "id": "mysql-iam-not-refused",
-      "defect": "DEV-3848 (db-agnostic phase 6): Better-Auth is not wired for MySQL / MariaDB; with the user model routed there the boot must refuse instead of running Better-Auth against a database it cannot serve",
-      "file": "src/core/common/persistence/data-source.runtime.ts",
-      "find": "    if (source.driver !== 'postgres') {",
-      "replace": "    if (false) {",
-      "specs": [
-        "tests/persistence-mysql-wiring.e2e-spec.ts"
-      ]
-    },
-    {
-      "driverSpecific": false,
       "id": "mysql-long-index-not-prefixed",
       "defect": "DEV-3848 (db-agnostic phase 6): a lookup index over four text fields exceeds InnoDB's 3072-byte key limit; created over the full columns it stopped the boot of every application with the AI module (ai_slots)",
       "file": "src/core/common/persistence/sql/mysql/mysql-schema.compiler.ts",
@@ -4634,6 +4645,380 @@
       "specs": [
         "tests/unit/legacy-auth-rate-limit-guard.spec.ts"
       ]
+    },
+    {
+      "id": "cron-reconnect-does-not-restore",
+      "defect": "12.1.1 (DEV-3889) — the BullMQ job schedulers were written into Redis once, at bootstrap. A Redis or Valkey restart without persistence removed them, and nothing registered them again after the reconnect: no replica ran a cron job until the next deploy, without a log line.",
+      "file": "src/core/common/services/core-cron-jobs.service.ts",
+      "find": "    queueConnection.on?.('ready', this.onBullQueueReady);",
+      "replace": "    void queueConnection;",
+      "specs": [
+        "tests/unit/core-cron-jobs-dedup.spec.ts"
+      ],
+      "driverSpecific": false
+    },
+    {
+      "id": "cron-restore-upserts-existing-schedulers",
+      "defect": "12.1.1 (DEV-3889) — the paired refusal: re-registering a scheduler that still exists is not free. BullMQ's upsert removes the job the scheduler planned last, also one that is due and waits for a free worker slot, and plans from now, so a periodic blind upsert would drop exactly the tick nobody had picked up yet.",
+      "file": "src/core/common/services/core-cron-jobs.service.ts",
+      "find": "          if (!this.bullQueue || !config || present.has(name)) {",
+      "replace": "          if (!this.bullQueue || !config) {",
+      "specs": [
+        "tests/unit/core-cron-jobs-dedup.spec.ts"
+      ],
+      "driverSpecific": false
+    },
+    {
+      "id": "cron-restore-trusts-get-job-scheduler",
+      "defect": "12.1.1 (DEV-3889, found in review) — whether a scheduler exists was asked through getJobScheduler(). That method does not exist before bullmq 5.23, and up to 5.40.2 it answers a deleted scheduler with an object instead of undefined, both inside the peer range >=5.16.0: the restore then never ran, silently.",
+      "file": "src/core/common/services/core-cron-jobs.service.ts",
+      "find": "      const schedulers: { key?: string }[] = await this.bullQueue.getJobSchedulers();",
+      "replace": "      const schedulers: { key?: string }[] = await Promise.all([...this.bullScheduledJobs].map((name) => this.bullQueue.getJobScheduler(name)));",
+      "specs": [
+        "tests/unit/core-cron-jobs-dedup.spec.ts"
+      ],
+      "driverSpecific": false
+    },
+    {
+      "id": "cron-restore-ignores-removal-marker",
+      "defect": "12.1.1 (DEV-3889, found in review) — in a rolling deploy an old replica found the scheduler a newer version had removed on purpose and registered it again; a job moved to a local timer then ran twice every tick until the next deploy.",
+      "file": "src/core/common/services/core-cron-jobs.service.ts",
+      "find": "            if (await this.isBullSchedulerRemoved(name)) {",
+      "replace": "            if (false) {",
+      "specs": [
+        "tests/unit/core-cron-jobs-dedup.spec.ts"
+      ],
+      "driverSpecific": false
+    },
+    {
+      "id": "cron-scheduler-check-timer-missing",
+      "defect": "12.1.1 (DEV-3889) — a FLUSHDB or an eviction under maxmemory removes the BullMQ schedulers without closing a connection, so the reconnect never notices; without the periodic check no replica ran a cron job until the next deploy.",
+      "file": "src/core/common/services/core-cron-jobs.service.ts",
+      "find": "    this.bullSchedulerCheckTimer = setInterval(this.onBullQueueReady, this.bullSchedulerCheckIntervalMs);",
+      "replace": "    this.bullSchedulerCheckTimer = setTimeout(() => undefined, 0);",
+      "specs": [
+        "tests/unit/core-cron-jobs-dedup.spec.ts"
+      ],
+      "driverSpecific": false
+    },
+    {
+      "id": "cron-e2e-scheduler-check-missing",
+      "defect": "12.1.1 (DEV-3889) — a FLUSHDB or an eviction under maxmemory removes the BullMQ schedulers without closing a connection, so the reconnect never notices; without the periodic check no replica ran a cron job until the next deploy.",
+      "file": "src/core/common/services/core-cron-jobs.service.ts",
+      "find": "    this.bullSchedulerCheckTimer = setInterval(this.onBullQueueReady, this.bullSchedulerCheckIntervalMs);",
+      "replace": "    this.bullSchedulerCheckTimer = setTimeout(() => undefined, 0);",
+      "specs": [
+        "tests/multi-replica.e2e-spec.ts"
+      ],
+      "driverSpecific": false
+    },
+    {
+      "id": "redis-ready-resubscribe-missing",
+      "defect": "12.1.1 (DEV-3894) — a SUBSCRIBE on the shared subscriber that failed while Redis was down (typically at boot) was never repeated, and ioredis re-subscribes on reconnect only what once succeeded: the tenant cache invalidation of a replica that booted during a Redis outage stayed deaf for its whole life, so a removed membership or a deactivated tenant stayed valid there until cacheTtlMs.",
+      "file": "src/core/common/services/core-redis.service.ts",
+      "find": "      this.subscriberClient.on?.('ready', this.onSubscriberReady);",
+      "replace": "      void this.onSubscriberReady;",
+      "specs": [
+        "tests/unit/core-redis.service.spec.ts"
+      ],
+      "driverSpecific": false
+    },
+    {
+      "id": "redis-subscriber-ready-not-resubscribing",
+      "defect": "12.1.1 (DEV-3894) — a SUBSCRIBE on the shared subscriber that failed while Redis was down (typically at boot) was never repeated, and ioredis re-subscribes on reconnect only what once succeeded: the tenant cache invalidation of a replica that booted during a Redis outage stayed deaf for its whole life, so a removed membership or a deactivated tenant stayed valid there until cacheTtlMs.",
+      "file": "src/core/common/services/core-redis.service.ts",
+      "find": "      this.subscriberClient.on?.('ready', this.onSubscriberReady);",
+      "replace": "      void this.onSubscriberReady;",
+      "specs": [
+        "tests/redis-consumers.e2e-spec.ts"
+      ],
+      "driverSpecific": false
+    },
+    {
+      "id": "tenant-guard-subscribe-unregistered",
+      "defect": "12.1.1 (DEV-3894) — the tenant guard subscribed the shared subscriber directly instead of through the channel registry, so a subscribe that failed at boot was never established again and the replica received no tenant cache invalidation.",
+      "file": "src/core/modules/tenant/core-tenant.guard.ts",
+      "find": "      await this.redisService.subscribeChannel(channel);",
+      "replace": "      await subscriber.subscribe(channel);",
+      "specs": [
+        "tests/redis-consumers.e2e-spec.ts"
+      ],
+      "driverSpecific": false
+    },
+    {
+      "id": "mutation-gate-exit-drops-verdicts",
+      "defect": "12.1.0 publish (issue #653) — the regression-evidence gate ended with process.exit(), which on a pipe drops stdout that is still queued. The parallel path writes all verdict blocks at the end, so CI showed 359 of 407 blocks and no summary: a red gate that named no failing mutation.",
+      "file": "scripts/check-mutations.mjs",
+      "find": "  process.exitCode = failed.length ? 1 : 0;",
+      "replace": "  process.exit(failed.length ? 1 : 0);",
+      "specs": [
+        "tests/unit/check-mutations-exit.spec.ts"
+      ],
+      "driverSpecific": false
+    },
+    {
+      "id": "iam-user-cache-invalidation-not-broadcast",
+      "defect": "12.1.1 (DEV-3895) — invalidateUserCache() cleared the Better-Auth user cache only on the replica it ran on: an admin whose role was withdrawn, or a user whose verification was, kept it on every other replica for up to 15 s, and without session affinity it was enough to keep sending requests.",
+      "file": "src/core/modules/better-auth/core-better-auth-user.mapper.ts",
+      "find": "    this.userCache.delete(iamId);\n    this.publishInvalidation(iamId);",
+      "replace": "    this.userCache.delete(iamId);",
+      "specs": [
+        "tests/unit/better-auth-user-cache-invalidation.spec.ts"
+      ],
+      "driverSpecific": false
+    },
+    {
+      "id": "iam-user-cache-e2e-not-broadcast",
+      "defect": "12.1.1 (DEV-3895) — the same defect against a real Redis with two mapper instances: a role withdrawn on replica A was still granted by replica B from its cache for up to 15 s.",
+      "file": "src/core/modules/better-auth/core-better-auth-user.mapper.ts",
+      "find": "    this.userCache.delete(iamId);\n    this.publishInvalidation(iamId);",
+      "replace": "    this.userCache.delete(iamId);",
+      "specs": [
+        "tests/multi-replica.e2e-spec.ts"
+      ],
+      "driverSpecific": false
+    },
+    {
+      "id": "iam-user-cache-remote-ws-not-revalidated",
+      "defect": "12.1.1 (DEV-3895) — a role or verification change re-checked the user's open GraphQL WebSockets only on the replica that made it; on every other replica an open subscription kept the old rights until the periodic re-check (subscriptionRevalidationMs, 30 s).",
+      "file": "src/core/modules/better-auth/core-better-auth-user.mapper.ts",
+      "find": "    revalidateWsConnectionsOf({ iamId });",
+      "replace": "    void revalidateWsConnectionsOf;",
+      "specs": [
+        "tests/unit/better-auth-user-cache-invalidation.spec.ts"
+      ],
+      "driverSpecific": false
+    },
+    {
+      "id": "mysql-iam-tables-default-collation",
+      "defect": "DEV-3904 — Better-Auth creates its tables without naming a collation, i.e. with the database's default, while users.id carries the framework's utf8mb4_bin: on MariaDB the foreign key from session.user_id was refused (\"Foreign key constraint is incorrectly formed\") and the boot stopped; on MySQL Better-Auth's tokens and identifiers compared case-insensitively, unlike on every other database.",
+      "file": "src/core/common/persistence/sql/sql-dialect.ts",
+      "find": "        (await anyTableMissing(run, tables)) ? withFrameworkDefaultCollation(run, migrate) : migrate(),",
+      "replace": "        (await anyTableMissing(run, tables)) ? migrate() : migrate(),",
+      "specs": [
+        "tests/persistence-mysql-wiring.e2e-spec.ts"
+      ],
+      "driverSpecific": false
+    },
+    {
+      "id": "iam-roles-input-reopened",
+      "defect": "DEV-3904 — Better-Auth's update-user route takes every field its schema declares as input; roles stay out only because buildUserFields() re-asserts input: false after the project's fields are merged. Without it a signed-in user makes themselves an administrator — pinned on every database the adapter runs on, MySQL and MariaDB included.",
+      "file": "src/core/modules/better-auth/better-auth.config.ts",
+      "find": "    if (coreFields[key]) {\n      coreFields[key].input = false;\n    }",
+      "replace": "    if (coreFields[key]) {\n      coreFields[key].input = key === 'roles';\n    }",
+      "specs": [
+        "tests/core-module-parity.e2e-spec.ts"
+      ],
+      "driverSpecific": false
+    },
+    {
+      "id": "iam-password-stored-plain",
+      "defect": "DEV-3904 — the framework installs the password hashing Better-Auth uses (nativeScryptHash / nativeScryptVerify); a pair that stores and compares the password in clear keeps every sign-in working while the credential account holds the password itself, on every database.",
+      "file": "src/core/modules/better-auth/better-auth.config.ts",
+      "find": "        hash: nativeScryptHash,\n        verify: nativeScryptVerify,",
+      "replace": "        hash: async (password: string) => password,\n        verify: async ({ hash, password }: { hash: string; password: string }) => hash === password,",
+      "specs": [
+        "tests/core-module-parity.e2e-spec.ts"
+      ],
+      "driverSpecific": false
+    },
+    {
+      "id": "iam-sign-out-keeps-session",
+      "defect": "DEV-3904 — POST /iam/sign-out is the framework's controller; clearing the cookies without revoking the session in Better-Auth's table leaves a captured session token working, on every database.",
+      "file": "src/core/modules/better-auth/core-better-auth.controller.ts",
+      "find": "        await this.betterAuthService.revokeSession(sessionToken);\n      }\n\n      // Clear cookies",
+      "replace": "        void sessionToken;\n      }\n\n      // Clear cookies",
+      "specs": [
+        "tests/core-module-parity.e2e-spec.ts"
+      ],
+      "driverSpecific": false
+    },
+    {
+      "id": "mysql-collation-switch-every-boot",
+      "defect": "DEV-3904 review — the switch of the database's default collation for Better-Auth's migration ran on every boot. On MySQL 8.4 ALTER DATABASE takes an exclusive metadata lock on every table, so behind any open transaction it waited (lock_wait_timeout defaults to a year) while every statement on the tables it had already locked stood still; measured 2.8 s of stalled session lookups behind a 3 s transaction.",
+      "file": "src/core/common/persistence/sql/sql-dialect.ts",
+      "find": "        (await anyTableMissing(run, tables)) ? withFrameworkDefaultCollation(run, migrate) : migrate(),",
+      "replace": "        (await Promise.resolve(true)) ? withFrameworkDefaultCollation(run, migrate) : migrate(),",
+      "specs": [
+        "tests/unit/mysql-foreign-schema-lock.spec.ts"
+      ],
+      "driverSpecific": false
+    },
+    {
+      "id": "upload-name-from-math-random",
+      "defect": "DEV-3897 — multerRandomFileName() built upload names from Math.random(): not a cryptographic source, unevenly distributed and 32 to 64 characters long. Where the upload directory is served, the names of other users' files could be predicted.",
+      "file": "src/core/common/helpers/file.helper.ts",
+      "find": "    const randomName = randomBytes(Math.ceil(numberOfDigits / 2))\n      .toString('hex')\n      .slice(0, numberOfDigits);",
+      "replace": "    const randomName = Array(numberOfDigits)\n      .fill(null)\n      .map(() => Math.round(Math.random() * 16).toString(16))\n      .join('');",
+      "specs": [
+        "tests/unit/file.helper.spec.ts"
+      ],
+      "driverSpecific": false
+    },
+    {
+      "id": "hub-cursor-local-fallback",
+      "defect": "DEV-3897 — a failed shared Hub buffer read fell back to the local buffer, whose cursor counts per replica: the client's next successful poll repeated or skipped entries.",
+      "file": "src/core/modules/hub/hub-buffer.ts",
+      "find": "      return (await this.readShared(since, limit)) ?? { cursor: since ?? -1, dropped: -1, entries: [] };\n    }\n",
+      "replace": "      const shared = await this.readShared(since, limit);\n      if (shared) {\n        return shared;\n      }\n    }\n",
+      "specs": [
+        "tests/unit/hub-buffer.spec.ts"
+      ],
+      "driverSpecific": false
+    },
+    {
+      "id": "pubsub-unsubscribe-ignores-other-holders",
+      "defect": "DEV-3897 — two CoreRedisPubSub instances share the subscriber connection; when one dropped its last handler for a trigger it unsubscribed the channel on that connection itself, and the other's subscriptions to the same trigger received nothing from then on. Restores that call in place of the holder-counted releaseChannel().",
+      "file": "src/core/common/services/core-redis-pubsub.ts",
+      "find": "      await this.redisService.releaseChannel(channel);",
+      "replace": "      await this.redisService.getSubscriber().unsubscribe(channel);",
+      "specs": [
+        "tests/unit/core-redis.service.spec.ts"
+      ],
+      "driverSpecific": false
+    },
+    {
+      "id": "synchronized-up-calls-up-on-state",
+      "defect": "DEV-3897 — synchronizedUp() called `up` on the loaded migration state, which has none, so it threw on every call although the README and the module's JSDoc recommended it for clustered environments.",
+      "file": "src/core/modules/migrate/migration-runner.ts",
+      "find": "  await new MigrationRunner({\n    migrationsDirectory: opts.migrationsDirectory ?? 'migrations',\n    pattern: opts.pattern,\n    stateStore: opts.stateStore,\n  }).up();",
+      "replace": "  await withMigrationLock(opts.stateStore, async () => {\n    const loadedSet: any = await opts.stateStore.loadAsync();\n    await new Promise((resolve, reject) => loadedSet.up((err?: Error) => (err ? reject(err) : resolve(undefined))));\n  });",
+      "specs": [
+        "tests/migrate/mongo-state-store.e2e-spec.ts"
+      ],
+      "driverSpecific": false
+    },
+    {
+      "id": "migration-runner-relative-directory",
+      "defect": "DEV-3897 review — MigrationRunner handed a relative migrationsDirectory to require() unresolved; path.join('./migrations', file) is `migrations/<file>`, which require() reads as a package name, so the documented './migrations' (README, JSDoc, synchronizedUp()) threw MODULE_NOT_FOUND for every migration file.",
+      "file": "src/core/modules/migrate/migration-runner.ts",
+      "find": "      migrationsDirectory: path.resolve(options.migrationsDirectory),",
+      "replace": "      migrationsDirectory: options.migrationsDirectory,",
+      "specs": [
+        "tests/unit/migration-runner-relative-directory.spec.ts"
+      ],
+      "driverSpecific": false
+    },
+    {
+      "id": "cron-lease-key-from-fire-time",
+      "defect": "DEV-3896 — the lease key of a scheduled tick was cron's lastDate(), which cron 4.4.0 sets to the moment its timer FIRED. A replica whose timer fired across a second boundary later computed a key of its own and ran the tick a second time.",
+      "file": "src/core/common/services/core-cron-jobs.service.ts",
+      "find": "          await this.runDistributedTick(name, new Date(instant));",
+      "replace": "          await this.runDistributedTick(name, ref.job.lastDate() ?? new Date(instant));",
+      "specs": [
+        "tests/unit/core-cron-jobs-dedup.spec.ts"
+      ],
+      "driverSpecific": false
+    },
+    {
+      "id": "cron-running-lease-missing",
+      "defect": "DEV-3896 — with runParallel: false a job that ran longer than its interval was skipped only inside its own process; a second replica took the next tick's lease and ran it in parallel.",
+      "file": "src/core/common/services/core-cron-jobs.service.ts",
+      "find": "      if (this.runsExclusively(config)) {",
+      "replace": "      if (false && this.runsExclusively(config)) {",
+      "specs": [
+        "tests/unit/core-cron-jobs-dedup.spec.ts"
+      ],
+      "driverSpecific": false
+    },
+    {
+      "id": "cron-lease-index-failure-cached",
+      "defect": "DEV-3896 — a failed creation of the TTL index on cron-locks was cached as done, so the index was never created and the collection grew without bound.",
+      "file": "src/core/common/services/core-cron-jobs.service.ts",
+      "find": "          this.leaseIndexReady = undefined;\n",
+      "replace": "",
+      "specs": [
+        "tests/unit/core-cron-jobs-dedup.spec.ts"
+      ],
+      "driverSpecific": false
+    },
+    {
+      "id": "cron-no-redis-hint-missing",
+      "defect": "DEV-3896 — without Redis every cron job runs on every replica, and nothing said so: the only warning was reachable only for jobs that had explicitly asked for deduplication.",
+      "file": "src/core/common/services/core-cron-jobs.service.ts",
+      "find": "    this.logLocalJobsHint(localByDefault);\n",
+      "replace": "",
+      "specs": [
+        "tests/unit/core-cron-jobs-dedup.spec.ts"
+      ],
+      "driverSpecific": false
+    },
+    {
+      "id": "cron-bull-jobs-without-options",
+      "defect": "DEV-3896 — the BullMQ schedulers were registered without job options: every completed and failed tick stayed in Redis for good, one job per tick, and the retry policy was left to BullMQ's default.",
+      "file": "src/core/common/services/core-cron-jobs.service.ts",
+      "find": "      { name, opts: this.bullJobOptions },",
+      "replace": "      { name },",
+      "specs": [
+        "tests/unit/core-cron-jobs-dedup.spec.ts"
+      ],
+      "driverSpecific": false
+    },
+    {
+      "id": "cron-running-lease-e2e-missing",
+      "defect": "DEV-3896 — with runParallel: false a job that ran longer than its interval was skipped only inside its own process; a second replica took the next tick's lease and ran it in parallel. Against a real Redis, with the owner-checked renew and release.",
+      "file": "src/core/common/services/core-cron-jobs.service.ts",
+      "find": "      if (this.runsExclusively(config)) {",
+      "replace": "      if (false && this.runsExclusively(config)) {",
+      "specs": [
+        "tests/multi-replica.e2e-spec.ts"
+      ],
+      "driverSpecific": false
+    },
+    {
+      "id": "cron-manual-run-decided-by-clock",
+      "defect": "DEV-3896 review — with the scheduled instant decided by the clock alone, \"Run now\" on a job the Hub had stopped on this replica, after its remembered instant had passed, counted as a scheduled tick; its key was an instant another replica had already run, and the operator's run was skipped without a word.",
+      "file": "src/core/common/services/core-cron-jobs.service.ts",
+      "find": "          if (fired === undefined || fired === lastFired || scheduledFor === undefined || fired < scheduledFor) {",
+      "replace": "          if (scheduledFor === undefined || Date.now() < scheduledFor) {",
+      "specs": [
+        "tests/unit/core-cron-jobs-dedup.spec.ts"
+      ],
+      "driverSpecific": false
+    },
+    {
+      "id": "cron-stale-instant-after-restart",
+      "defect": "DEV-3896 review — a job the Hub stopped and started again kept the instant it had remembered before the stop; its first tick after the restart took the lease of that old, long expired instant and ran next to the replica that ran the current tick.",
+      "file": "src/core/common/services/core-cron-jobs.service.ts",
+      "find": "          const instant = this.currentScheduledInstant(ref.job, scheduledFor, fired);",
+      "replace": "          const instant = scheduledFor;",
+      "specs": [
+        "tests/unit/core-cron-jobs-dedup.spec.ts"
+      ],
+      "driverSpecific": false
+    },
+    {
+      "id": "cron-running-lease-closed-without-store",
+      "defect": "DEV-3896 review — the running lease must fail open like the tick lease; refusing the run without a lease backend would stop a runParallel: false job on every replica for good.",
+      "file": "src/core/common/services/core-cron-jobs.service.ts",
+      "find": "        this.warnDedupInactive();\n        return unlocked;",
+      "replace": "        this.warnDedupInactive();\n        return false;",
+      "specs": [
+        "tests/unit/core-cron-jobs-dedup.spec.ts"
+      ],
+      "driverSpecific": false
+    },
+    {
+      "id": "cron-running-lease-closed-on-error",
+      "defect": "DEV-3896 review — a failing lease store must not stop a runParallel: false job: with redis configured every such job is distributed, and failing closed would skip every tick for the length of an outage.",
+      "file": "src/core/common/services/core-cron-jobs.service.ts",
+      "find": "errorStack(e));\n      return unlocked;",
+      "replace": "errorStack(e));\n      return false;",
+      "specs": [
+        "tests/unit/core-cron-jobs-dedup.spec.ts"
+      ],
+      "driverSpecific": false
+    },
+    {
+      "id": "cron-bull-backlog-trimmed-at-once",
+      "defect": "DEV-3896 review — up to 12.1.0 every finished cron job stayed in Redis; BullMQ trims by count in ONE Lua call without a limit, so with the new job options the first tick to finish after the upgrade would delete the whole backlog at once (measured 2 s for 300k jobs, 4.4 s for 700k) while Redis answers nobody.",
+      "file": "src/core/common/services/core-cron-jobs.service.ts",
+      "find": "      await this.trimBullJobBacklog();\n",
+      "replace": "",
+      "specs": [
+        "tests/unit/core-cron-jobs-dedup.spec.ts"
+      ],
+      "driverSpecific": false
     }
   ]
 }

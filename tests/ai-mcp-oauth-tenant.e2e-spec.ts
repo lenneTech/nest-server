@@ -33,7 +33,7 @@ import {
   bootApiTokenIamApp,
   signUpAndSignIn,
 } from './helpers/api-token-e2e.helpers';
-import { createPostgresTestDatabase, type PostgresTestDatabase } from './helpers/postgres-test-db';
+import { createOwnSqlTestDatabase, type OwnSqlTestDatabase } from './helpers/sql-test-db';
 import { type IamTestDb, openIamTestDb } from './helpers/iam-test-db';
 
 @Schema({ timestamps: true })
@@ -90,9 +90,9 @@ describe('MCP OAuth — tenant context for an OAuth access token (e2e)', () => {
   let iamDb: IamTestDb;
   let oauth: CoreAiMcpOAuthService;
   let previousConfig: any;
-  // In the postgres and iam-sql projects: a PostgreSQL database of this suite's own. Its configuration (multiTenancy) isolates the
-  // tenant-scoped AI tables, and the project's shared database is used by suites without multiTenancy
-  let sqlDatabase: PostgresTestDatabase | undefined;
+  // In the SQL projects: a database of this suite's own on the project's server. Its configuration (multiTenancy)
+  // isolates the tenant-scoped AI tables, and the project's shared database is used by suites without multiTenancy
+  let sqlDatabase: OwnSqlTestDatabase | undefined;
 
   const suffix = `${Date.now()}`;
   const tenantA = `mcp-tenant-a-${suffix}`;
@@ -116,9 +116,7 @@ describe('MCP OAuth — tenant context for an OAuth access token (e2e)', () => {
 
   beforeAll(async () => {
     previousConfig = ConfigService.configFastButReadOnly;
-    if (process.env.NSC__DATABASE__OWNER_URL) {
-      sqlDatabase = await createPostgresTestDatabase(`mcp-oauth-tenant-${process.pid}`);
-    }
+    sqlDatabase = await createOwnSqlTestDatabase(`mcp-oauth-tenant-${process.pid}`);
     const config = apiTokenIamConfig('mcp-oauth-tenant', {
       ...(sqlDatabase
         ? {
@@ -235,7 +233,9 @@ describe('MCP OAuth — tenant context for an OAuth access token (e2e)', () => {
    * @regression   DEV-3832 (db-agnostic phase 4, review) — CoreAiPromptService wrote `tenantId: undefined` after the
    *   insert. MongoDB drops the key; a SQL store wrote NULL, row-level security refused the row the insert had stamped
    *   with the member's tenant, and creating a personal prompt inside a tenant answered 403 with an orphan row left.
-   * @seen-failing Write `tenantId` unconditionally again in CoreAiPromptService.create() in
+   *   Since DEV-3833 the SQL update compiler skips a field given as `undefined` as well, so the service's guard is what
+   *   this test pins: a personal prompt gets no tenant written at all, not even an explicit `null`.
+   * @seen-failing Write `tenantId: tenantId ?? null` in CoreAiPromptService.create() in
    *   src/core/modules/ai/services/core-ai-prompt.service.ts — registered as mutation `ai-prompt-tenant-written-as-null`
    *   in tests/regression-mutations.json.
    */

@@ -31,6 +31,9 @@ function createRedisStub() {
     getClient: () => ({ publish }),
     getSubscriber: () => subscriber,
     key: (...parts: string[]) => ['nest-server', ...parts].join(':'),
+    // The engine subscribes through the service's channel registry, which ends on the shared subscriber.
+    releaseChannel: (channel: string) => subscriber.unsubscribe(channel),
+    subscribeChannel: (channel: string) => subscriber.subscribe(channel),
   } as unknown as CoreRedisService;
 
   return { events, publish, service, subscribe, unsubscribe };

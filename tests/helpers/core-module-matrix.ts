@@ -9,9 +9,10 @@
  * fails the build on anything else.
  *
  * One column per SQL database, on the default engine (TypeORM): the store is the only place an engine is visible, and
- * the persistence matrix runs every engine against it. Sign-in in the SQL columns goes through the legacy endpoints —
- * the IAM suites run on PostgreSQL in their own vitest projects, and Better-Auth is refused on MySQL / MariaDB (phase 6),
- * so their columns prove the legacy-auth path there.
+ * the persistence matrix runs every engine against it. Every column runs Better-Auth beside the legacy endpoints, as the
+ * reference server does: the user cases sign in through the legacy endpoints, the IAM cases through Better-Auth, whose
+ * adapter runs on each database (DEV-3904 added MySQL and MariaDB). The IAM suites cover Better-Auth in depth in their
+ * own vitest projects; these cases pin its security rules on every column.
  *
  * Executor: `tests/core-module-parity.e2e-spec.ts`.
  */
@@ -80,6 +81,28 @@ export const CORE_MODULE_CASES: readonly CoreModuleCase[] = [
     title: 'an administrator filters, sorts, pages and counts users; a user may not list them',
   },
   { drivers: ALL, id: 'user-delete', title: 'an administrator deletes a user, who can no longer sign in' },
+
+  // --- IAM (Better-Auth) -----------------------------------------------------------------------------------------
+  {
+    drivers: ALL,
+    id: 'iam-sign-up-and-sign-in',
+    title: 'an IAM sign-up creates the one user the user model reads, and sign-in answers a session for the right password only',
+  },
+  {
+    drivers: ALL,
+    id: 'iam-roles-not-input',
+    title: 'neither the IAM sign-up nor update-user lets a user give themselves a role',
+  },
+  {
+    drivers: ALL,
+    id: 'iam-password-hashed',
+    title: 'the IAM credential stores a scrypt hash, and the legacy password a bcrypt hash, never the password',
+  },
+  {
+    drivers: ALL,
+    id: 'iam-session-revoked',
+    title: 'signing out ends the session: its token no longer resolves to the user',
+  },
 
   // --- tenants -------------------------------------------------------------------------------------------------
   {

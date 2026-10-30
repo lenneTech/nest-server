@@ -42,7 +42,7 @@
  *   pnpm run check:mutations -- --no-infra      only the mutations that need no MongoDB
  *   pnpm run check:mutations -- --since=<ref>   only mutations touching files changed since <ref>
  *
- * `--no-infra` selects the 222 mutations whose specs are all unit specs — the unit runner has no
+ * `--no-infra` selects the 248 mutations whose specs are all unit specs — the unit runner has no
  * `globalSetup`, so those need no MongoDB and no test containers. It is a CAPABILITY filter, for a
  * machine that cannot start the infrastructure; it is not a "quick mode". When you are iterating on
  * one mutation, `--id=<id>` is both faster and more relevant.
@@ -53,11 +53,11 @@
  * refactor three modules away can hollow out a test it will happily skip — which is exactly the
  * failure this tool exists to catch. Fast feedback while you work; never the evidence.
  *
- * Why the release gate still runs all 407 rather than caching per-mutation verdicts: the gate
+ * Why the release gate still runs all 442 rather than caching per-mutation verdicts: the gate
  * runs ONCE PER RELEASE, not per commit, and in CI it runs alongside the publish without blocking
  * it. The price of caching would be a cache that has to model each spec's full dependency closure
  * correctly, and the failure mode of getting that wrong is a stale PASS for a test that has since
- * gone vacuous — the precise thing the gate is there to prevent. Bad trade at 407 mutations.
+ * gone vacuous — the precise thing the gate is there to prevent. Bad trade at 442 mutations.
  *
  * DECIDED 2026-10-03 (repo owner): keep the full run. Measured at 128 mutations, the CI job for
  * 11.41.6 took 14 minutes. The trigger to revisit is that WALL TIME, not the mutation count —
@@ -782,7 +782,11 @@ async function main() {
 
   const failed = results.filter((result) => !result.ok);
   process.stdout.write(`\n${results.length - failed.length}/${results.length} mutations confirmed\n`);
-  process.exit(failed.length ? 1 : 0);
+  // exitCode, never process.exit(): on a pipe (every CI runner) stdout is written asynchronously, and exit() drops
+  // what is still queued. The parallel path writes every verdict block at the end, so the 12.1.0 publish run lost
+  // the last 48 blocks AND this summary — a red gate that named no failing mutation. Nothing here keeps the
+  // event loop alive, so the process ends as soon as the pipe has taken everything.
+  process.exitCode = failed.length ? 1 : 0;
 }
 
 /**
@@ -814,6 +818,6 @@ function isCliEntry() {
 if (isCliEntry()) {
   main().catch((err) => {
     console.error(`\ncheck-mutations.mjs crashed: ${err?.stack || err}`);
-    process.exit(1);
+    process.exitCode = 1;
   });
 }

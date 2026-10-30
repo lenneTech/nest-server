@@ -34,7 +34,7 @@ import {
 } from './better-auth.config.js';
 import { applyBetterAuthSchema } from './better-auth-sql.helper.js';
 import { getBetterAuthSqlStore, setBetterAuthSqlStore } from './core-better-auth-sql.registry.js';
-import { BetterAuthSqlStore, type IamSqlQueryable } from './core-better-auth-sql.store.js';
+import { BetterAuthSqlStore } from './core-better-auth-sql.store.js';
 import { DefaultBetterAuthResolver } from './better-auth.resolver.js';
 import { CoreBetterAuthApiMiddleware } from './core-better-auth-api.middleware.js';
 import { CoreBetterAuthChallengeService } from './core-better-auth-challenge.service.js';
@@ -490,7 +490,7 @@ export class CoreBetterAuthModule implements NestModule, OnModuleInit {
     }
     const result = instantiateBetterAuth(built);
     if (storage) {
-      setBetterAuthSqlStore(new BetterAuthSqlStore(storage.users, result.instance, storage.pool as IamSqlQueryable));
+      setBetterAuthSqlStore(new BetterAuthSqlStore(storage.users, result.instance, storage));
     }
     return result;
   }

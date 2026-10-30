@@ -37,6 +37,11 @@
 - [TS6 esModuleInterop namespace-import trap](ts6-esmoduleinterop-namespace-import-trap.md) — `import * as GraphQLUpload` compiles green under TS 6 and fails at boot; carried by nest-server's CoreFileResolver ≤ 11.43.3, not by the CLI generator
 - [Starter update does not apply every row](starter-update-does-not-apply-every-row.md) — RAISE_SOURCES skips devDep→runtime + undeclared pkgs; diff every guide table row against package.json
 - [Vendor legacy ts-node bootstrap](vendor-legacy-ts-node-bootstrap.md) — CLI-generated migrations-utils/ts-compiler.js survives core sync; 12.x core breaks migrate:* through it
-- [db-agnostic phase 0-6 doc facts](db-agnostic-phase0-doc-facts.md) — phase-2 guard leak, fail-open isTenantActive; phase 3 globalSetup abort; phase 5 mongo trio; phase 6 --sql template "one transaction"
+- [db-agnostic phase 0-6 + DEV-3904 doc facts](db-agnostic-phase0-doc-facts.md) — phase-2 guard leak, fail-open isTenantActive; phase 3 globalSetup abort; phase 6 --sql "one transaction"; IAM on MySQL verified
 - [NSC__ env replaces shorthand values](nsc-env-merge-replaces-shorthand.md) — NSC__A__B over `a: 'string'`/`a: false` wipes the value to { b }; check docs pairing both
 - [Vendor type imports need the package](vendor-type-imports-need-the-package.md) — `import type` AND literal `import('x')` of an optional peer break a vendor tsc; every SQL driver/engine needed; probe recipe
+- [bullmq peer-range API drift](bullmq-peer-range-api-drift.md) — peer >=5.16.0: getJobScheduler absent <5.23, truthy-for-missing to 5.40.2; check new calls against the floor
+- [Redis outage fallback claims](redis-outage-fallback-claims.md) — configured-but-down Redis: TUS locker + CoreRedisPubSub have NO fallback; "every consumer falls back" is false
+- [Migrate doc-example traps](migrate-programmatic-runner-doc-traps.md) — relative migrationsDirectory threw before 12.1.1 (runner resolves it now); loadAsync() is {} on first run
+- [Cron doc surfaces](cron-doc-surfaces.md) — which docs carry CoreCronJobs mechanics; deprecated CronJobConfig JSDoc is the live one
+- [Offline-sync spec traps](offline-sync-spec-review-traps.md) — DEV-3819: no conditional CrudService write, SQL has no NOT NULL, Mongo $type null index, queued baseVersion undefined

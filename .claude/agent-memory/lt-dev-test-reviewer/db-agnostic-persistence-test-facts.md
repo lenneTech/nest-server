@@ -116,3 +116,20 @@ picks the foreign row, the row check throws, and the transaction rolls back — 
 - Runs: parity (10 columns, 480 tests) ~5 s; core-module parity (4 columns) + sql-store + mysql-schema ~28 s.
 - Leftover `*_module_parity_mysql` DBs seen from author runs: a `boot()` that throws after `createMysqlTestDatabase()`
   leaves `harness` undefined, so `afterAll` never drops it (no SQL sweep exists). Medium, not reported.
+
+**DEV-3904** (Better-Auth on MySQL/MariaDB, reviewed 2026-10-29, HEAD b702578; no Critical/High).
+- Projects `iam-mysql` / `iam-mariadb`: 15 files each, 674 tests together, ~30 s, green 2/2 with `--retry=0`.
+- Seen red (clone, manual apply, `--retry=0`): `iam-roles-input-reopened`, `iam-sign-out-keeps-session` (1 case x 4
+  parity columns each); `mysql-iam-tables-default-collation` (MariaDB boot FK error, MySQL collation assert);
+  `ai-prompt-tenant-written-as-null` (1 case in all 6 projects); the two re-pointed finds and 7 SQL-path `iam-*`
+  mutations red on both MySQL projects too.
+- `iam-password-stored-plain` goes red only because sign-in breaks (verify not mutated, 16 tests). The hash regex itself
+  went red under a symmetric hash+verify-identity probe (4 tests), so the assertion is not vacuous.
+- `iam-roles-not-input`: the mutation turns the update-user half red (200 vs 400). The sign-up half stays green under it,
+  because another layer protects it.
+- `MysqlIamTestDb` casts are proven by strict anchors: storage-paths `verified toBe(true)`, privilege-escalation
+  `roles toEqual([ADMIN])`. No IAM suite uses a regex email match.
+- Probe: Better-Auth on MySQL boots without `ownerUrl` once the owner migrated. A 401 in such a probe under `env: 'test'`
+  is the email-verification requirement, not a defect.
+- A peer changed `withForeignSchemaLock` mid-review (collation switch only when a table is missing, bounded
+  `lock_wait_timeout`). Re-check that the `mysql-iam-tables-default-collation` find still matches.

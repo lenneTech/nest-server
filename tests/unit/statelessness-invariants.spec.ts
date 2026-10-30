@@ -214,6 +214,34 @@ const INVENTORY: StateEntry[] = [
   },
   {
     because:
+      'The names of the jobs this replica registered as BullMQ schedulers, from its own cron config. Replicas of one '
+      + 'version derive the same set from the same code and config; the schedules themselves live in Redis. During a '
+      + 'rolling deploy two versions disagree, which is why a scheduler a newer version removed carries a shared '
+      + 'removal marker in Redis that restoreBullSchedulers() honours.',
+    classification: 'derived',
+    file: 'common/services/core-cron-jobs.service.ts',
+    name: 'bullScheduledJobs',
+  },
+  {
+    because:
+      'The periodic check that the BullMQ schedules still exist in Redis. Every replica runs its own and they need '
+      + 'not agree: each one only registers a schedule Redis no longer has, and two replicas doing that at once write '
+      + 'the identical schedule. Cleared on shutdown and unref\'d, so it never holds the event loop open.',
+    classification: 'local',
+    file: 'common/services/core-cron-jobs.service.ts',
+    name: 'bullSchedulerCheckTimer',
+  },
+  {
+    because:
+      'The heartbeat of ONE running job\'s running lease. What crosses replicas is the lease itself, in Redis, the SQL '
+      + 'lease table or cron-locks; this timer only keeps it alive while this process runs the job. Cleared when the '
+      + 'run ends and unref\'d. A replica that dies takes its heartbeat along, and the lease expires within its TTL.',
+    classification: 'local',
+    file: 'common/services/core-cron-jobs.service.ts',
+    name: 'heartbeat',
+  },
+  {
+    because:
       'Subscriber callbacks — functions cannot be serialized, so they are local by definition. '
       + 'What crosses replicas is the MESSAGE, published through Redis; these maps only route it '
       + 'to the handlers registered in THIS process.',
@@ -226,6 +254,15 @@ const INVENTORY: StateEntry[] = [
     classification: 'local',
     file: 'common/services/core-redis-pubsub.ts',
     name: 'subscriptions',
+  },
+  {
+    because:
+      'The channels THIS process subscribes on its own subscriber connection, counted per holder, so every `ready` '
+      + 'of that connection can subscribe them again. A subscription belongs to a connection, so it is local by '
+      + 'definition; what crosses replicas is the published message.',
+    classification: 'local',
+    file: 'common/services/core-redis.service.ts',
+    name: 'subscribedChannels',
   },
   {
     because: 'Per-channel handler set; see `handlers` above.',
@@ -335,9 +372,10 @@ const INVENTORY: StateEntry[] = [
   },
   {
     because:
-      'Roles/verified for a session user, TTL 15s (0 under test). A role change is visible on '
-      + 'every replica within that bound, and the bound is the same one a single replica always had.',
-    classification: 'bounded',
+      'Roles/verified for a session user, TTL 15s (0 under test). With `redis` configured '
+      + 'invalidateUserCache() is BROADCAST to every replica, so a withdrawn role does not linger '
+      + 'anywhere; without it each replica expires on its own TTL.',
+    classification: 'shared',
     file: 'modules/better-auth/core-better-auth-user.mapper.ts',
     name: 'userCache',
   },

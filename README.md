@@ -330,7 +330,7 @@ async updateProject(@CurrentTenant() tenantId: string) { ... }
 
 A project keeps its data in **MongoDB** (the default), in **PostgreSQL**, in **MySQL 8.4 / MariaDB 11.8**, or in several
 of them, model by model — the framework's own modules (users, tenants, API tokens, AI, file metadata, locks,
-migrations) run on each; Better-Auth on MongoDB and PostgreSQL:
+migrations) and Better-Auth run on each (Better-Auth on MySQL / MariaDB since 12.1.1):
 
 ```typescript
 // config.env.ts — PostgreSQL as the default source
@@ -345,7 +345,8 @@ Models are registered with `CorePersistenceModule.forFeature()` and declared wit
 `SchemaFactory` (same names as `@nestjs/mongoose`). `mongoose`, `@nestjs/mongoose` and `mongodb` are optional peers: a
 project on PostgreSQL alone installs none of them (in vendor mode it keeps them as `devDependencies` for the types the
 vendored core imports). On MySQL and MariaDB (`mysql2` plus the engine) there is no row-level security: tenant isolation
-is the store's, and native access to a tenant table must filter by tenant itself. Which database to choose:
+is the store's, and native access to a tenant table must filter by tenant itself; Better-Auth's tables are created in
+the framework's collation `utf8mb4_bin` whatever the database's default. Which database to choose:
 [docs/choosing-a-database.md](docs/choosing-a-database.md);
 the rules for code: [.claude/rules/persistence.md](.claude/rules/persistence.md).
 
@@ -383,7 +384,9 @@ and are written to an audit log. Details: [src/core/modules/hub/README.md](src/c
 The architecture is designed for horizontal scalability:
 
 - **Stateless request handling** — No server-side session state in the process (JWT, or Better-Auth sessions in the database)
-- **Optional central infrastructure** — with `redis` configured, rate limits hold across replicas, cron jobs run once per tick (BullMQ), GraphQL subscriptions reach every replica and tenant-cache invalidations are broadcast; with `s3` configured, files and resumable uploads live in shared storage. Without the configuration every feature keeps its process-local behaviour
+- **Optional central infrastructure** — with `redis` configured, rate limits hold across replicas, cron jobs run once per tick (BullMQ), GraphQL subscriptions reach every replica and tenant-cache and IAM role-cache invalidations are broadcast; with `s3` configured, files and resumable uploads live in shared storage. Without the configuration every feature keeps its process-local behaviour
+- **Redis outages** — Redis unreachable at boot is a warning, not a failed start, and `CoreRedisService.isReady()` reports the connection. Rate limits, cron leases, the MCP session registry and the tenant broadcast fall back to process-local behaviour; GraphQL subscriptions and resumable uploads (TUS) have no fallback: new subscriptions fail, published events are dropped with a warning, and uploads fail until Redis answers. Subscriptions on the shared subscriber (tenant-cache and IAM role-cache invalidation, GraphQL subscriptions) are established again after every reconnect, also when the first attempt failed at boot
+- **Cron schedules survive a Redis restart** — the BullMQ schedules live in Redis; when Redis loses them (a restart without persistence, a FLUSHDB, an eviction), every replica registers the missing ones again after its reconnect and on a 60-second check. A tick that fell due while a schedule was missing is not run
 - **Distributed locks** — migrations, cron leases and the initial admin setup are serialized across instances, on MongoDB or SQL
 - **Graceful shutdown** — `installGracefulShutdown(app)` with `shutdownDelayMs` lets a load balancer deregister the instance before it closes
 - **Request-scoped isolation** — `AsyncLocalStorage`-based `RequestContext` ensures safe concurrent request processing without shared mutable state

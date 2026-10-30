@@ -38,7 +38,12 @@
 - [project-db-agnostic-phase4-ai-file-sweep-facts.md](project-db-agnostic-phase4-ai-file-sweep-facts.md) — DEV-3832: sweep ignores partialFilterExpression (data loss); OAuth/file/AI store paths sound; conversation-append IDOR below bar
 - [project-db-agnostic-phase5-mongo-optional-facts.md](project-db-agnostic-phase5-mongo-optional-facts.md) — DEV-3833: null connection breaks JWT verify, AI budget, MCP OAuth stores (fail closed), all FIXED 2026-10-28; DB-less probe recipe
 - [project-db-agnostic-phase6-mysql-facts.md](project-db-agnostic-phase6-mysql-facts.md) — DEV-3848: MySQL update compiler prototype pollution (`__proto__` path → tenant bypass); app-account check blind to roles; container probe recipe
+- [project-betterauth-mysql-dev3904-facts.md](project-betterauth-mysql-dev3904-facts.md) — DEV-3904 Better-Auth on MySQL: mysql2 object-injection closed by sql-escaper SET rule (peer floor); juggling dead-ends
 - [project-legacy-rate-limit-key-and-unnamed-fix-lookup.md](project-legacy-rate-limit-key-and-unnamed-fix-lookup.md) — 12.1.0: REST rate limit keyed on handler (shares GraphQL bucket); registryFix() fails loud; override drops guard
+- [project-cron-bullmq-scheduler-restore-facts.md](project-cron-bullmq-scheduler-restore-facts.md) — DEV-3889 restore + DEV-3896 running lease traced sound (Lua KEYS/ARGV, owner-checked, Hub name via registry)
+- [project-redis-channel-registry-resubscribe-facts.md](project-redis-channel-registry-resubscribe-facts.md) — DEV-3894 channel refcount + ready re-subscribe sound; ioredis 6 nextTick ready order; TCP-proxy probe
+- [project-synchronized-up-lock-and-hub-cursor-facts.md](project-synchronized-up-lock-and-hub-cursor-facts.md) — DEV-3897: synchronizedUp precheck vs withMigrationLock ('' / lock:false run unlocked by design); not HTTP-reachable
+- [project-offline-sync-spec-dev3898-facts.md](project-offline-sync-spec-dev3898-facts.md) — DEV-3898 sync spec: route @Roles not carried to /sync, create-repeat oracle, ObjectId squatting; re-check in phase 4
 
 ## Review Methodology
 

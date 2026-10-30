@@ -466,6 +466,8 @@ describe('CoreTenantGuard cache', () => {
         getClient: () => ({ publish }),
         getSubscriber: () => ({ on: (event: string, listener: any) => events.on(event, listener), subscribe }),
         key: (...parts: string[]) => ['nest-server', ...parts].join(':'),
+        // The guard subscribes through the service's channel registry, which ends on the shared subscriber.
+        subscribeChannel: subscribe,
       } as any;
 
       redisGuard = new CoreTenantGuard({} as any, mockMemberModel, redisService);

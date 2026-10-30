@@ -3,6 +3,7 @@ import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { CoreRedisService } from '../src/core/common/services/core-redis.service';
 import { CoreCronJobs } from '../src/core/common/services/core-cron-jobs.service';
 import { CoreBetterAuthRateLimiter } from '../src/core/modules/better-auth/core-better-auth-rate-limiter.service';
+import { CoreBetterAuthUserMapper } from '../src/core/modules/better-auth/core-better-auth-user.mapper';
 import { captureExpectedLogs } from './helpers/expected-log-output';
 
 import type { ConfigService } from '../src/core/common/services/config.service';
@@ -114,6 +115,34 @@ class ReplicaCronJobs extends CoreCronJobs {
   }
 }
 
+/** A cron service in the real BullMQ mode (bullmq is a devDependency), with a short scheduler check */
+class BullCronJobs extends CoreCronJobs {
+  constructor(jobs: Record<string, any>, redisService: CoreRedisService, schedulerCheckIntervalMs: number) {
+    super(
+      { addCronJob: () => undefined, doesExist: () => false, getCronJob: () => ({}) } as unknown as SchedulerRegistry,
+      jobs,
+      { log: false, redisService },
+    );
+    this.bullSchedulerCheckIntervalMs = schedulerCheckIntervalMs;
+  }
+
+  get queue(): any {
+    return this.bullQueue;
+  }
+
+  protected async report() {
+    return undefined;
+  }
+}
+
+/** A Better-Auth user mapper with its role cache switched on — the test environment switches it off */
+class CachingUserMapper extends CoreBetterAuthUserMapper {
+  constructor(users: { findOne: () => Promise<unknown> }, redisService: CoreRedisService) {
+    super({ collection: () => users } as any, redisService);
+    this.userCacheTtlMs = 15_000;
+  }
+}
+
 /** cronTime that never fires on its own during the test run */
 const NEVER = '0 0 1 1 *';
 
@@ -167,6 +196,66 @@ describe('Multi-replica behavior (real Redis)', () => {
     await Promise.all([replicaA.onApplicationShutdown(), replicaB.onApplicationShutdown()]);
   });
 
+  /**
+   * @regression   DEV-3896 — `runParallel: false` held only inside one process: a job that ran longer than its interval
+   *   was started a second time on another replica. Against a real Redis, so the owner-checked renew and release
+   *   (Lua) are exercised too.
+   * @seen-failing Skip the running lease in runTick() in src/core/common/services/core-cron-jobs.service.ts — registered
+   *   as mutation `cron-running-lease-e2e-missing` in tests/regression-mutations.json.
+   */
+  it('runs a runParallel: false job on one replica at a time, across ticks', async () => {
+    const [redisA, redisB] = [createRedisService('running'), createRedisService('running')];
+    services.push(redisA, redisB);
+    await Promise.all([redisA.onModuleInit(), redisB.onModuleInit()]);
+
+    let finish!: () => void;
+    const gate = new Promise<void>(resolve => (finish = resolve));
+    const jobs = { report: { cronTime: NEVER, runOnInit: false, runParallel: false } };
+    const replicaA = new ReplicaCronJobs(jobs, redisA);
+    const replicaB = new ReplicaCronJobs(jobs, redisB);
+    (replicaA as any).report = async () => {
+      replicaA.calls.push('report');
+      await gate;
+    };
+    await Promise.all([replicaA.onApplicationBootstrap(), replicaB.onApplicationBootstrap()]);
+
+    const running = replicaA.runDistributedTick('report', new Date('2026-08-08T13:00:00.000Z'));
+    await waitUntil(() => replicaA.calls.length === 1, 'replica A to start the job');
+    const runningKey = `${RUN_PREFIX}:running:cron-lock:report:running`;
+    expect(await redisA.getClient().get(runningKey)).toBeTruthy();
+
+    // The next tick, while A still runs: B wins the tick's lease and must still not start the job
+    await replicaB.runDistributedTick('report', new Date('2026-08-08T13:01:00.000Z'));
+    expect(replicaB.calls).toEqual([]);
+
+    finish();
+    await running;
+    expect(await redisA.getClient().get(runningKey)).toBeNull();
+    await replicaB.runDistributedTick('report', new Date('2026-08-08T13:02:00.000Z'));
+    expect([...replicaA.calls, ...replicaB.calls]).toEqual(['report', 'report']);
+
+    await Promise.all([replicaA.onApplicationShutdown(), replicaB.onApplicationShutdown()]);
+  });
+
+  it('renews and releases a Redis running lease only for its owner', async () => {
+    const redis = createRedisService('owner');
+    services.push(redis);
+    await redis.onModuleInit();
+    const replica = new ReplicaCronJobs({}, redis);
+    const store = (replica as any).redisLeaseStore(redis.getClient());
+    const key = `${RUN_PREFIX}:owner:cron-lock:job:running`;
+
+    expect(await store.tryAcquire('job:running', 'owner-a', 60)).toBe(true);
+    expect(await store.tryAcquire('job:running', 'owner-b', 60)).toBe(false);
+    expect(await store.renew('job:running', 'owner-b', 600)).toBe(false);
+    expect(await store.renew('job:running', 'owner-a', 600)).toBe(true);
+    expect(await redis.getClient().ttl(key)).toBeGreaterThan(60);
+    expect(await store.release('job:running', 'owner-b')).toBe(false);
+    expect(await redis.getClient().get(key)).toBe('owner-a');
+    expect(await store.release('job:running', 'owner-a')).toBe(true);
+    expect(await redis.getClient().get(key)).toBeNull();
+  });
+
   it('runs the startup tick on exactly one replica, even though they boot at different moments', async () => {
     // Own key scope, so the key enumeration at the end sees only THIS case's leases and not the
     // scheduled-tick lease the previous case left in Redis.
@@ -213,6 +302,90 @@ describe('Multi-replica behavior (real Redis)', () => {
     ]);
 
     await Promise.all([replicaA.onApplicationShutdown(), replicaB.onApplicationShutdown()]);
+  });
+
+  /**
+   * @regression   12.1.1 (DEV-3889) — the BullMQ schedulers were written into Redis once, at bootstrap. When Redis lost
+   *   its data (a restart without persistence, a FLUSHDB, an eviction), nothing wrote them again and no replica ran a
+   *   cron job until the next deploy.
+   * @seen-failing Do not arm the timer in startBullSchedulerCheck() in
+   *   src/core/common/services/core-cron-jobs.service.ts — registered as mutation `cron-e2e-scheduler-check-missing`
+   *   in tests/regression-mutations.json.
+   */
+  it('registers the BullMQ schedulers again after their Redis data is gone', async () => {
+    const scope = 'bull-restore';
+    const redis = createRedisService(scope);
+    services.push(redis);
+    await redis.onModuleInit();
+
+    const replica = new BullCronJobs({ report: { cronTime: NEVER, runOnInit: false } }, redis, 200);
+    await replica.onApplicationBootstrap();
+    try {
+      expect(await replica.queue.getJobScheduler('report')).toBeTruthy();
+
+      // Lose this application's queue data, the way a Redis restart without persistence does. Only its own keys:
+      // other suites share this database, so a FLUSHDB would pull their data away mid-run.
+      const client = redis.getClient();
+      const keys = await scanKeys(client, `${RUN_PREFIX}:${scope}:bull:*`);
+      expect(keys.length).toBeGreaterThan(0);
+      await client.del(...keys);
+      expect(await replica.queue.getJobScheduler('report')).toBeUndefined();
+
+      // Back within one check interval (200 ms here); the deadline leaves room for a loaded machine.
+      const deadline = Date.now() + 5000;
+      let restored = await replica.queue.getJobScheduler('report');
+      while (!restored && Date.now() < deadline) {
+        await new Promise(resolve => setTimeout(resolve, 50));
+        restored = await replica.queue.getJobScheduler('report');
+      }
+      expect(restored?.pattern).toBe(NEVER);
+    } finally {
+      await replica.onApplicationShutdown();
+    }
+  });
+
+  /**
+   * @regression   12.1.1 (DEV-3895) — invalidateUserCache() cleared only the replica it ran on: an admin whose role was
+   *   withdrawn kept it on every other replica for up to 15 s, and without session affinity it was enough to keep
+   *   sending requests.
+   * @seen-failing Drop the publishInvalidation() call from invalidateUserCache() in
+   *   src/core/modules/better-auth/core-better-auth-user.mapper.ts — registered as mutation
+   *   `iam-user-cache-e2e-not-broadcast` in tests/regression-mutations.json.
+   */
+  it('withdraws a role on every replica at once, not only on the one that changed it', async () => {
+    const scope = 'iam-user-cache';
+    const [redisA, redisB] = [createRedisService(scope), createRedisService(scope)];
+    services.push(redisA, redisB);
+    await Promise.all([redisA.onModuleInit(), redisB.onModuleInit()]);
+
+    // One user document both replicas read, as they read one database
+    const stored = { _id: 'db-user-1', email: 'admin@test.com', iamId: 'iam-1', roles: ['admin'], verified: true };
+    const users = { findOne: async () => ({ ...stored, roles: [...stored.roles] }) };
+    const replicaA = new CachingUserMapper(users, redisA);
+    const replicaB = new CachingUserMapper(users, redisB);
+    await Promise.all([replicaA.onApplicationBootstrap(), replicaB.onApplicationBootstrap()]);
+    const sessionUser = { email: stored.email, id: stored.iamId };
+    try {
+      expect((await replicaB.mapSessionUser(sessionUser))?.hasRole('admin')).toBe(true);
+
+      // What CoreUserService.setRoles() does on replica A: write, then invalidate
+      stored.roles = [];
+      replicaA.invalidateUserCache(stored.iamId);
+
+      // Redis delivers asynchronously; poll replica B rather than sleep. Before the broadcast existed, B answered from
+      // its cache until the entry expired — 15 s, so the deadline here separates the two outcomes cleanly.
+      const deadline = Date.now() + 5000;
+      let mapped = await replicaB.mapSessionUser(sessionUser);
+      while (mapped?.hasRole('admin') && Date.now() < deadline) {
+        await new Promise(resolve => setTimeout(resolve, 20));
+        mapped = await replicaB.mapSessionUser(sessionUser);
+      }
+      expect(mapped?.roles).toEqual([]);
+      expect(mapped?.hasRole('admin')).toBe(false);
+    } finally {
+      replicaA.onModuleDestroy();
+      replicaB.onModuleDestroy();
+    }
   });
 
   it('enforces ONE rate limit across replicas instead of one per replica', async () => {

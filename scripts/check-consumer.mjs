@@ -114,6 +114,23 @@ const RAISE_SOURCES = {
   devDependencies: ['dependencies', 'devDependencies'],
 };
 
+/**
+ * The framework sections that may raise `name` in the consumer's `section`: `RAISE_SOURCES`, widened to
+ * the framework's devDependencies for a runtime pin of an OPTIONAL framework peer
+ * (`peerDependenciesMeta.<name>.optional`). Such a package is a feature the project switches on by
+ * declaring it, and the framework's devDependency pin is the version that feature is tested with — since
+ * 12.1.0 that is how mongoose, @nestjs/mongoose and mongodb arrive. Without it the gate would test the
+ * starter with the old Mongo pins while the starter's own `pnpm run update` raises them. better-auth is a
+ * REQUIRED peer and stays the project's call. Identical to `raiseSources()` in the starter's
+ * extras/align-package-versions.mjs.
+ */
+function raiseSources(framework, name, section) {
+  if (section === 'dependencies' && framework?.peerDependenciesMeta?.[name]?.optional === true) {
+    return ['dependencies', 'devDependencies'];
+  }
+  return RAISE_SOURCES[section];
+}
+
 /** The newest exact version `framework` declares for `name` across `sections`, else undefined. */
 function newestFrameworkVersion(framework, name, sections) {
   let newest;
@@ -130,7 +147,7 @@ function newestFrameworkVersion(framework, name, sections) {
  * Raise the consumer's pins the way its own `pnpm run update` does (the starter's
  * extras/sync-packages.mjs, rule in extras/align-package-versions.mjs): a package the consumer ALREADY
  * declares is raised to the framework's version when that is newer, in the section the consumer keeps
- * it. The framework's version comes from the sections `RAISE_SOURCES` allows for that consumer
+ * it. The framework's version comes from the sections `raiseSources()` allows for that consumer
  * section. Never lowered, never added, never moved to another section, never touched when either side
  * is not an exact version. Mutates `consumer` and returns what it raised.
  */
@@ -138,7 +155,7 @@ function alignConsumerPins(consumer, framework) {
   const raised = [];
   for (const section of DEPENDENCY_SECTIONS) {
     for (const [name, current] of Object.entries(consumer?.[section] ?? {})) {
-      const version = newestFrameworkVersion(framework, name, RAISE_SOURCES[section]);
+      const version = newestFrameworkVersion(framework, name, raiseSources(framework, name, section));
       if (name === PACKAGE_NAME || version === undefined) {
         continue;
       }

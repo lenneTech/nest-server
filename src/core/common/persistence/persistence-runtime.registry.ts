@@ -49,13 +49,24 @@ export interface PersistenceRuntime {
 /** The SQL source Better-Auth runs on — the one the `users` table lives in */
 export interface IamSqlStorage {
   /**
-   * Bring the tables Better-Auth owns up to date. With the owner configured, `migrate` receives the OWNER's pool and runs
-   * while the framework's schema lock is held; the application role is then granted on `tables` and checked like on the
-   * framework's own tables. Without `ownerUrl`, `migrate` receives the application pool and must only verify.
+   * Bring the tables Better-Auth owns up to date. With the owner configured, `migrate` receives the OWNER's pool (and a
+   * `query` on the owner's connections) and runs while the framework's schema lock is held; the application role is
+   * then granted on `tables` and checked like on the framework's own tables. Without `ownerUrl`, `migrate` receives the
+   * application pool and must only verify.
    */
-  applySchema(migrate: (pool: unknown, asOwner: boolean) => Promise<void>, tables: string[]): Promise<void>;
-  /** The application role's `pg` pool of that source — Better-Auth's own adapter runs on it */
+  applySchema(
+    migrate: (pool: unknown, asOwner: boolean, query: IamSqlStorage['query']) => Promise<void>,
+    tables: string[],
+  ): Promise<void>;
+  /** Which SQL database the source is — the statements the framework writes itself differ */
+  driver: 'mariadb' | 'mysql' | 'postgres';
+  /**
+   * What Better-Auth's own adapter runs on: the application role's `pg` pool, or on MySQL / MariaDB its `mysql2` pool's
+   * promise wrapper (Better-Auth builds Kysely's `MysqlDialect` from it)
+   */
   pool: unknown;
+  /** One statement as the application role (system work), `$1`-numbered parameters on every database */
+  query(text: string, params?: unknown[]): Promise<{ rows: any[] }>;
   /** Name of the data source */
   source: string;
   /** The store of the user model */

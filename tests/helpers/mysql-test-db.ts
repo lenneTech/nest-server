@@ -56,7 +56,15 @@ async function ownerConnection(variant: MysqlVariant) {
   }
 }
 
-export async function createMysqlTestDatabase(variant: MysqlVariant, suffix: string): Promise<MysqlTestDatabase> {
+/**
+ * @param options.serverCollation create the database with the server's default character set and collation instead of
+ *   `utf8mb4_bin` — what a database an operator created without options looks like
+ */
+export async function createMysqlTestDatabase(
+  variant: MysqlVariant,
+  suffix: string,
+  options: { serverCollation?: boolean } = {},
+): Promise<MysqlTestDatabase> {
   const name = postgresTestDbName(`${suffix}-${variant}`);
   if (!isDroppableTestDb(name)) {
     throw new Error(`Refusing to create the test database "${name}": its name does not pass the drop guard`);
@@ -66,7 +74,9 @@ export async function createMysqlTestDatabase(variant: MysqlVariant, suffix: str
   const admin = await ownerConnection(variant);
   try {
     await admin.query(`DROP DATABASE IF EXISTS \`${name}\``);
-    await admin.query(`CREATE DATABASE \`${name}\` CHARACTER SET utf8mb4 COLLATE utf8mb4_bin`);
+    await admin.query(
+      `CREATE DATABASE \`${name}\`${options.serverCollation ? '' : ' CHARACTER SET utf8mb4 COLLATE utf8mb4_bin'}`,
+    );
     await admin.query(`GRANT SELECT, INSERT, UPDATE, DELETE ON \`${name}\`.* TO ${app}`);
   } finally {
     await admin.end();
