@@ -21,20 +21,47 @@ on:
         required: false
         default: ''
         type: string
+      shards:
+        description: 'Parallel jobs the selection is split across (1 for a single --id)'
+        required: false
+        default: '4'
+        type: choice
+        options: [ '1', '2', '4', '6', '8' ]
 
 jobs:
-  mutations:
-    name: Regression evidence
+  # Turns the `shards` input into the matrix list AND the count `--shard` names, from one value, so
+  # the two cannot drift apart (tests/unit/mutation-sharding.spec.ts pins that both read it).
+  plan:
+    name: Plan shards
     runs-on: ubuntu-latest
+    outputs:
+      count: ${{ steps.plan.outputs.count }}
+      shards: ${{ steps.plan.outputs.shards }}
+    steps:
+      - id: plan
+        env:
+          SHARDS: ${{ inputs.shards }}
+        run: |
+          echo "count=$SHARDS" >> "$GITHUB_OUTPUT"
+          echo "shards=[$(seq -s, 1 "$SHARDS")]" >> "$GITHUB_OUTPUT"
+
+  mutations:
+    name: Regression evidence (shard ${{ matrix.shard }}/${{ needs.plan.outputs.count }})
+    runs-on: ubuntu-latest
+    needs: plan
+    # Same split as publish.yml. `fail-fast: false`: a red shard must not cancel the others, whose
+    # verdicts are the rest of the evidence.
     strategy:
+      fail-fast: false
       matrix:
         node-version: [ 24.x ]
         mongodb-version: [ '7.0' ]
-    # Same container names and teardown contract as publish.yml / build.yml — a leftover container
-    # fails the NEXT job on a name conflict on a self-hosted runner.
+        shard: ${{ fromJSON(needs.plan.outputs.shards) }}
+    # Same teardown contract as publish.yml / build.yml — a leftover container fails the NEXT job on a
+    # name conflict on a self-hosted runner, so each shard names its own.
     env:
-      REDIS_CONTAINER: ci-redis
-      RUSTFS_CONTAINER: ci-rustfs
+      REDIS_CONTAINER: ci-redis-${{ matrix.shard }}
+      RUSTFS_CONTAINER: ci-rustfs-${{ matrix.shard }}
     steps:
       - name: Git checkout
         uses: actions/checkout@v7
@@ -69,7 +96,8 @@ jobs:
       - name: Regression evidence (mutation check)
         env:
           MUTATION_ARGS: ${{ inputs.args }}
-        run: pnpm run check:mutations -- $MUTATION_ARGS
+          MUTATION_SHARD: ${{ matrix.shard }}/${{ needs.plan.outputs.count }}
+        run: pnpm run check:mutations -- $MUTATION_ARGS "--shard=$MUTATION_SHARD"
 
       - name: Remove test infrastructure
         if: always()

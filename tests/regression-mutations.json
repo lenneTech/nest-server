@@ -5019,6 +5019,28 @@
         "tests/unit/core-cron-jobs-dedup.spec.ts"
       ],
       "driverSpecific": false
+    },
+    {
+      "id": "mutation-shard-drops-residue",
+      "defect": "12.1.1 / DEV-3910 — the regression-evidence gate is split across parallel CI jobs with --shard=i/n. An assignment that misses one residue class (shard i takes position % n === i instead of i - 1) leaves every mutation of that class in no shard: each job reports green and part of the registry is never checked.",
+      "file": "scripts/check-mutations.mjs",
+      "find": "return position % count === index - 1;",
+      "replace": "return position % count === index;",
+      "specs": [
+        "tests/unit/mutation-sharding.spec.ts"
+      ],
+      "driverSpecific": false
+    },
+    {
+      "id": "evidence-matrix-misses-a-shard",
+      "defect": "12.1.1 / DEV-3910 — publish.yml runs the evidence gate as a matrix and passes --shard=${{ matrix.shard }}/4. A matrix that lists fewer shards than that count never starts the missing ones, and the release run is green with a quarter of the registry unchecked.",
+      "file": ".github/workflows/publish.yml",
+      "find": "shard: [ 1, 2, 3, 4 ]",
+      "replace": "shard: [ 1, 2, 3 ]",
+      "specs": [
+        "tests/unit/mutation-sharding.spec.ts"
+      ],
+      "driverSpecific": false
     }
   ]
 }

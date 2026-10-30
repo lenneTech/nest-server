@@ -372,8 +372,9 @@ pnpm run check:mutations -- --id=<id>       # one mutation
 pnpm run check:mutations -- --list          # the registry, without running anything
 pnpm run check:mutations -- --allow-dirty   # when the fix and its evidence share a working tree
 pnpm run check:mutations -- --jobs=4        # N mutations at a time (default: 2, or 4 on >=12 cores)
-pnpm run check:mutations -- --no-infra      # only the 248 that need no MongoDB
+pnpm run check:mutations -- --no-infra      # only the 250 that need no MongoDB
 pnpm run check:mutations -- --since=<ref>   # only mutations touching files changed since <ref>
+pnpm run check:mutations -- --shard=2/4     # this job's quarter of the selection (CI splits the full run)
 ```
 
 `--no-infra` and `--since` narrow the run for LOCAL work and are deliberately not wired into the
@@ -391,13 +392,33 @@ when the registry, a vitest config or a setup file changed, since those can move
 commit, and in CI alongside the publish without blocking it. The price of caching is a cache that
 has to model each spec's full dependency closure correctly, and getting that wrong produces a stale
 PASS for a test that has since gone vacuous — exactly what the gate is there to prevent. Bad trade
-at 442 mutations.
+at 444 mutations.
 
 **Decided 2026-10-03 (repo owner): keep the full run.** Measured at 128 mutations, the CI job for
 11.41.6 took **14 minutes**. The trigger to revisit is that wall time, not the mutation count —
 the count was never the cost: re-evaluate once the "Regression evidence" job in `publish.yml`
 exceeds **30 minutes** (`gh run view <id> --json jobs` shows start and end). Below that line,
 adding a mutation needs no decision.
+
+**Re-evaluated 2026-10-30 (DEV-3910): the run stays full, it is SPLIT.** The line was crossed by far —
+58.5 min for 407 mutations at the 12.1.0 publish, 53 min for 442 at 12.1.1, almost all of it the cold
+start below. Both workflows now run the gate as a matrix of four jobs, each `--shard=i/4` of the same
+selection: every mutation in exactly one shard, unit and e2e mutations dealt out separately so no shard
+collects the slow ones, nothing cached or skipped. The new trigger: **the slowest shard exceeds 30
+minutes → raise the shard count** (matrix and `--shard` together, one line per workflow). What the split
+must keep is pinned by `tests/unit/mutation-sharding.spec.ts`:
+
+| Property | Why it is load-bearing |
+|----------|------------------------|
+| Every mutation in exactly one shard (mutation `mutation-shard-drops-residue`) | a lost mutation is invisible — every shard is green, each honestly reporting what it ran |
+| The matrix lists 1..N for the N `--shard` names (mutation `evidence-matrix-misses-a-shard`) | a shorter matrix never starts the missing shards |
+| `fail-fast: false` in both workflows | GitHub cancels the rest of a matrix on the first failure, and with it their verdicts |
+| One issue per red run, from the `regression-evidence-report` job after the matrix | two red shards each looking for an open issue at once both create one |
+
+A shard that holds none of a non-empty selection (`--id=<x>` with four shards) ends 0 and says so; an
+empty SELECTION still exits 2 before sharding. `regression-evidence.yml` takes a `shards` input
+(default 4) so a single `--id` run can use one job. `/lt-dev:publish` reads the workflow run's
+conclusion, which any red shard turns red.
 
 Not part of `pnpm run check` — it edits source and re-runs whole e2e suites. It belongs in review
 and on the publish path. It is also reachable on demand, without cutting a release:
@@ -438,7 +459,7 @@ exactly the environment where the answer matters.
 
 Worth knowing before optimising the wrong thing: the specs behind all 194 e2e mutations add up to
 **~40 seconds**. The step takes ~740s. The remaining ~700s is paying vitest's startup — process
-spawn, transform, module graph, mongod connect, DB create and drop — once per mutation, 442 times.
+spawn, transform, module graph, mongod connect, DB create and drop — once per mutation, 444 times.
 That work is largely single-threaded I/O and barely scales with cores: the full registry measures
 **744s on a 12-core laptop and 777s on a 4-vCPU CI runner**.
 
