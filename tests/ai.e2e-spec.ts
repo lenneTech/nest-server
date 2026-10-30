@@ -4,6 +4,7 @@ import request from 'supertest';
 
 import {
   AiToolRegistry,
+  ConfigService,
   CoreAiBudgetService,
   CoreAiConnectionPreferenceService,
   CoreAiConnectionResolverService,
@@ -591,6 +592,74 @@ describe('AI module (e2e)', () => {
       { id: 3, method: 'tools/list' },
       { sessionId: session.sessionId, statusCode: 404, token: httpRegularToken },
     );
+  });
+
+  // ai.mcp.stateless: every POST builds its own server and transport, so any replica can answer it.
+  // Toggled at runtime — the controller reads the option per request.
+  describe('MCP stateless mode (ai.mcp.stateless)', () => {
+    let originalMcpConfig: unknown;
+
+    beforeAll(() => {
+      originalMcpConfig = ConfigService.get('ai.mcp');
+      ConfigService.setProperty('ai.mcp', { stateless: true });
+    });
+
+    afterAll(() => {
+      // Direct assignment, so the original scalar `true` comes back unchanged.
+      ConfigService.setProperty('ai.mcp', originalMcpConfig);
+    });
+
+    it('MCP stateless: initialize issues no session id, and later requests work without one', async () => {
+      registerMcpTools();
+      const session = await testHelper.mcpSession({ token: httpRegularToken });
+
+      expect(session.sessionId).toBeUndefined();
+      expect(session.initializeResult.serverInfo).toBeDefined();
+      // Each of these is a fresh server and transport; nothing was carried over from initialize.
+      const names = (await session.listTools()).map(tool => tool.name);
+      expect(names).toContain(mcpUserTool);
+      expect(names).not.toContain(mcpAdminTool);
+      const result = await session.callTool(mcpUserTool);
+      expect(result.isError).toBeFalsy();
+      expect(result.json.data.callerId).toBeTruthy();
+    });
+
+    it('MCP stateless: the role filter still applies per request', async () => {
+      registerMcpTools();
+      const session = await testHelper.mcpSession({ token: httpRegularToken });
+
+      const result = await session.callTool(mcpAdminTool);
+
+      expect(result.isError).toBe(true);
+      expect(JSON.stringify(result)).not.toContain('admin-only-payload');
+    });
+
+    it('MCP stateless: a stale session id is ignored instead of answered 404', async () => {
+      registerMcpTools();
+      const { message } = await testHelper.mcp(
+        { id: 2, method: 'tools/list' },
+        { sessionId: 'id-from-the-session-mode', token: httpRegularToken },
+      );
+
+      expect(message?.result?.tools?.map((tool: any) => tool.name)).toContain(mcpUserTool);
+    });
+
+    it('MCP stateless: GET and DELETE answer 405, there is no stream and no session to end', async () => {
+      for (const method of ['GET', 'DELETE'] as const) {
+        const response = await testHelper.rest('/ai/mcp', {
+          headers: { 'mcp-session-id': 'any' },
+          method,
+          returnResponse: true,
+          statusCode: 405,
+          token: httpRegularToken,
+        });
+        expect(response.headers.allow).toBe('POST');
+      }
+    });
+
+    it('MCP stateless: an unauthenticated request is still refused with 401', async () => {
+      await testHelper.mcp({ id: 1, method: 'initialize', params: {} }, { statusCode: 401 });
+    });
   });
 
   it('enforces a per-user token limit and reports usage in the response + aiUsage', async () => {

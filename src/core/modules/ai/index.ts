@@ -2,6 +2,7 @@
 export * from './core-ai-mcp-oauth.initializer.js';
 export * from './core-ai-mcp.controller.js';
 export * from './helpers/ai-mcp-oauth.helper.js';
+export * from './helpers/ai-mcp-oauth-consent.helper.js';
 export * from './core-ai.controller.js';
 export * from './core-ai.module.js';
 export * from './core-ai.resolver.js';

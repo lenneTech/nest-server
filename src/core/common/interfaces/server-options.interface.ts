@@ -2164,6 +2164,15 @@ export interface IAi {
          */
         oauthLoginUrl?: string;
         oauthSecret?: string;
+        /**
+         * Serve `/ai/mcp` without sessions: every POST builds its own server and transport for the
+         * authenticated user and ends with the response, no `mcp-session-id` is issued, and GET /
+         * DELETE answer 405. Any replica can answer any request, so no sticky sessions are needed
+         * behind a load balancer. The price is what a session carries: server-initiated messages
+         * (notifications, SSE streams) are unavailable, which a tools-only server does not use.
+         * @default false
+         */
+        stateless?: boolean;
       };
 
   /** Rate limiting for prompts. */

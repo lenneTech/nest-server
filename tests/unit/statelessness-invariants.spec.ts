@@ -317,7 +317,8 @@ const INVENTORY: StateEntry[] = [
     because:
       'Live Streamable-HTTP transports, each holding an open response stream — they cannot leave '
       + 'the process. The SESSION REGISTRY is shared through Redis so a mis-routed request gets an '
-      + 'explicit answer naming the owning replica; /ai/mcp requires sticky sessions.',
+      + 'explicit answer naming the owning replica; /ai/mcp requires sticky sessions unless '
+      + 'ai.mcp.stateless builds a server per request instead.',
     classification: 'local',
     file: 'modules/ai/core-ai-mcp.controller.ts',
     name: 'transports',
