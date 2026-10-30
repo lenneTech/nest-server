@@ -5041,6 +5041,17 @@
         "tests/unit/mutation-sharding.spec.ts"
       ],
       "driverSpecific": false
+    },
+    {
+      "id": "evidence-plan-lists-fewer-shards",
+      "defect": "12.1.1 / DEV-3910 — regression-evidence.yml derives the shard list and the shard count separately in its plan job. A list one short of the count (seq starting at 2) never starts the first shard, and the on-demand run is green with part of the registry unchecked.",
+      "file": ".github/workflows/regression-evidence.yml",
+      "find": "seq 1 \"$SHARDS\"",
+      "replace": "seq 2 \"$SHARDS\"",
+      "specs": [
+        "tests/unit/mutation-sharding.spec.ts"
+      ],
+      "driverSpecific": false
     }
   ]
 }

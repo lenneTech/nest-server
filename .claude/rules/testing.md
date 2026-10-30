@@ -372,7 +372,7 @@ pnpm run check:mutations -- --id=<id>       # one mutation
 pnpm run check:mutations -- --list          # the registry, without running anything
 pnpm run check:mutations -- --allow-dirty   # when the fix and its evidence share a working tree
 pnpm run check:mutations -- --jobs=4        # N mutations at a time (default: 2, or 4 on >=12 cores)
-pnpm run check:mutations -- --no-infra      # only the 250 that need no MongoDB
+pnpm run check:mutations -- --no-infra      # only the 251 that need no MongoDB
 pnpm run check:mutations -- --since=<ref>   # only mutations touching files changed since <ref>
 pnpm run check:mutations -- --shard=2/4     # this job's quarter of the selection (CI splits the full run)
 ```
@@ -392,7 +392,7 @@ when the registry, a vitest config or a setup file changed, since those can move
 commit, and in CI alongside the publish without blocking it. The price of caching is a cache that
 has to model each spec's full dependency closure correctly, and getting that wrong produces a stale
 PASS for a test that has since gone vacuous — exactly what the gate is there to prevent. Bad trade
-at 444 mutations.
+at 445 mutations.
 
 **Decided 2026-10-03 (repo owner): keep the full run.** Measured at 128 mutations, the CI job for
 11.41.6 took **14 minutes**. The trigger to revisit is that wall time, not the mutation count —
@@ -411,14 +411,20 @@ must keep is pinned by `tests/unit/mutation-sharding.spec.ts`:
 | Property | Why it is load-bearing |
 |----------|------------------------|
 | Every mutation in exactly one shard (mutation `mutation-shard-drops-residue`) | a lost mutation is invisible — every shard is green, each honestly reporting what it ran |
-| The matrix lists 1..N for the N `--shard` names (mutation `evidence-matrix-misses-a-shard`) | a shorter matrix never starts the missing shards |
+| The matrix lists 1..N for the N `--shard` names (mutations `evidence-matrix-misses-a-shard`, and `evidence-plan-lists-fewer-shards` for the on-demand plan job) | a shorter matrix never starts the missing shards |
 | `fail-fast: false` in both workflows | GitHub cancels the rest of a matrix on the first failure, and with it their verdicts |
 | One issue per red run, from the `regression-evidence-report` job after the matrix | two red shards each looking for an open issue at once both create one |
 
 A shard that holds none of a non-empty selection (`--id=<x>` with four shards) ends 0 and says so; an
-empty SELECTION still exits 2 before sharding. `regression-evidence.yml` takes a `shards` input
-(default 4) so a single `--id` run can use one job. `/lt-dev:publish` reads the workflow run's
-conclusion, which any red shard turns red.
+empty SELECTION still fails before sharding (2 for `--since` / `--no-infra`, 1 for an unmatched
+`--id`). `regression-evidence.yml` takes a `shards` input (default 4) so a single `--id` run can use
+one job. `/lt-dev:publish` reads the workflow run's conclusion, which any red shard turns red.
+
+**More shards stop helping at the slowest single mutation.** A mutation that makes tests HANG costs
+retries × timeout per red test — 3 attempts × 60 s in low-resource mode. At 12.1.1 four such mutations
+took 44 % of all lane time, the largest (`gridfs-upload-source-error-unhandled`) ~18 minutes on its
+own, so no shard count brings a shard below that. When the slowest shard is one such mutation, shorten
+the spec's failure path (a tighter per-test timeout, a fail-fast assertion), not the split.
 
 Not part of `pnpm run check` — it edits source and re-runs whole e2e suites. It belongs in review
 and on the publish path. It is also reachable on demand, without cutting a release:
@@ -459,7 +465,7 @@ exactly the environment where the answer matters.
 
 Worth knowing before optimising the wrong thing: the specs behind all 194 e2e mutations add up to
 **~40 seconds**. The step takes ~740s. The remaining ~700s is paying vitest's startup — process
-spawn, transform, module graph, mongod connect, DB create and drop — once per mutation, 444 times.
+spawn, transform, module graph, mongod connect, DB create and drop — once per mutation, 445 times.
 That work is largely single-threaded I/O and barely scales with cores: the full registry measures
 **744s on a 12-core laptop and 777s on a 4-vCPU CI runner**.
 

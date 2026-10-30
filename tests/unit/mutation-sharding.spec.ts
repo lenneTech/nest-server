@@ -105,9 +105,18 @@ describe('the evidence workflows run every shard', () => {
     expect(listed).toEqual(Array.from({ length: Number(total) }, (_, i) => i + 1));
   });
 
+  /**
+   * @regression   12.1.1 / DEV-3910 — the on-demand plan job writes the shard LIST and the shard COUNT
+   *   separately; a list one short of the count never starts the last shard, and the run is green.
+   * @seen-failing Replace `seq 1 "$SHARDS"` with `seq 2 "$SHARDS"` in .github/workflows/regression-evidence.yml —
+   *   registered as mutation `evidence-plan-lists-fewer-shards` in tests/regression-mutations.json.
+   */
   it('regression-evidence.yml: the matrix and the --shard count come from the same planned value', () => {
     // The on-demand workflow takes the shard count as an input, so both halves must read the one
-    // value the plan job derived — never two copies of it.
+    // value the plan job derived — never two copies of it — and the plan must list 1..count. The
+    // lines are pinned rather than executed: the unit suite also runs on Windows, without bash.
+    expect(onDemand).toContain('echo "count=$SHARDS" >> "$GITHUB_OUTPUT"');
+    expect(onDemand).toContain('echo "shards=[$(seq 1 "$SHARDS" | paste -sd, -)]" >> "$GITHUB_OUTPUT"');
     expect(onDemand).toMatch(/shard: \$\{\{ fromJSON\(needs\.plan\.outputs\.shards\) \}\}/);
     expect(onDemand).toMatch(/MUTATION_SHARD: \$\{\{ matrix\.shard \}\}\/\$\{\{ needs\.plan\.outputs\.count \}\}/);
     expect(onDemand).toMatch(/"--shard=\$MUTATION_SHARD"/);

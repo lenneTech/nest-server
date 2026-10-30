@@ -43,7 +43,8 @@ jobs:
           SHARDS: ${{ inputs.shards }}
         run: |
           echo "count=$SHARDS" >> "$GITHUB_OUTPUT"
-          echo "shards=[$(seq -s, 1 "$SHARDS")]" >> "$GITHUB_OUTPUT"
+          # `paste`, not `seq -s,`: BSD seq (macOS) ends the list with a separator, which is not JSON.
+          echo "shards=[$(seq 1 "$SHARDS" | paste -sd, -)]" >> "$GITHUB_OUTPUT"
 
   mutations:
     name: Regression evidence (shard ${{ matrix.shard }}/${{ needs.plan.outputs.count }})

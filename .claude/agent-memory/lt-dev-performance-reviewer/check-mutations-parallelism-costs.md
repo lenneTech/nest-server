@@ -42,3 +42,22 @@ their counts dynamically and are fine.
    mutations name 2 spec files (seconds of serialization each).
 
 Related: [[swc-cjs-tdz-and-ci-gap]] (the other check that only the tooling catches).
+
+## CI cost distribution (measured 2026-10-30, 12.1.1 publish run 41024203395, DEV-3910)
+
+Per-mutation durations are reconstructible from the job log: lanes pull from a shared
+cursor in registry order, so with `jobs` lanes mutation k starts at the timestamp of
+progress line `[k-jobs+1/N]` and ends at the line naming its id (k >= jobs; the first
+`jobs` start at "Running N mutations across"). 442 mutations, 2 lanes, 4 vCPU:
+6169 lane-s, 3102 s wall. Unit median 0.8 s (sum 824 s); e2e median 5.8 s (sum 5345 s).
+
+**The cost is four timeout-driven outliers, not cold start:** `gridfs-upload-source-error-unhandled`
+1082 s, `s3-body-stream-error-unguarded` 722 s (both `file-upload-stream-error.e2e-spec.ts`),
+`sql-pool-guard-unlistened-checkout-error` 550 s, `ws-connection-never-revalidated` 341 s = 44 %
+of all lane-seconds. Deterministic: a mutation that makes a test HANG costs
+(1 + `retry: 2`) x low-resource `testTimeout` 60 s = 180 s per red test (6 red -> 1080 s).
+
+**How to apply:** 4 shards (`shardMutations`, unit/e2e round-robin) -> simulated slowest
+shard 18.2 min + ~76 s job setup (balance 18.2 / 12.4 / 15.5 / 9.3 min). The gridfs mutation
+alone floors any shard count at ~18 min (8 shards: still 18.1) — raising n cannot go below it;
+only a shorter hang (timeout/retry for that spec) can. Re-check this table when the registry grows.

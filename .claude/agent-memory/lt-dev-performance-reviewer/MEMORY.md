@@ -24,7 +24,7 @@
 - [TUS end() normalizer + hook costs](tus-end-normalizer-costs.md) — measured: ~150 ns/req, hooks run per REQUEST not per chunk; HEAD via http.Agent exhausts ports here.
 - [Response.clone + EJS costs](response-clone-and-ejs-costs.md) — measured: async-identity ~42 ns, `clone().json()` ~10 us small / 2.7 ms at 512 KB, cached EJS render ~3 us.
 - [Redaction regex costs](redaction-regex-costs.md) — redactSensitiveText is O(n²) on crafted input (JWT rule 23 ms @6 KB); per-caller caps; mailbox copy mode redacts before truncating.
-- [check-mutations parallelism costs](check-mutations-parallelism-costs.md) — measured: npx 239ms vs .bin 41ms, worktree add ~190ms; the cited 1.87x predates CHECK_LOW_RESOURCE=1 and needs re-measuring.
+- [check-mutations parallelism costs](check-mutations-parallelism-costs.md) — measured: .bin spawn, worktree cost; CI wall is 4 timeout-driven outliers (gridfs 1082 s floors any shard count at ~18 min).
 - [check-overrides + dep-bump costs](check-overrides-and-dep-bump-costs.md) — measured: guard ~1.2-2s/run, 71s outage stall + false green; registryFix packuments bounded by ignoreGhsas, 20s timeout covers body.
 - [Better-Auth router + openAPI costs](better-auth-router-and-openapi-costs.md) — router rebuilt per /iam call (~54 us); SERVER_ONLY endpoints skip addRoute; bench by rotated minimums under load.
 - [scan-secrets + bridge normaliser costs](scan-secrets-and-bridge-normaliser-costs.md) — measured: Check 8 ~2ms/added line + ~100ms/cue line, --all ~57s baseline; oxfmt idempotence proven with real oxfmt.
