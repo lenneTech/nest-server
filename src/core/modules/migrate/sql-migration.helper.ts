@@ -27,7 +27,8 @@ export interface SqlSyncUpdate {
   };
 }
 
-type MigrationRun = (statement: { params: unknown[]; text: string }) => Promise<{ rows: any[] }>;
+/** How a migration statement runs: on the migration's connection, inside its transaction where there is one */
+export type SqlMigrationRun = (statement: { params: unknown[]; text: string }) => Promise<{ rows: any[] }>;
 
 /** Rows written per statement */
 const SYNC_UPDATE_CHUNK = 500;
@@ -36,7 +37,8 @@ const SYNC_UPDATE_CHUNK = 500;
  * Run the reviewed statements of a SQL migration (`migrate create <name> --sql`) as the table OWNER, under the lock the
  * boot's schema migration takes, so a replica booting meanwhile waits and then sees the result. On PostgreSQL in one
  * transaction: either every statement applies or none does. MySQL and MariaDB commit every DDL statement on its own, so
- * there a failure leaves the statements before it applied — write such a migration so it can run again.
+ * there a failure leaves the statements before it applied — write such a migration so it can run again. A `syncUpdate`
+ * runs in a transaction of its own there, because a DDL statement before it has ended the migration's.
  *
  * The statements are the ones a refused boot suggested (`SchemaMigrationRequiredError`) — after review: a narrowed
  * type, a new unique index or a rename collision can reject or rewrite stored rows, which is why the framework never
@@ -62,18 +64,18 @@ export async function runSqlMigration(
         for (const statement of statements) {
           await (typeof statement === 'string'
             ? run({ params: [], text: statement })
-            : applySyncUpdate(run, 'mysql', statement.syncUpdate));
+            : applySqlSyncUpdate(run, 'mysql', statement.syncUpdate));
         }
       });
       return;
     }
     await executor.transaction(async (tx) => {
-      const run: MigrationRun = (statement) => tx.run(statement, { kind: 'system' });
+      const run: SqlMigrationRun = (statement) => tx.run(statement, { kind: 'system' });
       await run({ params: [], text: SCHEMA_LOCK_SQL });
       for (const statement of statements) {
         await (typeof statement === 'string'
           ? run({ params: [], text: statement })
-          : applySyncUpdate(run, 'postgres', statement.syncUpdate));
+          : applySqlSyncUpdate(run, 'postgres', statement.syncUpdate));
       }
     });
   } finally {
@@ -81,9 +83,34 @@ export async function runSqlMigration(
   }
 }
 
-/** One `syncUpdate` of a migration: rows locked, numbers taken, rows written — inside the migration's transaction */
-async function applySyncUpdate(
-  run: MigrationRun,
+/**
+ * One `syncUpdate` of a migration: rows locked, numbers taken, rows written, in one transaction — the migration's on
+ * PostgreSQL. On MySQL / MariaDB in a transaction of its own: a DDL statement earlier in the migration committed the
+ * migration's transaction implicitly, and in autocommit every statement would release its locks at once — a running
+ * application could then commit a higher number before these rows (a client's cursor passes them for good) or read the
+ * counter between the increment and the read here (one number twice). Answers the number of rows written.
+ */
+export async function applySqlSyncUpdate(
+  run: SqlMigrationRun,
+  dialect: 'mysql' | 'postgres',
+  update: SqlSyncUpdate['syncUpdate'],
+): Promise<number> {
+  if (dialect === 'postgres') {
+    return writeSyncUpdate(run, dialect, update);
+  }
+  await run({ params: [], text: 'START TRANSACTION' });
+  try {
+    const written = await writeSyncUpdate(run, dialect, update);
+    await run({ params: [], text: 'COMMIT' });
+    return written;
+  } catch (error) {
+    await run({ params: [], text: 'ROLLBACK' }).catch(() => undefined);
+    throw error;
+  }
+}
+
+async function writeSyncUpdate(
+  run: SqlMigrationRun,
   dialect: 'mysql' | 'postgres',
   update: SqlSyncUpdate['syncUpdate'],
 ): Promise<number> {
@@ -125,7 +152,7 @@ async function applySyncUpdate(
 }
 
 /** The next change numbers of a table on PostgreSQL, as the store takes them (advisory lock, then the sequence) */
-async function postgresNumbers(run: MigrationRun, table: string, count: number): Promise<string[]> {
+async function postgresNumbers(run: SqlMigrationRun, table: string, count: number): Promise<string[]> {
   await run({
     params: [table],
     text: `SELECT pg_advisory_xact_lock(hashtext('lenne.tech:sync:' || current_schema() || '.' || $1))`,
@@ -138,7 +165,7 @@ async function postgresNumbers(run: MigrationRun, table: string, count: number):
 }
 
 /** The next change numbers of a table on MySQL / MariaDB, as the store takes them (the counter row, last) */
-async function mysqlNumbers(run: MigrationRun, table: string, count: number): Promise<string[]> {
+async function mysqlNumbers(run: SqlMigrationRun, table: string, count: number): Promise<string[]> {
   await run({
     params: [count, table],
     text: `UPDATE ${quoteMysqlIdentifier(MYSQL_SYNC_COUNTERS)} SET \`seq\` = \`seq\` + $1 WHERE \`model\` = $2`,

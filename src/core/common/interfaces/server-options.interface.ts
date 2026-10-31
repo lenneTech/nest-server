@@ -4964,6 +4964,7 @@ export interface ICoreModuleOverrides {
    * Override the offline sync endpoints, the hint subscription and their service (`sync` config).
    *
    * - `controller` must extend `CoreSyncController` (e.g. to release a sync scope to API tokens)
+   * - `hintsController` must extend `CoreSyncHintsController` (`GET /sync/hints`, e.g. for API tokens there too)
    * - `resolver` must extend `CoreSyncResolver` (the `syncHint` subscription)
    * - `service` must extend `CoreSyncService`
    *
@@ -4974,6 +4975,7 @@ export interface ICoreModuleOverrides {
    */
   sync?: {
     controller?: Type<any>;
+    hintsController?: Type<any>;
     resolver?: Type<any>;
     service?: Type<any>;
   };

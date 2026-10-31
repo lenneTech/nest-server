@@ -39,6 +39,9 @@ export const SYNC_DEFAULTS = Object.freeze({
 });
 
 /** How often the tombstone purge runs (on one replica per run, under a lease; plan §3.7, E8) */
+/** Tombstones per purge statement: small enough that a statement never holds many row locks at once */
+export const SYNC_PURGE_BATCH = 1000;
+
 export const SYNC_PURGE_INTERVAL_MS = 60 * 60_000;
 
 /** How often an open hint stream sends a comment, so proxies and load balancers keep it open */

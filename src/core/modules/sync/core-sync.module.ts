@@ -5,6 +5,7 @@ import { DiscoveryModule } from '@nestjs/core';
 import { CorePersistenceModule } from '../../common/persistence/core-persistence.module.js';
 import { SYNC_DEFAULTS, SYNC_MUTATION_MODEL, SYNC_STATE_MODEL } from './core-sync.constants.js';
 import { CoreSyncController } from './core-sync.controller.js';
+import { CoreSyncHintsController } from './core-sync-hints.controller.js';
 import { CoreSyncHintService } from './core-sync-hints.service.js';
 import { SyncMutationSchema, SyncStateSchema } from './core-sync-infrastructure.models.js';
 import { CoreSyncResolver } from './core-sync.resolver.js';
@@ -20,6 +21,8 @@ export interface CoreSyncModuleOptions {
    * @default true
    */
   graphQlHints?: boolean;
+  /** Custom controller of `GET /sync/hints` (must extend CoreSyncHintsController) */
+  hintsController?: Type<CoreSyncHintsController>;
   /** Route prefix (`sync.path`) @default 'sync' */
   path?: string;
   /** Custom resolver of the hint subscription (must extend CoreSyncResolver) */
@@ -41,10 +44,15 @@ export interface CoreSyncModuleOptions {
 export class CoreSyncModule {
   static forRoot(options: CoreSyncModuleOptions = {}): DynamicModule {
     const controller = options.controller ?? CoreSyncController;
+    const hintsController = options.hintsController ?? CoreSyncHintsController;
     // The configured prefix wins over the class's declaration, as for the TUS routes
-    Reflect.defineMetadata(PATH_METADATA, options.path || SYNC_DEFAULTS.path, controller);
+    for (const routes of [hintsController, controller]) {
+      Reflect.defineMetadata(PATH_METADATA, options.path || SYNC_DEFAULTS.path, routes);
+    }
     return {
-      controllers: [controller],
+      // The hints first: Nest registers routes in this order, and `GET /sync/hints` must win over `GET /sync/:model`
+      // whatever a project's controller re-declares
+      controllers: [hintsController, controller],
       exports: [CoreSyncHintService, CoreSyncService],
       imports: [
         DiscoveryModule,

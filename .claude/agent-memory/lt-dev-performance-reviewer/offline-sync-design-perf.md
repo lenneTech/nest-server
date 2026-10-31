@@ -80,3 +80,26 @@ Scratch MongoDB tests: a PreToolUse hook blocks `dropDatabase`. Name scratch DBs
 **How to apply (general):** whenever a pull/list paginates by a keyset under the tenant policy, check whether the
 scope is an equality (`tenantId`) or a list (`tenantIds` → `$in`/`ANY`): on PostgreSQL only the equality lets a
 tenant-led index serve the ORDER BY.
+
+## Phase 5 (DEV-3902, 2026-10-31, static review — no DB allowed): one High
+- HIGH (MySQL/MariaDB): the hourly tombstone purge is ONE `DELETE FROM t WHERE deleted_at < ?` (SqlDataStore.deleteMany,
+  inherited by MysqlDataStore) and NO synchronized table has an index led by `deleted_at` (only live-unique partials,
+  `lt_lk_*`, `(tenant_id, sync_seq)`). Session isolation is the server default REPEATABLE READ (MYSQL_SESSION_SQL sets
+  none) → InnoDB next-key-locks EVERY scanned row + gap for the statement: all store writes of that model (all tenants)
+  wait; > innodb_lock_wait_timeout 50 s → 1205. First run at bootstrap meets the whole backlog. Fix: non-locking id
+  batch SELECT + `DELETE … WHERE id IN (…) AND deleted_at < ?` per short statement, plus a `deleted_at` index.
+  PG (ROW EXCLUSIVE, matched rows only) and Mongo (COLLSCAN, yields) only pay a full scan per hour — below the bar.
+- Settled: non-sync CrudService paths add one module-variable read (`getSyncAccessListener()`) + capabilities getter;
+  hint `pending` Map bounded by (model, tenant) per debounce window; GraphQL iterator queue capped at 100 and
+  `withRequestContextAsyncIterator` forwards `return()`; SSE end() clears keepalive + unsubscribes + unregisters.
+- Below the bar, re-check if scale grows: `CoreSyncHintService.deliver()` calls EVERY subscriber for EVERY hint
+  (fleet-wide via Redis) — O(S×H), est. 30-50 ns per filtered-out call → ~6 % at 2k subs × 800 hints/s, saturates
+  near 5k × 4k/s. Fix would be an index Map<model, Map<tenant|'*', Set>>.
+- Below the bar: SSE `reauthenticate: () => undefined` makes every stream terminate (and LOG "Session no longer
+  valid") at the first accepted hint after subscriptionRevalidationMs (~30 s); SSE attaches `request.on('close')`
+  only after awaits (limit, scopeTenants, hintFilter) — an abort in that window leaks the subscriber until a hint/
+  invalidation; `applySyncUpdate` holds the number lock (PG advisory / MySQL counter row) to migration commit (needed
+  for commit order).
+- Resolved in DEV-3902 before merge: the purge reads ids in primary-key order (keyset, 1000 per batch, no lock) and
+  deletes `id IN (…) AND deleted_at < ?` per batch (mutation `sync-purge-single-statement`). No `deleted_at` index was
+  added; the early-close leak was fixed too (mutation `sync-hint-stream-late-close`).

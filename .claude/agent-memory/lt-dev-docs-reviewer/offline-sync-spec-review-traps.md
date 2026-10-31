@@ -1,6 +1,6 @@
 ---
 name: offline-sync-spec-review-traps
-description: Offline-sync epic DEV-3819 — phases 1-4 (DEV-3898/3899/3900/3901) plan, protocol and implementation claims that disagree with code; re-check in DEV-3902+
+description: Offline-sync epic DEV-3819 — phases 1-5 (DEV-3898…3902) plan, protocol and implementation claims that disagree with code; re-check in DEV-3902+
 metadata:
   type: project
 ---
@@ -84,3 +84,17 @@ one id format per model. Traps found in the text, re-check in phase 3/4 code:
 Probe recipe: the Bash hook refuses any command whose text contains `dropDatabase` — write the probe with the Write
 tool, name the DB per the e2e run scheme (`nest-server-e2e-run-<ts>-p<pid>-…`) so the startup sweep collects it, and
 clean with `deleteMany`. See [[executable-doc-recipes]].
+
+**Phase 5 (DEV-3902, reviewed 2026-10-31, commit 5fbe5c4, read-only)** — hints (SSE + `syncHint`), purge, `syncUpdate`:
+
+- **README "Extending" recipe shadows `GET /sync/hints`**: re-declaring `pull()` (`@Get(':model')`) in a subclass puts
+  it BEFORE the inherited `@Get('hints')` (Nest scans own methods first; `routeResolutionStrategy` defaults to
+  `'declaration'`), so `/sync/hints` is a pull of model `hints` → 404, EventSource stops. See [[nest-subclass-route-order]].
+- **Protocol §10 `403 … (pull, hints)`** — the hints route never 403s for missing pull roles; `hintFilter()` silently
+  skips such models (200, empty stream). Pre-existing row, made false by the implementation.
+- Still dropped as Medium: §15 P2-5 "One source, the store's write events" — hints come from CrudService
+  create/update/delete; store/native writes need `notifyChange()` (README + persistence.md say so correctly). Also: the
+  `SqlSyncUpdate.set` JSDoc example `"status" = …` is a syntax error on MySQL/MariaDB (no ANSI_QUOTES).
+- Verified sound: SSE re-check (`reauthenticate: () => undefined` → every revalidate terminates), purge order (horizon
+  first, `$lt`-only advance), lease order Redis → `lt_locks` → `cron-locks`, all new `@default`s, mutation counts
+  468 / 253 unit / 215 e2e, `runSqlMigration` MySQL path runs inside a transaction (`withMysqlSchemaLock`).

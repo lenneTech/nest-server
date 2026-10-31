@@ -282,9 +282,11 @@ export * from './core/modules/system-setup/core-system-setup.service.js';
 // Core - Modules - Sync (offline sync)
 // =====================================================================================================================
 
+export * from './core/modules/sync/core-sync-base.controller.js';
 export * from './core/modules/sync/core-sync.constants.js';
 export * from './core/modules/sync/core-sync.controller.js';
 export * from './core/modules/sync/core-sync.decorators.js';
+export * from './core/modules/sync/core-sync-hints.controller.js';
 export * from './core/modules/sync/core-sync-hints.service.js';
 export * from './core/modules/sync/core-sync-infrastructure.models.js';
 export * from './core/modules/sync/core-sync.module.js';

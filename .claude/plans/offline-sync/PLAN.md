@@ -489,10 +489,17 @@ MariaDB; executor `tests/sync-contract.e2e-spec.ts`, the reference model `src/se
 - **Purge**: hourly on one replica (lease: Redis `SET NX` → the default SQL source's `lt_locks` → `cron-locks`),
   `retention.tombstonesDays` (90, `false` off, invalid → 90). The horizon is advanced first (`advanceHorizon`), then
   tombstones older than it are hard-deleted (`deleteMany` with `hardDelete` + `includeTombstones`) — the reverse order
-  would let a client with an older cursor miss the delete for good. `purgeTombstones()` runs it by hand.
+  would let a client with an older cursor miss the delete for good. Batches of 1000, ids read in key order and deleted
+  by id (review: one `DELETE … WHERE deleted_at < ?` locks every row it scans on MySQL / MariaDB). `purgeTombstones()`
+  runs it by hand.
+- **Route order**: `GET /sync/hints` is `CoreSyncHintsController`'s, registered before `CoreSyncController` (review: Nest
+  registers a subclass's own routes first, so a project controller re-declaring `pull()` read `hints` as a model).
+- **Early close** (review): a stream whose client left while the guards ran is released at once — its `close` fired
+  before any listener existed.
 - **Migration helper**: `runSqlMigration()` accepts `{ syncUpdate: { table, set, where } }` — `SELECT … FOR UPDATE`,
   numbers taken like the store (PostgreSQL: advisory lock + the table's sequence; MySQL / MariaDB: `lt_sync_counters`),
-  then `UPDATE` with `version + 1` and the numbers, in chunks of 500 rows.
+  then `UPDATE` with `version + 1` and the numbers, in chunks of 500 rows. On MySQL / MariaDB in a transaction of its
+  own (review: a DDL statement before it commits the migration's, and in autocommit every lock ends with its statement).
 
 ### Phase 6 — Test clients, browser E2E, docs, release (DEV-3903)
 1. Minimal PWA test client (IndexedDB) driven by Playwright with offline emulation: create/change/delete offline,

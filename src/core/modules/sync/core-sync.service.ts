@@ -73,6 +73,7 @@ import {
   SYNC_HINT_KEEPALIVE_MS,
   SYNC_MUTATION_MODEL,
   SYNC_PULL_LIMIT_CEILING,
+  SYNC_PURGE_BATCH,
   SYNC_PURGE_INTERVAL_MS,
   SYNC_REAPPLY_ATTEMPTS,
   SYNC_STATE_MODEL,
@@ -1406,6 +1407,9 @@ export class CoreSyncService implements OnApplicationBootstrap, OnModuleDestroy,
       }
       response.end?.();
     };
+    // Before anything else may end the stream: a listener added after the client went away never runs
+    request?.once?.('close', end);
+    response.once?.('close', end);
     registerWsConnection({
       carrier,
       // No credential to check again: every re-check ends the stream, and the reconnect is checked by the guards
@@ -1428,6 +1432,11 @@ export class CoreSyncService implements OnApplicationBootstrap, OnModuleDestroy,
         tenantIds: context.tenantIds,
         tenantRole: context.tenantRole,
       });
+    }
+    // The client may have gone while the guards and the filter ran — `close` has fired then and comes no more
+    if (request?.destroyed || response?.destroyed || response?.writableEnded) {
+      end();
+      return;
     }
 
     response.status?.(200);
@@ -1455,9 +1464,14 @@ export class CoreSyncService implements OnApplicationBootstrap, OnModuleDestroy,
           }
         });
       }) ?? unsubscribe;
-    keepalive = setInterval(() => write(': keepalive\n\n'), SYNC_HINT_KEEPALIVE_MS);
+    keepalive = setInterval(() => {
+      if (response?.destroyed || response?.writableEnded) {
+        end();
+        return;
+      }
+      write(': keepalive\n\n');
+    }, SYNC_HINT_KEEPALIVE_MS);
     keepalive.unref?.();
-    request?.on?.('close', end);
   }
 
   /**
@@ -1602,16 +1616,41 @@ export class CoreSyncService implements OnApplicationBootstrap, OnModuleDestroy,
         continue;
       }
       await this.stateStore.advanceHorizon(registration.name, before);
-      removed[registration.name] = await registration.store.deleteMany({ deletedAt: { $lt: before } } as any, {
-        hardDelete: true,
-        includeTombstones: true,
-      });
+      removed[registration.name] = await this.purgeModel(registration, before);
     }
     const total = Object.values(removed).reduce((sum, count) => sum + count, 0);
     if (total) {
       this.logger.log(`Sync: ${total} tombstone(s) older than ${before.toISOString()} removed`);
     }
     return removed;
+  }
+
+  /**
+   * Hard-delete one model's tombstones older than `before`, `SYNC_PURGE_BATCH` at a time: the ids are read in primary-key
+   * order without a lock, and only those rows are deleted (each statement re-checks `deletedAt`, so a row written in
+   * between stays). One `DELETE … WHERE deleted_at < ?` would scan the whole table — on MySQL / MariaDB under REPEATABLE
+   * READ that locks every row and gap it passes until it ends, and every write of the model waits for it.
+   */
+  protected async purgeModel(registration: SyncModelRegistration, before: Date): Promise<number> {
+    let removed = 0;
+    let after: string | undefined;
+    for (;;) {
+      const batch = await registration.store.find(
+        { deletedAt: { $lt: before }, ...(after ? { id: { $gt: after } } : {}) } as any,
+        { includeTombstones: true, limit: SYNC_PURGE_BATCH, select: ['id'], sort: { id: 1 } },
+      );
+      if (!batch.length) {
+        return removed;
+      }
+      removed += await registration.store.deleteMany(
+        { deletedAt: { $lt: before }, id: { $in: batch.map((record) => record.id) } } as any,
+        { hardDelete: true, includeTombstones: true },
+      );
+      if (batch.length < SYNC_PURGE_BATCH) {
+        return removed;
+      }
+      after = batch[batch.length - 1].id;
+    }
   }
 
   // ===================================================================================================================

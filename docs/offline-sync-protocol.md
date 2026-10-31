@@ -288,7 +288,9 @@ Sync API exists only in Chromium).
 * **SSE** for every web client: `GET /sync/hints?models=note,task` with `Accept: text/event-stream`, authenticated like
   any request (`models` optional: all models without it; a name that is not offered never matches). Events:
   `event: change` with `data: {"model":"note","at":"2026-11-02T09:15:44.002Z"}`; a comment line every 25 seconds keeps
-  proxies from closing the stream, and `retry: 3000` tells the EventSource how soon to reconnect.
+  proxies from closing the stream, and `retry: 3000` tells the EventSource how soon to reconnect. A signed-in caller
+  always gets the stream (`200`); models the caller may not pull simply never send a hint, so the stream reveals
+  nothing about which models exist. `404` when the server switched the SSE channel off.
 * **GraphQL subscription** for clients that use GraphQL: `subscription { syncHint(models: ["note"]) { model at } }`.
 * A hint carries the model name and a time — no record, no id, no tenant. It is sent only to subscribers who hold the
   model's pull roles and may read the changed tenant's records of that model; bursts are collapsed (default 250 ms).
@@ -304,7 +306,7 @@ Sync API exists only in Chromium).
 |---|---|
 | `400` | Malformed body or query, unknown `op`, more than `maxPushItems` items. |
 | `401` | Not authenticated or session expired. Nothing was applied. |
-| `403` | Authenticated, but without the model's pull roles (pull, hints); a cookie-authenticated push failing the origin rules. A push item lacking the operation's roles is `rejected` / `FORBIDDEN` (§7). |
+| `403` | Authenticated, but without the model's pull roles (pull); a cookie-authenticated push failing the origin rules. A push item lacking the operation's roles is `rejected` / `FORBIDDEN` (§7). |
 | `404` | The model is not registered for sync. |
 | `410` | Resync required (§8). |
 | `413` | The body exceeds the server's limit. |

@@ -116,6 +116,8 @@ A hint tells a connected client that pulling is worthwhile; sync works without t
 Every hour, on one replica (a lease: Redis, else the SQL lease table, else `cron-locks` in MongoDB), each model's
 horizon moves to `retention.tombstonesDays` ago **first**, then the older tombstones are deleted for good. A client
 whose cursor is older than the horizon answers its next pull with `410 horizon` and resyncs; nothing is skipped.
+The tombstones go in batches of 1000, read by id and deleted by id: one statement over the whole table would lock
+every row it scans on MySQL / MariaDB and hold up every write of the model.
 `CoreSyncService.purgeTombstones({ before?, model? })` runs it on demand.
 
 ## Data migrations on a synchronized SQL table
@@ -130,7 +132,8 @@ await runSqlMigration(ownerUrl, [
 
 It locks the rows first, then takes the change numbers like the store, then writes them with `version + 1` — the order
 that cannot deadlock with a running application on MySQL / MariaDB, and the version a client's stale edit then
-conflicts with. `set` and `where` are reviewed SQL, like every statement of a migration.
+conflicts with. On MySQL / MariaDB each `syncUpdate` runs in a transaction of its own, because a DDL statement before
+it has already committed the migration's. `set` and `where` are reviewed SQL, like every statement of a migration.
 
 ## Infrastructure models
 
@@ -143,12 +146,17 @@ Both follow `database` like every other model.
 
 ## Extending
 
-Override through `CoreModule.forRoot(env, { sync: { controller, service } })`:
+Override through `CoreModule.forRoot(env, { sync: { controller, hintsController, resolver, service } })`:
 
 - **`CoreSyncService`** — every step is `protected`: `readChanges()`, `toSyncRecord()`, `accessState()`,
   `resolveUpdateConflict()`, `writeFailure()`, …
 - **`CoreSyncController`** — e.g. to release a scope to API tokens: extend it, re-declare `pull()` / `push()` with their
   route decorators plus `@ApiTokenScopes('sync')`, and call `super`.
+- **`CoreSyncHintsController`** — `GET /sync/hints`, a controller of its own that the module registers before
+  `CoreSyncController`: Nest registers a class's own routes before the inherited ones, so a re-declared `pull()`
+  (`@Get(':model')`) would otherwise read `hints` as a model name. Extend it the same way to release hints to API
+  tokens. `CoreSyncBaseController` holds what both share (`scopeTenants()`, `limit()`).
+- **`CoreSyncResolver`** — the `syncHint` subscription.
 - **Access that moves past `CrudService.update()`** (a direct store write, a migration, the native API) bumps no epoch:
   call `CoreSyncService.bumpAccessEpoch(model, tenantId, userId?)` after such a write, or the clients concerned keep
   their copies until their next full resync.

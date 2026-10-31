@@ -216,7 +216,7 @@ When `passkey` is enabled, `trustedOrigins` is required (compile-time enforcemen
 ### ICoreModuleOverrides
 
   - `apiToken?`: `{ model?: Type<any>; service?: Type<any>; }` — Override API token collaborators with project-specific subclasses (`apiTokens` config).
-  - `sync?`: `{ controller?: Type<any>; resolver?: Type<any>; service?: Type<any>; }` — Override the offline sync endpoints, the hint subscription and their service (`sync` config).
+  - `sync?`: `{ controller?: Type<any>; hintsController?: Type<any>; resolver?: Type<any>; ...` — Override the offline sync endpoints, the hint subscription and their service (`sync` config).
   - `ai?`: `{ budgetService?: Type<any>; connectionResolver?: Type<any>; connectionServic...` — Override AI module collaborators with project-specific subclasses.
   - `betterAuth?`: `{ controller?: Type<any>; resolver?: Type<any>; }` — Override BetterAuth controller and/or resolver.
   - `errorCode?`: `{ controller?: Type<any>; service?: Type<any>; }` — Override ErrorCode controller and/or service.

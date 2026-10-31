@@ -5323,6 +5323,50 @@
         "tests/sync-contract.e2e-spec.ts"
       ],
       "driverSpecific": false
+    },
+    {
+      "id": "sync-purge-single-statement",
+      "defect": "DEV-3902 review (offline sync phase 5) — one DELETE … WHERE deleted_at < ? scans the whole table; on MySQL / MariaDB under REPEATABLE READ it locks every row and gap it passes, so every write of the synchronized model waited for the hourly purge.",
+      "file": "src/core/modules/sync/core-sync.service.ts",
+      "find": "      removed[registration.name] = await this.purgeModel(registration, before);\n",
+      "replace": "      removed[registration.name] = await registration.store.deleteMany({ deletedAt: { $lt: before } } as any, {\n        hardDelete: true,\n        includeTombstones: true,\n      });\n",
+      "specs": [
+        "tests/unit/sync-module.spec.ts"
+      ],
+      "driverSpecific": false
+    },
+    {
+      "id": "sync-hint-stream-late-close",
+      "defect": "DEV-3902 review (offline sync phase 5) — a client that closed the connection while the guards and the filter ran: its close had fired before the stream attached a listener, so subscriber, registry entry and keepalive timer stayed for good.",
+      "file": "src/core/modules/sync/core-sync.service.ts",
+      "find": "    if (request?.destroyed || response?.destroyed || response?.writableEnded) {\n      end();\n      return;\n    }\n",
+      "replace": "",
+      "specs": [
+        "tests/unit/sync-module.spec.ts"
+      ],
+      "driverSpecific": false
+    },
+    {
+      "id": "sync-hints-route-after-model",
+      "defect": "DEV-3902 review (offline sync phase 5) — a project controller re-declaring pull() registers GET /sync/:model before an inherited GET /sync/hints, so the hint stream answered as a pull of a model named hints (404).",
+      "file": "src/core/modules/sync/core-sync.module.ts",
+      "find": "      controllers: [hintsController, controller],\n",
+      "replace": "      controllers: [controller, hintsController],\n",
+      "specs": [
+        "tests/unit/sync-hints-route.spec.ts"
+      ],
+      "driverSpecific": false
+    },
+    {
+      "id": "sync-migration-update-autocommit",
+      "defect": "DEV-3902 review (offline sync phase 5) — a DDL statement before a syncUpdate commits the migration's transaction on MySQL / MariaDB; in autocommit the row and counter locks ended with each statement, so an application write could commit a higher change number before the migrated rows, or a number was taken twice.",
+      "file": "src/core/modules/migrate/sql-migration.helper.ts",
+      "find": "  if (dialect === 'postgres') {\n    return writeSyncUpdate(run, dialect, update);\n  }\n",
+      "replace": "  if (dialect === 'postgres' || dialect === 'mysql') {\n    return writeSyncUpdate(run, dialect, update);\n  }\n",
+      "specs": [
+        "tests/unit/sql-migration-sync-update.spec.ts"
+      ],
+      "driverSpecific": false
     }
   ]
 }

@@ -1664,7 +1664,11 @@ describe.each(SYNC_DRIVERS)('sync contract — %s (e2e)', (driver) => {
     const ids = notes.slice(0, 2).map((note) => `'${note.id}'`).join(', ');
     await runSqlMigration(
       String(config.database.ownerUrl),
-      [{ syncUpdate: { set: "title = 'migrated'", table: tableName(getModelDescriptor('SyncNote')!), where: `id IN (${ids})` } }],
+      [
+        // A DDL statement first: on MySQL / MariaDB it commits the migration's transaction, the syncUpdate opens its own
+        'CREATE TABLE IF NOT EXISTS lt_migration_probe (id int)',
+        { syncUpdate: { set: "title = 'migrated'", table: tableName(getModelDescriptor('SyncNote')!), where: `id IN (${ids})` } },
+      ],
       { engine: config.database.sqlEngine },
     );
     const next = latest((await pullAll('SyncNote', { cursor: first.cursor, token: alice.token })).items);

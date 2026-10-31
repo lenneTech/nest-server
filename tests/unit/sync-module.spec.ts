@@ -1,6 +1,8 @@
+import { EventEmitter } from 'node:events';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 
 import { RoleEnum } from '../../src/core/common/enums/role.enum';
+import { revalidateWsConnectionsOf } from '../../src/core/common/helpers/graphql-ws-connection.helper';
 import { resolveSyncOptions } from '../../src/core/common/persistence/sync-model';
 import { ConfigService } from '../../src/core/common/services/config.service';
 import {
@@ -106,7 +108,9 @@ describe('sync requests', () => {
     new ConfigService({ appUrl: 'https://app.example.com', baseUrl: 'https://api.example.com', ...config } as any, {
       warn: false,
     });
-  const request = (headers: Record<string, string>) => ({ headers: { 'content-type': 'application/json', ...headers } });
+  const request = (headers: Record<string, string>) => ({
+    headers: { 'content-type': 'application/json', ...headers },
+  });
 
   it('refuses a push that is not JSON, comes cross-site, or names a foreign origin — while cookies are in use', () => {
     configure({ cookies: true, cors: {}, env: 'production' });
@@ -115,7 +119,9 @@ describe('sync requests', () => {
     expect(() => sync.assertPushRequest(request({ 'sec-fetch-site': 'cross-site' }))).toThrow();
     expect(() => sync.assertPushRequest(request({ origin: 'https://evil.example' }))).toThrow();
     // The app, the API itself, and a client without fetch metadata pass
-    expect(() => sync.assertPushRequest(request({ origin: 'https://app.example.com', 'sec-fetch-site': 'same-site' }))).not.toThrow();
+    expect(() =>
+      sync.assertPushRequest(request({ origin: 'https://app.example.com', 'sec-fetch-site': 'same-site' })),
+    ).not.toThrow();
     expect(() => sync.assertPushRequest(request({ origin: 'https://api.example.com' }))).not.toThrow();
     expect(() => sync.assertPushRequest(request({}))).not.toThrow();
   });
@@ -124,7 +130,9 @@ describe('sync requests', () => {
     configure({ cookies: true, cors: { allowAll: true }, env: 'local' });
     expect(() => service().assertPushRequest(request({ origin: 'https://anything.example' }))).not.toThrow();
     configure({ cookies: false, env: 'production' });
-    expect(() => service().assertPushRequest(request({ origin: 'https://evil.example', 'sec-fetch-site': 'cross-site' }))).not.toThrow();
+    expect(() =>
+      service().assertPushRequest(request({ origin: 'https://evil.example', 'sec-fetch-site': 'cross-site' })),
+    ).not.toThrow();
   });
 
   it('counts pulls and pushes per user and answers the seconds until the window resets once exceeded', async () => {
@@ -231,14 +239,97 @@ describe('sync hints and purge', () => {
       calls.push('delete');
       return 2;
     });
+    const find = vi.fn(async () => [{ id: 'a' }, { id: 'b' }]);
     sync.stateStore = { advanceHorizon: vi.fn(async () => calls.push('horizon')) };
-    sync.models.set('Note', { name: 'Note', store: { deleteMany } });
-    sync.models.set('Task', { name: 'Task', store: { deleteMany: vi.fn(async () => 0) } });
+    sync.models.set('Note', { name: 'Note', store: { deleteMany, find } });
+    sync.models.set('Task', { name: 'Task', store: { deleteMany: vi.fn(async () => 0), find: vi.fn(async () => []) } });
     const before = new Date('2026-01-01T00:00:00.000Z');
 
     expect(await sync.purgeTombstones({ before, model: 'Note' })).toEqual({ Note: 2 });
     expect(calls).toEqual(['horizon', 'delete']);
     expect(sync.stateStore.advanceHorizon).toHaveBeenCalledWith('Note', before);
-    expect(deleteMany).toHaveBeenCalledWith({ deletedAt: { $lt: before } }, { hardDelete: true, includeTombstones: true });
+    expect(deleteMany).toHaveBeenCalledWith(
+      { deletedAt: { $lt: before }, id: { $in: ['a', 'b'] } },
+      { hardDelete: true, includeTombstones: true },
+    );
+  });
+
+  /**
+   * @regression   DEV-3902 review — one `DELETE … WHERE deleted_at < ?` scans the whole table; on MySQL / MariaDB under
+   *   REPEATABLE READ it locks every row and gap it passes, and every write of the model waits until it ends.
+   * @seen-failing Replace the batched purge with one deleteMany() in CoreSyncService.purgeTombstones()
+   *   (src/core/modules/sync/core-sync.service.ts) — registered as mutation `sync-purge-single-statement` in
+   *   tests/regression-mutations.json.
+   */
+  it('purges in batches by id, continuing after the last id, each delete re-checking the age', async () => {
+    configure({ sync: {} });
+    const sync = service() as any;
+    const ids = Array.from({ length: 2500 }, (_, index) => `id-${String(index).padStart(5, '0')}`);
+    const find = vi.fn(async (where: any, options: any) =>
+      ids
+        .filter((id) => !where.id || id > where.id.$gt)
+        .slice(0, options.limit)
+        .map((id) => ({ id })),
+    );
+    const deleteMany = vi.fn(async (where: any, _options: any) => where.id.$in.length);
+    sync.stateStore = { advanceHorizon: vi.fn(async () => undefined) };
+    sync.models.set('Note', { name: 'Note', store: { deleteMany, find } });
+    const before = new Date('2026-01-01T00:00:00.000Z');
+
+    expect(await sync.purgeTombstones({ before })).toEqual({ Note: 2500 });
+    expect(find).toHaveBeenCalledTimes(3);
+    expect(find.mock.calls.map(([where]) => where.id?.$gt)).toEqual([undefined, 'id-00999', 'id-01999']);
+    for (const [, options] of find.mock.calls) {
+      expect(options).toEqual({ includeTombstones: true, limit: 1000, select: ['id'], sort: { id: 1 } });
+    }
+    expect(deleteMany.mock.calls.map(([where]) => where.id.$in.length)).toEqual([1000, 1000, 500]);
+    for (const [where, options] of deleteMany.mock.calls) {
+      expect(where.deletedAt).toEqual({ $lt: before });
+      expect(options).toEqual({ hardDelete: true, includeTombstones: true });
+    }
+  });
+
+  /**
+   * @regression   DEV-3902 review — a client that closed the connection while the guards and the filter ran: its
+   *   `close` had fired before the stream attached a listener, so subscriber, registry entry and keepalive timer stayed
+   *   for good — reachable by any signed-in user, 120 times a minute.
+   * @seen-failing Drop the destroyed-connection check from CoreSyncService.openHintStream()
+   *   (src/core/modules/sync/core-sync.service.ts) — registered as mutation `sync-hint-stream-late-close` in
+   *   tests/regression-mutations.json.
+   */
+  it('releases a hint stream whose client is gone before it opened, and one whose client leaves', async () => {
+    vi.useFakeTimers();
+    configure({ sync: {} });
+    const bus = new CoreSyncHintService();
+    const sync = new CoreSyncService({} as any, {} as any, {} as any, {} as any, undefined, bus);
+    const fakeResponse = () =>
+      Object.assign(new EventEmitter(), {
+        end: vi.fn(),
+        flushHeaders: vi.fn(),
+        setHeader: vi.fn(),
+        status: vi.fn(),
+        write: vi.fn(),
+      });
+    const subscribers = () => (bus as any).subscribers.size;
+
+    // Gone before the handler reached the stream: `close` has fired and comes no more
+    const gone = Object.assign(new EventEmitter(), { destroyed: true });
+    await sync.openHintStream(gone, fakeResponse(), { id: 'user-gone' });
+    expect(subscribers()).toBe(0);
+    expect(vi.getTimerCount()).toBe(0);
+    expect(revalidateWsConnectionsOf({ userId: 'user-gone' })).toBe(0);
+
+    // The control: a client that is there keeps its stream until it leaves
+    const present = Object.assign(new EventEmitter(), { destroyed: false });
+    const response = fakeResponse();
+    await sync.openHintStream(present, response, { id: 'user-present' });
+    expect(subscribers()).toBe(1);
+    expect(vi.getTimerCount()).toBe(1);
+    present.emit('close');
+    expect(subscribers()).toBe(0);
+    expect(vi.getTimerCount()).toBe(0);
+    expect(response.end).toHaveBeenCalledTimes(1);
+    expect(revalidateWsConnectionsOf({ userId: 'user-present' })).toBe(0);
+    bus.onModuleDestroy();
   });
 });
