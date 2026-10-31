@@ -88,12 +88,14 @@ export abstract class CrudService<
         const currentUserId = serviceOptions?.currentUser?.id;
         const createId = serviceOptions?.createId;
         if (this.usesNeutralStore) {
-          return this.dataStore.insert({
-            ...data.input,
-            ...(createId === undefined || createId === null ? {} : { id: createId }),
-            createdBy: currentUserId,
-            updatedBy: currentUserId,
-          } as any);
+          return this.syncChanged(
+            await this.dataStore.insert({
+              ...data.input,
+              ...(createId === undefined || createId === null ? {} : { id: createId }),
+              createdBy: currentUserId,
+              updatedBy: currentUserId,
+            } as any),
+          );
         }
         const build = (id?: string) =>
           new (this.mainDbModel as MongooseModel<Document & Model>)({
@@ -109,9 +111,11 @@ export abstract class CrudService<
         // A synchronized model keeps a client's id in its format and replaces a taken server id (plan §3.3, E6)
         const supplied = createId ?? suppliedId(data.input ?? {});
         if (supplied !== undefined && supplied !== null) {
-          return build(assertClientId(supplied, sync.idFormat, this.mainDbModel.modelName)).save();
+          return this.syncChanged(
+            await build(assertClientId(supplied, sync.idFormat, this.mainDbModel.modelName)).save(),
+          );
         }
-        return insertWithServerId(sync.idFormat, (id) => build(id).save(), isDuplicateIdError);
+        return this.syncChanged(await insertWithServerId(sync.idFormat, (id) => build(id).save(), isDuplicateIdError));
       },
       { input, serviceOptions },
     );
@@ -724,6 +728,7 @@ export abstract class CrudService<
                 this.versionConflict(id));
           if (updated) {
             await this.reportSyncAccessMove(before, merged);
+            this.reportSyncChange(before, merged);
           }
           return updated;
         },
@@ -754,6 +759,7 @@ export abstract class CrudService<
           return expectedVersion === undefined ? updated : this.versionConflict(id);
         }
         await this.reportSyncAccessMove(before, merged);
+        this.reportSyncChange(before, merged);
         return updated;
       },
       { dbObject, input, serviceOptions },
@@ -794,6 +800,7 @@ export abstract class CrudService<
       return this.process(
         async () => {
           await this.removeOrTombstone(id, expectedVersion);
+          this.reportSyncChange(stored);
           return stored;
         },
         { dbObject: stored, serviceOptions },
@@ -813,6 +820,7 @@ export abstract class CrudService<
         if (this.mongoSync) {
           // A synchronized model's delete leaves a tombstone, which is how clients learn of it
           await this.removeOrTombstone(id, expectedVersion);
+          this.reportSyncChange(dbObject);
         } else {
           await this.mainDbModel.findByIdAndDelete(id).exec();
         }
@@ -918,6 +926,40 @@ export abstract class CrudService<
         this.constructor.name,
       );
     }
+  }
+
+  /**
+   * Tell the sync module that a write of a synchronized record succeeded, so the subscribers of its hints learn of it
+   * (offline-sync plan §3.9) — with the tenants the record was in before and after the write. A no-op without the
+   * module and on any other model; a failure is logged, never thrown: the write has happened.
+   */
+  protected reportSyncChange(...records: (Record<string, any> | null | undefined)[]): void {
+    const listener = getSyncAccessListener();
+    if (!listener?.recordChanged || !this.isSynchronized) {
+      return;
+    }
+    const tenantIds = new Set<string>();
+    for (const record of records) {
+      const tenantId = record?.tenantId;
+      if (tenantId !== undefined && tenantId !== null && tenantId !== '') {
+        tenantIds.add(String(getStringIds(tenantId)));
+      }
+    }
+    try {
+      listener.recordChanged({ model: this.dataStore.modelName, tenantIds: [...tenantIds] });
+    } catch (error) {
+      Logger.warn(
+        `Sync hint for a ${this.dataStore.modelName} write not sent — clients learn of it at their next pull: ` +
+          `${(error as Error)?.message ?? error}`,
+        this.constructor.name,
+      );
+    }
+  }
+
+  /** `reportSyncChange()` for a created record, which it answers */
+  protected syncChanged<R>(created: R): R {
+    this.reportSyncChange(created as any);
+    return created;
   }
 
   /**

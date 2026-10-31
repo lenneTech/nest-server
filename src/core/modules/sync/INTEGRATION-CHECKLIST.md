@@ -72,6 +72,10 @@ Making an existing model synchronized is a migration on every database: the boot
 - [ ] `GET /sync/<Model>` answers `{ items, cursor, hasMore }` for a signed-in user with the pull roles, 403 without
 - [ ] A push of `{ mutationId, op: 'upsert', id, data }` answers `applied` with `version: 1`; the same push again too
 - [ ] A user of another tenant pulls none of the records and gets `not_found` / `ID_UNAVAILABLE` for their ids
+- [ ] `GET /sync/hints` (EventSource) sends `event: change` after a write in the user's scope, and nothing for another
+      tenant's; the client pulls on every hint and once after every reconnect
+- [ ] Writes past the CrudService (data store, native API, migration) call `CoreSyncService.notifyChange()`, and
+      multi-row data migrations on a synchronized SQL table use `runSqlMigration()` with `syncUpdate`
 - [ ] The client deletes every local record and cursor on logout (the device holds personal data)
 
 ## Common Mistakes

@@ -1,7 +1,7 @@
 # Offline sync — pull, push and tombstones on every database
 
-> **Status:** planned 2026-10-29 against nest-server 12.1.0 (develop `e2f0a4a`), phase 1 of DEV-3819. Phases 1–4
-> built (DEV-3898 – DEV-3901); hints and cleanup (DEV-3902) and the test clients (DEV-3903) remain.
+> **Status:** planned 2026-10-29 against nest-server 12.1.0 (develop `e2f0a4a`), phase 1 of DEV-3819. Phases 1–5
+> built (DEV-3898 – DEV-3902); the test clients, browser E2E and the release (DEV-3903) remain.
 > **Linear:** epic DEV-3819; one ticket per phase: DEV-3898 (1, this plan + protocol), DEV-3899 (2, cursor prototype),
 > DEV-3900 (3, DataStore extensions), DEV-3901 (4, sync module), DEV-3902 (5, hints + cleanup), DEV-3903 (6, test
 > clients, browser E2E, docs, release). Worked one per `/lt-dev:ticket-cycle --autopilot` run.
@@ -466,6 +466,34 @@ MariaDB; executor `tests/sync-contract.e2e-spec.ts`, the reference model `src/se
    debounce, per-subscriber filtering, registration + re-check of the long-lived channels.
 2. Tombstone purge cron under a `LockStore` lease (horizon first), mutation-store sweep through the expiry sweep.
 
+**Built in phase 5 (DEV-3902)**, the contract cases in the same seven-column matrix (`hints-sse`, `hints-tenant`,
+`hints-roles`, `hints-revalidation`, `purge-horizon`, `migration-sync-update`) plus a two-replica case in
+`tests/multi-replica.e2e-spec.ts`:
+
+- **Source**: `CrudService.create()` / `update()` / `delete()` of a synchronized model report the change to the sync
+  listener (`SyncAccessListener.recordChanged`, the registry phase 4 introduced for access moves), with the tenants of
+  the record before and after. Writes past the CrudService call `CoreSyncService.notifyChange()`. No change feed.
+- **Bus**: `CoreSyncHintService` — one hint per model and tenant per `sync.hints.debounceMs` (250), delivered to this
+  replica's subscribers at once and published on `<keyPrefix>:sync:hints` with the replica's origin id, so a replica
+  does not deliver its own hint twice. Debounced per replica: N replicas writing one model send at most N hints per
+  window. Without Redis the hints stay on the replica.
+- **Filter per subscriber**: the model's pull roles (decided like a pull, `checkRights` with the pull roles) and the
+  tenant scope the subscriber had when it subscribed (`allowedTenantIds`); a hint of a model without tenants reaches
+  every subscriber with the pull roles. Payload `{ model, at }` — event `change`, `models` narrows (§9 of the protocol;
+  an unknown name never matches, so it reveals nothing).
+- **Re-check**: the SSE stream registers with the WebSocket registry (`registerWsConnection()` with a socket shim and a
+  re-authentication that never confirms), so every invalidation that names its user or tenant, and the time-based
+  re-check, END it — the `EventSource` reconnects with current rights (`retry: 3000`). Before every delivery
+  `ensureWsConnectionCurrent()` runs. The GraphQL subscription runs on the WebSocket and inherits its re-check.
+  Keepalive comment every 25 s; `response.flush()` for `compression`.
+- **Purge**: hourly on one replica (lease: Redis `SET NX` → the default SQL source's `lt_locks` → `cron-locks`),
+  `retention.tombstonesDays` (90, `false` off, invalid → 90). The horizon is advanced first (`advanceHorizon`), then
+  tombstones older than it are hard-deleted (`deleteMany` with `hardDelete` + `includeTombstones`) — the reverse order
+  would let a client with an older cursor miss the delete for good. `purgeTombstones()` runs it by hand.
+- **Migration helper**: `runSqlMigration()` accepts `{ syncUpdate: { table, set, where } }` — `SELECT … FOR UPDATE`,
+  numbers taken like the store (PostgreSQL: advisory lock + the table's sequence; MySQL / MariaDB: `lt_sync_counters`),
+  then `UPDATE` with `version + 1` and the numbers, in chunks of 500 rows.
+
 ### Phase 6 — Test clients, browser E2E, docs, release (DEV-3903)
 1. Minimal PWA test client (IndexedDB) driven by Playwright with offline emulation: create/change/delete offline,
    reconnect, conflict, two tabs, expired session, cleared storage.
@@ -599,10 +627,9 @@ Phase 2 ~1,500 (prototypes, infra) · Phase 3 ~3,000 · Phase 4 ~3,500 · Phase 
 
 Phase 3 settled what phase 2 left (§11): one counter per model, the advisory lock on PostgreSQL, the trigger form for
 inserts, transactions on synchronized models not refused, the MongoDB insert form. Phase 4 settled the margin of W
-(§11): 30 s over the transaction lifetime on a replica set, 30 s on a standalone. Left to DEV-3902: a
-`runSqlMigration()` helper that numbers a data migration's
-multi-row writes on a synchronized table the way the store does — until then such a migration locks its rows, takes
-the numbers and sets `sync_seq` itself, or runs while nothing else writes the table.
+(§11): 30 s over the transaction lifetime on a replica set, 30 s on a standalone. Phase 5 built the
+`runSqlMigration()` helper (`syncUpdate`) that numbers a data migration's multi-row writes on a synchronized table the
+way the store does. Nothing is open for the framework side; DEV-3903 measures the clients.
 
 ## 11. Decisions
 
@@ -629,6 +656,13 @@ on a replica set, 30 s on a standalone, read through the new optional port metho
 fingerprint and epochs, writes past `CrudService.update()` through `bumpAccessEpoch()`; the horizon checked (advanced
 by DEV-3902); the cookie-push rules applied whenever the server uses cookies; per-user rate limits; error codes
 `LTNS_0700`–`LTNS_0799`; a push `delete` without `baseVersion` rejected. Details: §4 "Built in phase 4".
+
+**Phase 5, autopilot (DEV-3902, recorded on the ticket):** hints from the CrudService's write paths, no change feed;
+payload `{ model, at }` with the event name `change` and a `models` filter on both channels, as the protocol states;
+recipients by pull roles and tenant scope; debounce per model and tenant at the sender, per replica; Redis pub/sub with
+an origin id; the SSE stream ends on every re-check instead of being re-authorized in place; the purge hourly under a
+lease, horizon first, 90 days by default; the migration helper as a `syncUpdate` statement of `runSqlMigration()`.
+Details: §4 "Built in phase 5".
 
 **Phase 3, autopilot (DEV-3900, recorded on the ticket):** E1–E6 here, E7 to DEV-3901, E8 to DEV-3902 (§4). A delete of
 a synchronized model leaves a tombstone on every framework path; the module's push `delete` goes through

@@ -1,4 +1,4 @@
-import { describe, expect, it } from 'vitest';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 
 import { RoleEnum } from '../../src/core/common/enums/role.enum';
 import { resolveSyncOptions } from '../../src/core/common/persistence/sync-model';
@@ -15,6 +15,7 @@ import {
   SyncField,
   SyncService,
 } from '../../src/core/modules/sync/core-sync.decorators';
+import { CoreSyncHintService, type SyncHintEvent } from '../../src/core/modules/sync/core-sync-hints.service';
 import { CoreSyncService } from '../../src/core/modules/sync/core-sync.service';
 
 /**
@@ -155,5 +156,89 @@ describe('sync requests', () => {
         process.env.SECRETS_ENCRYPTION_KEY = previous;
       }
     }
+  });
+});
+
+describe('sync hints and purge', () => {
+  const configure = (config: Record<string, unknown>) => new ConfigService(config as any, { warn: false });
+  const service = () => new CoreSyncService({} as any, {} as any, {} as any, {} as any);
+
+  afterEach(() => {
+    vi.useRealTimers();
+  });
+
+  it('sends one hint per model and tenant per debounce window — a burst of writes is one hint', () => {
+    vi.useFakeTimers();
+    configure({ sync: { hints: { debounceMs: 50 } } });
+    const bus = new CoreSyncHintService();
+    const received: SyncHintEvent[] = [];
+    bus.subscribe((hint) => received.push(hint));
+
+    bus.notify('Note', ['tenant-a']);
+    bus.notify('Note', ['tenant-a']);
+    bus.notify('Note', ['tenant-a', 'tenant-b']);
+    bus.notify('Task');
+    expect(received).toEqual([]);
+    vi.advanceTimersByTime(50);
+    expect(received.map(({ model, tenantId }) => ({ model, tenantId }))).toEqual([
+      { model: 'Note', tenantId: 'tenant-a' },
+      { model: 'Note', tenantId: 'tenant-b' },
+      { model: 'Task', tenantId: undefined },
+    ]);
+    // The window closed: the next write is the next hint
+    bus.notify('Note', ['tenant-a']);
+    vi.advanceTimersByTime(50);
+    expect(received).toHaveLength(4);
+    bus.onModuleDestroy();
+  });
+
+  it('sends nothing with sync.hints: false', () => {
+    vi.useFakeTimers();
+    configure({ sync: { hints: false } });
+    const bus = new CoreSyncHintService();
+    const received: SyncHintEvent[] = [];
+    bus.subscribe((hint) => received.push(hint));
+    bus.notify('Note', ['tenant-a']);
+    vi.advanceTimersByTime(1000);
+    expect(bus.enabled).toBe(false);
+    expect(received).toEqual([]);
+  });
+
+  it('keeps tombstones 90 days unless configured — false keeps them, an invalid value never means "purge now"', () => {
+    const days = (tombstonesDays: unknown) => {
+      configure({ sync: { retention: { tombstonesDays } } });
+      return (service() as any).tombstoneDays();
+    };
+    expect(days(undefined)).toBe(90);
+    expect(days(7)).toBe(7);
+    expect(days(false)).toBe(false);
+    for (const invalid of [0, -1, Number.NaN, '3', true]) {
+      expect(days(invalid)).toBe(90);
+    }
+  });
+
+  /**
+   * @regression   DEV-3902 — the purge must move a model's horizon BEFORE it deletes: a pull between a delete and a
+   *   later horizon would continue past tombstones that are already gone.
+   * @seen-failing Drop the horizon from CoreSyncService.purgeTombstones() in src/core/modules/sync/core-sync.service.ts —
+   *   registered as mutation `sync-purge-without-horizon` in tests/regression-mutations.json.
+   */
+  it('moves the horizon before it deletes the older tombstones for good', async () => {
+    configure({ sync: {} });
+    const sync = service() as any;
+    const calls: string[] = [];
+    const deleteMany = vi.fn(async () => {
+      calls.push('delete');
+      return 2;
+    });
+    sync.stateStore = { advanceHorizon: vi.fn(async () => calls.push('horizon')) };
+    sync.models.set('Note', { name: 'Note', store: { deleteMany } });
+    sync.models.set('Task', { name: 'Task', store: { deleteMany: vi.fn(async () => 0) } });
+    const before = new Date('2026-01-01T00:00:00.000Z');
+
+    expect(await sync.purgeTombstones({ before, model: 'Note' })).toEqual({ Note: 2 });
+    expect(calls).toEqual(['horizon', 'delete']);
+    expect(sync.stateStore.advanceHorizon).toHaveBeenCalledWith('Note', before);
+    expect(deleteMany).toHaveBeenCalledWith({ deletedAt: { $lt: before } }, { hardDelete: true, includeTombstones: true });
   });
 });

@@ -1,7 +1,7 @@
 # Offline sync protocol
 
-> **Status: pull, push, conflicts, client ids and resync are implemented** by the sync module
-> (`src/core/modules/sync/`, DEV-3901, 12.2.0); hints (§9) and the tombstone purge follow with DEV-3902. Specified in
+> **Status: implemented** by the sync module (`src/core/modules/sync/`, 12.2.0): pull, push, conflicts, client ids and
+> resync (DEV-3901), hints (§9) and the tombstone purge (DEV-3902). Specified in
 > phase 1 of the offline-sync epic (DEV-3819, DEV-3898), the open points decided by the cursor prototype of phase 2
 > (DEV-3899). The implementation plan, the port extensions, the reasoning and the measurements live in the framework
 > repository under `.claude/plans/offline-sync/PLAN.md`; §15 lists every decision.
@@ -286,13 +286,16 @@ start, on the `online` event and on focus. The server never assumes a client syn
 Sync API exists only in Chromium).
 
 * **SSE** for every web client: `GET /sync/hints?models=note,task` with `Accept: text/event-stream`, authenticated like
-  any request. Events: `event: change` with `data: {"model":"note","at":"2026-11-02T09:15:44.002Z"}`; a comment line
-  every 25 seconds keeps proxies from closing the stream.
+  any request (`models` optional: all models without it; a name that is not offered never matches). Events:
+  `event: change` with `data: {"model":"note","at":"2026-11-02T09:15:44.002Z"}`; a comment line every 25 seconds keeps
+  proxies from closing the stream, and `retry: 3000` tells the EventSource how soon to reconnect.
 * **GraphQL subscription** for clients that use GraphQL: `subscription { syncHint(models: ["note"]) { model at } }`.
 * A hint carries the model name and a time — no record, no id, no tenant. It is sent only to subscribers who hold the
   model's pull roles and may read the changed tenant's records of that model; bursts are collapsed (default 250 ms).
 * Both channels are long-lived, so the server checks them again during their lifetime like its GraphQL WebSockets: a
-  channel whose user lost access, signed out or changed roles is closed; the client reconnects and is checked anew.
+  channel whose user lost access, signed out or changed roles is closed; the client reconnects and is checked anew. An
+  SSE stream also ends before its first hint after the re-check interval (30 s by default) and is reconnected — a hint
+  is never delivered on rights older than that.
 * On reconnect a client pulls once, because hints sent while it was disconnected are not replayed.
 
 ## 10. HTTP errors
@@ -335,8 +338,10 @@ Error bodies use the framework's error-code format, sync codes in `#LTNS_0700`�
   could see the record — never the rest of the tenant.
 * Hard deletes are not reachable through sync.
 * Changes are never lost by the cursor (§5.3) and never duplicated by retries (§6.5).
-* Idempotency records, rate-limit counters and the retention horizon live in infrastructure stores with an explicit
-  expiry condition, never in a TTL index; expired tombstones are removed by a cron job under the `LockStore` lease.
+* Idempotency records and rate-limit counters live in infrastructure stores with an explicit expiry condition that
+  every reader checks itself — a TTL index (MongoDB) or the expiry sweep (SQL) only removes what has expired. The
+  retention horizon never expires. Tombstones older than `sync.retention.tombstonesDays` (90 days) are removed every
+  hour under a lease, after the horizon moved past them.
 
 ## 13. Compatibility
 

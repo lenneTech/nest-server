@@ -229,6 +229,36 @@ export const SYNC_CASES: readonly SyncCase[] = [
     title: 'a create on a tenant-scoped model needs X-Tenant-Id: rejected without it on every database, applied with it',
   },
 
+  // --- hints (protocol §9) -------------------------------------------------------------------------------------
+  {
+    drivers: ALL,
+    id: 'hints-sse',
+    title: 'a write sends an SSE hint carrying the model and the time — nothing of the record',
+  },
+  {
+    drivers: ALL,
+    id: 'hints-tenant',
+    title: "a hint reaches only subscribers of the change's tenant — over SSE and the GraphQL subscription",
+  },
+  { drivers: ALL, id: 'hints-roles', title: 'a hint reaches only subscribers with the pull roles of the model' },
+  {
+    drivers: ALL,
+    id: 'hints-revalidation',
+    title: 'an invalidation naming the subscriber ends the SSE stream; the reconnect passes the guards again',
+  },
+
+  // --- cleanup and migrations ----------------------------------------------------------------------------------
+  {
+    drivers: ALL,
+    id: 'purge-horizon',
+    title: 'the purge moves the horizon first: an older cursor answers 410 horizon, a fresh pull has no purged tombstone',
+  },
+  {
+    drivers: SYNC_SQL_DRIVERS,
+    id: 'migration-sync-update',
+    title: "a migration's syncUpdate numbers and versions the rows like the store: the next pull delivers them",
+  },
+
   // --- concurrent writers --------------------------------------------------------------------------------------
   {
     drivers: ALL,
@@ -264,6 +294,11 @@ export const SYNC_EXCLUSIONS: readonly SyncExclusion[] = [
     case: 'pull-window-repeats',
     driver,
     reason: 'IMPOSSIBLE: a SQL store numbers changes in commit order and has no window to repeat',
+  })),
+  ...SYNC_MONGO_DRIVERS.map((driver) => ({
+    case: 'migration-sync-update',
+    driver,
+    reason: 'IMPOSSIBLE: runSqlMigration() is SQL only; a MongoDB migration writes through the model or the store',
   })),
   ...SYNC_SQL_DRIVERS.map((driver) => ({
     case: 'pull-window-derived',

@@ -5,6 +5,7 @@ import {
   HttpCode,
   HttpException,
   HttpStatus,
+  NotFoundException,
   Param,
   Post,
   Query,
@@ -23,8 +24,8 @@ import { CoreSyncService, SyncResyncRequiredException } from './core-sync.servic
 import type { ISyncPullResult, ISyncPushResult } from './interfaces/core-sync.interfaces.js';
 
 /**
- * The sync routes (protocol `docs/offline-sync-protocol.md` §4–§6): `GET /sync/{model}` pulls a page of changes,
- * `POST /sync/{model}` pushes changes. Both need a signed-in caller — a session cookie or a bearer token, exactly as on
+ * The sync routes (protocol `docs/offline-sync-protocol.md` §4–§6, §9): `GET /sync/{model}` pulls a page of changes,
+ * `POST /sync/{model}` pushes changes, `GET /sync/hints` streams change hints (SSE). All need a signed-in caller — a session cookie or a bearer token, exactly as on
  * every other route; the model's own operation roles decide the rest (`@PersistedModel({ sync: { roles } })`).
  *
  * API tokens are refused here like on every route without `@ApiTokenScopes()`. A project that wants them extends the
@@ -35,6 +36,33 @@ import type { ISyncPullResult, ISyncPushResult } from './interfaces/core-sync.in
 @Roles(RoleEnum.S_USER)
 export class CoreSyncController {
   constructor(protected readonly syncService: CoreSyncService) {}
+
+  /** Declared before `:model`, so `hints` is never read as a model name. The stream is `openHintStream()`. */
+  @ApiBearerAuth()
+  @ApiOperation({
+    description:
+      'Server-sent events: `event: change` with `{ model, at }` whenever a model the caller may pull changes; ' +
+      '`models` (comma-separated) narrows the stream',
+    summary: 'Change hints (SSE)',
+  })
+  @Get('hints')
+  @Roles(RoleEnum.S_USER)
+  async hints(
+    @Query('models') models: string,
+    @CurrentUser() currentUser: any,
+    @Req() req: any,
+    @Res() res: any,
+  ): Promise<void> {
+    if (!this.syncService.hintsEnabled('sse')) {
+      throw new NotFoundException(ErrorCode.SYNC_MODEL_NOT_FOUND);
+    }
+    // Counted like a pull: an EventSource reconnects on its own, and every reconnect is a request
+    await this.limit('pull', currentUser, res);
+    // Without X-Tenant-Id the stream spans every membership of the caller, as a pull does
+    await this.scopeTenants(req, currentUser);
+    const named = typeof models === 'string' ? models.split(',').map((model) => model.trim()) : [];
+    await this.syncService.openHintStream(req, res, currentUser, named.filter(Boolean));
+  }
 
   @ApiBearerAuth()
   @ApiOperation({ description: 'One page of changes after the cursor (protocol §5)', summary: 'Pull changes' })

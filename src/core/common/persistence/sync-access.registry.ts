@@ -2,8 +2,9 @@
  * How a change of access to synchronized records reaches the sync module (offline-sync plan §3.8) without the
  * persistence layer or the tenant module importing it: `CrudService.update()` and `CoreTenantGuard.invalidateTenant()`
  * report here, and the sync module — when it is registered — bumps the access epochs, so the clients concerned answer
- * their next pull with a full resync. Nothing is registered without a `sync` configuration, and every report is then a
- * no-op.
+ * their next pull with a full resync. Every successful write of `CrudService.create()` / `update()` / `delete()` on a
+ * synchronized model reports here too, which the sync module turns into a hint (plan §3.9). Nothing is registered
+ * without a `sync` configuration, and every report is then a no-op.
  *
  * Import-free leaf (types only): every caller may import it without an import cycle.
  */
@@ -20,7 +21,17 @@ export interface SyncRecordMove {
   usersLost: string[];
 }
 
+/** A successful write of a synchronized record, for the hints (plan §3.9) */
+export interface SyncRecordChange {
+  /** The model's registered name */
+  model: string;
+  /** The tenants the record was in before and after the write (none on a model without tenants) */
+  tenantIds: string[];
+}
+
 export interface SyncAccessListener {
+  /** A write of `CrudService.create()` / `update()` / `delete()` on a synchronized model succeeded */
+  recordChanged?(change: SyncRecordChange): void;
   /** `CrudService.update()` moved a synchronized record away from users who could see it */
   recordMoved(move: SyncRecordMove): Promise<void>;
   /** `CoreTenantGuard.invalidateTenant()`: what the tenant's members may see may have changed */

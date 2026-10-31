@@ -5239,6 +5239,90 @@
         "mongodb",
         "mongodb-rs"
       ]
+    },
+    {
+      "id": "sync-hints-tenant-unfiltered",
+      "defect": "DEV-3902 (offline sync phase 5) — a hint names only the model, but it still tells that something changed: delivered for another tenant's write, it tells a member when a foreign tenant works (SSE and GraphQL subscription).",
+      "file": "src/core/modules/sync/core-sync.service.ts",
+      "find": "      return scope === everywhere || (!!hint.tenantId && scope.includes(hint.tenantId));\n",
+      "replace": "      return true;\n",
+      "specs": [
+        "tests/sync-contract.e2e-spec.ts"
+      ],
+      "driverSpecific": false
+    },
+    {
+      "id": "sync-hints-roles-unchecked",
+      "defect": "DEV-3902 (offline sync phase 5) — a hint channel must deliver only models the subscriber may pull: without the pull-role check a user learns when records of an ADMIN-only model change.",
+      "file": "src/core/modules/sync/core-sync.service.ts",
+      "find": "      try {\n        await registration.service.checkRights(undefined, currentUser, { roles: [...registration.roles.pull] });\n      } catch {\n        continue;\n      }\n      const tenants = registration.tenantScoped",
+      "replace": "      const tenants = registration.tenantScoped",
+      "specs": [
+        "tests/sync-contract.e2e-spec.ts"
+      ],
+      "driverSpecific": false
+    },
+    {
+      "id": "sync-sse-not-registered",
+      "defect": "DEV-3902 (offline sync phase 5) — a hint stream outlives the request that authorized it: left out of the connection registry, a removed membership or withdrawn role kept it open for its whole life.",
+      "file": "src/core/modules/sync/core-sync.service.ts",
+      "find": "    registerWsConnection({\n      carrier,\n",
+      "replace": "    void ((_registration: unknown) => undefined)({\n      carrier,\n",
+      "specs": [
+        "tests/sync-contract.e2e-spec.ts"
+      ],
+      "driverSpecific": false
+    },
+    {
+      "id": "sync-purge-without-horizon",
+      "defect": "DEV-3902 (offline sync phase 5) — the tombstone purge must move the model's horizon before it deletes: without it a cursor older than the purged tombstones continues past deletions it never receives, and the client keeps deleted records for good.",
+      "file": "src/core/modules/sync/core-sync.service.ts",
+      "find": "      await this.stateStore.advanceHorizon(registration.name, before);\n",
+      "replace": "",
+      "specs": [
+        "tests/unit/sync-module.spec.ts"
+      ],
+      "driverSpecific": false
+    },
+    {
+      "id": "sync-migration-update-unversioned",
+      "defect": "DEV-3902 (offline sync phase 5) — a data migration's multi-row write on a synchronized table must increment the rows' version like a store write: otherwise a client that edited the old content overwrites the migration without a conflict.",
+      "file": "src/core/modules/migrate/sql-migration.helper.ts",
+      "find": "        `UPDATE ${table} SET ${update.set}, ${quote('version')} = ${quote('version')} + 1, ` +\n",
+      "replace": "        `UPDATE ${table} SET ${update.set}, ` +\n",
+      "specs": [
+        "tests/sync-contract.e2e-spec.ts"
+      ],
+      "driverSpecific": true,
+      "drivers": [
+        "postgres-typeorm",
+        "postgres-kysely",
+        "postgres-drizzle",
+        "mysql",
+        "mariadb"
+      ]
+    },
+    {
+      "id": "sync-hints-redis-not-published",
+      "defect": "DEV-3902 (offline sync phase 5) — a sync hint has to reach the subscribers of every replica: a client's stream or socket ends on whichever replica the load balancer picked.",
+      "file": "src/core/modules/sync/core-sync-hints.service.ts",
+      "find": "        .publish(this.channel, JSON.stringify({ ...hint, origin: this.origin }))\n",
+      "replace": "        .ping()\n",
+      "specs": [
+        "tests/multi-replica.e2e-spec.ts"
+      ],
+      "driverSpecific": false
+    },
+    {
+      "id": "sync-purge-continues-past-horizon",
+      "defect": "DEV-3902 (offline sync phase 5) — after the purge a client whose cursor is older than the purged tombstones must answer 410 horizon: without the horizon it continues past deletions it never receives, and keeps deleted records for good.",
+      "file": "src/core/modules/sync/core-sync.service.ts",
+      "find": "      await this.stateStore.advanceHorizon(registration.name, before);\n",
+      "replace": "",
+      "specs": [
+        "tests/sync-contract.e2e-spec.ts"
+      ],
+      "driverSpecific": false
     }
   ]
 }

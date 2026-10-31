@@ -16,9 +16,10 @@ Integration steps: [`INTEGRATION-CHECKLIST.md`](./INTEGRATION-CHECKLIST.md). Ref
 | ------------------------------------ | -------- | ---------------------------------------------------------- |
 | `GET /sync/{model}?cursor=…&limit=…` | §5       | One page of changes after the cursor, tombstones included  |
 | `POST /sync/{model}`                 | §6       | Apply `{ items: [...] }` item by item, one result per item |
+| `GET /sync/hints?models=…`           | §9       | SSE: `event: change` with `{ model, at }` — pull now       |
+| `subscription { syncHint(models) }`  | §9       | The same hints over GraphQL (where GraphQL is enabled)     |
 
-Nothing without the `sync` configuration: no route, no infrastructure model, no listener on the write paths. Hints
-(SSE, GraphQL subscription) and the tombstone purge come with the next phase.
+Nothing without the `sync` configuration: no route, no infrastructure model, no listener on the write paths.
 
 ## Configuration (`sync`, presence implies enabled)
 
@@ -28,7 +29,8 @@ sync: {
   path: 'sync',
   pull: { defaultLimit: 200, maxLimit: 1000, maxBytes: 1_048_576, windowSeconds: undefined /* MongoDB, derived */ },
   push: { maxItems: 100 },
-  retention: { mutationsDays: 30 },
+  hints: { debounceMs: 250, sse: true, graphql: true },  // false: both channels off
+  retention: { mutationsDays: 30, tombstonesDays: 90 },  // tombstonesDays: false keeps them for ever
   rateLimit: { pull: { max: 120, windowSeconds: 60 }, push: { max: 60, windowSeconds: 60 } },  // false: off
 }
 ```
@@ -90,6 +92,45 @@ no repeats; on MongoDB the server clock (`syncAt`) with a window W below each ru
 are delivered again, clients keep the higher `version`. W is derived: replica set or sharded cluster — the server's
 `transactionLifetimeLimitSeconds` (60 when unreadable) + 30 s; standalone — 30 s. `sync.pull.windowSeconds` overrides
 it; it must cover the longest time a write can take from its stamp until it is visible.
+
+## Hints
+
+A hint tells a connected client that pulling is worthwhile; sync works without them (protocol §9).
+
+- **Source:** every successful `create()` / `update()` / `delete()` of the model's `CrudService` — on every database,
+  no change feed. A write past it (the data store, the native API, a migration) calls
+  `CoreSyncService.notifyChange(model, tenantIds)`, or clients learn of it at their next pull.
+- **Content:** `{ model, at }` only. **Recipients:** callers with the model's pull roles and, on a tenant-scoped model,
+  only for changes in their own tenants (the validated `X-Tenant-Id`, without it every membership). `models` narrows a
+  channel; a name that is not offered never matches and reveals nothing.
+- **Bursts:** one hint per model and tenant per `hints.debounceMs`, already at the sender. **Replicas:** with `redis`
+  every replica receives every hint through one channel and delivers it to its own subscribers; without Redis a hint
+  stays on its replica.
+- **Long-lived channels are re-checked:** the GraphQL subscription runs on the WebSocket `CoreModule` re-checks; an SSE
+  stream is registered in the same registry and ends at once on an invalidation naming the caller or their tenant, and
+  otherwise before the first hint after `graphQl.subscriptionRevalidationMs` — the EventSource reconnects (`retry`) and
+  the new request passes the guards. A client pulls once after every (re)connect.
+
+## Tombstone purge
+
+Every hour, on one replica (a lease: Redis, else the SQL lease table, else `cron-locks` in MongoDB), each model's
+horizon moves to `retention.tombstonesDays` ago **first**, then the older tombstones are deleted for good. A client
+whose cursor is older than the horizon answers its next pull with `410 horizon` and resyncs; nothing is skipped.
+`CoreSyncService.purgeTombstones({ before?, model? })` runs it on demand.
+
+## Data migrations on a synchronized SQL table
+
+A multi-row write in a migration goes through `runSqlMigration()` as a `syncUpdate`, never as a plain `UPDATE`:
+
+```typescript
+await runSqlMigration(ownerUrl, [
+  { syncUpdate: { table: 'sync_notes', set: "status = 'archived'", where: "created_at < '2026-01-01'" } },
+]);
+```
+
+It locks the rows first, then takes the change numbers like the store, then writes them with `version + 1` — the order
+that cannot deadlock with a running application on MySQL / MariaDB, and the version a client's stale edit then
+conflicts with. `set` and `where` are reviewed SQL, like every statement of a migration.
 
 ## Infrastructure models
 
