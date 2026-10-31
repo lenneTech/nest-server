@@ -34,7 +34,7 @@ mis-named suite fails the build instead of silently passing. Type-only tests
 
 ## Infrastructure containers (Redis + S3 + PostgreSQL + MySQL + MariaDB + MongoDB replica set)
 
-**Twenty-one** e2e suites talk to a **real** Redis, a **real** S3-compatible store and/or a **real**
+**Twenty-two** e2e suites talk to a **real** Redis, a **real** S3-compatible store and/or a **real**
 PostgreSQL, MySQL, MariaDB or MongoDB replica set rather than a mock, and they **fail loudly** when it is missing — a silently skipped
 infrastructure test is how an untested driver ships:
 
@@ -61,13 +61,14 @@ infrastructure test is how an untested driver ships:
 | `tests/persistence-mysql-schema.e2e-spec.ts` | MySQL + MariaDB |
 | `tests/persistence-mysql-wiring.e2e-spec.ts` | MySQL + MariaDB |
 | `tests/sync-contract.e2e-spec.ts` | PostgreSQL + MySQL + MariaDB + MongoDB replica set (and MongoDB) |
+| `tests/sync-clock-skew.e2e-spec.ts` | PostgreSQL + MySQL + MongoDB replica set (and MongoDB) |
 
-Beyond these twenty-one, the `postgres` vitest project runs the whole e2e suite once more on PostgreSQL (see "Behaviour
+Beyond these twenty-two, the `postgres` vitest project runs the whole e2e suite once more on PostgreSQL (see "Behaviour
 matrices" below), so without the PostgreSQL container that project fails as a whole while `e2e` runs.
 
 `tests/global-setup.ts` starts all six containers automatically, so `pnpm test` works from a clean
 machine with no manual docker command. It is idempotent (a running container is reused) and never
-fatal: without Docker every other suite still runs, and the twenty-one above report their own actionable
+fatal: without Docker every other suite still runs, and the twenty-two above report their own actionable
 error.
 
 ```bash
@@ -329,6 +330,25 @@ structural guard is `tests/unit/sync-contract-matrix.spec.ts`; the reference mod
 `src/server/modules/sync-note/`. Hints across replicas need a second application on one Redis and live in
 `tests/multi-replica.e2e-spec.ts`.
 
+**Offline sync end to end (DEV-3903).** Three suites prove the protocol from the client's side, all on the reference
+server (`tests/helpers/sync-test-app.ts`, which the contract matrix boots too):
+
+| Suite | What | Needs |
+|-------|------|-------|
+| `tests/sync-pwa-client.e2e-spec.ts` | The PWA test client (`tests/clients/pwa/`, IndexedDB, service worker) in Chrome, served by the test server, offline via Playwright | an installed Chrome (`playwright-core` downloads none; GitHub's Ubuntu runners ship one; `SYNC_PWA_CHROME` names another executable) |
+| `tests/sync-node-client.e2e-spec.ts` | The same client on SQLite (`node:sqlite`), bearer session token | nothing extra |
+| `tests/sync-clock-skew.e2e-spec.ts` | Two server PROCESSES with clocks 5 s ahead and behind, parallel writers on both, readers on either instance and one switching instances per page: no change lost. MongoDB runs with `pull.windowSeconds: 2` — the derived window (30 s / 90 s) would cover any skew — and needs the reader that STAYS with the fast clock: a switching reader soon starts a run on the slow one and picks a misstamped change up again, so with it alone the suite stayed green against mutation `sync-mongo-stamp-app-clock` | the containers above |
+
+The two client suites share one protocol implementation (`tests/clients/sync-client.mjs`) and one scenario list
+(`tests/helpers/sync-client-scenarios.ts`); `tests/unit/sync-client-scenarios.spec.ts` fails when a suite misses a
+scenario, and `tests/unit/sync-client.spec.ts` checks the client against an in-memory server, so a client bug does not
+cost an e2e run. Both run on MongoDB (`e2e`) and PostgreSQL (`postgres`) like every suite. The clock-skew suite starts
+its servers through the framework's SWC loader (`tests/helpers/sync-server.process.ts`, relative imports with `.js`)
+with `tests/helpers/skewed-clock.mjs` preloaded, because two Nest applications in one process share the persistence
+registry; it brings its own databases and is excluded from the `postgres` project. The skewed `Date` keeps the name
+`Date` and `prototype.constructor`: Mongoose resolves a schema type by the constructor's name, and `@UnifiedField`
+tells a class from a type factory by `prototype.constructor` — without both the server does not boot.
+
 ### A cell is EXECUTED, IMPOSSIBLE, or DIFFERENT-BY-DESIGN — never merely absent
 
 Omitting a case for one implementation and declaring it impossible there produce the same artefact
@@ -390,7 +410,7 @@ pnpm run check:mutations -- --id=<id>       # one mutation
 pnpm run check:mutations -- --list          # the registry, without running anything
 pnpm run check:mutations -- --allow-dirty   # when the fix and its evidence share a working tree
 pnpm run check:mutations -- --jobs=4        # N mutations at a time (default: 2, or 4 on >=12 cores)
-pnpm run check:mutations -- --no-infra      # only the 257 that need no MongoDB
+pnpm run check:mutations -- --no-infra      # only the 258 that need no MongoDB
 pnpm run check:mutations -- --since=<ref>   # only mutations touching files changed since <ref>
 pnpm run check:mutations -- --shard=2/4     # this job's quarter of the selection (CI splits the full run)
 ```
@@ -410,7 +430,7 @@ when the registry, a vitest config or a setup file changed, since those can move
 commit, and in CI alongside the publish without blocking it. The price of caching is a cache that
 has to model each spec's full dependency closure correctly, and getting that wrong produces a stale
 PASS for a test that has since gone vacuous — exactly what the gate is there to prevent. Bad trade
-at 472 mutations.
+at 474 mutations.
 
 **Decided 2026-10-03 (repo owner): keep the full run.** Measured at 128 mutations, the CI job for
 11.41.6 took **14 minutes**. The trigger to revisit is that wall time, not the mutation count —
@@ -481,9 +501,9 @@ exactly the environment where the answer matters.
 
 ### The cost is vitest's cold start, not the tests
 
-Worth knowing before optimising the wrong thing: the specs behind all 215 e2e mutations add up to
+Worth knowing before optimising the wrong thing: the specs behind all 216 e2e mutations add up to
 **~40 seconds**. The step takes ~740s. The remaining ~700s is paying vitest's startup — process
-spawn, transform, module graph, mongod connect, DB create and drop — once per mutation, 472 times.
+spawn, transform, module graph, mongod connect, DB create and drop — once per mutation, 474 times.
 That work is largely single-threaded I/O and barely scales with cores: the full registry measures
 **744s on a 12-core laptop and 777s on a 4-vCPU CI runner**.
 

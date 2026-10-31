@@ -78,6 +78,25 @@ every database, because nothing could tell which of the caller's tenants the rec
 each of the caller's tenants on its own and merges them in change order, so the tenant-led change index serves every
 page.
 
+What a client must do on its side — delete its local data on logout and on an account switch, keep credentials out of
+reach of injected scripts, cache no API responses — is in [SECURITY.md](./SECURITY.md).
+
+## Clients
+
+The protocol needs `fetch` and nothing from the server's code (`docs/offline-sync-protocol.md`). Two test clients in
+the framework repository prove it end to end against the reference server, with one shared protocol implementation
+(`tests/clients/sync-client.mjs`, not part of the package):
+
+| Client                                                                                       | Storage                | Suite                                |
+| -------------------------------------------------------------------------------------------- | ---------------------- | ------------------------------------ |
+| PWA in Chrome, served by the test server, service worker for offline loading, session cookie | IndexedDB              | `tests/sync-pwa-client.e2e-spec.ts`  |
+| Node, as a desktop or React Native app would be, bearer session token                        | SQLite (`node:sqlite`) | `tests/sync-node-client.e2e-spec.ts` |
+
+Both pass the same scenarios (`tests/helpers/sync-client-scenarios.ts`): create, change and delete offline, then online;
+a conflict; two tabs pushing at once; a session that expired while offline; cleared storage. Two server processes with
+clocks 10 s apart lose no change under parallel writers (`tests/sync-clock-skew.e2e-spec.ts`). A Nuxt composable for
+projects follows in `@lenne.tech/nuxt-extensions`.
+
 ## Idempotency and repeats
 
 Every item carries a `mutationId`. The module **claims** it before the write (model, user, record, mutation id —

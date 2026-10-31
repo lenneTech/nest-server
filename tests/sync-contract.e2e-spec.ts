@@ -1,12 +1,9 @@
 import { randomBytes, randomUUID } from 'node:crypto';
 import { get as httpGet, type IncomingMessage } from 'node:http';
-import type { AddressInfo } from 'node:net';
 
 import { Injectable, Module } from '@nestjs/common';
 import { InputType, ObjectType } from '@nestjs/graphql';
-import { ScheduleModule } from '@nestjs/schedule';
-import { Test, TestingModule } from '@nestjs/testing';
-import { PubSub } from 'graphql-subscriptions';
+import type { TestingModule } from '@nestjs/testing';
 import { createClient } from 'graphql-ws';
 import mongoose from 'mongoose';
 import ws from 'ws';
@@ -18,7 +15,6 @@ import {
   CoreBetterAuthModule,
   CoreBetterAuthService,
   CoreInput,
-  CoreModule,
   CorePersistenceModel,
   CorePersistenceModule,
   CoreSyncMutationStore,
@@ -29,7 +25,6 @@ import {
   CrudService,
   type DataStore,
   equalIds,
-  HttpExceptionLogFilter,
   InjectStore,
   type ISyncConflictContext,
   objectIdType,
@@ -48,23 +43,11 @@ import { getStoreToken } from '../src/core/common/persistence/persistence.tokens
 import { generateUuidV7 } from '../src/core/common/persistence/id-format';
 import { getModelDescriptor } from '../src/core/common/persistence/model-metadata.registry';
 import { tableName } from '../src/core/common/persistence/sql/sql-schema.shared';
-import { Any } from '../src/core/common/scalars/any.scalar';
-import { DateScalar } from '../src/core/common/scalars/date.scalar';
-import { JSON as JSONScalar } from '../src/core/common/scalars/json.scalar';
-import { CoreAuthService } from '../src/core/modules/auth/services/core-auth.service';
 import { runSqlMigration } from '../src/core/modules/migrate/sql-migration.helper';
-import { CronJobs } from '../src/server/common/services/cron-jobs.service';
-import { AuthController } from '../src/server/modules/auth/auth.controller';
-import { AuthModule } from '../src/server/modules/auth/auth.module';
-import { BetterAuthModule } from '../src/server/modules/better-auth/better-auth.module';
-import { FileModule } from '../src/server/modules/file/file.module';
-import { SyncNoteModule } from '../src/server/modules/sync-note/sync-note.module';
-import { ServerController } from '../src/server/server.controller';
-import { deriveTestDbUri, isDroppableTestDb } from './db-lifecycle.reporter';
 import { API_TOKEN_TEST_ENCRYPTION_KEY } from './helpers/api-token-e2e.helpers';
-import { createMysqlTestDatabase } from './helpers/mysql-test-db';
-import { createPostgresTestDatabase } from './helpers/postgres-test-db';
-import { SYNC_DRIVERS, type SyncDriver, syncIt } from './helpers/sync-contract-matrix';
+import { SYNC_DRIVERS, syncIt } from './helpers/sync-contract-matrix';
+import { bootSyncTestApp } from './helpers/sync-test-app';
+import { type SyncTestDatabase, syncTestDatabase } from './helpers/sync-test-databases';
 
 /**
  * Executor of the sync contract matrix (`tests/helpers/sync-contract-matrix.ts`): the offline-sync protocol through its
@@ -257,59 +240,6 @@ class SyncContractModelsModule {}
 // Harness
 // =====================================================================================================================
 
-/** The test infrastructure's one-node replica set (`pnpm run test:infra`, container nest-server-2985-mongo-rs) */
-const MONGO_RS_URL = `mongodb://${process.env.MONGO_RS_HOST || '127.0.0.1'}:${process.env.MONGO_RS_PORT || '27019'}`;
-
-interface Database {
-  config: Record<string, unknown>;
-  drop(): Promise<void>;
-}
-
-async function databaseFor(driver: SyncDriver): Promise<Database> {
-  const local = deriveTestDbUri(`sync-contract-${driver}`);
-  if (driver === 'mongodb') {
-    return { config: { mongoose: { ...envConfig.mongoose, uri: local } }, drop: async () => undefined };
-  }
-  if (driver === 'mongodb-rs') {
-    const name = new URL(local).pathname.slice(1);
-    if (!isDroppableTestDb(name)) {
-      throw new Error(`Refusing the replica set database "${name}": its name does not pass the drop guard`);
-    }
-    const uri = `${MONGO_RS_URL}/${name}?directConnection=true`;
-    const probe = await mongoose.createConnection(uri, { serverSelectionTimeoutMS: 3000 }).asPromise().catch((error) => {
-      throw new Error(
-        `The MongoDB replica set is not reachable on ${MONGO_RS_URL} (${(error as Error).message}). ` +
-          'Start the test infrastructure with `pnpm run test:infra` (container nest-server-2985-mongo-rs).',
-      );
-    });
-    await probe.close();
-    return {
-      config: { mongoose: { ...envConfig.mongoose, uri } },
-      drop: async () => {
-        const connection = await mongoose.createConnection(uri).asPromise();
-        await connection.dropDatabase();
-        await connection.close();
-      },
-    };
-  }
-  const mongooseConfig = { mongoose: { ...envConfig.mongoose, uri: local } };
-  if (driver.startsWith('postgres-')) {
-    const database = await createPostgresTestDatabase(`sync-${driver}`);
-    return {
-      config: {
-        ...mongooseConfig,
-        database: { ownerUrl: database.ownerUrl, sqlEngine: driver.slice('postgres-'.length), url: database.appUrl },
-      },
-      drop: () => database.drop(),
-    };
-  }
-  const database = await createMysqlTestDatabase(driver as 'mariadb' | 'mysql', 'sync-contract');
-  return {
-    config: { ...mongooseConfig, database: { ownerUrl: database.ownerUrl, url: database.appUrl } },
-    drop: () => database.drop(),
-  };
-}
-
 interface Harness {
   app: any;
   /** The listening server: SSE and the GraphQL WebSocket need a real connection */
@@ -324,7 +254,7 @@ interface Harness {
   wsUrl: string;
 }
 
-function configFor(database: Database): Record<string, any> {
+function configFor(database: SyncTestDatabase): Record<string, any> {
   return {
     ...envConfig,
     apiTokens: { encryptionKey: API_TOKEN_TEST_ENCRYPTION_KEY, scopes: ['read'] },
@@ -344,35 +274,10 @@ function configFor(database: Database): Record<string, any> {
 }
 
 async function boot(config: Record<string, any>): Promise<Harness> {
-  CoreBetterAuthModule.reset();
-
-  @Module({
-    controllers: [ServerController, AuthController],
-    imports: [
-      CoreModule.forRoot(CoreAuthService, AuthModule.forRoot(config.jwt), config as any),
-      ScheduleModule.forRoot(),
-      AuthModule.forRoot(config.jwt),
-      BetterAuthModule.forRoot({}),
-      FileModule,
-      SyncNoteModule,
-      SyncContractModelsModule,
-    ],
-    providers: [Any, CronJobs, DateScalar, JSONScalar, { provide: 'PUB_SUB', useValue: new PubSub() }],
-  })
-  class SyncContractServerModule {}
-
-  const moduleRef = await Test.createTestingModule({ imports: [SyncContractServerModule] }).compile();
-  const app = moduleRef.createNestApplication();
-  app.useGlobalFilters(new HttpExceptionLogFilter());
-  (app as any).setBaseViewsDir(config.templates.path);
-  (app as any).setViewEngine(config.templates.engine);
-  await app.init();
-  const server = app.getHttpServer();
-  await new Promise<void>((resolve) => server.listen(0, '127.0.0.1', () => resolve()));
-  const { port } = server.address() as AddressInfo;
+  const { app, baseUrl, moduleRef, port } = await bootSyncTestApp(config, { imports: [SyncContractModelsModule] });
   return {
     app,
-    baseUrl: `http://127.0.0.1:${port}`,
+    baseUrl,
     betterAuth: moduleRef.get(CoreBetterAuthService, { strict: false }),
     moduleRef,
     sync: moduleRef.get(CoreSyncService, { strict: false }),
@@ -396,7 +301,7 @@ const mutationId = () => generateUuidV7();
 // =====================================================================================================================
 
 describe.each(SYNC_DRIVERS)('sync contract — %s (e2e)', (driver) => {
-  let database: Database;
+  let database: SyncTestDatabase;
   let config: Record<string, any>;
   let harness: Harness;
   let testHelper: TestHelper;
@@ -622,7 +527,7 @@ describe.each(SYNC_DRIVERS)('sync contract — %s (e2e)', (driver) => {
   };
 
   beforeAll(async () => {
-    database = await databaseFor(driver);
+    database = await syncTestDatabase(driver, 'sync');
     config = configFor(database);
     harness = await boot(config);
     testHelper = harness.testHelper;

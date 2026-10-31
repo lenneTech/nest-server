@@ -76,7 +76,8 @@ Making an existing model synchronized is a migration on every database: the boot
       tenant's; the client pulls on every hint and once after every reconnect
 - [ ] Writes past the CrudService (data store, native API, migration) call `CoreSyncService.notifyChange()`, and
       multi-row data migrations on a synchronized SQL table use `runSqlMigration()` with `syncUpdate`
-- [ ] The client deletes every local record and cursor on logout (the device holds personal data)
+- [ ] The client deletes every local record, cursor and unsent change on logout and on an account switch (the device
+      holds personal data — see [SECURITY.md](./SECURITY.md))
 
 ## Common Mistakes
 

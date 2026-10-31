@@ -1,7 +1,7 @@
 # Offline sync — pull, push and tombstones on every database
 
-> **Status:** planned 2026-10-29 against nest-server 12.1.0 (develop `e2f0a4a`), phase 1 of DEV-3819. Phases 1–5
-> built (DEV-3898 – DEV-3902); the test clients, browser E2E and the release (DEV-3903) remain.
+> **Status:** planned 2026-10-29 against nest-server 12.1.0 (develop `e2f0a4a`), phase 1 of DEV-3819. All six
+> phases built (DEV-3898 – DEV-3903); the release (version and publish) is the owner's `/lt-dev:publish`.
 > **Linear:** epic DEV-3819; one ticket per phase: DEV-3898 (1, this plan + protocol), DEV-3899 (2, cursor prototype),
 > DEV-3900 (3, DataStore extensions), DEV-3901 (4, sync module), DEV-3902 (5, hints + cleanup), DEV-3903 (6, test
 > clients, browser E2E, docs, release). Worked one per `/lt-dev:ticket-cycle --autopilot` run.
@@ -508,6 +508,27 @@ MariaDB; executor `tests/sync-contract.e2e-spec.ts`, the reference model `src/se
 3. Module README, INTEGRATION-CHECKLIST (incl. what a client deletes on logout), SECURITY, migration guide, configurable
    features row, `REQUEST-LIFECYCLE.md`; release.
 
+**Built in phase 6 (DEV-3903):**
+
+- **One client, two storages**: `tests/clients/sync-client.mjs` (plain JavaScript, the browser loads the same file)
+  implements the protocol — outbox in order, folding of unsent changes, base versions per §6.2, every item status, 401
+  without losing anything, 410 with the kept changes pushed after the full pull. Storage adapters: IndexedDB
+  (`idb-store.mjs`) and `node:sqlite` (`sqlite-store.mjs`, transactions of every client on one file queued in-process,
+  because a synchronous connection waiting for another's lock would block the event loop the other needs).
+- **PWA** (`tests/clients/pwa/`): served by the test server (same origin, session cookie), service worker for the shell,
+  syncs at start, on `online` and on focus. Driven by `playwright-core` with the installed Chrome.
+- **Scenarios** (`tests/helpers/sync-client-scenarios.ts`, both clients, guarded by a unit spec): offline create /
+  change / delete then online, conflict (the server wins), two tabs pushing at once, an expired session, cleared storage.
+- **Two instances, skewed clocks** (`tests/sync-clock-skew.e2e-spec.ts`): two server processes (+5 s / −5 s,
+  `tests/helpers/skewed-clock.mjs`) on MongoDB standalone and replica set, PostgreSQL and MySQL; six writers, three
+  readers (one per instance, one handing the cursor between them on every page); every reader's latest version equals
+  the server's. W is
+  2 s there: the derived window would cover a ±5 s skew, so MongoDB could not fail the suite with it.
+- **Docs**: the module's `SECURITY.md` (client duties on logout and account switch, credentials, caching), README
+  "Clients", the protocol's acceptance trace (§14), migration guide `12.1.x-to-12.2.x`, the root README, `SHOWCASE.md`
+  and `package.json`.
+- **Follow-ups**: the Nuxt composable in `nuxt-extensions`, review rules for synchronized models in lt-dev.
+
 ## 5. Validated assumptions
 
 Measured 2026-10-31 (DEV-3899) with `prototypes/` (how to run them: its README) on the test containers — PostgreSQL
@@ -663,6 +684,12 @@ on a replica set, 30 s on a standalone, read through the new optional port metho
 fingerprint and epochs, writes past `CrudService.update()` through `bumpAccessEpoch()`; the horizon checked (advanced
 by DEV-3902); the cookie-push rules applied whenever the server uses cookies; per-user rate limits; error codes
 `LTNS_0700`–`LTNS_0799`; a push `delete` without `baseVersion` rejected. Details: §4 "Built in phase 4".
+
+**Phase 6, autopilot (DEV-3903, recorded on the ticket):** one protocol implementation for both test clients, plain
+JavaScript under `tests/` (not shipped); the browser through `playwright-core` and the installed Chrome; the PWA served by
+the test server itself; `node:sqlite` for the Node client; one scenario list guarded by a unit spec; two server
+processes with clocks ±5 s on MongoDB standalone and replica set, PostgreSQL and MySQL; the release left to the owner's
+`/lt-dev:publish`, with the migration guide `12.1.x-to-12.2.x` (no breaking change). Details: §4 "Built in phase 6".
 
 **Phase 5, autopilot (DEV-3902, recorded on the ticket):** hints from the CrudService's write paths, no change feed;
 payload `{ model, at }` with the event name `change` and a `models` filter on both channels, as the protocol states;

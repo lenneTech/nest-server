@@ -1,7 +1,8 @@
 # Offline sync protocol
 
 > **Status: implemented** by the sync module (`src/core/modules/sync/`, 12.2.0): pull, push, conflicts, client ids and
-> resync (DEV-3901), hints (§9) and the tombstone purge (DEV-3902). Specified in
+> resync (DEV-3901), hints (§9) and the tombstone purge (DEV-3902), proven end to end by a PWA and a Node test client
+> and by two server instances with skewed clocks (DEV-3903). Specified in
 > phase 1 of the offline-sync epic (DEV-3819, DEV-3898), the open points decided by the cursor prototype of phase 2
 > (DEV-3899). The implementation plan, the port extensions, the reasoning and the measurements live in the framework
 > repository under `.claude/plans/offline-sync/PLAN.md`; §15 lists every decision.
@@ -325,16 +326,18 @@ Error bodies use the framework's error-code format, sync codes in `#LTNS_0700`�
 * Give every queued change of one record the `baseVersion` the change before it produces (§6.2), or fold them into one
   item; push them in that order.
 * Store each pulled page and its cursor atomically; compare `version` before overwriting a local record.
-* **On logout delete every local record and the cursors.** The device holds personal data outside the server; the
-  integration guide of the sync module lists what to delete.
+* **On logout delete every local record, the cursors and the unsent changes**, and do the same before another user's
+  first pull. The device holds personal data outside the server; the sync module's `SECURITY.md` lists what to delete
+  and how to keep the credential out of reach.
 * Treat a cleared storage as a fresh start (no cursor).
 
 ## 12. What the server guarantees
 
 * Pull and push run through the same `@Restricted`, `securityCheck`, tenant and output pipeline as every other
   request, with the operation roles the model declares for sync (§1); hints reach only callers with the pull roles.
-* A pull never delivers a record or tombstone of another tenant; a push never changes one and never reveals that one
-  exists (`not_found` / `ID_UNAVAILABLE`, §3, §7).
+* A pull never delivers a record or tombstone of another tenant; a push never changes one. An update or delete of it
+  answers `not_found` like an unused id, a create on its id `ID_UNAVAILABLE` — the same answer for every reason, with
+  nothing about the record; that an id is taken stays observable by design (§3, decided O2, §15).
 * Tombstones carry no content field. On a model whose records only certain users may see, the tombstone keeps the
   user-id fields the model declares as its scope (e.g. `ownerId`, decided O1, §15), so it reaches exactly the users who
   could see the record — never the rest of the tenant.
@@ -382,7 +385,10 @@ Every requirement of DEV-3819 and where this document meets it (P = `.claude/pla
 | Tombstones carry `tenantId` and only `id`, `version`, `deletedAt`, `updatedAt` | §2, §12; plus declared user-id scope fields, decided O1 (§15); the server keeps the audit fields too (DEV-3900), a pull sends none |
 | Hard delete not reachable through sync | §6.2, §12 |
 | Access loss → client deletes local copies; at least a forced full resync | §8 |
-| Integration doc says what a client deletes on logout | §11 (detailed in the module's checklist, phase 6) |
+| Integration doc says what a client deletes on logout | §11, the module's `SECURITY.md` and its checklist |
+| Acceptance: the same contract suite green on MongoDB standalone and replica set, PostgreSQL × three engines (and MySQL, MariaDB) | `tests/sync-contract.e2e-spec.ts` (framework repository) |
+| Acceptance: no lost change with parallel writers on two instances with skewed clocks | `tests/sync-clock-skew.e2e-spec.ts` |
+| Acceptance: PWA test client in a browser, and a client without one, pass the same scenarios | `tests/sync-pwa-client.e2e-spec.ts`, `tests/sync-node-client.e2e-spec.ts` |
 | Without sync configuration nothing changes | §1, §13 |
 | Decisions 2026-10-29: both id formats, full resync on access loss, SSE + GraphQL, test clients, prototype decides the cursor | §3, §8, §9, P §11 |
 
