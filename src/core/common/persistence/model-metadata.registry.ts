@@ -2,6 +2,7 @@ import type { FieldDescriptor, FieldKind, IndexDescriptor, ModelDescriptor } fro
 import { declaredSchemaView } from './mongo/declared-schema.view.js';
 import { type DeclaredSchema, isDeclaredSchema } from './mongo/model-declarations.js';
 import { SchemaFactory } from './mongo/mongoose-compat.js';
+import { type SyncDescriptor, withSyncDescriptor } from './sync-model.js';
 
 /**
  * Registry of database-neutral model descriptors.
@@ -71,11 +72,39 @@ export function describeModelClass(modelClass: abstract new (...args: any[]) => 
 }
 
 /**
+ * The descriptor of a schema as it was declared, per schema object and model name. A synchronized model's Mongoose
+ * schema gains its system paths and partial indexes once it is registered (`mongo/sync-schema.plugin.ts`); a second
+ * registration of the same schema must describe what was declared, not what the plugin added.
+ */
+const declaredDescriptors = new WeakMap<object, Map<string, ModelDescriptor>>();
+
+/**
  * Register the schema a model is persisted with, under its model name. A later registration under
  * the same name replaces the earlier one — the last `forFeature` wins, as it does in Mongoose.
+ *
+ * `sync` makes it the descriptor of a synchronized model (`sync-model.ts`).
  */
-export function registerModelSchema(name: string, schema: DeclaredSchema | SchemaLike): ModelDescriptor {
-  const descriptor = describeSchema(name, schema);
+export function registerModelSchema(
+  name: string,
+  schema: DeclaredSchema | SchemaLike,
+  sync?: SyncDescriptor,
+): ModelDescriptor {
+  let descriptor: ModelDescriptor;
+  if (sync) {
+    let byName = declaredDescriptors.get(schema);
+    if (!byName) {
+      byName = new Map();
+      declaredDescriptors.set(schema, byName);
+    }
+    let declared = byName.get(name);
+    if (!declared) {
+      declared = describeSchema(name, schema);
+      byName.set(name, declared);
+    }
+    descriptor = withSyncDescriptor(declared, sync);
+  } else {
+    descriptor = describeSchema(name, schema);
+  }
   descriptorsByName.set(name, descriptor);
   return descriptor;
 }

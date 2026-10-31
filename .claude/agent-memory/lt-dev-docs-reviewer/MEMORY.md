@@ -44,4 +44,6 @@
 - [Redis outage fallback claims](redis-outage-fallback-claims.md) — configured-but-down Redis: TUS locker + CoreRedisPubSub have NO fallback; "every consumer falls back" is false
 - [Migrate doc-example traps](migrate-programmatic-runner-doc-traps.md) — relative migrationsDirectory threw before 12.1.1 (runner resolves it now); loadAsync() is {} on first run
 - [Cron doc surfaces](cron-doc-surfaces.md) — which docs carry CoreCronJobs mechanics; deprecated CronJobConfig JSDoc is the live one
-- [Offline-sync spec traps](offline-sync-spec-review-traps.md) — DEV-3819: no conditional CrudService write, SQL has no NOT NULL, Mongo $type null index, queued baseVersion undefined
+- [Offline-sync spec traps](offline-sync-spec-review-traps.md) — ph1-6: ph6 access loss is 403 not 410 when pull rights go, expectedVersion refused w/o sync, non-JSON push 400
+- [Evidence-gate doc facts](regression-evidence-gate-doc-facts.md) — DEV-3910 shards; empty --id exits 1 not 2; run-timing ids; stale 740s cold-start prose; issue body overclaims
+- [Subclass route order shadows static routes](nest-subclass-route-order.md) — re-declared `:param` handler beats inherited `@Get('static')`; check extend recipes

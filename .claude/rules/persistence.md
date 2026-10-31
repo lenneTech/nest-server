@@ -91,6 +91,32 @@ On every SQL database a path segment `__proto__`, `constructor` or `prototype` i
 object from path segments would otherwise reach `Object.prototype` — on MySQL that switched tenant isolation off for the
 whole process. Never build an update path from request data without validating it against the model.
 
+## Synchronized models (offline sync, 12.x)
+
+`@PersistedModel({ sync: true | { idFormat, scope } })` makes a model synchronizable (`common/persistence/sync-model.ts`,
+plan `.claude/plans/offline-sync/PLAN.md` §3.3). Only a model registered with `CorePersistenceModule.forFeature()`; a
+model without `sync` keeps every behaviour bit for bit.
+
+| Rule | Why |
+|---|---|
+| `version`, `deletedAt` and the change position (`syncSeq` on SQL, `syncAt` on MongoDB) are written by the store only — never put them in an input or update | they are stripped anyway; a version the caller could set would defeat the conditional change, a `deletedAt` would delete with update rights |
+| Every framework delete of such a model leaves a tombstone (`CrudService.delete()`, `deleteById/One/Many`); `hardDelete` with `includeTombstones` is the purge's | a hard delete through a normal route reaches no client — the record stays on every device |
+| Reads leave tombstones out; only the sync module passes `includeTombstones` (`ServiceOptions` or the port's options) | counts, distinct values and populated references must not show deleted records |
+| A conditional change is `ServiceOptions.expectedVersion` on `CrudService.update()` / `delete()` — one statement with the version as its condition, `VersionConflictError` (409) on another version | read-then-write lets two clients both apply their change |
+| A unique index applies to live records only, also for a missing value (MongoDB partial index, PostgreSQL `NULLS NOT DISTINCT … WHERE deleted_at IS NULL`, MySQL / MariaDB virtual `lt_lk_*` columns); a unique index inside an embedded object is refused | delete-then-recreate with the same value must work; tombstones keep no content, so their missing values must not collide |
+| Making an EXISTING model synchronized is a migration on every database. SQL: the boot refuses with the statements (the `deleted_at` column, the live-only index, `DROP` of the full index it replaces); the other columns, the trigger and the numbering of existing rows follow automatically. MongoDB: the boot refuses with `SyncMigrationRequiredError` — drop the old unique indexes and give every document `version`, `deletedAt` and `syncAt` (the error prints both statements); Mongoose then builds the live-only indexes | a full unique index left in place refuses the second tombstone; a document without `syncAt` never reaches a client |
+| No TTL on a synchronized model (refused at registration); no `replaceOne` / pipeline update on MongoDB (refused) | an expired record vanishes without a tombstone; a replacement carries no version increment |
+| On SQL the database numbers changes: a trigger per table (PostgreSQL: advisory lock + sequence; MySQL / MariaDB: the counter row `lt_sync_counters`); a write that sets `sync_seq` itself is not renumbered. On MySQL / MariaDB every store write takes its number LAST instead (marks the row `-1`, then numbers it before COMMIT) | tier-2/3 writes are numbered too; on MySQL / MariaDB `FOR UPDATE` locks index gaps, and a write that held the counter while it waited for one deadlocked with a multi-row write (measured) — a multi-row write outside the store must lock its rows first and set the numbers last, as `updateRows()` does |
+| On MySQL with binary logging, creating the triggers needs `SUPER` or `log_bin_trust_function_creators=1` for the owner account | MySQL refuses `CREATE TRIGGER` otherwise (error 1419); the application account never needs it |
+| MongoDB stamps updates with `$currentDate` and inserts with the server clock read through `hello.localTime` — never `Date.now()` | application clocks differ between replicas; the pull's window relies on one clock |
+| A model reaches `/sync` only with `@SyncService({ model, createInput, updateInput })` on its CrudService AND `sync.roles` for every operation (`pull`, `create`, `update`, `delete`); without roles an operation is ADMIN only | the roles of a project's own routes never reach the sync routes — a push without its own roles lets any reader overwrite |
+| The sync module reads and writes through the model's CrudService only (`find`, `get`, `create`, `update`, `delete` with `expectedVersion`), never `native()` / `raw()` or the driver name; what differs it asks `store.capabilities` and `store.changeClock()` | the security pipeline (`process()`, `securityCheck()`, tenant policy, RLS) is the point; DEV-3819 forbids a lean path |
+| A write that moves a synchronized record to another tenant or away from a scope user OUTSIDE `CrudService.update()` (store, native API, migration) calls `CoreSyncService.bumpAccessEpoch()` | only `CrudService.update()` reports such a move; otherwise the clients that lost the record keep their copy until a full resync |
+| A write of a synchronized model OUTSIDE the CrudService (store, native API, migration) calls `CoreSyncService.notifyChange(model, tenantIds)` | only `CrudService.create()` / `update()` / `delete()` send a hint; without it online clients learn of the change at their next scheduled pull instead of at once — nothing is lost, it is only later |
+| A data migration that changes rows of a synchronized table uses `runSqlMigration()` with `{ syncUpdate: { table, set, where } }`, never a bare `UPDATE` | the helper raises `version` and numbers the rows like a store write; a bare `UPDATE` keeps the old version, so a client's conditional push overwrites the migrated value without a conflict |
+| Tombstones are removed only by the purge (`retention.tombstonesDays`), which moves the retention horizon first | a tombstone removed before the horizon passes it is never seen by a client whose cursor is older — the record stays on that device |
+| A client id on create goes through `ServiceOptions.createId`, never inside the input | an input class keeps only the fields it declares — mapping it drops an `id` |
+
 ## Tests
 
 A suite proves a behaviour on both databases: the `e2e` vitest project runs it on MongoDB, the `postgres` project on

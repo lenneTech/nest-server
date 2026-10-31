@@ -32,10 +32,10 @@ that every `*.spec.ts` / `*.test.ts` in the repo is claimed by **exactly one** r
 mis-named suite fails the build instead of silently passing. Type-only tests
 (`tests/types/*.type-test.ts`) are compiled by `pnpm run test:types`, never executed.
 
-## Infrastructure containers (Redis + S3 + PostgreSQL + MySQL + MariaDB)
+## Infrastructure containers (Redis + S3 + PostgreSQL + MySQL + MariaDB + MongoDB replica set)
 
-**Twenty** e2e suites talk to a **real** Redis, a **real** S3-compatible store and/or a **real**
-PostgreSQL, MySQL or MariaDB rather than a mock, and they **fail loudly** when it is missing — a silently skipped
+**Twenty-two** e2e suites talk to a **real** Redis, a **real** S3-compatible store and/or a **real**
+PostgreSQL, MySQL, MariaDB or MongoDB replica set rather than a mock, and they **fail loudly** when it is missing — a silently skipped
 infrastructure test is how an untested driver ships:
 
 | Suite | Needs |
@@ -60,13 +60,15 @@ infrastructure test is how an untested driver ships:
 | `tests/persistence-mysql-executor.e2e-spec.ts` | MySQL + MariaDB |
 | `tests/persistence-mysql-schema.e2e-spec.ts` | MySQL + MariaDB |
 | `tests/persistence-mysql-wiring.e2e-spec.ts` | MySQL + MariaDB |
+| `tests/sync-contract.e2e-spec.ts` | PostgreSQL + MySQL + MariaDB + MongoDB replica set (and MongoDB) |
+| `tests/sync-clock-skew.e2e-spec.ts` | PostgreSQL + MySQL + MongoDB replica set (and MongoDB) |
 
-Beyond these twenty, the `postgres` vitest project runs the whole e2e suite once more on PostgreSQL (see "Behaviour
+Beyond these twenty-two, the `postgres` vitest project runs the whole e2e suite once more on PostgreSQL (see "Behaviour
 matrices" below), so without the PostgreSQL container that project fails as a whole while `e2e` runs.
 
-`tests/global-setup.ts` starts all five containers automatically, so `pnpm test` works from a clean
+`tests/global-setup.ts` starts all six containers automatically, so `pnpm test` works from a clean
 machine with no manual docker command. It is idempotent (a running container is reused) and never
-fatal: without Docker every other suite still runs, and the twenty above report their own actionable
+fatal: without Docker every other suite still runs, and the twenty-two above report their own actionable
 error.
 
 ```bash
@@ -75,10 +77,10 @@ pnpm run test:infra:status   # what is running
 pnpm run test:infra:down     # stop and remove
 ```
 
-| | Redis | S3 (RustFS) | PostgreSQL | MySQL 8.4 | MariaDB 11.8 |
-|---|---|---|---|---|---|
-| Port | 6380 (6379 is an auth-protected TurboOps Redis on lt dev machines) | 9102 | 5440 | 3316 | 3317 |
-| Container | `nest-server-2985-redis` | `nest-server-2985-rustfs` | `nest-server-2985-postgres` | `nest-server-2985-mysql` | `nest-server-2985-mariadb` |
+| | Redis | S3 (RustFS) | PostgreSQL | MySQL 8.4 | MariaDB 11.8 | MongoDB 8.0 replica set |
+|---|---|---|---|---|---|---|
+| Port | 6380 (6379 is an auth-protected TurboOps Redis on lt dev machines) | 9102 | 5440 | 3316 | 3317 | 27019 |
+| Container | `nest-server-2985-redis` | `nest-server-2985-rustfs` | `nest-server-2985-postgres` | `nest-server-2985-mysql` | `nest-server-2985-mariadb` | `nest-server-2985-mongo-rs` |
 
 **PostgreSQL runs with two roles, as every environment does** (`.claude/plans/db-agnostic/PLAN.md`
 §3.9): `nest_owner` owns the databases and their schema, `nest_app` owns nothing and has neither
@@ -97,6 +99,12 @@ Overridable via `MYSQL_HOST`, `MYSQL_PORT`, `MARIADB_HOST`, `MARIADB_PORT`, `MYS
 `MYSQL_OWNER_PASSWORD`, `MYSQL_APP_USER`, `MYSQL_APP_PASSWORD`. MySQL and MariaDB are not a third run of the
 whole e2e suite: the matrices carry their columns (persistence: one per engine; core modules and where
 parity: one per server).
+
+**The MongoDB replica set** (one node, `rs0`) exists for the sync contract matrix (DEV-3901): on a replica set a
+project's transaction can commit a synchronized write long after its stamp — what the pull window must cover — and the
+standalone MongoDB every other suite uses shows nothing of that. The readiness step initiates the set idempotently;
+the suite connects with `directConnection=true` and drops its database itself in `afterAll` (the database lifecycle
+collects only the standalone). Overridable via `MONGO_RS_HOST`, `MONGO_RS_PORT`.
 
 **CI provisions its own** containers in `.github/workflows/*.yml` and sets `LT_TEST_INFRA=0` so the
 automatic start stays out of the way. Same images, same ports — only who starts them differs. Set
@@ -311,6 +319,36 @@ reason, never fall back to MongoDB, while the `e2e` project runs. `--project e2e
 
 The **data store** contract follows the same discipline: `tests/helpers/persistence-matrix.ts` declares the cases (CRUD contract plus the security policies), `tests/persistence-parity.e2e-spec.ts` executes them against a store obtained via `CorePersistenceModule.forFeature()` + `@InjectStore()` with every security plugin registered, and `tests/unit/persistence-parity-matrix.spec.ts` guards that every (case, database) cell is declared. It has ten columns: `mongodb`, PostgreSQL once per engine (`postgres-typeorm`, `postgres-kysely`, `postgres-drizzle`) — a `SqlDataStore` over the schema the migrator created, connected as the application role, so row-level security binds every case — and MySQL and MariaDB once per engine (`mysql-*`, `mariadb-*`, phase 6), a `MysqlDataStore` connected as the DML-only application account. Without row-level security there, `native-api-tenant-refused` is DIFFERENT-BY-DESIGN for those six columns and its complement asserts that a native query reaches every tenant while the store still isolates. Each tenant layer of the SQL store is additionally proven ALONE in `tests/persistence-sql-store.e2e-spec.ts` — the matrix runs them together, where one layer hides the loss of another.
 
+The **offline-sync protocol** follows it one level above the store: `tests/helpers/sync-contract-matrix.ts` declares
+what `GET/POST /sync/{model}` promise — pull, resume, resync, push with every strategy, idempotency, two tabs, tenant
+isolation, the infrastructure stores, the change hints over SSE and GraphQL (tenant and role filter, the stream ending
+on a re-check), the tombstone purge behind the horizon and the `syncUpdate` migration helper — and
+`tests/sync-contract.e2e-spec.ts` runs it through HTTP on seven columns: MongoDB standalone and replica set, PostgreSQL
+× three engines, MySQL, MariaDB. The window repeats of MongoDB are DIFFERENT-BY-DESIGN against SQL's "never repeated",
+each side with its own case; the migration helper is IMPOSSIBLE on the two MongoDB columns (it is a SQL statement). Its
+structural guard is `tests/unit/sync-contract-matrix.spec.ts`; the reference model it runs on is
+`src/server/modules/sync-note/`. Hints across replicas need a second application on one Redis and live in
+`tests/multi-replica.e2e-spec.ts`.
+
+**Offline sync end to end (DEV-3903).** Three suites prove the protocol from the client's side, all on the reference
+server (`tests/helpers/sync-test-app.ts`, which the contract matrix boots too):
+
+| Suite | What | Needs |
+|-------|------|-------|
+| `tests/sync-pwa-client.e2e-spec.ts` | The PWA test client (`tests/clients/pwa/`, IndexedDB, service worker) in Chrome, served by the test server, offline via Playwright | an installed Chrome (`playwright-core` downloads none; GitHub's Ubuntu runners ship one; `SYNC_PWA_CHROME` names another executable) |
+| `tests/sync-node-client.e2e-spec.ts` | The same client on SQLite (`node:sqlite`), bearer session token | nothing extra |
+| `tests/sync-clock-skew.e2e-spec.ts` | Two server PROCESSES with clocks 5 s ahead and behind, parallel writers on both, readers on either instance and one switching instances per page: no change lost. MongoDB runs with `pull.windowSeconds: 2` — the derived window (30 s / 90 s) would cover any skew — and needs the reader that STAYS with the fast clock: a switching reader soon starts a run on the slow one and picks a misstamped change up again, so with it alone the suite stayed green against mutation `sync-mongo-stamp-app-clock` | the containers above |
+
+The two client suites share one protocol implementation (`tests/clients/sync-client.mjs`) and one scenario list
+(`tests/helpers/sync-client-scenarios.ts`); `tests/unit/sync-client-scenarios.spec.ts` fails when a suite misses a
+scenario, and `tests/unit/sync-client.spec.ts` checks the client against an in-memory server, so a client bug does not
+cost an e2e run. Both run on MongoDB (`e2e`) and PostgreSQL (`postgres`) like every suite. The clock-skew suite starts
+its servers through the framework's SWC loader (`tests/helpers/sync-server.process.ts`, relative imports with `.js`)
+with `tests/helpers/skewed-clock.mjs` preloaded, because two Nest applications in one process share the persistence
+registry; it brings its own databases and is excluded from the `postgres` project. The skewed `Date` keeps the name
+`Date` and `prototype.constructor`: Mongoose resolves a schema type by the constructor's name, and `@UnifiedField`
+tells a class from a type factory by `prototype.constructor` — without both the server does not boot.
+
 ### A cell is EXECUTED, IMPOSSIBLE, or DIFFERENT-BY-DESIGN — never merely absent
 
 Omitting a case for one implementation and declaring it impossible there produce the same artefact
@@ -372,8 +410,9 @@ pnpm run check:mutations -- --id=<id>       # one mutation
 pnpm run check:mutations -- --list          # the registry, without running anything
 pnpm run check:mutations -- --allow-dirty   # when the fix and its evidence share a working tree
 pnpm run check:mutations -- --jobs=4        # N mutations at a time (default: 2, or 4 on >=12 cores)
-pnpm run check:mutations -- --no-infra      # only the 248 that need no MongoDB
+pnpm run check:mutations -- --no-infra      # only the 260 that need no MongoDB
 pnpm run check:mutations -- --since=<ref>   # only mutations touching files changed since <ref>
+pnpm run check:mutations -- --shard=2/4     # this job's quarter of the selection (CI splits the full run)
 ```
 
 `--no-infra` and `--since` narrow the run for LOCAL work and are deliberately not wired into the
@@ -391,13 +430,39 @@ when the registry, a vitest config or a setup file changed, since those can move
 commit, and in CI alongside the publish without blocking it. The price of caching is a cache that
 has to model each spec's full dependency closure correctly, and getting that wrong produces a stale
 PASS for a test that has since gone vacuous — exactly what the gate is there to prevent. Bad trade
-at 442 mutations.
+at 476 mutations.
 
 **Decided 2026-10-03 (repo owner): keep the full run.** Measured at 128 mutations, the CI job for
 11.41.6 took **14 minutes**. The trigger to revisit is that wall time, not the mutation count —
 the count was never the cost: re-evaluate once the "Regression evidence" job in `publish.yml`
 exceeds **30 minutes** (`gh run view <id> --json jobs` shows start and end). Below that line,
 adding a mutation needs no decision.
+
+**Re-evaluated 2026-10-30 (DEV-3910): the run stays full, it is SPLIT.** The line was crossed by far —
+58.5 min for 407 mutations at the 12.1.0 publish, 53 min for 442 at 12.1.1, almost all of it the cold
+start below. Both workflows now run the gate as a matrix of four jobs, each `--shard=i/4` of the same
+selection: every mutation in exactly one shard, unit and e2e mutations dealt out separately so no shard
+collects the slow ones, nothing cached or skipped. The new trigger: **the slowest shard exceeds 30
+minutes → raise the shard count** (matrix and `--shard` together, one line per workflow). What the split
+must keep is pinned by `tests/unit/mutation-sharding.spec.ts`:
+
+| Property | Why it is load-bearing |
+|----------|------------------------|
+| Every mutation in exactly one shard (mutation `mutation-shard-drops-residue`) | a lost mutation is invisible — every shard is green, each honestly reporting what it ran |
+| The matrix lists 1..N for the N `--shard` names (mutations `evidence-matrix-misses-a-shard`, and `evidence-plan-lists-fewer-shards` for the on-demand plan job) | a shorter matrix never starts the missing shards |
+| `fail-fast: false` in both workflows | GitHub cancels the rest of a matrix on the first failure, and with it their verdicts |
+| One issue per red run, from the `regression-evidence-report` job after the matrix | two red shards each looking for an open issue at once both create one |
+
+A shard that holds none of a non-empty selection (`--id=<x>` with four shards) ends 0 and says so; an
+empty SELECTION still fails before sharding (2 for `--since` / `--no-infra`, 1 for an unmatched
+`--id`). `regression-evidence.yml` takes a `shards` input (default 4) so a single `--id` run can use
+one job. `/lt-dev:publish` reads the workflow run's conclusion, which any red shard turns red.
+
+**More shards stop helping at the slowest single mutation.** A mutation that makes tests HANG costs
+retries × timeout per red test — 3 attempts × 60 s in low-resource mode. At 12.1.1 four such mutations
+took 44 % of all lane time, the largest (`gridfs-upload-source-error-unhandled`) ~18 minutes on its
+own, so no shard count brings a shard below that. When the slowest shard is one such mutation, shorten
+the spec's failure path (a tighter per-test timeout, a fail-fast assertion), not the split.
 
 Not part of `pnpm run check` — it edits source and re-runs whole e2e suites. It belongs in review
 and on the publish path. It is also reachable on demand, without cutting a release:
@@ -436,9 +501,9 @@ exactly the environment where the answer matters.
 
 ### The cost is vitest's cold start, not the tests
 
-Worth knowing before optimising the wrong thing: the specs behind all 194 e2e mutations add up to
+Worth knowing before optimising the wrong thing: the specs behind all 216 e2e mutations add up to
 **~40 seconds**. The step takes ~740s. The remaining ~700s is paying vitest's startup — process
-spawn, transform, module graph, mongod connect, DB create and drop — once per mutation, 442 times.
+spawn, transform, module graph, mongod connect, DB create and drop — once per mutation, 476 times.
 That work is largely single-threaded I/O and barely scales with cores: the full registry measures
 **744s on a 12-core laptop and 777s on a 4-vCPU CI runner**.
 

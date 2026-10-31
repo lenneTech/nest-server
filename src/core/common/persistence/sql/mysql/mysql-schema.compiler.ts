@@ -2,6 +2,7 @@ import type { FieldDescriptor, IndexDescriptor, ModelDescriptor } from '../../mo
 import { UnsupportedQueryError } from '../sql-errors.js';
 import { columnName, quoteMysqlIdentifier } from '../sql-naming.js';
 import { schemaHash, shortName, tableName } from '../sql-schema.shared.js';
+import { SYNC_DELETED_FIELD, SYNC_SEQUENCE_FIELD } from '../../sync-model.js';
 import type { MysqlVariant } from './mysql-session.js';
 
 /**
@@ -48,6 +49,12 @@ export interface MysqlDesiredCheck {
   name: string;
 }
 
+/** The triggers that number a synchronized model's changes (offline-sync plan §3.4) */
+export interface MysqlDesiredSync {
+  insertTrigger: string;
+  updateTrigger: string;
+}
+
 export interface MysqlDesiredTable {
   checks: MysqlDesiredCheck[];
   columns: MysqlDesiredColumn[];
@@ -56,7 +63,17 @@ export interface MysqlDesiredTable {
   name: string;
   /** What the model declares but the table cannot carry, reported once */
   notices: string[];
+  /** Present for a synchronized model: its change-order triggers */
+  sync?: MysqlDesiredSync;
 }
+
+/** The counter rows of every synchronized table (offline-sync plan §3.4, C1d): one row per table, updated in place */
+export const MYSQL_SYNC_COUNTERS = 'lt_sync_counters';
+/**
+ * Bumped whenever the change-order triggers change: their names carry the version, so the migrator finds an outdated
+ * trigger by name and replaces it
+ */
+export const MYSQL_SYNC_TRIGGER_VERSION = 'v1';
 
 /** Text types whose collation is `utf8mb4_bin` */
 const TEXT_TYPES = new Set(['char(36)', 'longtext', 'varchar(255)']);
@@ -64,6 +81,11 @@ const TEXT_TYPES = new Set(['char(36)', 'longtext', 'varchar(255)']);
 const STRING_KINDS = new Set(['enum', 'id', 'ref', 'string', 'uuid']);
 /** Prefix of the virtual columns that carry a unique index's null sentinel */
 export const NULL_SENTINEL_PREFIX = 'lt_nn_';
+/**
+ * Prefix of the virtual columns a synchronized model's unique index reads: the value while the record is live, NULL
+ * once it is a tombstone — MySQL and MariaDB have no partial index, and NULL may repeat in a unique one (plan §3.6)
+ */
+export const LIVE_KEY_PREFIX = 'lt_lk_';
 /** InnoDB's limit for the columns of one index, in bytes (utf8mb4: four per character) */
 const MAX_INDEX_BYTES = 3072;
 const INDEX_BYTES: Record<string, number> = {
@@ -141,7 +163,14 @@ export function desiredMysqlTable(model: ModelDescriptor, variant: MysqlVariant)
       tableIndexes.push(...result);
     }
   }
-  return { checks, columns, indexes: tableIndexes, model, name, notices };
+  const sync =
+    model.sync && model.fields[SYNC_SEQUENCE_FIELD]
+      ? {
+          insertTrigger: shortName(`lt_sync_${MYSQL_SYNC_TRIGGER_VERSION}`, name, ['bi']),
+          updateTrigger: shortName(`lt_sync_${MYSQL_SYNC_TRIGGER_VERSION}`, name, ['bu']),
+        }
+      : undefined;
+  return { checks, columns, indexes: tableIndexes, model, name, notices, ...(sync ? { sync } : {}) };
 }
 
 export function variantLabel(variant: MysqlVariant): string {
@@ -248,10 +277,14 @@ function desiredIndexes(
   }
   const unique = index.options.unique === true;
   const partial = index.options.partialFilterExpression as Record<string, unknown> | undefined;
+  // A synchronized model's unique index applies to live records only: it reads virtual live-key columns
+  const live = unique && !!partial && livePartial(partial, entries);
+  const liveSparse = live && Object.keys(partial!).length > 1;
   // A partial unique index whose filter only says "every indexed field exists" is a sparse one — MySQL's own NULL
   // handling. Any other filter has no counterpart, and a uniqueness checked nowhere must not pass for one that holds
-  const sparse = index.options.sparse === true || (unique && !!partial && requiresIndexedFields(partial, entries));
-  if (unique && partial && !sparse) {
+  const sparse =
+    !live && (index.options.sparse === true || (unique && !!partial && requiresIndexedFields(partial, entries)));
+  if (unique && partial && !sparse && !live) {
     throw new UnsupportedQueryError(
       `${model.name}: the partial unique index ${JSON.stringify(index.fields)} has no MySQL / MariaDB counterpart — ` +
         'uniqueness would be checked nowhere. Use a sparse unique index, or enforce it in the service',
@@ -273,7 +306,9 @@ function desiredIndexes(
       return 'an index over an array, JSON or binary field';
     }
     let target = column.name;
-    if (unique && !sparse && !column.primaryKey && STRING_KINDS.has(field.kind) && !field.isArray) {
+    if (live && !column.primaryKey) {
+      target = liveKeyColumn(column, columns, !liveSparse && STRING_KINDS.has(field.kind) && !field.isArray);
+    } else if (unique && !sparse && !column.primaryKey && STRING_KINDS.has(field.kind) && !field.isArray) {
       // A missing value is a value of its own, as in MongoDB: the index reads it from a virtual column
       target = nullSentinelColumn(column, columns);
     }
@@ -331,6 +366,36 @@ function desiredIndexes(
   return result;
 }
 
+/**
+ * Whether a partial filter is a synchronized model's live-record condition (`{ deletedAt: null }`), alone or with
+ * "every indexed field exists" — the rewrite of a sparse unique index (`sync-model.ts` → `liveUniqueIndex()`)
+ */
+function livePartial(partial: Record<string, unknown>, entries: [string, unknown][]): boolean {
+  if (!(SYNC_DELETED_FIELD in partial) || partial[SYNC_DELETED_FIELD] !== null) {
+    return false;
+  }
+  const { [SYNC_DELETED_FIELD]: _live, ...rest } = partial;
+  return !Object.keys(rest).length || requiresIndexedFields(rest, entries);
+}
+
+/**
+ * The virtual column carrying `column`'s value while the record is live — and NULL for a tombstone, which a unique
+ * index lets repeat. `sentinel`: a live NULL becomes the null sentinel, so it collides like a second live value
+ */
+function liveKeyColumn(column: MysqlDesiredColumn, columns: MysqlDesiredColumn[], sentinel: boolean): string {
+  const name = `${LIVE_KEY_PREFIX}${column.name}`.slice(0, 63);
+  if (!columns.some((candidate) => candidate.name === name)) {
+    const value = quoteMysqlIdentifier(column.name);
+    columns.push({
+      generated: `IF(${quoteMysqlIdentifier(columnName(SYNC_DELETED_FIELD))} IS NULL, ${sentinel ? `IFNULL(${value}, CHAR(0 USING utf8mb4))` : value}, NULL)`,
+      name,
+      primaryKey: false,
+      type: column.type,
+    });
+  }
+  return name;
+}
+
 /** Whether a partial filter says exactly "every indexed field exists" (`{ field: { $exists: true } }` each) */
 function requiresIndexedFields(partial: Record<string, unknown>, entries: [string, unknown][]): boolean {
   const keys = Object.keys(partial);
@@ -382,6 +447,44 @@ export function mysqlColumnDefinition(column: MysqlDesiredColumn): string {
   const key = column.primaryKey ? ' NOT NULL PRIMARY KEY' : '';
   const fallback = column.default ? ` DEFAULT ${column.default}` : '';
   return `${quoteMysqlIdentifier(column.name)} ${type}${collation}${key}${fallback}`;
+}
+
+/**
+ * The counter table, created once for every synchronized table of the database. `triggers` records the version of the
+ * table's triggers once they are in place: the application account may not read the triggers themselves (that needs
+ * the TRIGGER privilege it must never hold), so a boot without the owner checks this column instead
+ */
+export function mysqlSyncCountersStatement(): string {
+  return `CREATE TABLE IF NOT EXISTS ${quoteMysqlIdentifier(MYSQL_SYNC_COUNTERS)} (\`model\` varchar(64) COLLATE utf8mb4_bin NOT NULL PRIMARY KEY, \`seq\` bigint NOT NULL, \`triggers\` varchar(16) COLLATE utf8mb4_bin NULL) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_bin`;
+}
+
+/**
+ * A synchronized table's counter row, its two triggers and the numbering of rows written before it was synchronized.
+ *
+ * A BEFORE ROW trigger runs after the row is locked, so a write takes its row first and the counter last; the counter
+ * row's lock is held until COMMIT, so sequence order is commit order (C1d). A value the statement sets itself is kept
+ * — the store's multi-row writes take their numbers and set them in their final statement. The numbering of existing
+ * rows runs in an explicit transaction holding the counter row: a DDL statement commits on its own, and a write firing
+ * the new trigger meanwhile must wait rather than draw a number twice.
+ */
+export function mysqlSyncTableStatements(table: string, sync: MysqlDesiredSync): string[] {
+  const quoted = quoteMysqlIdentifier(table);
+  const counters = quoteMysqlIdentifier(MYSQL_SYNC_COUNTERS);
+  const key = mysqlLiteral(table);
+  const seq = quoteMysqlIdentifier(columnName(SYNC_SEQUENCE_FIELD));
+  const take = `UPDATE ${counters} SET \`seq\` = \`seq\` + 1 WHERE \`model\` = ${key}; SET NEW.${seq} = (SELECT \`seq\` FROM ${counters} WHERE \`model\` = ${key});`;
+  return [
+    `INSERT IGNORE INTO ${counters} (\`model\`, \`seq\`) VALUES (${key}, 0)`,
+    `DROP TRIGGER IF EXISTS ${quoteMysqlIdentifier(sync.insertTrigger)}`,
+    `DROP TRIGGER IF EXISTS ${quoteMysqlIdentifier(sync.updateTrigger)}`,
+    `CREATE TRIGGER ${quoteMysqlIdentifier(sync.insertTrigger)} BEFORE INSERT ON ${quoted} FOR EACH ROW BEGIN IF NEW.${seq} IS NULL THEN ${take} END IF; END`,
+    `CREATE TRIGGER ${quoteMysqlIdentifier(sync.updateTrigger)} BEFORE UPDATE ON ${quoted} FOR EACH ROW BEGIN IF NEW.${seq} <=> OLD.${seq} THEN ${take} END IF; END`,
+    'START TRANSACTION',
+    `SELECT \`seq\` INTO @lt_sync_base FROM ${counters} WHERE \`model\` = ${key} FOR UPDATE`,
+    `UPDATE ${quoted} AS t JOIN (SELECT \`id\`, ROW_NUMBER() OVER (ORDER BY \`id\`) AS n FROM ${quoted} WHERE ${seq} IS NULL) AS o ON o.\`id\` = t.\`id\` SET t.${seq} = @lt_sync_base + o.n`,
+    `UPDATE ${counters} SET \`seq\` = GREATEST(\`seq\`, (SELECT COALESCE(MAX(${seq}), 0) FROM ${quoted})), \`triggers\` = ${mysqlLiteral(MYSQL_SYNC_TRIGGER_VERSION)} WHERE \`model\` = ${key}`,
+    'COMMIT',
+  ];
 }
 
 export function addMysqlCheckStatement(table: string, check: MysqlDesiredCheck): string {

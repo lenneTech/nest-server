@@ -4,6 +4,7 @@ import { CoreRedisService } from '../src/core/common/services/core-redis.service
 import { CoreCronJobs } from '../src/core/common/services/core-cron-jobs.service';
 import { CoreBetterAuthRateLimiter } from '../src/core/modules/better-auth/core-better-auth-rate-limiter.service';
 import { CoreBetterAuthUserMapper } from '../src/core/modules/better-auth/core-better-auth-user.mapper';
+import { CoreSyncHintService, type SyncHintEvent } from '../src/core/modules/sync/core-sync-hints.service';
 import { captureExpectedLogs } from './helpers/expected-log-output';
 
 import type { ConfigService } from '../src/core/common/services/config.service';
@@ -418,6 +419,40 @@ describe('Multi-replica behavior (real Redis)', () => {
 
     // A different client is unaffected
     expect((await limiterA.check('198.51.100.4', '/token')).allowed).toBe(true);
+  });
+
+  /**
+   * @regression   DEV-3902 — a sync hint has to reach the subscribers of EVERY replica (a client's SSE stream or
+   *   GraphQL socket ends on whichever replica the load balancer picked), and its own replica's exactly once.
+   * @seen-failing Drop the Redis publish from CoreSyncHintService.send() in
+   *   src/core/modules/sync/core-sync-hints.service.ts — registered as mutation `sync-hints-redis-not-published` in
+   *   tests/regression-mutations.json.
+   */
+  it('delivers a sync hint to the subscribers of every replica, and to its own once', async () => {
+    const [redisA, redisB] = [createRedisService('sync-hints'), createRedisService('sync-hints')];
+    services.push(redisA, redisB);
+    await Promise.all([redisA.onModuleInit(), redisB.onModuleInit()]);
+    const replicaA = new CoreSyncHintService(redisA);
+    const replicaB = new CoreSyncHintService(redisB);
+    await Promise.all([replicaA.onApplicationBootstrap(), replicaB.onApplicationBootstrap()]);
+    try {
+      const atA: SyncHintEvent[] = [];
+      const atB: SyncHintEvent[] = [];
+      replicaA.subscribe((hint) => atA.push(hint));
+      replicaB.subscribe((hint) => atB.push(hint));
+
+      // A burst of writes in one tenant is one hint, on both replicas
+      replicaA.notify('SyncNote', ['tenant-a']);
+      replicaA.notify('SyncNote', ['tenant-a']);
+      await waitUntil(() => atB.length >= 1, 'the hint on the other replica');
+      await new Promise((resolve) => setTimeout(resolve, 400));
+      expect(atB).toEqual([expect.objectContaining({ model: 'SyncNote', tenantId: 'tenant-a' })]);
+      // Delivered where it was sent at once, and not a second time when Redis brings it back
+      expect(atA).toEqual([expect.objectContaining({ model: 'SyncNote', tenantId: 'tenant-a' })]);
+    } finally {
+      replicaA.onModuleDestroy();
+      replicaB.onModuleDestroy();
+    }
   });
 
   it('keeps serving rate-limit decisions when Redis goes away mid-flight', async () => {

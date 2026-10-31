@@ -9,7 +9,19 @@ import { convertFilterArgsToQuery } from '../helpers/filter.helper.js';
 import { mergePlain, prepareServiceOptionsForCreate } from '../helpers/input.helper.js';
 import { ServiceOptions } from '../interfaces/service-options.interface.js';
 import type { FindOptions, Where } from '../persistence/data-store.interface.js';
+import { getModelDescriptor } from '../persistence/model-metadata.registry.js';
+import { getSyncAccessListener } from '../persistence/sync-access.registry.js';
 import { UnsupportedCapabilityError } from '../persistence/unsupported-capability.error.js';
+import { isDuplicateIdError } from '../persistence/mongoose-data-store.js';
+import { includeTombstones, syncOfSchema } from '../persistence/mongo/sync-schema.plugin.js';
+import type { SyncDescriptor } from '../persistence/model-descriptor.interface.js';
+import {
+  assertClientId,
+  assertExpectedVersion,
+  insertWithServerId,
+  suppliedId,
+  VersionConflictError,
+} from '../persistence/policies/sync.policy.js';
 import { CoreModel } from '../models/core-model.model.js';
 import { PaginationInfo } from '../models/pagination-info.model.js';
 import { PlainObject } from '../types/plain-object.type.js';
@@ -74,14 +86,36 @@ export abstract class CrudService<
     return this.process(
       async (data) => {
         const currentUserId = serviceOptions?.currentUser?.id;
+        const createId = serviceOptions?.createId;
         if (this.usesNeutralStore) {
-          return this.dataStore.insert({ ...data.input, createdBy: currentUserId, updatedBy: currentUserId } as any);
+          return this.syncChanged(
+            await this.dataStore.insert({
+              ...data.input,
+              ...(createId === undefined || createId === null ? {} : { id: createId }),
+              createdBy: currentUserId,
+              updatedBy: currentUserId,
+            } as any),
+          );
         }
-        return new (this.mainDbModel as MongooseModel<Document & Model>)({
-          ...data.input,
-          createdBy: currentUserId,
-          updatedBy: currentUserId,
-        }).save();
+        const build = (id?: string) =>
+          new (this.mainDbModel as MongooseModel<Document & Model>)({
+            ...data.input,
+            ...(id === undefined ? {} : { _id: id }),
+            createdBy: currentUserId,
+            updatedBy: currentUserId,
+          });
+        const sync = this.mongoSync;
+        if (!sync) {
+          return build(createId ?? undefined).save();
+        }
+        // A synchronized model keeps a client's id in its format and replaces a taken server id (plan §3.3, E6)
+        const supplied = createId ?? suppliedId(data.input ?? {});
+        if (supplied !== undefined && supplied !== null) {
+          return this.syncChanged(
+            await build(assertClientId(supplied, sync.idFormat, this.mainDbModel.modelName)).save(),
+          );
+        }
+        return this.syncChanged(await insertWithServerId(sync.idFormat, (id) => build(id).save(), isDuplicateIdError));
       },
       { input, serviceOptions },
     );
@@ -110,8 +144,8 @@ export abstract class CrudService<
   /**
    * Get distinct values of a property
    */
-  distinct(property: string): Promise<string[]> {
-    return this.dataStore.distinct(property) as Promise<string[]>;
+  distinct(property: string, serviceOptions?: ServiceOptions): Promise<string[]> {
+    return this.dataStore.distinct(property, undefined, tombstoneOption(serviceOptions)) as Promise<string[]>;
   }
 
   /**
@@ -119,13 +153,16 @@ export abstract class CrudService<
    */
   async get(id: string, serviceOptions?: ServiceOptions): Promise<Model> {
     if (this.usesNeutralStore) {
-      const record = await this.dataStore.findById(id, neutralSelect(serviceOptions?.select));
+      const record = await this.dataStore.findById(id, {
+        ...neutralSelect(serviceOptions?.select),
+        ...tombstoneOption(serviceOptions),
+      });
       if (!record) {
         throw new NotFoundException(`No ${this.mainModelConstructor.name} found with ID: ${id}`);
       }
       return this.process(async () => record, { dbObject: record, serviceOptions });
     }
-    const query = this.mainDbModel.findById(id);
+    const query = this.withTombstones(this.mainDbModel.findById(id), serviceOptions);
     if (serviceOptions?.select) {
       query.select(serviceOptions.select);
     }
@@ -190,7 +227,10 @@ export abstract class CrudService<
         }
 
         // Find in DB
-        let find = this.mainDbModel.find(filterQuery.filterQuery, null, filterQuery.queryOptions);
+        let find = this.withTombstones(
+          this.mainDbModel.find(filterQuery.filterQuery, null, filterQuery.queryOptions),
+          serviceOptions,
+        );
         const collation = serviceOptions?.collation || ConfigService.get('mongoose.collation');
         if (collation) {
           find = find.collation(collation);
@@ -261,7 +301,7 @@ export abstract class CrudService<
           const { options, where } = neutralQuery(filterQuery, serviceOptions);
           const [items, totalCount] = await Promise.all([
             this.dataStore.find(where, filter?.samples ? { ...options, sample: filter.samples } : options),
-            this.dataStore.count(where),
+            this.dataStore.count(where, tombstoneOption(serviceOptions)),
           ]);
           const queryOptions = filterQuery.queryOptions || {};
           return {
@@ -323,7 +363,12 @@ export abstract class CrudService<
         // Find and process db items
         const collation = serviceOptions?.collation || ConfigService.get('mongoose.collation');
         const dbResult =
-          (await this.mainDbModel.aggregate(aggregation, collation ? { collation } : {}).exec())[0] || {};
+          (
+            await this.withTombstones(
+              this.mainDbModel.aggregate(aggregation, collation ? { collation } : {}),
+              serviceOptions,
+            ).exec()
+          )[0] || {};
         dbResult.totalCount = dbResult.totalCount?.[0]?.total || 0;
         dbResult.items = dbResult.items?.map((item) => this.mainDbModel.hydrate(item)) || [];
 
@@ -443,13 +488,17 @@ export abstract class CrudService<
           return this.dataStore.findOne(where, {
             collation: options.collation,
             exclude: options.exclude,
+            includeTombstones: options.includeTombstones,
             select: options.select,
             sort: options.sort,
           });
         }
 
         // Find in DB
-        let find = this.mainDbModel.findOne(filterQuery.filterQuery, null, filterQuery.queryOptions);
+        let find = this.withTombstones(
+          this.mainDbModel.findOne(filterQuery.filterQuery, null, filterQuery.queryOptions),
+          serviceOptions,
+        );
         const collation = serviceOptions?.collation || ConfigService.get('mongoose.collation');
         if (collation) {
           find = find.collation(collation);
@@ -657,18 +706,31 @@ export abstract class CrudService<
    * Update item via ID
    */
   async update(id: string, input: PlainObject<UpdateInput>, serviceOptions?: ServiceOptions): Promise<Model> {
+    const expectedVersion = this.expectedVersionOf(serviceOptions);
     if (this.usesNeutralStore) {
       const stored = await this.dataStore.findById(id);
       if (!stored) {
         throw new NotFoundException(`No ${this.mainModelConstructor.name} found with ID: ${id}`);
       }
+      this.assertVersion(id, stored, expectedVersion);
       return this.process(
         async (data) => {
           // The same write as on MongoDB: the stored record merged with the input, written back whole — minus
           // the id, which never changes, and the update time, which the store stamps
+          const before = this.syncAccessSnapshot(stored);
           const merged = mergePlain(stored, data.input, { updatedBy: serviceOptions?.currentUser?.id });
           const { _id: _mongoId, id: _id, updatedAt: _updatedAt, ...patch } = merged as Record<string, any>;
-          return this.dataStore.updateById(id, patch as any);
+          const updated =
+            expectedVersion === undefined
+              ? await this.dataStore.updateById(id, patch as any)
+              : // One statement with the version as its condition: of two changes made on the same version, one applies
+                ((await this.dataStore.updateOne({ id, version: expectedVersion } as Where, patch as any)) ??
+                this.versionConflict(id));
+          if (updated) {
+            await this.reportSyncAccessMove(before, merged);
+            this.reportSyncChange(before, merged);
+          }
+          return updated;
         },
         { dbObject: stored, input, serviceOptions },
       );
@@ -677,15 +739,28 @@ export abstract class CrudService<
     if (!dbObject) {
       throw new NotFoundException(`No ${this.mainModelConstructor.name} found with ID: ${id}`);
     }
+    this.assertVersion(id, dbObject, expectedVersion);
     return this.process(
       async (data) => {
         const currentUserId = serviceOptions?.currentUser?.id;
+        const before = this.syncAccessSnapshot(dbObject);
         const merged = mergePlain(dbObject, data.input, { updatedBy: currentUserId });
-        const query = this.mainDbModel.findByIdAndUpdate(id, merged, { returnDocument: 'after' });
+        const query =
+          expectedVersion === undefined
+            ? this.mainDbModel.findByIdAndUpdate(id, merged, { returnDocument: 'after' })
+            : this.mainDbModel.findOneAndUpdate({ _id: id, version: expectedVersion } as any, merged, {
+                returnDocument: 'after',
+              });
         if (serviceOptions?.select) {
           query.select(serviceOptions.select);
         }
-        return await query.exec();
+        const updated = await query.exec();
+        if (!updated) {
+          return expectedVersion === undefined ? updated : this.versionConflict(id);
+        }
+        await this.reportSyncAccessMove(before, merged);
+        this.reportSyncChange(before, merged);
+        return updated;
       },
       { dbObject, input, serviceOptions },
     );
@@ -715,14 +790,17 @@ export abstract class CrudService<
    * Delete item via ID
    */
   async delete(id: string, serviceOptions?: ServiceOptions): Promise<Model> {
+    const expectedVersion = this.expectedVersionOf(serviceOptions);
     if (this.usesNeutralStore) {
       const stored = await this.dataStore.findById(id, neutralSelect(serviceOptions?.select));
       if (!stored) {
         throw new NotFoundException(`No ${this.mainModelConstructor.name} found with ID: ${id}`);
       }
+      this.assertVersion(id, stored, expectedVersion);
       return this.process(
         async () => {
-          await this.dataStore.deleteById(id);
+          await this.removeOrTombstone(id, expectedVersion);
+          this.reportSyncChange(stored);
           return stored;
         },
         { dbObject: stored, serviceOptions },
@@ -736,13 +814,167 @@ export abstract class CrudService<
     if (!dbObject) {
       throw new NotFoundException(`No ${this.mainModelConstructor.name} found with ID: ${id}`);
     }
+    this.assertVersion(id, dbObject, expectedVersion);
     return this.process(
       async () => {
-        await this.mainDbModel.findByIdAndDelete(id).exec();
+        if (this.mongoSync) {
+          // A synchronized model's delete leaves a tombstone, which is how clients learn of it
+          await this.removeOrTombstone(id, expectedVersion);
+          this.reportSyncChange(dbObject);
+        } else {
+          await this.mainDbModel.findByIdAndDelete(id).exec();
+        }
         return dbObject;
       },
       { dbObject, serviceOptions },
     );
+  }
+
+  // -- synchronized models (`@PersistedModel({ sync })`) ------------------------------------------------------
+
+  /** The sync declaration of the main model on its MongoDB path, read from the Mongoose schema */
+  protected get mongoSync(): SyncDescriptor | undefined {
+    return this.usesNeutralStore ? undefined : syncOfSchema(this.mainDbModel?.schema);
+  }
+
+  /** Whether the main model is synchronized, on whichever database it lives */
+  protected get isSynchronized(): boolean {
+    return !!this.dataStore?.capabilities.changeOrder;
+  }
+
+  /** A Mongoose query or aggregation that also sees tombstones when the caller asked (`includeTombstones`) */
+  protected withTombstones<Q extends object>(query: Q, serviceOptions?: ServiceOptions): Q {
+    return serviceOptions?.includeTombstones && this.mongoSync ? includeTombstones(query) : query;
+  }
+
+  /** `serviceOptions.expectedVersion`, checked; only a synchronized model has a version */
+  protected expectedVersionOf(serviceOptions?: ServiceOptions): number | undefined {
+    if (serviceOptions?.expectedVersion === undefined || serviceOptions.expectedVersion === null) {
+      return undefined;
+    }
+    if (!this.isSynchronized) {
+      throw new UnsupportedCapabilityError(
+        `expectedVersion: ${this.mainModelConstructor?.name ?? this.dataStore?.modelName} is not a synchronized model ` +
+          '(@PersistedModel({ sync }))',
+      );
+    }
+    return assertExpectedVersion(serviceOptions.expectedVersion);
+  }
+
+  /** The early answer to a conditional change on a record that already has another version */
+  protected assertVersion(id: string, stored: any, expectedVersion: number | undefined): void {
+    if (expectedVersion !== undefined && stored?.version !== expectedVersion) {
+      this.versionConflict(id);
+    }
+  }
+
+  protected versionConflict(id: string): never {
+    throw new VersionConflictError(this.mainModelConstructor?.name ?? this.dataStore.modelName, id);
+  }
+
+  /**
+   * The tenant and scope fields of a stored record as they are BEFORE a write — taken before `mergePlain()`, which
+   * merges the input INTO the stored object. `undefined` when nobody listens or the model is not synchronized.
+   */
+  protected syncAccessSnapshot(stored: Record<string, any> | undefined): Record<string, any> | undefined {
+    if (!stored || !getSyncAccessListener() || !this.isSynchronized) {
+      return undefined;
+    }
+    const scope = getModelDescriptor(this.dataStore.modelName)?.sync?.scope ?? [];
+    return Object.fromEntries(
+      ['tenantId', ...scope].map((field) => [field, Array.isArray(stored[field]) ? [...stored[field]] : stored[field]]),
+    );
+  }
+
+  /**
+   * Tell the sync module that this write took a synchronized record away from users who could see it: moved to
+   * another tenant, or a scope field (`sync.scope`, e.g. `ownerId`) changed away from a user (offline-sync plan §3.8).
+   * Their clients then answer the next pull with a full resync and lose the local copy. A no-op without the module.
+   * A failure is logged, never thrown: the write it follows has happened.
+   */
+  protected async reportSyncAccessMove(
+    stored: Record<string, any> | undefined,
+    written: Record<string, any>,
+  ): Promise<void> {
+    const listener = getSyncAccessListener();
+    if (!listener || !stored) {
+      return;
+    }
+    const model = this.dataStore.modelName;
+    const ids = (value: unknown): string[] =>
+      value === undefined || value === null
+        ? []
+        : (Array.isArray(value) ? value : [value]).flatMap((item) =>
+            item === undefined || item === null ? [] : [String(getStringIds(item))],
+          );
+    const after = (field: string) => (field in written ? written[field] : stored[field]);
+    const [tenantBefore] = ids(stored.tenantId);
+    const tenantChanged = !!tenantBefore && ids(after('tenantId'))[0] !== tenantBefore;
+    const usersLost = (getModelDescriptor(model)?.sync?.scope ?? []).flatMap((field) => {
+      const now = new Set(ids(after(field)));
+      return ids(stored[field]).filter((user) => !now.has(user));
+    });
+    if (!tenantChanged && !usersLost.length) {
+      return;
+    }
+    try {
+      await listener.recordMoved({ model, tenantChanged, tenantId: tenantBefore, usersLost: [...new Set(usersLost)] });
+    } catch (error) {
+      Logger.error(
+        `Sync access epoch for a moved ${model} record not bumped — affected clients keep their copy until their next ` +
+          `full resync: ${(error as Error)?.message ?? error}`,
+        this.constructor.name,
+      );
+    }
+  }
+
+  /**
+   * Tell the sync module that a write of a synchronized record succeeded, so the subscribers of its hints learn of it
+   * (offline-sync plan §3.9) — with the tenants the record was in before and after the write. A no-op without the
+   * module and on any other model; a failure is logged, never thrown: the write has happened.
+   */
+  protected reportSyncChange(...records: (Record<string, any> | null | undefined)[]): void {
+    const listener = getSyncAccessListener();
+    if (!listener?.recordChanged || !this.isSynchronized) {
+      return;
+    }
+    const tenantIds = new Set<string>();
+    for (const record of records) {
+      const tenantId = record?.tenantId;
+      if (tenantId !== undefined && tenantId !== null && tenantId !== '') {
+        tenantIds.add(String(getStringIds(tenantId)));
+      }
+    }
+    try {
+      listener.recordChanged({ model: this.dataStore.modelName, tenantIds: [...tenantIds] });
+    } catch (error) {
+      Logger.warn(
+        `Sync hint for a ${this.dataStore.modelName} write not sent — clients learn of it at their next pull: ` +
+          `${(error as Error)?.message ?? error}`,
+        this.constructor.name,
+      );
+    }
+  }
+
+  /** `reportSyncChange()` for a created record, which it answers */
+  protected syncChanged<R>(created: R): R {
+    this.reportSyncChange(created as any);
+    return created;
+  }
+
+  /**
+   * Delete through the store: a synchronized model's record becomes a tombstone (conditional on `expectedVersion`),
+   * any other model's is removed
+   */
+  protected async removeOrTombstone(id: string, expectedVersion: number | undefined): Promise<void> {
+    if (expectedVersion === undefined) {
+      await this.dataStore.deleteById(id);
+      return;
+    }
+    const removed = await this.dataStore.deleteOne({ id, version: expectedVersion } as Where);
+    if (!removed) {
+      this.versionConflict(id);
+    }
   }
 
   /**
@@ -897,6 +1129,11 @@ function neutralSelect(select: unknown): Pick<FindOptions, 'exclude' | 'select'>
   };
 }
 
+/** `includeTombstones` of the service options as a store option */
+function tombstoneOption(serviceOptions?: ServiceOptions): { includeTombstones?: boolean } {
+  return serviceOptions?.includeTombstones ? { includeTombstones: true } : {};
+}
+
 /** The filter and query options of a CrudService call as the neutral filter and find options */
 function neutralQuery(
   query: { filterQuery?: unknown; queryOptions?: QueryOptions },
@@ -906,6 +1143,7 @@ function neutralQuery(
   const options: FindOptions = {
     collation: (serviceOptions?.collation || ConfigService.get('mongoose.collation')) as Record<string, unknown>,
     ...neutralSelect(serviceOptions?.select),
+    ...tombstoneOption(serviceOptions),
   };
   const skip = queryOptions.skip ?? queryOptions.offset;
   const limit = queryOptions.limit ?? queryOptions.take;

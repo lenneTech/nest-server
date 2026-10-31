@@ -200,10 +200,11 @@ pnpm run reinit         # Clean reinstall + tests + build
 **Key Components:**
 - `CoreModule` - Dynamic module with GraphQL (optional, disable via `graphQl: false`), MongoDB, security
 - `src/core/common/` - Decorators, helpers, interceptors, services
-- `src/core/modules/` - ApiToken, Auth, BetterAuth, ErrorCode, File, HealthCheck, Hub, Migrate, Permissions, SystemSetup, Tus, User
+- `src/core/modules/` - ApiToken, Auth, BetterAuth, ErrorCode, File, HealthCheck, Hub, Migrate, Permissions, Sync, SystemSetup, Tus, User
   - **ApiToken** - Opt-in (`apiTokens`) USER and TENANT tokens + signed assertions. Denied on every route without `@ApiTokenScopes()`; all three guards share `enforceApiTokenRoute()`. See `src/core/modules/api-token/README.md`.
   - **Hub** - Build-free ADMIN-gated operator cockpit at `/hub` (config-gated per environment; 17 panels, runtime collectors, mailbox, admin actions). See `src/core/modules/hub/README.md`.
   - **Permissions** - ADMIN-gated security-map report (routes + roles + `@Restricted` fields); also surfaced in the Hub's "Routes / Permissions" panel.
+  - **Sync** - Opt-in (`sync`) offline sync: `GET/POST /sync/{model}` for models declared `@PersistedModel({ sync })` whose CrudService carries `@SyncService()`, change hints over SSE (`GET /sync/hints`) and GraphQL (`syncHint`), hourly tombstone purge; protocol in `docs/offline-sync-protocol.md`, client duties in the module's `SECURITY.md`, reference test clients in `tests/clients/`. See `src/core/modules/sync/README.md`.
 - **Optional central infrastructure** (11.33.0+) - `CoreRedisService` (`redis` config) and `CoreS3Service` (`s3` config) turn process-local state into shared state for multi-replica deployments: rate-limit counters, cron deduplication, GraphQL subscriptions, tenant-cache and IAM role-cache invalidation, Hub collectors, file storage (`file.storage: 's3'`; the driver is otherwise derived — S3 → GridFS → filesystem — and an unavailable one fails the boot rather than falling back) and TUS staging. Both are inert without their config, and their client libraries are **optional peer dependencies** (`ioredis`, `bullmq`, `@aws-sdk/client-s3`, `@aws-sdk/lib-storage`, `@aws-sdk/s3-request-presigner`, `@tus/s3-store`) — a project that uses neither installs nothing extra. When adding a distributed feature, always keep the non-configured fallback path.
 
 See `.claude/rules/architecture.md` for detailed documentation.

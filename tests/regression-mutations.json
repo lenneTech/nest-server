@@ -2021,7 +2021,7 @@
       "id": "unusable-fix-ignores-moved-consumer",
       "defect": "A suppression whose consumer has MOVED is reported as if a SECOND consumer had appeared — \"@nuxt/devtools@3.5.0 also pulls an affected package\" for what is the same package one version further on. The consumer-set check does catch the move on its own since it compares `name@version`, so this is a diagnosis defect rather than a hole: the reader is sent looking for a second consumer instead of re-assessing the declared one against its new version. Pinned on the MESSAGE for exactly that reason.",
       "file": "scripts/check-overrides.mjs",
-      "find": "    if (!present.includes(assessedAt)) {\n      note(`${consumer} moved from ${assessedAt} to ${present.join(', ')}`);\n      continue;\n    }\n",
+      "find": "        if (!present.includes(assessedAt)) {\n          return `${consumer} moved from ${assessedAt} to ${present.join(', ')}`;\n        }\n",
       "replace": "",
       "specs": [
         "tests/unit/check-overrides.guard.spec.ts"
@@ -2032,7 +2032,7 @@
       "id": "unusable-fix-accepts-absent-consumer",
       "defect": "The declared consumer has left the tree, so nothing pulls the vulnerable version in any more and the finding should have disappeared — but the suppression is still accepted, keeping dead config that reads like a considered risk decision.",
       "file": "scripts/check-overrides.mjs",
-      "find": "    if (present.length === 0) {\n      note(`no ${consumer} in the tree any more, so the suppression is moot`);\n      continue;\n    }\n",
+      "find": "        if (present.length === 0) {\n          return `no ${consumer} in the tree any more, so the suppression is moot`;\n        }\n",
       "replace": "",
       "specs": [
         "tests/unit/check-overrides.guard.spec.ts"
@@ -2054,7 +2054,7 @@
       "id": "unusable-fix-ignores-second-consumer",
       "defect": "A second package starts pulling the affected package, possibly one in the production closure. `ignoreGhsas` hides the advisory everywhere, so without this check the declaration keeps arguing \"only this one dev-tooling consumer\" while that is no longer true.",
       "file": "scripts/check-overrides.mjs",
-      "find": "    const others = allParents.filter((parent) => parent !== expected);\n    if (others.length > 0) {",
+      "find": "    const others = allParents.filter((parent) => !expected.includes(parent));\n    if (others.length > 0) {",
       "replace": "    const others = [];\n    if (others.length > 0) {",
       "specs": [
         "tests/unit/check-overrides.guard.spec.ts"
@@ -2078,6 +2078,17 @@
       "file": "scripts/check-overrides.mjs",
       "find": "  return [...new Set([...found].map((m) => m[1]))];",
       "replace": "  return [...new Set([...found].map((m) => m[1]))].slice(0, 1);",
+      "specs": [
+        "tests/unit/check-overrides.guard.spec.ts"
+      ],
+      "driverSpecific": false
+    },
+    {
+      "id": "unusable-fix-accepts-idle-consumer",
+      "defect": "A declaration lists several consumers and one of them stops pulling the affected package. It is still in the tree at its assessed version, so every other check passes, and the declaration keeps covering a path that no longer exists.",
+      "file": "scripts/check-overrides.mjs",
+      "find": "    const idle = expected.filter((entry) => !allParents.includes(entry));",
+      "replace": "    const idle = [];",
       "specs": [
         "tests/unit/check-overrides.guard.spec.ts"
       ],
@@ -3415,8 +3426,8 @@
       "id": "sql-store-drops-tenant-filter",
       "defect": "DEV-3829 (db-agnostic phase 1) — without the store's own tenant predicate a tenant reads and writes every tenant's rows on any table or database without row-level security.",
       "file": "src/core/common/persistence/sql/sql-data-store.ts",
-      "find": "      tenantFilter && Object.keys(tenantFilter).length ? { $and: [where ?? {}, tenantFilter] } : (where ?? {});",
-      "replace": "      where ?? {};",
+      "find": "    if (tenantFilter && Object.keys(tenantFilter).length) {\n      conditions.push(tenantFilter);\n    }",
+      "replace": "    if (false) {\n      conditions.push(tenantFilter);\n    }",
       "specs": [
         "tests/persistence-sql-store.e2e-spec.ts"
       ],
@@ -4365,8 +4376,8 @@
       "id": "mysql-unique-null-distinct",
       "defect": "DEV-3848 (db-agnostic phase 6): MySQL and MariaDB admit any number of NULLs under a unique index, so a non-sparse unique field stored several records without a value where MongoDB and PostgreSQL admit one",
       "file": "src/core/common/persistence/sql/mysql/mysql-schema.compiler.ts",
-      "find": "    if (unique && !sparse && !column.primaryKey && STRING_KINDS.has(field.kind) && !field.isArray) {",
-      "replace": "    if (false) {",
+      "find": "    } else if (unique && !sparse && !column.primaryKey && STRING_KINDS.has(field.kind) && !field.isArray) {",
+      "replace": "    } else if (false) {",
       "specs": [
         "tests/persistence-mysql-schema.e2e-spec.ts"
       ]
@@ -4530,7 +4541,7 @@
       "id": "mysql-count-without-tenant-filter",
       "defect": "DEV-3848 (db-agnostic phase 6, review): count() on MySQL with the caller's filter alone counted every tenant's rows — aggregates pass no row check and MySQL has no row-level security",
       "file": "src/core/common/persistence/sql/mysql/mysql-data-store.ts",
-      "find": "      text: `SELECT COUNT(*) AS n FROM ${this.table} WHERE ${this.where(where, params)}`,",
+      "find": "      text: `SELECT COUNT(*) AS n FROM ${this.table} WHERE ${this.where(where, params, options)}`,",
       "replace": "      text: `SELECT COUNT(*) AS n FROM ${this.table} WHERE ${this.compileWhere((where ?? {}) as Where, params)}`,",
       "specs": [
         "tests/persistence-parity.e2e-spec.ts"
@@ -4541,7 +4552,7 @@
       "id": "mysql-distinct-without-tenant-filter",
       "defect": "DEV-3848 (db-agnostic phase 6, review): distinct() on MySQL with the caller's filter alone returned every tenant's values",
       "file": "src/core/common/persistence/sql/mysql/mysql-data-store.ts",
-      "find": "    const condition = this.where(where, params);",
+      "find": "    const condition = this.where(where, params, options);",
       "replace": "    const condition = this.compileWhere((where ?? {}) as Where, params);",
       "specs": [
         "tests/persistence-parity.e2e-spec.ts"
@@ -5017,6 +5028,387 @@
       "replace": "",
       "specs": [
         "tests/unit/core-cron-jobs-dedup.spec.ts"
+      ],
+      "driverSpecific": false
+    },
+    {
+      "id": "mutation-shard-drops-residue",
+      "defect": "12.1.1 / DEV-3910 — the regression-evidence gate is split across parallel CI jobs with --shard=i/n. An assignment that misses one residue class (shard i takes position % n === i instead of i - 1) leaves every mutation of that class in no shard: each job reports green and part of the registry is never checked.",
+      "file": "scripts/check-mutations.mjs",
+      "find": "return position % count === index - 1;",
+      "replace": "return position % count === index;",
+      "specs": [
+        "tests/unit/mutation-sharding.spec.ts"
+      ],
+      "driverSpecific": false
+    },
+    {
+      "id": "evidence-matrix-misses-a-shard",
+      "defect": "12.1.1 / DEV-3910 — publish.yml runs the evidence gate as a matrix and passes --shard=${{ matrix.shard }}/4. A matrix that lists fewer shards than that count never starts the missing ones, and the release run is green with a quarter of the registry unchecked.",
+      "file": ".github/workflows/publish.yml",
+      "find": "shard: [ 1, 2, 3, 4 ]",
+      "replace": "shard: [ 1, 2, 3 ]",
+      "specs": [
+        "tests/unit/mutation-sharding.spec.ts"
+      ],
+      "driverSpecific": false
+    },
+    {
+      "id": "evidence-plan-lists-fewer-shards",
+      "defect": "12.1.1 / DEV-3910 — regression-evidence.yml derives the shard list and the shard count separately in its plan job. A list one short of the count (seq starting at 2) never starts the first shard, and the on-demand run is green with part of the registry unchecked.",
+      "file": ".github/workflows/regression-evidence.yml",
+      "find": "seq 1 \"$SHARDS\"",
+      "replace": "seq 2 \"$SHARDS\"",
+      "specs": [
+        "tests/unit/mutation-sharding.spec.ts"
+      ],
+      "driverSpecific": false
+    },
+    {
+      "id": "mysql-sync-numbers-not-last",
+      "defect": "DEV-3900 (offline sync phase 3, review) — on MySQL / MariaDB a store insert of a synchronized model took its change number in the BEFORE INSERT trigger and then waited for the gap a concurrent updateMany / deleteMany had locked with FOR UPDATE, which in turn waited for the counter: InnoDB aborted one side with a deadlock (1213), measured at ~13 % of inserts.",
+      "file": "src/core/common/persistence/sql/mysql/mysql-data-store.ts",
+      "find": "  protected override numbersLast(): boolean {\n    return true;\n  }",
+      "replace": "  protected override numbersLast(): boolean {\n    return false;\n  }",
+      "specs": [
+        "tests/persistence-parity.e2e-spec.ts"
+      ],
+      "driverSpecific": false
+    },
+    {
+      "id": "sync-insert-stamps-app-clock",
+      "defect": "DEV-3900 (offline sync phase 3, review) — a MongoDB insert of a synchronized model stamped syncAt with the application's clock: a replica whose clock runs behind writes change positions behind what clients already pulled, and those changes never reach them.",
+      "file": "src/core/common/persistence/mongo/sync-schema.plugin.ts",
+      "find": "      this.set(SYNC_CLOCK_FIELD, await mongoServerNow(connection));\n      return;",
+      "replace": "      this.set(SYNC_CLOCK_FIELD, new Date());\n      return;",
+      "specs": [
+        "tests/persistence-parity.e2e-spec.ts"
+      ],
+      "driverSpecific": false
+    },
+    {
+      "id": "sync-aggregate-ignores-include-tombstones",
+      "defect": "DEV-3900 (offline sync phase 3, review) — the sync plugin's aggregate hook added the live-record $match whatever the query asked, so CrudService.findAndCount(…, { includeTombstones: true }) left every tombstone out on MongoDB while every SQL store returned them.",
+      "file": "src/core/common/persistence/mongo/sync-schema.plugin.ts",
+      "find": "    if (!this[INCLUDE_TOMBSTONES]) {\n      matchLiveInPipeline(pipeline);\n    }",
+      "replace": "    matchLiveInPipeline(pipeline);",
+      "specs": [
+        "tests/persistence-parity.e2e-spec.ts"
+      ],
+      "driverSpecific": false
+    },
+    {
+      "id": "sync-scope-move-reads-merged-record",
+      "defect": "DEV-3901 (offline sync phase 4) — CrudService.update() compared the tenant and scope fields of the stored record with the written ones AFTER mergePlain() had merged the input into that very object, so a record handed to another owner looked unchanged: the previous owner's access epoch was never bumped and their client kept the record.",
+      "file": "src/core/common/services/crud.service.ts",
+      "find": "    const scope = getModelDescriptor(this.dataStore.modelName)?.sync?.scope ?? [];\n    return Object.fromEntries(",
+      "replace": "    const scope = getModelDescriptor(this.dataStore.modelName)?.sync?.scope ?? [];\n    return stored;\n    return Object.fromEntries(",
+      "specs": [
+        "tests/sync-contract.e2e-spec.ts"
+      ],
+      "driverSpecific": false
+    },
+    {
+      "id": "sync-uuid-range-refused",
+      "defect": "DEV-3901 (offline sync phase 4) — Mongoose's UUID type refuses $gt/$gte/$lt/$lte, so the pull's keyset (syncAt, _id) could not be continued for a uuidv7 model on MongoDB: a page boundary inside one server millisecond answered 503.",
+      "file": "src/core/common/persistence/mongo/sync-schema.plugin.ts",
+      "find": "    allowUuidRanges(schema.path('_id'));\n",
+      "replace": "",
+      "specs": [
+        "tests/sync-contract.e2e-spec.ts"
+      ],
+      "driverSpecific": true,
+      "drivers": [
+        "mongodb",
+        "mongodb-rs"
+      ]
+    },
+    {
+      "id": "sync-header-less-pull-unscoped",
+      "defect": "DEV-3901 (offline sync phase 4) — the tenant guard admits an S_USER route without resolving the caller's memberships, so a pull without X-Tenant-Id of a tenant-scoped model hit the tenant policy's safety net (403) instead of spanning every tenant the caller belongs to.",
+      "file": "src/core/modules/sync/core-sync.controller.ts",
+      "find": "    await this.limit('pull', currentUser, res);\n    await this.scopeTenants(req, currentUser);\n",
+      "replace": "    await this.limit('pull', currentUser, res);\n",
+      "specs": [
+        "tests/sync-contract.e2e-spec.ts"
+      ],
+      "driverSpecific": false
+    },
+    {
+      "id": "sync-create-drops-client-id",
+      "defect": "DEV-3901 (offline sync phase 4) — a pushed create passed the client's id inside the input, and mapping the input to its input class dropped every undeclared field: the record got a server id, the client's own id answered not_found ever after.",
+      "file": "src/core/modules/sync/core-sync.service.ts",
+      "find": "        createId: item.id,\n",
+      "replace": "",
+      "specs": [
+        "tests/sync-contract.e2e-spec.ts"
+      ],
+      "driverSpecific": false
+    },
+    {
+      "id": "sync-pull-skips-security-check",
+      "defect": "DEV-3901 (offline sync phase 4) — guard: a pull delivers a record only after the model's securityCheck(); without it every record of the tenant reaches every member, whatever the model hides (the archived concept's pullLean did exactly that).",
+      "file": "src/core/modules/sync/core-sync.service.ts",
+      "find": "    const checked = typeof record.securityCheck === 'function' ? record.securityCheck(currentUser, false) : record;",
+      "replace": "    const checked = record;",
+      "specs": [
+        "tests/sync-contract.e2e-spec.ts"
+      ],
+      "driverSpecific": false
+    },
+    {
+      "id": "sync-cursor-ignores-user",
+      "defect": "DEV-3901 (offline sync phase 4) — guard: a cursor is bound to the user it was issued for; accepted for another user it is answered as an access change instead of as invalid (protocol §8).",
+      "file": "src/core/modules/sync/core-sync.service.ts",
+      "find": "      state.user !== access.user ||\n",
+      "replace": "",
+      "specs": [
+        "tests/sync-contract.e2e-spec.ts"
+      ],
+      "driverSpecific": false
+    },
+    {
+      "id": "sync-push-update-without-roles",
+      "defect": "DEV-3901 (offline sync phase 4) — guard: the roles of a project's own routes do not reach /sync, so a push's update must carry the model's sync roles (S_CREATOR decided against the stored record); without them any member who may read a record may overwrite it.",
+      "file": "src/core/modules/sync/core-sync.service.ts",
+      "find": "      inputType: registration.updateInput,\n      roles: [...registration.roles.update],\n",
+      "replace": "      inputType: registration.updateInput,\n",
+      "specs": [
+        "tests/sync-contract.e2e-spec.ts"
+      ],
+      "driverSpecific": false
+    },
+    {
+      "id": "sync-push-reads-without-pull-roles",
+      "defect": "DEV-3901 (offline sync phase 4) — a push read the existing record without the model's pull roles and answered a create on a taken id, or a stale baseVersion, with that record: the content of a model the caller may not pull (ADMIN only by default) went to any signed-in user who knew an id.",
+      "file": "src/core/modules/sync/core-sync.service.ts",
+      "find": "        includeTombstones: true,\n        roles: [...registration.roles.pull],\n      });\n",
+      "replace": "        includeTombstones: true,\n      });\n",
+      "specs": [
+        "tests/sync-contract.e2e-spec.ts"
+      ],
+      "driverSpecific": false
+    },
+    {
+      "id": "sync-pull-position-after-content",
+      "defect": "DEV-3901 (offline sync phase 4) — a pull took the cursor position from a read made after the content read: a record changed in between lent the page its new position, and the cursor jumped past every record after its old one — lost to the client for good, without a resync.",
+      "file": "src/core/modules/sync/core-sync.service.ts",
+      "find": "      last = this.positionOf(registration, raw);\n",
+      "replace": "      last = this.positionOf(\n        registration,\n        (await this.readSystemFields(registration, [String(raw.id)])).get(String(raw.id)) ?? raw,\n      );\n",
+      "specs": [
+        "tests/sync-contract.e2e-spec.ts"
+      ],
+      "driverSpecific": false
+    },
+    {
+      "id": "sync-tenant-pages-unmerged",
+      "defect": "DEV-3901 (offline sync phase 4) — guard: without X-Tenant-Id a tenant-scoped model is read once per tenant and the pages are merged by position; concatenated instead, the cursor moves past the other tenants' earlier records.",
+      "file": "src/core/modules/sync/core-sync.service.ts",
+      "find": "      .sort((a, b) => this.comparePositions(registration, a, b))\n",
+      "replace": "",
+      "specs": [
+        "tests/sync-contract.e2e-spec.ts"
+      ],
+      "driverSpecific": false
+    },
+    {
+      "id": "sync-window-ignores-transaction-lifetime",
+      "defect": "DEV-3901 (offline sync phase 4) — guard: on a replica set the pull window W must cover the server's transaction lifetime; the margin alone loses every change whose transaction commits later than it, for good.",
+      "file": "src/core/common/persistence/mongo/sync-schema.plugin.ts",
+      "find": "      return Number.isFinite(lifetime) && lifetime > 0 ? lifetime * 1000 + SYNC_WINDOW_MARGIN_MS : transactional;\n",
+      "replace": "      return SYNC_WINDOW_MARGIN_MS;\n",
+      "specs": [
+        "tests/sync-contract.e2e-spec.ts"
+      ],
+      "driverSpecific": true,
+      "drivers": [
+        "mongodb-rs"
+      ]
+    },
+    {
+      "id": "sync-create-without-tenant-stored-tenantless",
+      "defect": "DEV-3901 (offline sync phase 4) — a create without X-Tenant-Id ran with the caller's membership list, from which nothing can stamp a tenant: MongoDB stored the record without one (applied, then invisible to everyone, its creator included) while SQL refused it.",
+      "file": "src/core/modules/sync/core-sync.service.ts",
+      "find": "    if (registration.tenantScoped && resolveTenantScope().kind === 'tenants') {\n",
+      "replace": "    if (false && registration.tenantScoped) {\n",
+      "specs": [
+        "tests/sync-contract.e2e-spec.ts"
+      ],
+      "driverSpecific": true,
+      "drivers": [
+        "mongodb",
+        "mongodb-rs"
+      ]
+    },
+    {
+      "id": "sync-hints-tenant-unfiltered",
+      "defect": "DEV-3902 (offline sync phase 5) — a hint names only the model, but it still tells that something changed: delivered for another tenant's write, it tells a member when a foreign tenant works (SSE and GraphQL subscription).",
+      "file": "src/core/modules/sync/core-sync.service.ts",
+      "find": "      return scope === everywhere || (!!hint.tenantId && scope.includes(hint.tenantId));\n",
+      "replace": "      return true;\n",
+      "specs": [
+        "tests/sync-contract.e2e-spec.ts"
+      ],
+      "driverSpecific": false
+    },
+    {
+      "id": "sync-hints-roles-unchecked",
+      "defect": "DEV-3902 (offline sync phase 5) — a hint channel must deliver only models the subscriber may pull: without the pull-role check a user learns when records of an ADMIN-only model change.",
+      "file": "src/core/modules/sync/core-sync.service.ts",
+      "find": "      try {\n        await registration.service.checkRights(undefined, currentUser, { roles: [...registration.roles.pull] });\n      } catch {\n        continue;\n      }\n      const tenants = registration.tenantScoped",
+      "replace": "      const tenants = registration.tenantScoped",
+      "specs": [
+        "tests/sync-contract.e2e-spec.ts"
+      ],
+      "driverSpecific": false
+    },
+    {
+      "id": "sync-sse-not-registered",
+      "defect": "DEV-3902 (offline sync phase 5) — a hint stream outlives the request that authorized it: left out of the connection registry, a removed membership or withdrawn role kept it open for its whole life.",
+      "file": "src/core/modules/sync/core-sync.service.ts",
+      "find": "    registerWsConnection({\n      carrier,\n",
+      "replace": "    void ((_registration: unknown) => undefined)({\n      carrier,\n",
+      "specs": [
+        "tests/sync-contract.e2e-spec.ts"
+      ],
+      "driverSpecific": false
+    },
+    {
+      "id": "sync-purge-without-horizon",
+      "defect": "DEV-3902 (offline sync phase 5) — the tombstone purge must move the model's horizon before it deletes: without it a cursor older than the purged tombstones continues past deletions it never receives, and the client keeps deleted records for good.",
+      "file": "src/core/modules/sync/core-sync.service.ts",
+      "find": "      await this.stateStore.advanceHorizon(registration.name, before);\n",
+      "replace": "",
+      "specs": [
+        "tests/unit/sync-module.spec.ts"
+      ],
+      "driverSpecific": false
+    },
+    {
+      "id": "sync-migration-update-unversioned",
+      "defect": "DEV-3902 (offline sync phase 5) — a data migration's multi-row write on a synchronized table must increment the rows' version like a store write: otherwise a client that edited the old content overwrites the migration without a conflict.",
+      "file": "src/core/modules/migrate/sql-migration.helper.ts",
+      "find": "        `UPDATE ${table} SET ${update.set}, ${quote('version')} = ${quote('version')} + 1, ` +\n",
+      "replace": "        `UPDATE ${table} SET ${update.set}, ` +\n",
+      "specs": [
+        "tests/sync-contract.e2e-spec.ts"
+      ],
+      "driverSpecific": true,
+      "drivers": [
+        "postgres-typeorm",
+        "postgres-kysely",
+        "postgres-drizzle",
+        "mysql",
+        "mariadb"
+      ]
+    },
+    {
+      "id": "sync-hints-redis-not-published",
+      "defect": "DEV-3902 (offline sync phase 5) — a sync hint has to reach the subscribers of every replica: a client's stream or socket ends on whichever replica the load balancer picked.",
+      "file": "src/core/modules/sync/core-sync-hints.service.ts",
+      "find": "        .publish(this.channel, JSON.stringify({ ...hint, origin: this.origin }))\n",
+      "replace": "        .ping()\n",
+      "specs": [
+        "tests/multi-replica.e2e-spec.ts"
+      ],
+      "driverSpecific": false
+    },
+    {
+      "id": "sync-purge-continues-past-horizon",
+      "defect": "DEV-3902 (offline sync phase 5) — after the purge a client whose cursor is older than the purged tombstones must answer 410 horizon: without the horizon it continues past deletions it never receives, and keeps deleted records for good.",
+      "file": "src/core/modules/sync/core-sync.service.ts",
+      "find": "      await this.stateStore.advanceHorizon(registration.name, before);\n",
+      "replace": "",
+      "specs": [
+        "tests/sync-contract.e2e-spec.ts"
+      ],
+      "driverSpecific": false
+    },
+    {
+      "id": "sync-purge-single-statement",
+      "defect": "DEV-3902 review (offline sync phase 5) — one DELETE … WHERE deleted_at < ? scans the whole table; on MySQL / MariaDB under REPEATABLE READ it locks every row and gap it passes, so every write of the synchronized model waited for the hourly purge.",
+      "file": "src/core/modules/sync/core-sync.service.ts",
+      "find": "      removed[registration.name] = await this.purgeModel(registration, before);\n",
+      "replace": "      removed[registration.name] = await registration.store.deleteMany({ deletedAt: { $lt: before } } as any, {\n        hardDelete: true,\n        includeTombstones: true,\n      });\n",
+      "specs": [
+        "tests/unit/sync-module.spec.ts"
+      ],
+      "driverSpecific": false
+    },
+    {
+      "id": "sync-hint-stream-late-close",
+      "defect": "DEV-3902 review (offline sync phase 5) — a client that closed the connection while the guards and the filter ran: its close had fired before the stream attached a listener, so subscriber, registry entry and keepalive timer stayed for good.",
+      "file": "src/core/modules/sync/core-sync.service.ts",
+      "find": "    if (request?.destroyed || response?.destroyed || response?.writableEnded) {\n      end();\n      return;\n    }\n",
+      "replace": "",
+      "specs": [
+        "tests/unit/sync-module.spec.ts"
+      ],
+      "driverSpecific": false
+    },
+    {
+      "id": "sync-hints-route-after-model",
+      "defect": "DEV-3902 review (offline sync phase 5) — a project controller re-declaring pull() registers GET /sync/:model before an inherited GET /sync/hints, so the hint stream answered as a pull of a model named hints (404).",
+      "file": "src/core/modules/sync/core-sync.module.ts",
+      "find": "      controllers: [hintsController, controller],\n",
+      "replace": "      controllers: [controller, hintsController],\n",
+      "specs": [
+        "tests/unit/sync-hints-route.spec.ts"
+      ],
+      "driverSpecific": false
+    },
+    {
+      "id": "sync-migration-update-autocommit",
+      "defect": "DEV-3902 review (offline sync phase 5) — a DDL statement before a syncUpdate commits the migration's transaction on MySQL / MariaDB; in autocommit the row and counter locks ended with each statement, so an application write could commit a higher change number before the migrated rows, or a number was taken twice.",
+      "file": "src/core/modules/migrate/sql-migration.helper.ts",
+      "find": "  if (dialect === 'postgres') {\n    return writeSyncUpdate(run, dialect, update);\n  }\n",
+      "replace": "  if (dialect === 'postgres' || dialect === 'mysql') {\n    return writeSyncUpdate(run, dialect, update);\n  }\n",
+      "specs": [
+        "tests/unit/sql-migration-sync-update.spec.ts"
+      ],
+      "driverSpecific": false
+    },
+    {
+      "id": "sync-mongo-stamp-app-clock",
+      "defect": "DEV-3903 (offline sync phase 6) — an application clock must never stamp a change on MongoDB: two instances whose clocks differ by more than the window W order changes by their skew, and a cursor handed between them passes some for good.",
+      "file": "src/core/common/persistence/mongo/sync-schema.plugin.ts",
+      "find": "  return new Date(reading.server + (performance.now() - reading.mono));\n",
+      "replace": "  return new Date();\n",
+      "specs": [
+        "tests/sync-clock-skew.e2e-spec.ts"
+      ],
+      "driverSpecific": false
+    },
+    {
+      "id": "sync-client-folds-into-carried-change",
+      "defect": "DEV-3903 review (offline sync phase 6) — the test client folded a later edit into a change a push had already carried; the server answered the repeat with the recorded outcome and the edit was lost.",
+      "file": "tests/clients/sync-client.mjs",
+      "find": "      if (pending && pending.op === 'upsert' && !pending.attempted) {\n",
+      "replace": "      if (pending && pending.op === 'upsert') {\n",
+      "specs": [
+        "tests/unit/sync-client.spec.ts"
+      ],
+      "driverSpecific": false
+    },
+    {
+      "id": "sync-module-registered-without-config",
+      "defect": "12.2.0 release review — without the sync configuration nothing of offline sync may be registered: an always-registered module would refuse every production boot without sync.cursorSecret, for every project that never opted in.",
+      "file": "src/core.module.ts",
+      "find": "      syncConfig === true ||\n",
+      "replace": "      true ||\n",
+      "specs": [
+        "tests/unit/core-module-signatures.spec.ts"
+      ],
+      "driverSpecific": false
+    },
+    {
+      "id": "sync-module-not-global",
+      "defect": "12.2.0 release review — a non-global CoreSyncModule was invisible to project modules (CoreModule does not re-export its imports): injecting CoreSyncService for notifyChange() / bumpAccessEpoch() stopped the boot, or gave undefined with @Optional().",
+      "file": "src/core/modules/sync/core-sync.module.ts",
+      "find": "      global: true,\n",
+      "replace": "",
+      "specs": [
+        "tests/unit/sync-module.spec.ts"
       ],
       "driverSpecific": false
     }

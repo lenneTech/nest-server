@@ -28,8 +28,26 @@ allowBuilds:
 # no patched version anywhere: name the advisory, why it cannot be fixed, why the residual risk is
 # acceptable, and date the verification. `check:overrides` re-checks every listed GHSA against the
 # GitHub Advisory API on each run and fails once a fix exists or the advisory is withdrawn.
+# Suppressions — the last resort, each with the fix that exists and why it cannot be used. `check:overrides` re-tests
+# every entry on every run (consumer versions, a backported fix, an undeclared consumer) and fails once one stops
+# holding; see .claude/rules/package-management.md ("Suppressions age the same way").
+#
+# GHSA-g3hv-75wg-m249 (minimatch < 11.0.1, moderate, DoS through globparts amplification) and
+# GHSA-3g3m-2fjr-6pw4 (glob 9 – 14.0.1, moderate, AbortSignal cancellation bypass). Verified 2026-10-31 (owner decision,
+# DEV-3899): both fixes exist only in new majors (minimatch 11.0.1, glob 14.0.2, released 2026-10-27), and every
+# consumer is on its newest release without them — @nestjs/cli 12.0.11 pins minimatch 10.2.6 exactly, @ts-morph/common
+# 0.29.0 (via ts-morph 28.0.0, the Permissions module's scanner) and nodemon 3.1.14 need ^10, @swc/cli 0.8.2 needs ^9,
+# glob 13.0.6 (via rimraf 6.1.3, which needs glob ^13) needs ^10. An override across the major is ruled out by the
+# fixed-target rule, and minimatch 11 removed `makeRe()` and `Minimatch#regexp`. Every path matches patterns the
+# DEVELOPER writes (tsconfig and scanner globs, CLI file arguments, cleanup paths), never request input.
+# Re-verify when any of these consumers releases a version on minimatch 11 / glob 14 — the guard reports it as RE-TEST.
 auditConfig:
-  ignoreGhsas: []
+  ignoreGhsas:
+    - GHSA-g3hv-75wg-m249
+    - GHSA-3g3m-2fjr-6pw4
+  unusableFixConsumers:
+    GHSA-g3hv-75wg-m249: '@nestjs/cli@12.0.11 + @swc/cli@0.8.2 + @ts-morph/common@0.29.0 + glob@13.0.6 + nodemon@3.1.14 cannot use 11.0.1'
+    GHSA-3g3m-2fjr-6pw4: 'rimraf@6.1.3 cannot use 14.0.2'
 
 peerDependencyRules:
   allowedVersions:

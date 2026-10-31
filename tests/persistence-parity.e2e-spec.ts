@@ -1,10 +1,11 @@
-import { BadRequestException, ForbiddenException, Injectable, Module } from '@nestjs/common';
+import { BadRequestException, ForbiddenException, Injectable, Module, NotFoundException } from '@nestjs/common';
 import { MongooseModule } from '@nestjs/mongoose';
 import { Test, TestingModule } from '@nestjs/testing';
 import { sql as drizzleSql } from 'drizzle-orm';
 import { CompiledQuery } from 'kysely';
 import mongoose from 'mongoose';
-import { afterAll, beforeAll, beforeEach, describe, expect } from 'vitest';
+import { randomUUID } from 'node:crypto';
+import { afterAll, beforeAll, beforeEach, describe, expect, vi } from 'vitest';
 
 import { Restricted } from '../src/core/common/decorators/restricted.decorator';
 import { UnifiedField } from '../src/core/common/decorators/unified-field.decorator';
@@ -13,7 +14,12 @@ import { CorePersistenceModel } from '../src/core/common/models/core-persistence
 
 import { CorePersistenceModule } from '../src/core/common/persistence/core-persistence.module';
 import type { DataStore } from '../src/core/common/persistence/data-store.interface';
+import { generateId, generateUuidV7, isUuidV7 } from '../src/core/common/persistence/id-format';
 import { InjectStore } from '../src/core/common/persistence/inject-store.decorator';
+import { PersistedModel } from '../src/core/common/persistence/persisted-model.decorator';
+import { VersionConflictError } from '../src/core/common/persistence/policies/sync.policy';
+import { resolveSyncOptions, withSequenceField } from '../src/core/common/persistence/sync-model';
+import { UnsupportedCapabilityError } from '../src/core/common/persistence/unsupported-capability.error';
 import { mongooseAuditFieldsPlugin } from '../src/core/common/plugins/mongoose-audit-fields.plugin';
 import { mongooseIdPlugin } from '../src/core/common/plugins/mongoose-id.plugin';
 import { mongoosePasswordPlugin } from '../src/core/common/plugins/mongoose-password.plugin';
@@ -79,6 +85,70 @@ const ScopedSchema = new mongoose.Schema({ amount: Number, labels: [String], nam
 const SCOPED_TABLE = tableName(describeSchema('ParityScoped', ScopedSchema));
 
 /**
+ * The synchronized models (offline sync, DEV-3900): tenant-scoped, a unique and a sparse unique field, a scope field
+ * the tombstone keeps, a self-reference for populate — and one with uuidv7 ids. Declared by class name, as a project
+ * registering `{ name, schema }` does
+ */
+const SyncedSchema = new mongoose.Schema(
+  {
+    code: { sparse: true, type: String, unique: true },
+    // Non-sparse unique: a missing value counts as one, so every record gets its own unless a case says otherwise
+    handle: { default: () => randomUUID(), type: String, unique: true },
+    labels: [String],
+    name: String,
+    ownerId: String,
+    parentId: { ref: 'ParitySynced', type: mongoose.Schema.Types.ObjectId },
+    score: Number,
+    tenantId: String,
+  },
+  { timestamps: true },
+);
+const UuidSchema = new mongoose.Schema({ name: String }, { timestamps: true });
+
+@PersistedModel({ sync: { scope: ['ownerId'] } })
+class ParitySynced {}
+@PersistedModel({ sync: { idFormat: 'uuidv7' } })
+class ParityUuid {}
+const SYNC_DECLARATIONS = {
+  ParitySynced: resolveSyncOptions({ scope: ['ownerId'] }, ParitySynced.name),
+  ParityUuid: resolveSyncOptions({ idFormat: 'uuidv7' }, ParityUuid.name),
+};
+
+@Restricted(RoleEnum.ADMIN)
+class ParitySyncedItem extends CorePersistenceModel {
+  @UnifiedField({ isOptional: true, roles: RoleEnum.S_EVERYONE })
+  deletedAt?: Date = undefined;
+
+  @UnifiedField({ isOptional: true, roles: RoleEnum.S_EVERYONE })
+  name?: string = undefined;
+
+  @UnifiedField({ isOptional: true, roles: RoleEnum.S_EVERYONE })
+  parentId?: any = undefined;
+
+  @UnifiedField({ isOptional: true, roles: RoleEnum.S_EVERYONE })
+  version?: number = undefined;
+}
+
+class SyncedCrudService extends CrudService<ParitySyncedItem> {
+  constructor(store: DataStore<any>) {
+    super({ dataStore: store, mainModelConstructor: ParitySyncedItem });
+  }
+}
+
+/** The pull's order and "after this record" filter in the neutral subset, by the store's change order */
+const changeOrderSort = (store: DataStore<any>): Record<string, 1> =>
+  store.capabilities.changeOrder === 'seq' ? { syncSeq: 1 } : ({ syncAt: 1, id: 1 } as Record<string, 1>);
+const afterChange = (store: DataStore<any>, record: any): Record<string, any> =>
+  store.capabilities.changeOrder === 'seq'
+    ? { syncSeq: { $gt: record.syncSeq } }
+    : { $or: [{ syncAt: { $gt: record.syncAt } }, { id: { $gt: record.id }, syncAt: record.syncAt }] };
+/** MongoDB stamps milliseconds: spacing writes keeps their clock order unambiguous in a test */
+const tick = () => new Promise((resolve) => setTimeout(resolve, 5));
+/** The id `generateId()` returns after `id` within the same second (its 3-byte counter + 1) */
+const nextGeneratedId = (id: string): string =>
+  `${id.slice(0, 18)}${((Number.parseInt(id.slice(18), 16) + 1) % 0x1000000).toString(16).padStart(6, '0')}`;
+
+/**
  * What a project's CrudService maps the records of `ParityItem` to. Restricted to ADMIN on the class like the user
  * model: `CorePersistenceModel` grants S_EVERYONE there, and `mergeRoles` would OR that into `status`
  */
@@ -120,6 +190,8 @@ class StoreHolder {
   constructor(
     @InjectStore('ParityItem') readonly items: DataStore<any>,
     @InjectStore('ParityScoped') readonly scoped: DataStore<any>,
+    @InjectStore('ParitySynced') readonly synced: DataStore<any>,
+    @InjectStore('ParityUuid') readonly uuids: DataStore<any>,
   ) {}
 }
 
@@ -139,6 +211,8 @@ class StoreHolder {
     CorePersistenceModule.forFeature([
       { name: 'ParityItem', schema: ItemSchema },
       { name: 'ParityScoped', schema: ScopedSchema },
+      { name: 'ParitySynced', schema: SyncedSchema },
+      { name: 'ParityUuid', schema: UuidSchema },
     ]),
   ],
   providers: [StoreHolder],
@@ -154,22 +228,47 @@ interface Harness {
   items: DataStore<any>;
   reset(): Promise<void>;
   scoped: DataStore<any>;
+  synced: DataStore<any>;
   teardown(): Promise<void>;
+  uuids: DataStore<any>;
 }
+
+/** The descriptors a SQL source creates its tables from — the synchronized ones as `openStore()` sees them */
+function sqlModels() {
+  return [
+    describeSchema('ParityItem', ItemSchema),
+    describeSchema('ParityScoped', ScopedSchema),
+    withSequenceField(registerModelSchema('ParitySynced', SyncedSchema, SYNC_DECLARATIONS.ParitySynced)),
+    withSequenceField(registerModelSchema('ParityUuid', UuidSchema, SYNC_DECLARATIONS.ParityUuid)),
+  ];
+}
+const SCHEMAS = {
+  ParityItem: ItemSchema,
+  ParityScoped: ScopedSchema,
+  ParitySynced: SyncedSchema,
+  ParityUuid: UuidSchema,
+};
 
 async function mongoHarness(): Promise<Harness> {
   const moduleRef: TestingModule = await Test.createTestingModule({ imports: [ParityModule] }).compile();
   await moduleRef.init();
-  const { items, scoped } = moduleRef.get(StoreHolder);
+  const { items, scoped, synced, uuids } = moduleRef.get(StoreHolder);
   // The unique index is built in the background; wait for it, as a deployed instance has it long before a request
   await items.native<mongoose.Model<any>>('test fixture: wait for the unique index build').init();
+  await synced.native<mongoose.Model<any>>('test fixture: wait for the partial unique index build').init();
   return {
     items,
     reset: async () => {
       await items.native<mongoose.Model<any>>('test fixture: reset the parity collection').deleteMany({});
       await scoped.native<mongoose.Model<any>>('test fixture: reset the parity collection').deleteMany({});
+      // The raw collection: the model's own deleteMany() would leave the tombstones in place
+      for (const store of [synced, uuids]) {
+        await store.raw<mongoose.Collection>('test fixture: reset the synchronized parity collection').deleteMany({});
+      }
     },
     scoped,
+    synced,
+    uuids,
     teardown: async () => {
       await items.native<mongoose.Model<any>>('test teardown: drop the per-run database').db.dropDatabase();
       await moduleRef.close();
@@ -179,7 +278,7 @@ async function mongoHarness(): Promise<Harness> {
 
 async function postgresHarness(engine: 'drizzle' | 'kysely' | 'typeorm'): Promise<Harness> {
   const database: PostgresTestDatabase = await createPostgresTestDatabase(`persistence-parity-${engine}`);
-  const models = [describeSchema('ParityItem', ItemSchema), describeSchema('ParityScoped', ScopedSchema)];
+  const models = sqlModels();
   const owner = await createSqlExecutor({ engine, maxConnections: 1, url: database.ownerUrl });
   try {
     await applyPostgresSchema(owner, models, { appRole: PG_APP.user, isTenantIsolated: (model) => model.tenantScoped });
@@ -187,16 +286,11 @@ async function postgresHarness(engine: 'drizzle' | 'kysely' | 'typeorm'): Promis
     await owner.close();
   }
   const app: SqlExecutor = await createSqlExecutor({ engine, maxConnections: 4, url: database.appUrl });
-  const schemas = { ParityItem: ItemSchema, ParityScoped: ScopedSchema };
-  const [items, scoped] = models.map((model) => new SqlDataStore<any>(app, model, { schema: schemas[model.name] }));
+  const [items, scoped, synced, uuids] = models.map(
+    (model) => new SqlDataStore<any>(app, model, { schema: SCHEMAS[model.name] }),
+  );
   // As CorePersistenceModule.forFeature() does: a populate finds the target model's descriptor and store by name
-  for (const [name, store] of [
-    ['ParityItem', items],
-    ['ParityScoped', scoped],
-  ] as const) {
-    registerModelSchema(name, schemas[name]);
-    registerDataStore(name, store);
-  }
+  registerSqlStores({ items, scoped, synced, uuids });
   return {
     items,
     reset: async () => {
@@ -205,16 +299,30 @@ async function postgresHarness(engine: 'drizzle' | 'kysely' | 'typeorm'): Promis
       }
     },
     scoped,
+    synced,
     teardown: async () => {
       await app.close();
       await database.drop();
     },
+    uuids,
   };
+}
+
+/** Register the stores and descriptors of a SQL harness by model name, as `CorePersistenceModule.forFeature()` does */
+function registerSqlStores(stores: Record<'items' | 'scoped' | 'synced' | 'uuids', DataStore<any>>): void {
+  registerModelSchema('ParityItem', ItemSchema);
+  registerModelSchema('ParityScoped', ScopedSchema);
+  registerModelSchema('ParitySynced', SyncedSchema, SYNC_DECLARATIONS.ParitySynced);
+  registerModelSchema('ParityUuid', UuidSchema, SYNC_DECLARATIONS.ParityUuid);
+  registerDataStore('ParityItem', stores.items);
+  registerDataStore('ParityScoped', stores.scoped);
+  registerDataStore('ParitySynced', stores.synced);
+  registerDataStore('ParityUuid', stores.uuids);
 }
 
 async function mysqlHarness(variant: MysqlVariant, engine: PersistenceEngine): Promise<Harness> {
   const database = await createMysqlTestDatabase(variant, `persistence-parity-${engine}`);
-  const models = [describeSchema('ParityItem', ItemSchema), describeSchema('ParityScoped', ScopedSchema)];
+  const models = sqlModels();
   const app = (await createSqlExecutor({ engine, maxConnections: 4, url: database.appUrl })) as MysqlExecutor;
   const owner = await createSqlExecutor({ engine, maxConnections: 1, url: database.ownerUrl });
   try {
@@ -222,15 +330,10 @@ async function mysqlHarness(variant: MysqlVariant, engine: PersistenceEngine): P
   } finally {
     await owner.close();
   }
-  const schemas = { ParityItem: ItemSchema, ParityScoped: ScopedSchema };
-  const [items, scoped] = models.map((model) => new MysqlDataStore<any>(app, model, { schema: schemas[model.name] }));
-  for (const [name, store] of [
-    ['ParityItem', items],
-    ['ParityScoped', scoped],
-  ] as const) {
-    registerModelSchema(name, schemas[name]);
-    registerDataStore(name, store);
-  }
+  const [items, scoped, synced, uuids] = models.map(
+    (model) => new MysqlDataStore<any>(app, model, { schema: SCHEMAS[model.name] }),
+  );
+  registerSqlStores({ items, scoped, synced, uuids });
   return {
     items,
     reset: async () => {
@@ -239,10 +342,12 @@ async function mysqlHarness(variant: MysqlVariant, engine: PersistenceEngine): P
       }
     },
     scoped,
+    synced,
     teardown: async () => {
       await app.close();
       await database.drop();
     },
+    uuids,
   };
 }
 
@@ -264,11 +369,13 @@ for (const driver of PERSISTENCE_DRIVERS) {
     let harness: Harness;
     let items: DataStore<any>;
     let scoped: DataStore<any>;
+    let synced: DataStore<any>;
+    let uuids: DataStore<any>;
 
     beforeAll(async () => {
       ConfigService.setConfig({ multiTenancy: {} } as any, { reInit: true });
       harness = await HARNESS[driver]();
-      ({ items, scoped } = harness);
+      ({ items, scoped, synced, uuids } = harness);
     });
 
     beforeEach(async () => {
@@ -875,6 +982,443 @@ for (const driver of PERSISTENCE_DRIVERS) {
       await run({ currentUser: staff }, () => items.pushToArray(record.id, 'roles', ['admin']));
       await run({ currentUser: staff }, () => items.pullFromArray(record.id, 'roles', 'editor'));
       expect((await items.findById(record.id)).roles).toEqual(['editor']);
+    });
+    // --- Synchronized models (offline sync, DEV-3900) ----------------------------------------------------------
+
+    const admin = user('651f000102030405060708aa', [RoleEnum.ADMIN]);
+    const asAdmin = { currentUser: admin };
+    // The synchronized model is tenant-scoped: a request without a tenant meets the safety net, as it should
+    const inTenantA = { currentUser: admin, tenantId: 'A' };
+    const position = (record: any): number =>
+      synced.capabilities.changeOrder === 'seq' ? record.syncSeq : record.syncAt.getTime();
+
+    persistenceIt('sync-model-unaffected', driver, async () => {
+      const record = await items.insert({ deletedAt: new Date(), name: 'a', version: 5 } as any);
+      for (const field of ['deletedAt', 'syncAt', 'syncSeq', 'version']) {
+        expect(record).not.toHaveProperty(field);
+      }
+      expect(items.capabilities.changeOrder).toBeUndefined();
+      expect(items.capabilities.idType).toBe('objectId');
+      expect((await items.deleteById(record.id))?.name).toBe('a');
+      expect(await items.findById(record.id, { includeTombstones: true })).toBeNull();
+    });
+
+    persistenceIt('sync-insert-system-fields', driver, async () => {
+      const record = await synced.insert({
+        deletedAt: new Date(),
+        name: 'a',
+        syncAt: new Date(0),
+        syncSeq: 99_999,
+        version: 9,
+      } as any);
+      expect(record.version).toBe(1);
+      expect(record.deletedAt ?? null).toBeNull();
+      expect(synced.capabilities.changeOrder).toBe(driver === 'mongodb' ? 'clock' : 'seq');
+      if (synced.capabilities.changeOrder === 'seq') {
+        expect(typeof record.syncSeq).toBe('number');
+        expect(record.syncSeq).not.toBe(99_999);
+        expect(record).not.toHaveProperty('syncAt');
+      } else {
+        expect(record.syncAt).toBeInstanceOf(Date);
+        expect(Math.abs(record.syncAt.getTime() - Date.now())).toBeLessThan(60_000);
+        expect(record).not.toHaveProperty('syncSeq');
+      }
+    });
+
+    persistenceIt('sync-version-every-write', driver, async () => {
+      const record = await synced.insert({ labels: ['a'], name: 'a', score: 1 });
+      let expected = 1;
+      const written = async () => {
+        expected++;
+        const stored = await synced.findById(record.id);
+        expect(stored.version).toBe(expected);
+        expect(stored.deletedAt ?? null).toBeNull();
+      };
+      await synced.updateById(record.id, { deletedAt: new Date(), name: 'b', version: 50 } as any);
+      await written();
+      await synced.updateById(record.id, { $inc: { score: 1, version: 5 }, $set: { version: 70 } } as any);
+      await written();
+      await synced.updateOne({ id: record.id }, { $set: { name: 'c' } });
+      await written();
+      await synced.updateMany({ id: record.id }, { $set: { name: 'd' } });
+      await written();
+      await synced.pushToArray(record.id, 'labels', ['b']);
+      await written();
+      await synced.pullFromArray(record.id, 'labels', 'a');
+      await written();
+      await synced.updateById(record.id, { name: 'e' }, { timestamps: false });
+      await written();
+      expect(await synced.findById(record.id)).toMatchObject({ labels: ['b'], name: 'e', score: 2 });
+    });
+
+    persistenceIt('sync-conditional-update', driver, async () => {
+      const service = new SyncedCrudService(synced);
+      const created: any = await run(inTenantA, () => service.create({ name: 'a' }, asAdmin));
+      expect(created.version).toBe(1);
+      const updated: any = await run(inTenantA, () =>
+        service.update(created.id, { name: 'b' }, { ...asAdmin, expectedVersion: 1 }),
+      );
+      expect(updated).toMatchObject({ name: 'b', version: 2 });
+      const stale = await run(inTenantA, () =>
+        service.update(created.id, { name: 'c' }, { ...asAdmin, expectedVersion: 1 }),
+      ).catch((error: unknown) => error);
+      expect(stale).toBeInstanceOf(VersionConflictError);
+      expect((stale as VersionConflictError).getStatus()).toBe(409);
+      await expect(
+        run(inTenantA, () => service.delete(created.id, { ...asAdmin, expectedVersion: 1 })),
+      ).rejects.toBeInstanceOf(VersionConflictError);
+      expect(await synced.findById(created.id)).toMatchObject({ name: 'b', version: 2 });
+      await run(inTenantA, () => service.delete(created.id, { ...asAdmin, expectedVersion: 2 }));
+      expect(await synced.findById(created.id)).toBeNull();
+
+      // Only a synchronized model has a version to compare
+      const plain = new ParityCrudService(items);
+      const other: any = await run(inTenantA, () => plain.create({ name: 'x' }, asAdmin));
+      await expect(
+        run(inTenantA, () => plain.update(other.id, { name: 'y' }, { ...asAdmin, expectedVersion: 1 })),
+      ).rejects.toBeInstanceOf(UnsupportedCapabilityError);
+    });
+
+    persistenceIt('sync-conditional-concurrent', driver, async () => {
+      const service = new SyncedCrudService(synced);
+      const created: any = await run(inTenantA, () => service.create({ name: 'a' }, asAdmin));
+      const results = await Promise.allSettled(
+        Array.from({ length: 5 }, (_, index) =>
+          run(inTenantA, () => service.update(created.id, { name: `n${index}` }, { ...asAdmin, expectedVersion: 1 })),
+        ),
+      );
+      const applied = results.filter((result) => result.status === 'fulfilled');
+      const refused = results.filter((result): result is PromiseRejectedResult => result.status === 'rejected');
+      expect(applied).toHaveLength(1);
+      expect(refused.every((result) => result.reason instanceof VersionConflictError)).toBe(true);
+      expect((await synced.findById(created.id)).version).toBe(2);
+    });
+
+    persistenceIt('sync-delete-tombstone', driver, async () => {
+      const record = await synced.insert({
+        handle: 'x@example.com',
+        labels: ['a'],
+        name: 'a',
+        ownerId: 'u1',
+        score: 3,
+        tenantId: 'A',
+      });
+      if (driver === 'mongodb') {
+        await tick();
+      }
+      const before = await synced.deleteById(record.id);
+      expect(before).toMatchObject({ id: record.id, name: 'a', version: 1 });
+      expect(await synced.findById(record.id)).toBeNull();
+      const tombstone = await synced.findById(record.id, { includeTombstones: true });
+      expect(tombstone.deletedAt).toBeInstanceOf(Date);
+      expect(tombstone).toMatchObject({ id: record.id, ownerId: 'u1', tenantId: 'A', version: 2 });
+      for (const field of ['handle', 'labels', 'name', 'score']) {
+        expect(tombstone[field]).toBeUndefined();
+      }
+      expect(position(tombstone)).toBeGreaterThan(position(record));
+    });
+
+    persistenceIt('sync-tombstones-hidden', driver, async () => {
+      await synced.insert({ labels: ['x'], name: 'a', score: 1 });
+      const b = await synced.insert({ labels: ['y'], name: 'b', score: 2 });
+      await synced.insert({ labels: ['z'], name: 'c', score: 4 });
+      await synced.deleteById(b.id);
+      expect((await synced.find({}, { sort: { name: 1 } })).map((record) => record.name)).toEqual(['a', 'c']);
+      expect(await synced.find({}, { includeTombstones: true })).toHaveLength(3);
+      expect(await synced.find({ deletedAt: { $ne: null } })).toEqual([]);
+      expect(await synced.findOne({ id: b.id })).toBeNull();
+      expect((await synced.findOne({ id: b.id }, { includeTombstones: true }))?.id).toBe(b.id);
+      expect(await synced.count()).toBe(2);
+      expect(await synced.count({}, { includeTombstones: true })).toBe(3);
+      expect(((await synced.distinct('name')) as string[]).sort()).toEqual(['a', 'c']);
+      expect(((await synced.distinct('labels')) as string[]).sort()).toEqual(['x', 'z']);
+      expect(await synced.sum('score')).toEqual({ count: 2, sum: 5 });
+    });
+
+    persistenceIt('sync-tombstone-not-written', driver, async () => {
+      const record = await synced.insert({ labels: ['a'], name: 'a' });
+      await synced.deleteById(record.id);
+      expect(await synced.updateById(record.id, { name: 'revived' })).toBeNull();
+      expect(await synced.updateOne({ id: record.id }, { $set: { name: 'revived' } })).toBeNull();
+      expect(await synced.updateMany({ id: record.id }, { $set: { name: 'revived' } })).toBe(0);
+      await synced.pushToArray(record.id, 'labels', ['b']);
+      await synced.pullFromArray(record.id, 'labels', 'a');
+      expect(await synced.deleteById(record.id)).toBeNull();
+      const tombstone = await synced.findById(record.id, { includeTombstones: true });
+      expect(tombstone.version).toBe(2);
+      expect(tombstone.name).toBeUndefined();
+      expect(tombstone.labels).toBeUndefined();
+    });
+
+    persistenceIt('sync-delete-many-tombstones', driver, async () => {
+      for (let i = 0; i < 3; i++) {
+        await synced.insert({ name: `m${i}`, score: i });
+      }
+      expect(await synced.deleteMany({ score: { $gte: 1 } })).toBe(2);
+      expect(await synced.count()).toBe(1);
+      const tombstones = await synced.find({ deletedAt: { $ne: null } }, { includeTombstones: true });
+      expect(tombstones).toHaveLength(2);
+      expect(tombstones.every((record) => record.version === 2 && record.name === undefined)).toBe(true);
+      if (synced.capabilities.changeOrder === 'seq') {
+        expect(new Set(tombstones.map((record) => record.syncSeq)).size).toBe(2);
+      }
+      expect((await synced.deleteOne({ name: 'm0' }))?.name).toBe('m0');
+      expect(await synced.count()).toBe(0);
+      expect(await synced.deleteOne({ name: 'm0' })).toBeNull();
+      expect(await synced.deleteMany({})).toBe(0);
+    });
+
+    persistenceIt('sync-hard-delete', driver, async () => {
+      const record = await synced.insert({ name: 'a' });
+      await synced.deleteById(record.id);
+      // Without includeTombstones the purge does not even see it
+      expect(await synced.deleteById(record.id, { hardDelete: true })).toBeNull();
+      expect((await synced.deleteById(record.id, { hardDelete: true, includeTombstones: true }))?.id).toBe(record.id);
+      expect(await synced.findById(record.id, { includeTombstones: true })).toBeNull();
+    });
+
+    persistenceIt('sync-unique-live-only', driver, async () => {
+      const a = await synced.insert({ code: 'C', handle: 'a@example.com' });
+      const b = await synced.insert({ handle: 'b@example.com' });
+      expect(await synced.insert({ handle: 'a@example.com' }).catch((error: unknown) => error)).toMatchObject({
+        code: 11000,
+      });
+      expect(await synced.insert({ code: 'C' }).catch((error: unknown) => error)).toMatchObject({ code: 11000 });
+      // Two tombstones, both without the values (a tombstone keeps no content): no collision
+      await synced.deleteById(a.id);
+      await synced.deleteById(b.id);
+      // The values are free again
+      await synced.insert({ code: 'C', handle: 'a@example.com' });
+      // A missing value is a value of its own for a unique index — tombstones' missing values do not count
+      await synced.insert({ handle: null, name: 'without-handle-1' });
+      expect(
+        await synced.insert({ handle: null, name: 'without-handle-2' }).catch((error: unknown) => error),
+      ).toMatchObject({
+        code: 11000,
+      });
+      // A sparse unique field may be missing on any number of live records
+      await synced.insert({ name: 'without-code-1' });
+      await synced.insert({ name: 'without-code-2' });
+    });
+
+    persistenceIt('sync-change-order', driver, async () => {
+      const pause = driver === 'mongodb' ? tick : async () => undefined;
+      const a = await synced.insert({ name: 'a' });
+      await pause();
+      const b = await synced.insert({ name: 'b' });
+      await pause();
+      await synced.updateById(a.id, { name: 'a2' });
+      const ordered = await synced.find({}, { includeTombstones: true, sort: changeOrderSort(synced) });
+      expect(ordered.map((record) => record.id)).toEqual([b.id, a.id]);
+      expect(position(ordered[1])).toBeGreaterThan(position(ordered[0]));
+      const page = await synced.find(afterChange(synced, ordered[0]), {
+        includeTombstones: true,
+        limit: 10,
+        sort: changeOrderSort(synced),
+      });
+      expect(page.map((record) => record.id)).toEqual([a.id]);
+      await pause();
+      await synced.deleteById(b.id);
+      const later = await synced.find(afterChange(synced, ordered[1]), {
+        includeTombstones: true,
+        sort: changeOrderSort(synced),
+      });
+      expect(later.map((record) => [record.id, !!record.deletedAt])).toEqual([[b.id, true]]);
+    });
+
+    /**
+     * @regression   DEV-3900 review — on MySQL / MariaDB a multi-row write locks index gaps an insert waits for; an
+     *   insert that took its change number in the trigger first deadlocked with it (1213).
+     * @seen-failing Make MysqlDataStore.numbersLast() return false in
+     *   src/core/common/persistence/sql/mysql/mysql-data-store.ts — registered as mutation
+     *   `mysql-sync-numbers-not-last` in tests/regression-mutations.json (the six MySQL / MariaDB columns go red).
+     */
+    persistenceIt('sync-concurrent-writes', driver, async () => {
+      await run({ tenantId: 'A' }, async () => {
+        for (let i = 0; i < 20; i++) {
+          await synced.insert({ name: `seed-${i}`, score: i });
+        }
+      });
+      const inserts = Array.from({ length: 4 }, (_, writer) =>
+        run({ tenantId: 'A' }, async () => {
+          for (let i = 0; i < 25; i++) {
+            await synced.insert({ name: `w${writer}-${i}`, score: 100 + i });
+          }
+        }),
+      );
+      const bulk = run({ tenantId: 'A' }, async () => {
+        for (let i = 0; i < 10; i++) {
+          await synced.updateMany({ score: { $gte: 100 } }, { $inc: { score: 1 } });
+          await synced.deleteMany({ score: { $lt: 5 + i } });
+        }
+      });
+      const results = await Promise.allSettled([...inserts, bulk]);
+      expect(
+        results.filter((result) => result.status === 'rejected').map((result: any) => result.reason?.message),
+      ).toEqual([]);
+      const all = await run({ tenantId: 'A' }, () => synced.find({}, { includeTombstones: true }));
+      expect(all).toHaveLength(120);
+      if (synced.capabilities.changeOrder === 'seq') {
+        expect(new Set(all.map((record) => record.syncSeq)).size).toBe(120);
+        expect(all.every((record) => record.syncSeq > 0)).toBe(true);
+      }
+    });
+
+    persistenceIt('sync-pull-across-tenants', driver, async () => {
+      const pause = driver === 'mongodb' ? tick : async () => undefined;
+      for (const [tenantId, name] of [
+        ['A', 'a1'],
+        ['B', 'b1'],
+        ['C', 'c1'],
+        ['A', 'a2'],
+      ]) {
+        await run({ tenantId }, () => synced.insert({ name }));
+        await pause();
+      }
+      const seen = await run({ tenantIds: ['A', 'B'] }, () =>
+        synced.find({}, { includeTombstones: true, sort: changeOrderSort(synced) }),
+      );
+      expect(seen.map((record) => record.name)).toEqual(['a1', 'b1', 'a2']);
+    });
+
+    if (driver === 'mongodb') {
+      /**
+       * @regression   DEV-3900 review — the case skewed `Date.now` only, so an insert stamped with `new Date()` passed it.
+       * @seen-failing Stamp syncAt with `new Date()` in the save hook of
+       *   src/core/common/persistence/mongo/sync-schema.plugin.ts — registered as mutation
+       *   `sync-insert-stamps-app-clock` in tests/regression-mutations.json.
+       */
+      persistenceIt('sync-server-clock', driver, async () => {
+        const realNow = Date.now;
+        const serverNow = async () => {
+          const hello = await synced
+            .native<mongoose.Model<any>>('test: read the server clock')
+            .db.db.admin()
+            .command({ hello: 1 });
+          return (hello.localTime as Date).getTime();
+        };
+        // The whole Date skewed — `Date.now()` and `new Date()` — as on a replica whose clock runs behind
+        vi.useFakeTimers({ now: realNow() - 10 * 60_000, toFake: ['Date'] });
+        try {
+          const record = await synced.insert({ name: 'skewed' });
+          const updated = await synced.updateById(record.id, { name: 'still skewed' });
+          vi.useRealTimers();
+          const now = await serverNow();
+          expect(Math.abs(record.syncAt.getTime() - now)).toBeLessThan(5_000);
+          expect(Math.abs(updated.syncAt.getTime() - now)).toBeLessThan(5_000);
+        } finally {
+          vi.useRealTimers();
+        }
+      });
+    } else {
+      persistenceComplement('sync-server-clock', driver, async () => {
+        vi.useFakeTimers({ now: Date.now() - 10 * 60_000, toFake: ['Date'] });
+        try {
+          const first = await synced.insert({ name: 'first' });
+          const second = await synced.insert({ name: 'second' });
+          expect(second.syncSeq).toBeGreaterThan(first.syncSeq);
+        } finally {
+          vi.useRealTimers();
+        }
+      });
+    }
+
+    persistenceIt('sync-client-ids', driver, async () => {
+      const objectId = '6720c0aabbccddeeff001122';
+      expect((await synced.insert({ id: objectId, name: 'client' })).id).toBe(objectId);
+      await expect(synced.insert({ id: 'not-an-id', name: 'x' })).rejects.toBeInstanceOf(BadRequestException);
+      await expect(synced.insert({ id: generateUuidV7(), name: 'x' })).rejects.toBeInstanceOf(BadRequestException);
+
+      expect(uuids.capabilities.idType).toBe('uuidv7');
+      const generated = await uuids.insert({ name: 'server' });
+      expect(isUuidV7(generated.id)).toBe(true);
+      const uuid = generateUuidV7();
+      expect((await uuids.insert({ id: uuid, name: 'client' })).id).toBe(uuid);
+      expect((await uuids.findById(uuid))?.name).toBe('client');
+      await expect(uuids.insert({ id: objectId, name: 'x' })).rejects.toBeInstanceOf(BadRequestException);
+      await expect(uuids.insert({ id: uuid.toUpperCase(), name: 'x' })).rejects.toBeInstanceOf(BadRequestException);
+      expect((await uuids.updateById(uuid, { name: 'changed' }))?.version).toBe(2);
+      await uuids.deleteById(uuid);
+      expect((await uuids.findById(uuid, { includeTombstones: true }))?.deletedAt).toBeInstanceOf(Date);
+    });
+
+    persistenceIt('sync-taken-id-unchanged', driver, async () => {
+      const id = '6720c0aabbccddeeff003344';
+      await synced.insert({ id, name: 'original' });
+      expect(await synced.insert({ id, name: 'intruder' }).catch((error: unknown) => error)).toMatchObject({
+        code: 11000,
+      });
+      expect(await synced.findById(id)).toMatchObject({ name: 'original', version: 1 });
+      // A tombstone's id stays taken
+      await synced.deleteById(id);
+      expect(await synced.insert({ id, name: 'again' }).catch((error: unknown) => error)).toMatchObject({
+        code: 11000,
+      });
+    });
+
+    persistenceIt('sync-server-id-retried', driver, async () => {
+      // Within one second the next server id is predictable from the last one — the case E6 guards against
+      vi.useFakeTimers({ now: new Date(), toFake: ['Date'] });
+      try {
+        const occupied = nextGeneratedId(generateId());
+        await synced.insert({ id: occupied, name: 'occupied by a client' });
+        const created = await synced.insert({ name: 'server id' });
+        expect(created.id).toBe(nextGeneratedId(occupied));
+        expect((await synced.findById(occupied))?.name).toBe('occupied by a client');
+      } finally {
+        vi.useRealTimers();
+      }
+    });
+
+    persistenceIt('sync-tenant-policy', driver, async () => {
+      const foreign = await run({ tenantId: 'B' }, () => synced.insert({ name: 'b' }));
+      const own = await run({ tenantId: 'A' }, () => synced.insert({ name: 'a' }));
+      expect(await run({ tenantId: 'A' }, () => synced.deleteById(foreign.id))).toBeNull();
+      expect(
+        await run({ tenantId: 'A' }, () => synced.updateOne({ id: foreign.id, version: 1 }, { $set: { name: 'x' } })),
+      ).toBeNull();
+      expect(await run({ tenantId: 'A' }, () => synced.deleteMany({}))).toBe(1);
+      expect(await run({ tenantId: 'B' }, () => synced.findById(foreign.id))).toMatchObject({ name: 'b', version: 1 });
+      await run({ tenantId: 'B' }, () => synced.deleteById(foreign.id));
+      const visible = await run({ tenantId: 'A' }, () => synced.find({}, { includeTombstones: true }));
+      expect(visible.map((record) => [record.id, record.tenantId])).toEqual([[own.id, 'A']]);
+      await expect(
+        run({ currentUser: user('u1') }, () => synced.find({}, { includeTombstones: true })),
+      ).rejects.toBeInstanceOf(ForbiddenException);
+    });
+
+    /**
+     * @regression   DEV-3900 review — the MongoDB aggregate hook ignored includeTombstones, so findAndCount() with it
+     *   left the tombstones out on MongoDB only.
+     * @seen-failing Drop the includeTombstones check from the aggregate hook in
+     *   src/core/common/persistence/mongo/sync-schema.plugin.ts — registered as mutation
+     *   `sync-aggregate-ignores-include-tombstones` in tests/regression-mutations.json.
+     */
+    persistenceIt('sync-crud-service', driver, async () => {
+      const service = new SyncedCrudService(synced);
+      const parent: any = await run(inTenantA, () => service.create({ name: 'parent' }, asAdmin));
+      const child: any = await run(inTenantA, () => service.create({ name: 'child', parentId: parent.id }, asAdmin));
+      const populated: any = await run(inTenantA, () => service.get(child.id, { ...asAdmin, populate: ['parentId'] }));
+      expect(populated.parentId).toMatchObject({ id: parent.id, name: 'parent' });
+
+      await run(inTenantA, () => service.delete(parent.id, asAdmin));
+      await expect(run(inTenantA, () => service.get(parent.id, asAdmin))).rejects.toBeInstanceOf(NotFoundException);
+      const tombstone: any = await run(inTenantA, () =>
+        service.get(parent.id, { ...asAdmin, includeTombstones: true }),
+      );
+      expect(tombstone).toMatchObject({ id: parent.id, version: 2 });
+      expect(tombstone.deletedAt).toBeTruthy();
+      expect(tombstone.name).toBeFalsy();
+
+      const orphan: any = await run(inTenantA, () => service.get(child.id, { ...asAdmin, populate: ['parentId'] }));
+      expect(orphan.parentId?.name).toBeUndefined();
+      expect((await run(inTenantA, () => service.find({}, asAdmin))).map((item: any) => item.id)).toEqual([child.id]);
+      expect(await run(inTenantA, () => service.find({}, { ...asAdmin, includeTombstones: true }))).toHaveLength(2);
+      expect((await run(inTenantA, () => service.findAndCount({}, asAdmin))).totalCount).toBe(1);
+      const withTombstones = await run(inTenantA, () =>
+        service.findAndCount({}, { ...asAdmin, includeTombstones: true }),
+      );
+      expect([withTombstones.items.length, withTombstones.totalCount]).toEqual([2, 2]);
     });
   });
 }

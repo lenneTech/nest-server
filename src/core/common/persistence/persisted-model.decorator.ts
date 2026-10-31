@@ -1,3 +1,5 @@
+import type { SyncModelOptions } from './sync-model.js';
+
 /**
  * Persistence options a model class declares in code.
  */
@@ -8,6 +10,13 @@ export interface PersistedModelOptions {
    * @default the default source
    */
   dataSource?: string;
+  /**
+   * The model is synchronized to offline clients (`docs/offline-sync-protocol.md`): its records carry `version`,
+   * `deletedAt` and a change position, a delete leaves a tombstone, and unique indexes apply to live records only.
+   * `true` declares it with the defaults. Takes effect for a model registered with `CorePersistenceModule.forFeature()`.
+   * @default not synchronized
+   */
+  sync?: boolean | SyncModelOptions;
 }
 
 const PERSISTED_MODEL_OPTIONS = Symbol('PERSISTED_MODEL_OPTIONS');
@@ -58,4 +67,21 @@ export function getPersistedModelOptionsByName(name: string): PersistedModelOpti
     );
   }
   return classes.length ? getPersistedModelOptions(classes[0]) : undefined;
+}
+
+/**
+ * The `sync` option declared for the model registered under `name` without its class. Whether a model is synchronized
+ * changes what its table holds and what a delete does, so two decorated classes of that name that disagree are never
+ * guessed between either.
+ */
+export function getPersistedSyncByName(name: string): PersistedModelOptions['sync'] {
+  const classes = declaredByName.get(name) ?? [];
+  const syncs = new Set(classes.map((target) => JSON.stringify(getPersistedModelOptions(target)?.sync ?? false)));
+  if (syncs.size > 1) {
+    throw new Error(
+      `@PersistedModel: ${classes.length} classes named "${name}" declare different sync options; pass \`model\` ` +
+        'in CorePersistenceModule.forFeature() to say which one this model is',
+    );
+  }
+  return classes.length ? getPersistedModelOptions(classes[0])?.sync : undefined;
 }

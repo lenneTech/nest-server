@@ -4,14 +4,32 @@ import { ConfigService } from '../../services/config.service.js';
 import type {
   DataStore,
   DataStoreUpdate,
+  DeleteOptions,
   FindOptions,
   PushOptions,
+  ReadOptions,
   StoreCapabilities,
   StoredRecord,
   UpdateOptions,
   Where,
 } from '../data-store.interface.js';
 import { generateId, isWellFormedId } from '../id-format.js';
+import {
+  assertClientId,
+  generateSyncId,
+  insertWithServerId,
+  suppliedId,
+  syncInsertRecord,
+  tombstoneClearedFields,
+} from '../policies/sync.policy.js';
+import {
+  liveFilter,
+  SYNC_DELETED_FIELD,
+  SYNC_SEQUENCE_FIELD,
+  SYNC_SEQUENCE_PENDING,
+  SYNC_SYSTEM_FIELDS,
+  SYNC_VERSION_FIELD,
+} from '../sync-model.js';
 import type { FieldDescriptor, ModelDescriptor } from '../model-descriptor.interface.js';
 import { resolveAuditActorId, stampAuditOnUpdate, stampAuditOnWrite } from '../policies/audit.policy.js';
 import { hashPassword, hashUpdatePassword } from '../policies/password.policy.js';
@@ -36,6 +54,7 @@ import {
 import { computedDefault } from '../mongo/declared-schema.view.js';
 import type { DeclaredSchema } from '../mongo/model-declarations.js';
 import { tableName } from './sql-schema.shared.js';
+import { syncSequenceName } from './postgres/postgres-schema.compiler.js';
 import { compilePostgresUpdate, pullExpression } from './postgres/postgres-update.compiler.js';
 import { compilePostgresPath, compilePostgresWhere } from './postgres/postgres-where.compiler.js';
 import { castFilterValue } from './sql-cast.js';
@@ -62,6 +81,25 @@ export interface SqlDataStoreOptions {
    * as `Date.now`). Literal defaults come from the column defaults.
    */
   schema?: DeclaredSchema | { path(name: string): any };
+}
+
+/** One statement inside a store transaction */
+export type SqlRun = <R = Record<string, any>>(statement: SqlStatement) => Promise<{ rowCount: number; rows: R[] }>;
+
+/** Internal: an update the store itself writes (a tombstone), which may set `deletedAt` */
+interface WriteOptions extends UpdateOptions {
+  tombstone?: boolean;
+}
+
+/** How many rows one statement of a multi-row write of a synchronized model numbers */
+const SYNC_CHUNK = 500;
+
+/** The capabilities a store of this model reports: a synchronized model adds its change order and id format */
+export function storeCapabilities(
+  base: Readonly<StoreCapabilities>,
+  model: ModelDescriptor,
+): Readonly<StoreCapabilities> {
+  return model.sync ? Object.freeze({ ...base, changeOrder: 'seq', idType: model.sync.idFormat }) : base;
 }
 
 const SCALAR_KINDS = new Set([
@@ -98,7 +136,7 @@ const UPDATE_ONE_ATTEMPTS = 3;
  * table is absent from the record — SQL cannot tell a stored null from an absent value.
  */
 export class SqlDataStore<T = Record<string, any>> implements DataStore<T> {
-  readonly capabilities: Readonly<StoreCapabilities> = POSTGRES_STORE_CAPABILITIES;
+  readonly capabilities: Readonly<StoreCapabilities>;
   readonly driver: string = 'postgres';
   protected readonly logger = new Logger(SqlDataStore.name);
   protected readonly table: string;
@@ -111,10 +149,16 @@ export class SqlDataStore<T = Record<string, any>> implements DataStore<T> {
     protected readonly model: ModelDescriptor,
     protected readonly options: SqlDataStoreOptions = {},
   ) {
+    this.capabilities = storeCapabilities(this.baseCapabilities(), model);
     this.table = this.quote(tableName(model));
     for (const field of Object.values(model.fields)) {
       this.fields.set(columnName(field.name), field);
     }
+  }
+
+  /** What the database offers through this store, before the model's own additions */
+  protected baseCapabilities(): Readonly<StoreCapabilities> {
+    return POSTGRES_STORE_CAPABILITIES;
   }
 
   get modelName(): string {
@@ -123,11 +167,11 @@ export class SqlDataStore<T = Record<string, any>> implements DataStore<T> {
 
   // -- reads ----------------------------------------------------------------------------------------------
 
-  async count(where?: Where<T>): Promise<number> {
+  async count(where?: Where<T>, options: ReadOptions = {}): Promise<number> {
     const params = new SqlParams();
     const { rows } = await this.run<{ n: number }>({
       params: params.values,
-      text: `SELECT count(*)::int AS n FROM ${this.table} WHERE ${this.where(where, params)}`,
+      text: `SELECT count(*)::int AS n FROM ${this.table} WHERE ${this.where(where, params, options)}`,
     });
     return rows[0].n;
   }
@@ -151,10 +195,10 @@ export class SqlDataStore<T = Record<string, any>> implements DataStore<T> {
     return { count: rows[0].n, sum: Number(rows[0].total) };
   }
 
-  async distinct(field: string, where?: Where<T>): Promise<unknown[]> {
+  async distinct(field: string, where?: Where<T>, options: ReadOptions = {}): Promise<unknown[]> {
     const params = new SqlParams();
     const path = compilePostgresPath(this.model, field, params);
-    const condition = this.where(where, params);
+    const condition = this.where(where, params, options);
     const text =
       path.kind === 'array'
         ? `SELECT DISTINCT d.v AS v FROM ${this.table}, jsonb_array_elements(CASE WHEN jsonb_typeof(${path.expr}) = 'array' THEN ${path.expr} ELSE '[]'::jsonb END) AS d(v) WHERE ${condition}`
@@ -166,7 +210,7 @@ export class SqlDataStore<T = Record<string, any>> implements DataStore<T> {
   async find(where?: Where<T>, options: FindOptions = {}): Promise<StoredRecord<T>[]> {
     const sample = options.sample === undefined ? undefined : assertSampleSize(options.sample);
     const params = new SqlParams();
-    let text = `SELECT ${this.selectList(options.select, options.exclude)} FROM ${this.table} WHERE ${this.where(where, params)}`;
+    let text = `SELECT ${this.selectList(options.select, options.exclude)} FROM ${this.table} WHERE ${this.where(where, params, options)}`;
     text += this.orderBy(options, params);
     if (options.limit !== undefined) {
       text += ` LIMIT ${params.add(assertNonNegativeInteger(options.limit, 'limit'))}`;
@@ -182,7 +226,10 @@ export class SqlDataStore<T = Record<string, any>> implements DataStore<T> {
     return this.toRecords(rows, options.select);
   }
 
-  async findById(id: string, options: Pick<FindOptions, 'exclude' | 'select'> = {}): Promise<null | StoredRecord<T>> {
+  async findById(
+    id: string,
+    options: Pick<FindOptions, 'exclude' | 'includeTombstones' | 'select'> = {},
+  ): Promise<null | StoredRecord<T>> {
     return this.findOne({ id } as Where<T>, options);
   }
 
@@ -199,8 +246,14 @@ export class SqlDataStore<T = Record<string, any>> implements DataStore<T> {
     params: SqlParams,
   ): { columns: string[]; id: string; values: string[] } {
     const supplied = doc.id ?? doc._id;
-    const id =
-      supplied !== undefined && isWellFormedId(String(supplied)) ? String(supplied).toLowerCase() : generateId();
+    const id = this.model.sync
+      ? // A synchronized model keeps a client's id in its format and refuses any other (plan §3.3, E6)
+        supplied === undefined || supplied === null
+        ? generateSyncId(this.model.sync.idFormat)
+        : assertClientId(supplied, this.model.sync.idFormat, this.modelName)
+      : supplied !== undefined && isWellFormedId(String(supplied))
+        ? String(supplied).toLowerCase()
+        : generateId();
     const columns = [this.quote('id')];
     const values = [params.add(id)];
     for (const [key, value] of Object.entries(doc)) {
@@ -217,13 +270,15 @@ export class SqlDataStore<T = Record<string, any>> implements DataStore<T> {
 
   async insert(record: Partial<T>): Promise<StoredRecord<T>> {
     const doc = await this.beforeInsert({ ...(record as Record<string, any>) });
-    const params = new SqlParams();
-    const { columns, values } = this.insertValues(doc, params);
-    const { rows } = await this.run({
-      params: params.values,
-      text: `INSERT INTO ${this.table} (${columns.join(', ')}) VALUES (${values.join(', ')}) RETURNING ${this.selectList()}`,
+    return this.withServerId(doc, async (prepared) => {
+      const params = new SqlParams();
+      const { columns, values } = this.insertValues(prepared, params);
+      const { rows } = await this.run({
+        params: params.values,
+        text: `INSERT INTO ${this.table} (${columns.join(', ')}) VALUES (${values.join(', ')}) RETURNING ${this.selectList()}`,
+      });
+      return this.toRecords(rows)[0];
     });
-    return this.toRecords(rows)[0];
   }
 
   async updateById(
@@ -235,28 +290,32 @@ export class SqlDataStore<T = Record<string, any>> implements DataStore<T> {
     const params = new SqlParams();
     const assignments = this.compileUpdate(patch, params);
     if (!assignments.length) {
-      return this.findById(id);
+      return this.findById(id, options);
     }
     const { rows } = await this.run({
       params: params.values,
-      text: `UPDATE ${this.table} SET ${assignments.join(', ')} WHERE ${this.where({ id } as Where<T>, params)} RETURNING ${this.selectList()}`,
+      text: `UPDATE ${this.table} SET ${assignments.join(', ')} WHERE ${this.where({ id } as Where<T>, params, options)} RETURNING ${this.selectList()}`,
     });
     return this.toRecords(rows)[0] ?? null;
   }
 
-  async updateOne(where: Where<T>, update: DataStoreUpdate<T>): Promise<null | StoredRecord<T>> {
-    const patch = await this.preparePatch(update);
+  async updateOne(
+    where: Where<T>,
+    update: DataStoreUpdate<T>,
+    options: WriteOptions = {},
+  ): Promise<null | StoredRecord<T>> {
+    const patch = await this.preparePatch(update, options);
     for (let attempt = 1; ; attempt++) {
       const params = new SqlParams();
       const assignments = this.compileUpdate(patch, params);
       if (!assignments.length) {
-        return this.findOne(where);
+        return this.findOne(where, options);
       }
       // The sub-select locks the row it picks, and a row a concurrent caller changed meanwhile is re-checked and
       // skipped for the next match; the condition is repeated outside so the row provably still matches when it is
       // written — the guarantee of MongoDB's findOneAndUpdate
-      const match = this.where(where, params);
-      const recheck = this.where(where, params);
+      const match = this.where(where, params, options);
+      const recheck = this.where(where, params, options);
       const { rows } = await this.run({
         params: params.values,
         text: `UPDATE ${this.table} SET ${assignments.join(', ')} WHERE "id" = (SELECT "id" FROM ${this.table} WHERE ${match} LIMIT 1 FOR UPDATE) AND ${recheck} RETURNING ${this.selectList()}`,
@@ -266,35 +325,44 @@ export class SqlDataStore<T = Record<string, any>> implements DataStore<T> {
       }
       // Nothing written: nothing matches any more — or the chosen row stopped matching between the pick and the write
       // while another one still does. Only the second is retried
-      if (attempt >= UPDATE_ONE_ATTEMPTS || !(await this.exists(where))) {
+      if (attempt >= UPDATE_ONE_ATTEMPTS || !(await this.exists(where, options))) {
         return null;
       }
     }
   }
 
-  async deleteById(id: string): Promise<null | StoredRecord<T>> {
+  async deleteById(id: string, options: DeleteOptions = {}): Promise<null | StoredRecord<T>> {
+    if (this.model.sync && !options.hardDelete) {
+      return this.tombstone({ id } as Where<T>, options);
+    }
     const params = new SqlParams();
     const { rows } = await this.run({
       params: params.values,
-      text: `DELETE FROM ${this.table} WHERE ${this.where({ id } as Where<T>, params)} RETURNING ${this.selectList()}`,
+      text: `DELETE FROM ${this.table} WHERE ${this.where({ id } as Where<T>, params, options)} RETURNING ${this.selectList()}`,
     });
     return this.toRecords(rows)[0] ?? null;
   }
 
-  async deleteMany(where: Where<T>): Promise<number> {
+  async deleteMany(where: Where<T>, options: DeleteOptions = {}): Promise<number> {
+    if (this.model.sync && !options.hardDelete) {
+      return this.updateRows(where, await this.tombstonePatch(), options);
+    }
     const params = new SqlParams();
     const { rowCount } = await this.run({
       params: params.values,
-      text: `DELETE FROM ${this.table} WHERE ${this.where(where, params)}`,
+      text: `DELETE FROM ${this.table} WHERE ${this.where(where, params, options)}`,
     });
     return rowCount;
   }
 
-  async deleteOne(where: Where<T>): Promise<null | StoredRecord<T>> {
+  async deleteOne(where: Where<T>, options: DeleteOptions = {}): Promise<null | StoredRecord<T>> {
+    if (this.model.sync && !options.hardDelete) {
+      return this.tombstone(where, options);
+    }
     // Picks and locks one match, and re-checks it at the write — the same guarantee as updateOne()
     const params = new SqlParams();
-    const match = this.where(where, params);
-    const recheck = this.where(where, params);
+    const match = this.where(where, params, options);
+    const recheck = this.where(where, params, options);
     const { rows } = await this.run({
       params: params.values,
       text: `DELETE FROM ${this.table} WHERE "id" = (SELECT "id" FROM ${this.table} WHERE ${match} LIMIT 1 FOR UPDATE) AND ${recheck} RETURNING ${this.selectList()}`,
@@ -302,8 +370,11 @@ export class SqlDataStore<T = Record<string, any>> implements DataStore<T> {
     return this.toRecords(rows)[0] ?? null;
   }
 
-  async updateMany(where: Where<T>, update: DataStoreUpdate<T>): Promise<number> {
-    const patch = await this.preparePatch(update);
+  async updateMany(where: Where<T>, update: DataStoreUpdate<T>, options: UpdateOptions = {}): Promise<number> {
+    const patch = await this.preparePatch(update, options);
+    if (this.model.sync) {
+      return this.updateRows(where, patch, options);
+    }
     const params = new SqlParams();
     const assignments = this.compileUpdate(patch, params);
     if (!assignments.length) {
@@ -365,6 +436,165 @@ export class SqlDataStore<T = Record<string, any>> implements DataStore<T> {
     await this.updateColumn(id, column, pullExpression(this.model, field, column, condition, params), params);
   }
 
+  // -- synchronized models ------------------------------------------------------------------------------
+
+  /**
+   * Insert with the id the caller supplied, or a server id that is generated anew while it is taken (plan §3.3, E6)
+   */
+  protected async withServerId<R>(
+    doc: Record<string, any>,
+    attempt: (doc: Record<string, any>) => Promise<R>,
+  ): Promise<R> {
+    const supplied = suppliedId(doc);
+    if (!this.model.sync || (supplied !== undefined && supplied !== null)) {
+      return attempt(doc);
+    }
+    const { _id: _ignored, ...rest } = doc;
+    return insertWithServerId(
+      this.model.sync.idFormat,
+      (id) => attempt({ ...rest, id }),
+      (error) => error instanceof DuplicateKeyError && error.primaryKey,
+    );
+  }
+
+  /** The update that turns a record into a tombstone: `deletedAt` set, every content field cleared (protocol §2) */
+  protected async tombstonePatch(): Promise<Record<string, any>> {
+    const cleared = tombstoneClearedFields(Object.keys(this.model.fields), this.model.sync);
+    return this.preparePatch(
+      {
+        $set: { [SYNC_DELETED_FIELD]: new Date() },
+        ...(cleared.length ? { $unset: Object.fromEntries(cleared.map((field) => [field, 1])) } : {}),
+      } as unknown as DataStoreUpdate<T>,
+      { tombstone: true },
+    );
+  }
+
+  /** Turn the first record matching `where` into a tombstone and return it as it was before */
+  protected async tombstone(where: Where<T>, options: DeleteOptions): Promise<null | StoredRecord<T>> {
+    const patch = await this.tombstonePatch();
+    return this.transact(async (run) => {
+      const params = new SqlParams();
+      const { rows } = await run({
+        params: params.values,
+        text: `SELECT ${this.selectList()} FROM ${this.table} WHERE ${this.where(where, params, options)} LIMIT 1 FOR UPDATE`,
+      });
+      if (!rows.length) {
+        return null;
+      }
+      // Mapped before the write: a row outside the tenant scope fails the row check and nothing changes
+      const [record] = this.toRecords(rows);
+      const write = new SqlParams();
+      const assignments = this.compileUpdate(patch, write);
+      await run({
+        params: write.values,
+        text: `UPDATE ${this.table} SET ${assignments.join(', ')} WHERE ${this.quote('id')} = ${write.add(rows[0].id)}`,
+      });
+      await this.numberPending(run, [rows[0].id]);
+      return record;
+    });
+  }
+
+  /**
+   * A write to several rows of a synchronized model (plan §3.4, C1d): the rows are locked first, then the transaction
+   * takes its change numbers, then its final statements write the rows with their numbers set explicitly — the order
+   * is always "rows first, counter last", so the multi-row write cannot deadlock with another store write — on MySQL
+   * and MariaDB, whose `FOR UPDATE` also locks index gaps, only because every store write there takes its number last
+   * too (`numbersLast()`). The numbers commit with the write. Returns how many rows matched.
+   */
+  protected async updateRows(where: Where<T>, patch: Record<string, any>, options: UpdateOptions): Promise<number> {
+    // The rows get their numbers in the final statements, not the pending marker
+    const { [SYNC_SEQUENCE_FIELD]: _pending, ...set } = patch.$set ?? {};
+    const update = { ...patch, $set: set };
+    return this.transact(async (run) => {
+      const params = new SqlParams();
+      const { rows } = await run<{ id: string }>({
+        params: params.values,
+        text: `SELECT ${this.quote('id')} AS id FROM ${this.table} WHERE ${this.where(where, params, options)} ORDER BY ${this.quote('id')} FOR UPDATE`,
+      });
+      if (!rows.length) {
+        return 0;
+      }
+      const ids = rows.map((row) => row.id);
+      await this.writeChangeNumbers(run, ids, await this.takeChangeNumbers(run, ids.length), update);
+      return ids.length;
+    });
+  }
+
+  /**
+   * Whether a store write takes its change number LAST, in its own transaction, instead of through the trigger: the
+   * write marks the row pending (`sync_seq = -1`, which the trigger leaves alone), then the number is taken and set.
+   * Needed where a trigger's counter would be held while the write still waits for a lock — MySQL and MariaDB, whose
+   * inserts wait for gap locks after the BEFORE INSERT trigger ran. PostgreSQL takes no gap locks: the trigger suffices
+   */
+  protected numbersLast(): boolean {
+    return false;
+  }
+
+  /** Number the rows a store write marked pending, as the last step of its transaction (`numbersLast()`) */
+  protected async numberPending(run: SqlRun, ids: readonly string[]): Promise<void> {
+    if (!this.model.sync || !this.numbersLast() || !ids.length) {
+      return;
+    }
+    await this.writeChangeNumbers(run, ids, await this.takeChangeNumbers(run, ids.length));
+  }
+
+  /** Set the rows' change numbers explicitly (the trigger keeps them), with the update's other assignments, in chunks */
+  protected async writeChangeNumbers(
+    run: SqlRun,
+    ids: readonly string[],
+    numbers: readonly string[],
+    update: Record<string, any> = {},
+  ): Promise<void> {
+    for (let start = 0; start < ids.length; start += SYNC_CHUNK) {
+      const chunk = ids.slice(start, start + SYNC_CHUNK);
+      const write = new SqlParams();
+      const cases = chunk
+        .map((id, index) => `WHEN ${write.add(id)} THEN ${this.bigintParam(write, numbers[start + index])}`)
+        .join(' ');
+      const assignments = [
+        ...(Object.keys(update).length ? this.compileUpdate(update, write) : []),
+        `${this.quote('sync_seq')} = CASE ${this.quote('id')} ${cases} END`,
+      ];
+      const list = chunk.map((id) => write.add(id)).join(', ');
+      await run({
+        params: write.values,
+        text: `UPDATE ${this.table} SET ${assignments.join(', ')} WHERE ${this.quote('id')} IN (${list})`,
+      });
+    }
+  }
+
+  /**
+   * `count` consecutive change numbers for this table, in commit order: the model's advisory lock, held until the
+   * transaction ends, then the sequence — the trigger's own order (`syncFunctionStatements()`)
+   */
+  protected async takeChangeNumbers(run: SqlRun, count: number): Promise<string[]> {
+    const table = tableName(this.model);
+    await run({
+      params: [table],
+      text: `SELECT pg_advisory_xact_lock(hashtext('lenne.tech:sync:' || current_schema() || '.' || $1))`,
+    });
+    const { rows } = await run<{ n: string }>({
+      params: [syncSequenceName(table), count],
+      text: `SELECT nextval(format('%I.%I', current_schema(), $1::text)::regclass)::text AS n FROM generate_series(1, $2::int)`,
+    });
+    return rows.map((row) => row.n).sort((a, b) => (BigInt(a) < BigInt(b) ? -1 : 1));
+  }
+
+  /** A bound bigint value as this database reads it */
+  protected bigintParam(params: SqlParams, value: string): string {
+    return `${params.add(value)}::bigint`;
+  }
+
+  /** Several statements in one transaction with the request's tenant scope; errors mapped like `run()` */
+  protected async transact<R>(fn: (run: SqlRun) => Promise<R>): Promise<R> {
+    const scope = resolveTenantScope();
+    try {
+      return await this.executor.transaction((tx) => fn((statement) => tx.run(statement, scope)));
+    } catch (error) {
+      throw this.mapError(error);
+    }
+  }
+
   // -- native access --------------------------------------------------------------------------------------
 
   native<N = unknown>(reason: string): N {
@@ -382,7 +612,9 @@ export class SqlDataStore<T = Record<string, any>> implements DataStore<T> {
   // -- before-layer ---------------------------------------------------------------------------------------
 
   /** The policies the Mongoose plugins apply to `save()`, in their registration order */
-  protected async beforeInsert(doc: Record<string, any>): Promise<Record<string, any>> {
+  protected async beforeInsert(input: Record<string, any>): Promise<Record<string, any>> {
+    // A synchronized model's system fields are the store's, whatever the caller sent
+    const doc = this.model.sync ? syncInsertRecord(input) : input;
     if (this.model.tenantScoped) {
       const tenantId = resolveSingleTenantId(this.modelName);
       if (tenantId) {
@@ -415,11 +647,23 @@ export class SqlDataStore<T = Record<string, any>> implements DataStore<T> {
     if (updatedAt) {
       doc[updatedAt] = now;
     }
+    if (this.model.sync && this.numbersLast()) {
+      doc[SYNC_SEQUENCE_FIELD] = SYNC_SEQUENCE_PENDING;
+    }
     return doc;
   }
 
   /** The policies the Mongoose plugins apply to `findOneAndUpdate()` */
-  protected async beforeUpdate(update: Record<string, any>, options: UpdateOptions = {}): Promise<Record<string, any>> {
+  protected async beforeUpdate(update: Record<string, any>, options: WriteOptions = {}): Promise<Record<string, any>> {
+    if (this.model.sync) {
+      // Only the store writes a synchronized model's system fields: every write increments the version, and only the
+      // tombstone write sets `deletedAt` (plan §3.3, E1). The change position is the trigger's
+      stripSyncFields(update, options.tombstone === true);
+      update.$inc = { ...update.$inc, [SYNC_VERSION_FIELD]: 1 };
+      if (this.numbersLast()) {
+        update.$set = { ...update.$set, [SYNC_SEQUENCE_FIELD]: SYNC_SEQUENCE_PENDING };
+      }
+    }
     if (this.model.tenantScoped) {
       const single = resolveSingleTenantId(this.modelName);
       if (single) {
@@ -451,7 +695,7 @@ export class SqlDataStore<T = Record<string, any>> implements DataStore<T> {
   }
 
   /** The update as the store writes it: the caller's object untouched, the policies applied, undeclared paths dropped */
-  protected async preparePatch(update: DataStoreUpdate<T>, options: UpdateOptions = {}): Promise<Record<string, any>> {
+  protected async preparePatch(update: DataStoreUpdate<T>, options: WriteOptions = {}): Promise<Record<string, any>> {
     return this.dropUndeclared(await this.beforeUpdate(clone(update), options));
   }
 
@@ -484,12 +728,24 @@ export class SqlDataStore<T = Record<string, any>> implements DataStore<T> {
 
   // -- statements -----------------------------------------------------------------------------------------
 
-  /** The caller's filter AND the tenant filter; throws the safety net's 403 before any statement runs */
-  protected where(where: undefined | Where<T>, params: SqlParams): string {
+  /**
+   * The caller's filter AND the tenant filter AND — on a synchronized model, unless `includeTombstones` — the live-record
+   * condition; throws the safety net's 403 before any statement runs
+   */
+  protected where(
+    where: undefined | Where<T>,
+    params: SqlParams,
+    options: { includeTombstones?: boolean } = {},
+  ): string {
     const tenantFilter = this.model.tenantScoped ? resolveTenantFilter(this.modelName) : undefined;
-    const combined =
-      tenantFilter && Object.keys(tenantFilter).length ? { $and: [where ?? {}, tenantFilter] } : (where ?? {});
-    return this.compileWhere(combined as Where, params);
+    const conditions: Where[] = [where ?? {}];
+    if (tenantFilter && Object.keys(tenantFilter).length) {
+      conditions.push(tenantFilter);
+    }
+    if (this.model.sync && !options.includeTombstones) {
+      conditions.push(liveFilter());
+    }
+    return this.compileWhere((conditions.length > 1 ? { $and: conditions } : conditions[0]) as Where, params);
   }
 
   /** The condition of a neutral filter in this database's SQL */
@@ -497,11 +753,11 @@ export class SqlDataStore<T = Record<string, any>> implements DataStore<T> {
     return compilePostgresWhere(this.model, where, params);
   }
 
-  protected async exists(where: undefined | Where<T>): Promise<boolean> {
+  protected async exists(where: undefined | Where<T>, options: { includeTombstones?: boolean } = {}): Promise<boolean> {
     const params = new SqlParams();
     const { rows } = await this.run<{ found: boolean }>({
       params: params.values,
-      text: `SELECT EXISTS (SELECT 1 FROM ${this.table} WHERE ${this.where(where, params)}) AS found`,
+      text: `SELECT EXISTS (SELECT 1 FROM ${this.table} WHERE ${this.where(where, params, options)}) AS found`,
     });
     return rows[0].found;
   }
@@ -630,7 +886,8 @@ export class SqlDataStore<T = Record<string, any>> implements DataStore<T> {
       return undefined;
     }
     if (!field.isArray && field.kind === 'bigint') {
-      return BigInt(value as string);
+      // The change position travels as a number: JSON has no bigint, and the sequence stays far below 2^53
+      return field.name === SYNC_SEQUENCE_FIELD ? Number(value) : BigInt(value as string);
     }
     return value;
   }
@@ -726,7 +983,10 @@ export class SqlDataStore<T = Record<string, any>> implements DataStore<T> {
     const code = (error as { code?: unknown })?.code;
     switch (code) {
       case '23505':
-        return new DuplicateKeyError(this.modelName);
+        return new DuplicateKeyError(
+          this.modelName,
+          String((error as { constraint?: unknown }).constraint ?? '').endsWith('_pkey'),
+        );
       case '23514':
         // The roles CHECK is the only check constraint the framework creates
         return new BadRequestException(`${this.modelName}: the value is not allowed`);
@@ -755,6 +1015,27 @@ function clone<V>(value: V): V {
     }
   }
   return value;
+}
+
+/** Remove a synchronized model's system fields from a caller's update; the tombstone write keeps `deletedAt` */
+function stripSyncFields(update: Record<string, any>, tombstone: boolean): void {
+  const system = (path: string) => {
+    const head = path.split('.', 1)[0];
+    return SYNC_SYSTEM_FIELDS.includes(head) && !(tombstone && head === SYNC_DELETED_FIELD);
+  };
+  for (const [key, value] of Object.entries(update)) {
+    if (!key.startsWith('$')) {
+      if (system(key)) {
+        delete update[key];
+      }
+    } else if (value && typeof value === 'object' && !Array.isArray(value)) {
+      for (const path of Object.keys(value)) {
+        if (system(path)) {
+          delete value[path];
+        }
+      }
+    }
+  }
 }
 
 function hasOperator(update: Record<string, any>, field: string): boolean {

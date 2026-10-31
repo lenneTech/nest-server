@@ -2,8 +2,10 @@ import { BadRequestException, Logger } from '@nestjs/common';
 
 import type {
   DataStoreUpdate,
+  DeleteOptions,
   FindOptions,
   PushOptions,
+  ReadOptions,
   StoreCapabilities,
   StoredRecord,
   UpdateOptions,
@@ -21,7 +23,9 @@ import {
   assertSelectFields,
 } from '../../store-guards.js';
 import { castFilterValue } from '../sql-cast.js';
-import { POSTGRES_STORE_CAPABILITIES, SqlDataStore, type SqlDataStoreOptions } from '../sql-data-store.js';
+import { POSTGRES_STORE_CAPABILITIES, SqlDataStore, type SqlDataStoreOptions, type SqlRun } from '../sql-data-store.js';
+import { tableName } from '../sql-schema.shared.js';
+import { MYSQL_SYNC_COUNTERS } from './mysql-schema.compiler.js';
 import { DuplicateKeyError, UnsupportedQueryError } from '../sql-errors.js';
 import type { SqlQueryResult, SqlStatement } from '../sql-executor.interface.js';
 import { columnName, quoteMysqlIdentifier, SqlParams } from '../sql-naming.js';
@@ -71,7 +75,6 @@ type Run = <R = Record<string, any>>(statement: SqlStatement) => Promise<SqlQuer
  * gives MongoDB's findOneAndUpdate guarantee without a retry.
  */
 export class MysqlDataStore<T = Record<string, any>> extends SqlDataStore<T> {
-  override readonly capabilities = MYSQL_STORE_CAPABILITIES;
   override readonly driver: string = 'mysql';
   protected override readonly logger = new Logger(MysqlDataStore.name);
   private readonly variant: MysqlVariant;
@@ -82,13 +85,44 @@ export class MysqlDataStore<T = Record<string, any>> extends SqlDataStore<T> {
     this.driver = executor.variant;
   }
 
+  protected override baseCapabilities(): Readonly<StoreCapabilities> {
+    return MYSQL_STORE_CAPABILITIES;
+  }
+
+  /**
+   * Every store write of a synchronized model takes its change number last: `FOR UPDATE` locks index gaps here, and an
+   * insert waits for them after its BEFORE INSERT trigger ran — a trigger holding the counter meanwhile would deadlock
+   * with a multi-row write that locked those gaps and now asks for the counter (measured, DEV-3900 review)
+   */
+  protected override numbersLast(): boolean {
+    return true;
+  }
+
+  /** A single-column write (pullFromArray, a one-stage push) — in a transaction, so a synchronized row is numbered */
+  protected override async updateColumn(id: string, column: string, value: string, params: SqlParams): Promise<void> {
+    if (!this.model.sync) {
+      return super.updateColumn(id, column, value, params);
+    }
+    const { $setOnInsert: _insertOnly, ...stamped } = await this.beforeUpdate({});
+    const assignments = [`${column} = ${value}`, ...this.compileUpdate(stamped, params)];
+    await this.transaction(async (run) => {
+      const { rowCount } = await run({
+        params: params.values,
+        text: `UPDATE ${this.table} SET ${assignments.join(', ')} WHERE ${this.where({ id } as Where<T>, params)}`,
+      });
+      if (rowCount) {
+        await this.numberPending(run, [id]);
+      }
+    });
+  }
+
   // -- reads ----------------------------------------------------------------------------------------------
 
-  override async count(where?: Where<T>): Promise<number> {
+  override async count(where?: Where<T>, options: ReadOptions = {}): Promise<number> {
     const params = new SqlParams();
     const { rows } = await this.run<{ n: number | string }>({
       params: params.values,
-      text: `SELECT COUNT(*) AS n FROM ${this.table} WHERE ${this.where(where, params)}`,
+      text: `SELECT COUNT(*) AS n FROM ${this.table} WHERE ${this.where(where, params, options)}`,
     });
     return Number(rows[0].n);
   }
@@ -109,10 +143,10 @@ export class MysqlDataStore<T = Record<string, any>> extends SqlDataStore<T> {
     return { count: Number(rows[0].n), sum: Number(rows[0].total) };
   }
 
-  override async distinct(field: string, where?: Where<T>): Promise<unknown[]> {
+  override async distinct(field: string, where?: Where<T>, options: ReadOptions = {}): Promise<unknown[]> {
     const params = new SqlParams();
     const path = compileMysqlPath(this.variant, this.model, field, params);
-    const condition = this.where(where, params);
+    const condition = this.where(where, params, options);
     if (path.kind === 'array') {
       const { rows } = await this.run<{ v: unknown }>({
         params: params.values,
@@ -133,7 +167,7 @@ export class MysqlDataStore<T = Record<string, any>> extends SqlDataStore<T> {
   override async find(where?: Where<T>, options: FindOptions = {}): Promise<StoredRecord<T>[]> {
     const sample = options.sample === undefined ? undefined : assertSampleSize(options.sample);
     const params = new SqlParams();
-    let text = `SELECT ${this.selectList(options.select, options.exclude)} FROM ${this.table} WHERE ${this.where(where, params)}`;
+    let text = `SELECT ${this.selectList(options.select, options.exclude)} FROM ${this.table} WHERE ${this.where(where, params, options)}`;
     text += this.orderBy(options, params);
     if (options.limit !== undefined) {
       text += ` LIMIT ${params.add(assertNonNegativeInteger(options.limit, 'limit'))}`;
@@ -153,14 +187,17 @@ export class MysqlDataStore<T = Record<string, any>> extends SqlDataStore<T> {
 
   override async insert(record: Partial<T>): Promise<StoredRecord<T>> {
     const doc = await this.beforeInsert({ ...(record as Record<string, any>) });
-    const params = new SqlParams();
-    const { columns, id, values } = this.insertValues(doc, params);
-    return this.transaction(async (run) => {
-      await run({
-        params: params.values,
-        text: `INSERT INTO ${this.table} (${columns.join(', ')}) VALUES (${values.join(', ')})`,
+    return this.withServerId(doc, (prepared) => {
+      const params = new SqlParams();
+      const { columns, id, values } = this.insertValues(prepared, params);
+      return this.transaction(async (run) => {
+        await run({
+          params: params.values,
+          text: `INSERT INTO ${this.table} (${columns.join(', ')}) VALUES (${values.join(', ')})`,
+        });
+        await this.numberPending(run, [id]);
+        return (await this.readById(run, id))!;
       });
-      return (await this.readById(run, id))!;
     });
   }
 
@@ -173,28 +210,36 @@ export class MysqlDataStore<T = Record<string, any>> extends SqlDataStore<T> {
     const params = new SqlParams();
     const assignments = this.compileUpdate(patch, params);
     if (!assignments.length) {
-      return this.findById(id);
+      return this.findById(id, options);
     }
-    const condition = this.where({ id } as Where<T>, params);
+    const condition = this.where({ id } as Where<T>, params, options);
     return this.transaction(async (run) => {
       const { rowCount } = await run({
         params: params.values,
         text: `UPDATE ${this.table} SET ${assignments.join(', ')} WHERE ${condition}`,
       });
       // The driver counts MATCHED rows (CLIENT_FOUND_ROWS), so an update that changes nothing still finds its record
-      return rowCount ? this.readById(run, id) : null;
+      if (!rowCount) {
+        return null;
+      }
+      await this.numberPending(run, [id]);
+      return this.readById(run, id);
     });
   }
 
-  override async updateOne(where: Where<T>, update: DataStoreUpdate<T>): Promise<null | StoredRecord<T>> {
-    const patch = await this.preparePatch(update);
+  override async updateOne(
+    where: Where<T>,
+    update: DataStoreUpdate<T>,
+    options: UpdateOptions = {},
+  ): Promise<null | StoredRecord<T>> {
+    const patch = await this.preparePatch(update, options);
     const params = new SqlParams();
     const assignments = this.compileUpdate(patch, params);
     if (!assignments.length) {
-      return this.findOne(where);
+      return this.findOne(where, options);
     }
     return this.transaction(async (run) => {
-      const id = await this.lockFirst(run, where);
+      const id = await this.lockFirst(run, where, options);
       if (id === undefined) {
         return null;
       }
@@ -202,16 +247,19 @@ export class MysqlDataStore<T = Record<string, any>> extends SqlDataStore<T> {
         params: params.values,
         text: `UPDATE ${this.table} SET ${assignments.join(', ')} WHERE \`id\` = ${params.add(id)}`,
       });
+      await this.numberPending(run, [id]);
       return this.readById(run, id);
     });
   }
 
-  override async deleteById(id: string): Promise<null | StoredRecord<T>> {
-    return this.deleteFirst({ id } as Where<T>);
+  override async deleteById(id: string, options: DeleteOptions = {}): Promise<null | StoredRecord<T>> {
+    return this.model.sync && !options.hardDelete
+      ? super.deleteById(id, options)
+      : this.deleteFirst({ id } as Where<T>, options);
   }
 
-  override async deleteOne(where: Where<T>): Promise<null | StoredRecord<T>> {
-    return this.deleteFirst(where);
+  override async deleteOne(where: Where<T>, options: DeleteOptions = {}): Promise<null | StoredRecord<T>> {
+    return this.model.sync && !options.hardDelete ? super.deleteOne(where, options) : this.deleteFirst(where, options);
   }
 
   override async pushToArray(
@@ -307,6 +355,7 @@ export class MysqlDataStore<T = Record<string, any>> extends SqlDataStore<T> {
           return;
         }
       }
+      await this.numberPending(run, [id]);
     });
   }
 
@@ -419,13 +468,38 @@ export class MysqlDataStore<T = Record<string, any>> extends SqlDataStore<T> {
   }
 
   /**
+   * The counter row of this table (plan §3.4, C1d — MySQL and MariaDB update it in place, so a long snapshot costs no
+   * versions): raised by `count` at once, its row lock held until the transaction ends
+   */
+  protected override async takeChangeNumbers(run: SqlRun, count: number): Promise<string[]> {
+    const params = new SqlParams();
+    const key = tableName(this.model);
+    await run({
+      params: params.values,
+      text: `UPDATE ${this.quote(MYSQL_SYNC_COUNTERS)} SET \`seq\` = \`seq\` + ${params.add(count)} WHERE \`model\` = ${params.add(key)}`,
+    });
+    const read = new SqlParams();
+    const { rows } = await run<{ seq: number | string }>({
+      params: read.values,
+      text: `SELECT \`seq\` FROM ${this.quote(MYSQL_SYNC_COUNTERS)} WHERE \`model\` = ${read.add(key)}`,
+    });
+    const last = BigInt(rows[0].seq);
+    return Array.from({ length: count }, (_, index) => (last - BigInt(count - 1 - index)).toString());
+  }
+
+  protected override bigintParam(params: SqlParams, value: string): string {
+    return params.add(value);
+  }
+
+  /**
    * MySQL / MariaDB errors as the answers the MongoDB path gives for the same situation. Matched by error NUMBER and
    * server: the driver names numbers from MySQL's list, and MariaDB's 4025 (a failed CHECK) is another error there
    */
   protected override mapError(error: unknown): unknown {
     const errno = Number((error as { errno?: unknown })?.errno);
     if (errno === MYSQL_ERRORS.duplicateEntry) {
-      return new DuplicateKeyError(this.modelName);
+      const message = String((error as { message?: unknown })?.message ?? '');
+      return new DuplicateKeyError(this.modelName, /for key '(?:[^']*\.)?PRIMARY'/.test(message));
     }
     if (errno === MYSQL_ERRORS.dataTooLong) {
       return new BadRequestException(`${this.modelName}: a value is longer than its column allows`);
@@ -460,21 +534,25 @@ export class MysqlDataStore<T = Record<string, any>> extends SqlDataStore<T> {
   }
 
   /** The id of the first match, its row locked until the transaction ends */
-  private async lockFirst(run: Run, where: Where<T>): Promise<string | undefined> {
+  private async lockFirst(
+    run: Run,
+    where: Where<T>,
+    options: { includeTombstones?: boolean } = {},
+  ): Promise<string | undefined> {
     const params = new SqlParams();
     const { rows } = await run<{ id: string }>({
       params: params.values,
-      text: `SELECT \`id\` FROM ${this.table} WHERE ${this.where(where, params)} LIMIT 1 FOR UPDATE`,
+      text: `SELECT \`id\` FROM ${this.table} WHERE ${this.where(where, params, options)} LIMIT 1 FOR UPDATE`,
     });
     return rows[0]?.id;
   }
 
-  private async deleteFirst(where: Where<T>): Promise<null | StoredRecord<T>> {
+  private async deleteFirst(where: Where<T>, options: DeleteOptions = {}): Promise<null | StoredRecord<T>> {
     return this.transaction(async (run) => {
       const params = new SqlParams();
       const { rows } = await run({
         params: params.values,
-        text: `SELECT ${this.selectList()} FROM ${this.table} WHERE ${this.where(where, params)} LIMIT 1 FOR UPDATE`,
+        text: `SELECT ${this.selectList()} FROM ${this.table} WHERE ${this.where(where, params, options)} LIMIT 1 FOR UPDATE`,
       });
       if (!rows.length) {
         return null;

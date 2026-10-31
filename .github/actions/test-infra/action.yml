@@ -1,4 +1,4 @@
-name: Test infrastructure (Redis + S3 + PostgreSQL + MySQL + MariaDB)
+name: Test infrastructure (Redis + S3 + PostgreSQL + MySQL + MariaDB + MongoDB replica set)
 description: >-
   Provision the Redis and S3-compatible (RustFS) containers the distributed-feature
   e2e suites need (DEV-2985: rate limiting, cron dedup, pubsub, S3 file storage),
@@ -59,6 +59,14 @@ inputs:
     description: Published host port for MariaDB. Must match MARIADB_PORT in the suites.
     required: false
     default: '3317'
+  mongo-rs-name:
+    description: Container name for the one-node MongoDB replica set.
+    required: false
+    default: ci-mongo-rs
+  mongo-rs-port:
+    description: Published host port for the MongoDB replica set. Must match MONGO_RS_PORT in the suites.
+    required: false
+    default: '27019'
 
 runs:
   using: composite
@@ -198,3 +206,30 @@ runs:
             exit 1
           fi
         done
+
+    # A one-node MongoDB replica set for the offline-sync contract suite (DEV-3901): on a replica set a project's
+    # transaction can commit a synchronized write long after its stamp, which the pull window must cover — a
+    # standalone (the job's main MongoDB) shows nothing of that. Same image and port as scripts/test-infra.mjs; the
+    # suites connect with directConnection=true, so the member's host name never resolves outside the container.
+    - name: Start MongoDB replica set
+      shell: bash
+      run: >-
+        docker run -d
+        --name ${{ inputs.mongo-rs-name }}
+        -p ${{ inputs.mongo-rs-port }}:27017
+        mongo:8.0.4 --replSet rs0 --bind_ip_all
+
+    - name: Wait for the MongoDB replica set and initiate it
+      shell: bash
+      run: |
+        for i in $(seq 1 60); do
+          if docker exec ${{ inputs.mongo-rs-name }} mongosh --quiet --eval "try { rs.status().ok } catch (e) { rs.initiate({ _id: 'rs0', members: [{ _id: 0, host: '127.0.0.1:27017' }] }).ok }" >/dev/null 2>&1 \
+            && [ "$(docker exec ${{ inputs.mongo-rs-name }} mongosh --quiet --eval 'db.hello().isWritablePrimary' 2>/dev/null)" = "true" ]; then
+            echo "MongoDB replica set ready after ${i}s"
+            exit 0
+          fi
+          sleep 1
+        done
+        echo "::error::The MongoDB replica set did not become ready within 60s"
+        docker logs ${{ inputs.mongo-rs-name }}
+        exit 1

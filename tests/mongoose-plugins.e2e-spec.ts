@@ -4,9 +4,17 @@ import * as path from 'path';
 import { Module } from '@nestjs/common';
 import { MongooseModule, Prop, Schema, SchemaFactory, getModelToken } from '@nestjs/mongoose';
 import { Test, TestingModule } from '@nestjs/testing';
-import { Model, Types } from 'mongoose';
+import mongoose, { Model, Types } from 'mongoose';
 
 import { RoleEnum } from '../src/core/common/enums/role.enum';
+import {
+  applySyncSchema,
+  assertSyncCollectionReady,
+  includeTombstones,
+  SyncMigrationRequiredError,
+} from '../src/core/common/persistence/mongo/sync-schema.plugin';
+import { MongooseDataStore } from '../src/core/common/persistence/mongoose-data-store';
+import { resolveSyncOptions } from '../src/core/common/persistence/sync-model';
 import { mongooseAuditFieldsPlugin } from '../src/core/common/plugins/mongoose-audit-fields.plugin';
 import { mongooseIdPlugin } from '../src/core/common/plugins/mongoose-id.plugin';
 import { hashPassword, mongoosePasswordPlugin } from '../src/core/common/plugins/mongoose-password.plugin';
@@ -129,9 +137,7 @@ describe('mongoosePasswordPlugin — bulk operations (e2e)', () => {
   });
 
   it('should hash passwords on bulkWrite insertOne', async () => {
-    await userModel.bulkWrite([
-      { insertOne: { document: { email: 'bulk@test.com', password: 'secret' } as any } },
-    ]);
+    await userModel.bulkWrite([{ insertOne: { document: { email: 'bulk@test.com', password: 'secret' } as any } }]);
 
     const doc = await userModel.findOne({ email: 'bulk@test.com' }).lean().exec();
     expect(isBcryptHash(doc.password)).toBe(true);
@@ -229,18 +235,14 @@ describe('mongooseRoleGuardPlugin — bulk operations (e2e)', () => {
   });
 
   it('should allow roles on insertMany when user is admin', async () => {
-    await runAsAdmin(() =>
-      userModel.insertMany([{ email: 'a@test.com', roles: [RoleEnum.ADMIN] }]),
-    );
+    await runAsAdmin(() => userModel.insertMany([{ email: 'a@test.com', roles: [RoleEnum.ADMIN] }]));
 
     const doc = await userModel.findOne({ email: 'a@test.com' }).lean().exec();
     expect(doc.roles).toEqual([RoleEnum.ADMIN]);
   });
 
   it('should allow roles on insertMany when no user context (system op)', async () => {
-    await runWithoutContext(() =>
-      userModel.insertMany([{ email: 'sys@test.com', roles: [RoleEnum.ADMIN] }]),
-    );
+    await runWithoutContext(() => userModel.insertMany([{ email: 'sys@test.com', roles: [RoleEnum.ADMIN] }]));
 
     const doc = await userModel.findOne({ email: 'sys@test.com' }).lean().exec();
     expect(doc.roles).toEqual([RoleEnum.ADMIN]);
@@ -248,9 +250,7 @@ describe('mongooseRoleGuardPlugin — bulk operations (e2e)', () => {
 
   it('should strip roles from bulkWrite insertOne when user is not admin', async () => {
     await runAsRegularUser(() =>
-      userModel.bulkWrite([
-        { insertOne: { document: { email: 'bw@test.com', roles: [RoleEnum.ADMIN] } as any } },
-      ]),
+      userModel.bulkWrite([{ insertOne: { document: { email: 'bw@test.com', roles: [RoleEnum.ADMIN] } as any } }]),
     );
 
     const doc = await userModel.findOne({ email: 'bw@test.com' }).lean().exec();
@@ -349,12 +349,7 @@ describe('mongooseAuditFieldsPlugin — bulk operations (e2e)', () => {
   });
 
   it('should set createdBy and updatedBy on insertMany', async () => {
-    await runAsRegularUser(() =>
-      userModel.insertMany([
-        { email: 'a@test.com' },
-        { email: 'b@test.com' },
-      ]),
-    );
+    await runAsRegularUser(() => userModel.insertMany([{ email: 'a@test.com' }, { email: 'b@test.com' }]));
 
     const docs = await userModel.find().lean().exec();
     for (const doc of docs) {
@@ -364,9 +359,7 @@ describe('mongooseAuditFieldsPlugin — bulk operations (e2e)', () => {
   });
 
   it('should not overwrite explicit createdBy on insertMany', async () => {
-    await runAsRegularUser(() =>
-      userModel.insertMany([{ email: 'explicit@test.com', createdBy: 'system' }]),
-    );
+    await runAsRegularUser(() => userModel.insertMany([{ email: 'explicit@test.com', createdBy: 'system' }]));
 
     const doc = await userModel.findOne({ email: 'explicit@test.com' }).lean().exec();
     expect(doc.createdBy).toBe('system');
@@ -374,11 +367,7 @@ describe('mongooseAuditFieldsPlugin — bulk operations (e2e)', () => {
   });
 
   it('should set createdBy and updatedBy on bulkWrite insertOne', async () => {
-    await runAsRegularUser(() =>
-      userModel.bulkWrite([
-        { insertOne: { document: { email: 'bw@test.com' } as any } },
-      ]),
-    );
+    await runAsRegularUser(() => userModel.bulkWrite([{ insertOne: { document: { email: 'bw@test.com' } as any } }]));
 
     const doc = await userModel.findOne({ email: 'bw@test.com' }).lean().exec();
     expect(doc.createdBy).toBe('regular-user');
@@ -420,9 +409,7 @@ describe('mongooseAuditFieldsPlugin — bulk operations (e2e)', () => {
   it('should set updatedBy on replaceOne', async () => {
     await userModel.create({ email: 'r@test.com' });
 
-    await runAsAdmin(() =>
-      userModel.replaceOne({ email: 'r@test.com' }, { email: 'r@test.com' }).exec(),
-    );
+    await runAsAdmin(() => userModel.replaceOne({ email: 'r@test.com' }, { email: 'r@test.com' }).exec());
 
     const doc = await userModel.findOne({ email: 'r@test.com' }).lean().exec();
     expect(doc.updatedBy).toBe('admin-user');
@@ -431,18 +418,14 @@ describe('mongooseAuditFieldsPlugin — bulk operations (e2e)', () => {
   it('should set updatedBy on findOneAndReplace', async () => {
     await userModel.create({ email: 'fr@test.com' });
 
-    await runAsAdmin(() =>
-      userModel.findOneAndReplace({ email: 'fr@test.com' }, { email: 'fr@test.com' }).exec(),
-    );
+    await runAsAdmin(() => userModel.findOneAndReplace({ email: 'fr@test.com' }, { email: 'fr@test.com' }).exec());
 
     const doc = await userModel.findOne({ email: 'fr@test.com' }).lean().exec();
     expect(doc.updatedBy).toBe('admin-user');
   });
 
   it('should not set audit fields when there is no user context', async () => {
-    await runWithoutContext(() =>
-      userModel.insertMany([{ email: 'sys@test.com' }]),
-    );
+    await runWithoutContext(() => userModel.insertMany([{ email: 'sys@test.com' }]));
 
     const doc = await userModel.findOne({ email: 'sys@test.com' }).lean().exec();
     expect(doc.createdBy).toBeUndefined();
@@ -570,22 +553,30 @@ describe('Mongoose Security Plugins — Hook Coverage Safety Net', () => {
     // Write-path hooks that security plugins MUST cover
     const writePathCovered = new Set([
       // All three plugins cover these:
-      'save', 'findOneAndUpdate', 'updateOne', 'updateMany',
-      'replaceOne', 'findOneAndReplace', 'insertMany', 'bulkWrite',
+      'save',
+      'findOneAndUpdate',
+      'updateOne',
+      'updateMany',
+      'replaceOne',
+      'findOneAndReplace',
+      'insertMany',
+      'bulkWrite',
     ]);
 
     // Hooks that are read-only or not relevant for security plugins
     const readOrIrrelevant = new Set([
-      'find', 'findOne',                  // Read-only queries
-      'findOneAndDelete',                 // Delete (no password/roles/audit in deletion)
-      'countDocuments',                   // Read-only count
-      'estimatedDocumentCount',           // Read-only estimate
-      'distinct',                         // Read-only distinct values
-      'deleteOne', 'deleteMany',          // Deletes don't need password/roles/audit
-      'aggregate',                        // Read-only aggregation
-      'validate',                         // Validation only
-      'createCollection',                 // DDL operation
-      'init',                             // Post-load hydration
+      'find',
+      'findOne', // Read-only queries
+      'findOneAndDelete', // Delete (no password/roles/audit in deletion)
+      'countDocuments', // Read-only count
+      'estimatedDocumentCount', // Read-only estimate
+      'distinct', // Read-only distinct values
+      'deleteOne',
+      'deleteMany', // Deletes don't need password/roles/audit
+      'aggregate', // Read-only aggregation
+      'validate', // Validation only
+      'createCollection', // DDL operation
+      'init', // Post-load hydration
     ]);
 
     const allKnown = new Set([...writePathCovered, ...readOrIrrelevant]);
@@ -595,5 +586,100 @@ describe('Mongoose Security Plugins — Hook Coverage Safety Net', () => {
     // - If it can write data (insert/update/replace): add to all security plugins
     // - If read-only or irrelevant: add to readOrIrrelevant set
     expect(unknown).toEqual([]);
+  });
+});
+
+// =============================================================================
+// Synchronized models (offline sync, DEV-3900): the MongoDB side of the sync schema plugin
+// =============================================================================
+describe('sync schema plugin — MongoDB specifics (e2e)', () => {
+  let connection: mongoose.Connection;
+  const sync = resolveSyncOptions(true, 'SyncPluginNote')!;
+  const noteSchema = () =>
+    new mongoose.Schema({
+      code: { type: String, unique: true },
+      location: { coordinates: [Number], type: { type: String } },
+      name: String,
+    });
+
+  beforeAll(async () => {
+    connection = await mongoose.createConnection(deriveTestDbUri('plugins')).asPromise();
+  });
+
+  afterAll(async () => {
+    for (const name of ['syncadoptions', 'syncaggregates', 'syncrenames']) {
+      await connection.db
+        .collection(name)
+        .drop()
+        .catch(() => undefined);
+    }
+    await connection.close();
+  });
+
+  it('refuses a collection with data from before it was synchronized, names the migration, and runs after it', async () => {
+    // As the model was before: a full unique index and a document without version or change position
+    const raw = connection.db.collection('syncadoptions');
+    await raw.createIndex({ code: 1 }, { name: 'code_1', unique: true });
+    await raw.insertMany([{ code: 'A' }, { code: 'B' }]);
+
+    const schema = noteSchema();
+    applySyncSchema(schema, sync);
+    const model = connection.model('SyncAdoption', schema, 'syncadoptions');
+    const refusal = await assertSyncCollectionReady(model).catch((error: unknown) => error);
+    expect(refusal).toBeInstanceOf(SyncMigrationRequiredError);
+    const statements = (refusal as SyncMigrationRequiredError).statements;
+    expect(statements[0]).toBe('db.getCollection("syncadoptions").dropIndex("code_1")');
+    expect(statements[1]).toContain('updateMany({ syncAt: { $exists: false } }');
+
+    // The suggested migration, as an operator runs it
+    await raw.dropIndex('code_1');
+    await raw.updateMany({ syncAt: { $exists: false } }, [
+      {
+        $set: { deletedAt: { $ifNull: ['$deletedAt', null] }, syncAt: '$$NOW', version: { $ifNull: ['$version', 1] } },
+      },
+    ]);
+    await expect(assertSyncCollectionReady(model)).resolves.toBeUndefined();
+    await model.syncIndexes();
+
+    // Two tombstones, both without the value: the live-only index lets them be
+    const store = new MongooseDataStore<any>(model);
+    for (const record of await store.find({})) {
+      await store.deleteById(record.id);
+    }
+    expect(await store.count({}, { includeTombstones: true })).toBe(2);
+    expect((await store.insert({ code: 'A' })).version).toBe(1);
+  });
+
+  it('includeTombstones reaches an aggregation, and $geoNear stays the first stage', async () => {
+    const schema = noteSchema();
+    schema.index({ location: '2dsphere' });
+    applySyncSchema(schema, sync);
+    const model = connection.model('SyncAggregate', schema, 'syncaggregates');
+    await model.init();
+    const store = new MongooseDataStore<any>(model);
+    const point = { coordinates: [7, 51], type: 'Point' };
+    const kept = await store.insert({ code: 'kept', location: point, name: 'kept' });
+    const gone = await store.insert({ code: 'gone', location: point, name: 'gone' });
+    await store.deleteById(gone.id);
+
+    expect(await model.aggregate([{ $match: {} }])).toHaveLength(1);
+    expect(await includeTombstones(model.aggregate([{ $match: {} }]))).toHaveLength(2);
+    const near = await model.aggregate([
+      { $geoNear: { distanceField: 'distance', near: { coordinates: [7, 51], type: 'Point' }, spherical: true } },
+    ]);
+    expect(near.map((doc) => String(doc._id))).toEqual([kept.id]);
+  });
+
+  it('a $rename onto a system field is dropped', async () => {
+    const schema = noteSchema();
+    applySyncSchema(schema, sync);
+    const model = connection.model('SyncRename', schema, 'syncrenames');
+    const store = new MongooseDataStore<any>(model);
+    const record = await store.insert({ name: 'a' });
+    await model.updateOne({ _id: record.id }, { $rename: { name: 'deletedAt' } } as any, { strict: false });
+    const stored = await store.findById(record.id);
+    expect(stored).not.toBeNull();
+    expect(stored.deletedAt ?? null).toBeNull();
+    expect(stored.version).toBe(2);
   });
 });

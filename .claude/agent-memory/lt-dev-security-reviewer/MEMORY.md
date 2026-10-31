@@ -44,16 +44,20 @@
 - [project-redis-channel-registry-resubscribe-facts.md](project-redis-channel-registry-resubscribe-facts.md) — DEV-3894 channel refcount + ready re-subscribe sound; ioredis 6 nextTick ready order; TCP-proxy probe
 - [project-synchronized-up-lock-and-hub-cursor-facts.md](project-synchronized-up-lock-and-hub-cursor-facts.md) — DEV-3897: synchronizedUp precheck vs withMigrationLock ('' / lock:false run unlocked by design); not HTTP-reachable
 - [project-offline-sync-spec-dev3898-facts.md](project-offline-sync-spec-dev3898-facts.md) — DEV-3898 sync spec: route @Roles not carried to /sync, create-repeat oracle, ObjectId squatting; re-check in phase 4
+- [project-offline-sync-phase2-dev3899-facts.md](project-offline-sync-phase2-dev3899-facts.md) — DEV-3899: ObjectId-default client ids squattable (bson counter); per-tenant counter vs header-less pulls
+- [project-offline-sync-phase3-dev3900-facts.md](project-offline-sync-phase3-dev3900-facts.md) — DEV-3900 sync models: zero findings; tenant/system-field/revival traced sound; Mongo $rename gap below bar
+- [project-offline-sync-phase5-dev3902-facts.md](project-offline-sync-phase5-dev3902-facts.md) — DEV-3902 hints/purge: SSE leak on early client close (late req close listener); authz/tenant/purge sound
 
 ## Review Methodology
 
-- [project-check-overrides-unusable-fix-residual.md](project-check-overrides-unusable-fix-residual.md) — unusableFixConsumers (landed 11.42.5): backport, second parent, importers edge, second consumer version must all RE-TEST
+- [project-check-overrides-unusable-fix-residual.md](project-check-overrides-unusable-fix-residual.md) — unusableFixConsumers incl. ` + ` multi-consumer form (2026-10-31): fail-closed probe matrix, prodVia scope, starter port lag
 - [project-check-overrides-pnpm11-outage-shapes.md](project-check-overrides-pnpm11-outage-shapes.md) — pnpm 11 audit-failure shapes + registry env facts; false "ok" (926b691) and skipped suppression checks (40073c2) both FIXED; re-run recipe
 - [project-pnpm-overrides-propagation.md](project-pnpm-overrides-propagation.md) — overrides never reach npm consumers; THREE exact-pin leaks (ws, js-yaml, @graphql-tools/utils@12.0.0); docs/security-overrides.md must be updated; `pnpm audit --prod` triage for ignoreGhsas
 
 - [project-e2e-node-env-trap.md](project-e2e-node-env-trap.md) — e2e without NODE_ENV=e2e fabricates 5 bogus BetterAuth "Invalid credentials" failures; reproduces on base branch too, so a control-diff won't catch it
 - [project-betterauth-cookie-vs-body-token.md](project-betterauth-cookie-vs-body-token.md) — **FIXED 11.36.3**; why isJwtShaped() is sound (no dots in better-auth ids) + where the refusal is still silent
 - [project-check-mutations-tooling-risks.md](project-check-mutations-tooling-risks.md) — **all 3 risks FIXED 11.36.3**; keeps the git option-injection probe + the one residual ordering window
+- [project-ci-workflow-security-facts.md](project-ci-workflow-security-facts.md) — default GITHUB_TOKEN is WRITE, no permissions blocks; test-infra action interpolates names into shell; DEV-3910 sharding sound
 - [project-exception-wire-format.md](project-exception-wire-format.md) — HttpExceptionLogFilter sends `{...exception}` (class `name` is client-visible); `extends HttpException` breaks instanceof vs native Forbidden/Unauthorized
 - [Primitive @Body/@Args args skip validation](project-primitive-body-args-bypass-validation.md) — metatype String ⇒ MapAndValidatePipe returns objects untouched; live $ne-injection in resetPassword + createPasswordResetToken
 - [Cross-repo: CLI patch hoist + public scanner](reference-cross-repo-hoist-and-public-scanner.md) — relocatePatches source-side symlink caveat (below bar); scanner --print superset, CI has no denylist; `--all` skips untracked files

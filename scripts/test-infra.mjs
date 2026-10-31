@@ -127,6 +127,27 @@ function mysqlReady(client) {
     0;
 }
 
+/**
+ * A one-node MongoDB replica set for the offline-sync contract suite (DEV-3901). On a replica set a project's
+ * transaction can commit a synchronized write long after its stamp — what the pull window W must cover
+ * (`.claude/plans/offline-sync/PLAN.md` §3.4) — and a standalone shows nothing of that. 27019 keeps clear of a
+ * developer's own MongoDB on 27017. The suites connect with `directConnection=true`, so the member's host name never
+ * has to resolve outside the container.
+ */
+const MONGO_RS_HOST = process.env.MONGO_RS_HOST || 'localhost';
+const MONGO_RS_PORT = process.env.MONGO_RS_PORT ? Number(process.env.MONGO_RS_PORT) : 27019;
+
+/** Ready = the set is initiated (idempotently, here) AND this node is the writable primary */
+function mongoReplicaSetReady(name) {
+  const initiate =
+    "try { rs.status().ok } catch (e) { rs.initiate({ _id: 'rs0', members: [{ _id: 0, host: '127.0.0.1:27017' }] }).ok }";
+  if (run('docker', ['exec', name, 'mongosh', '--quiet', '--eval', initiate]).status !== 0) {
+    return false;
+  }
+  const primary = run('docker', ['exec', name, 'mongosh', '--quiet', '--eval', 'db.hello().isWritablePrimary']);
+  return primary.status === 0 && primary.stdout.trim() === 'true';
+}
+
 /** Parse `S3_ENDPOINT` into host + port, tolerating a missing port and a bad URL. */
 function parseEndpoint(endpoint) {
   try {
@@ -199,6 +220,14 @@ const CONTAINERS = [
     name: 'nest-server-2985-mariadb',
     ports: [`${MARIADB_PORT}:3306`],
     ready: mysqlReady('mariadb'),
+  },
+  {
+    args: ['--replSet', 'rs0', '--bind_ip_all'],
+    host: MONGO_RS_HOST,
+    image: 'mongo:8.0.4',
+    name: 'nest-server-2985-mongo-rs',
+    ports: [`${MONGO_RS_PORT}:27017`],
+    ready: mongoReplicaSetReady,
   },
 ];
 

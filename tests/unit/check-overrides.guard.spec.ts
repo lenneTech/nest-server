@@ -734,6 +734,73 @@ describe('check-overrides — suppressed advisories that got a fix', () => {
     expect(r.out, `3.9.0 has not moved, got:\n${r.out}`).not.toMatch(/moved from/);
   });
 
+  /**
+   * One vulnerable package under SEVERAL consumers, the common shape for dev tooling (minimatch sat under
+   * five tools at once in nest-server 12.1.1). The declaration lists each of them, ` + `-joined, at its
+   * assessed version, and every one is held to the checks a single consumer gets.
+   */
+  const TWO_CONSUMERS_LOCK = (devtools: string, extraParent = '') =>
+    `lockfileVersion: '9.0'\n\npackages:\n\n  '@nuxt/devtools@${devtools}':\n    resolution: {integrity: sha512-x}\n  other-tool@2.0.0:\n    resolution: {integrity: sha512-x}\n  simple-git@3.36.0:\n    resolution: {integrity: sha512-x}\n${extraParent ? `  ${extraParent}:\n    resolution: {integrity: sha512-x}\n` : ''}\nsnapshots:\n\n  '@nuxt/devtools@${devtools}':\n    dependencies:\n      simple-git: 3.36.0\n\n  other-tool@2.0.0:\n    dependencies:\n      simple-git: 3.36.0\n${extraParent ? `\n  ${extraParent}:\n    dependencies:\n      simple-git: 3.36.0\n` : ''}`;
+  const TWO_DECLARED = '@nuxt/devtools@3.4.1 + other-tool@2.0.0 cannot use 4.0.1';
+
+  it('accepts a declaration naming every consumer of the affected package', () => {
+    const r = run({
+      advisoryData: { [GHSA]: FIXED },
+      ignoreGhsas: [GHSA],
+      lock: TWO_CONSUMERS_LOCK('3.4.1'),
+      workspaceYaml: DECLARE(TWO_DECLARED),
+    });
+    expect(r.status, `expected pass, got:\n${r.out}`).toBe(0);
+    expect(r.out).not.toMatch(/RE-TEST/);
+    expect(r.out, `both consumers belong in the residual line, got:\n${r.out}`).toMatch(
+      /@nuxt\/devtools@3\.4\.1 \+ other-tool@2\.0\.0 cannot use it/,
+    );
+  });
+
+  it('FIRES when ONE of several declared consumers moved', () => {
+    const r = run({
+      advisoryData: { [GHSA]: FIXED },
+      ignoreGhsas: [GHSA],
+      lock: TWO_CONSUMERS_LOCK('3.5.0'),
+      workspaceYaml: DECLARE(TWO_DECLARED),
+    });
+    expect(r.status, `expected failure, got:\n${r.out}`).toBe(1);
+    expect(r.out).toMatch(/moved from 3\.4\.1 to 3\.5\.0/);
+  });
+
+  it('FIRES when a parent beyond the declared consumers pulls the affected package', () => {
+    const r = run({
+      advisoryData: { [GHSA]: FIXED },
+      ignoreGhsas: [GHSA],
+      lock: TWO_CONSUMERS_LOCK('3.4.1', 'third-tool@1.0.0'),
+      workspaceYaml: DECLARE(TWO_DECLARED),
+    });
+    expect(r.status, `expected failure, got:\n${r.out}`).toBe(1);
+    expect(r.out).toMatch(/third-tool@1\.0\.0 also pulls/);
+  });
+
+  /**
+   * @regression   12.1.1 — with several consumers allowed per declaration, a consumer that stopped pulling the
+   *   affected package would stay in the list and keep covering a path that is gone, while every other check
+   *   passes (it is still in the tree, at its assessed version).
+   * @seen-failing Remove the `idle` check from the residual evaluation in scripts/check-overrides.mjs —
+   *   registered as mutation `unusable-fix-accepts-idle-consumer` in tests/regression-mutations.json.
+   */
+  it('FIRES when a declared consumer no longer pulls the affected package', () => {
+    // other-tool@2.0.0 is in the tree at its assessed version, but only devtools pulls simple-git.
+    const r = run({
+      advisoryData: { [GHSA]: FIXED },
+      ignoreGhsas: [GHSA],
+      lock: DEVTOOLS_LOCK('3.4.1').replace(
+        '  simple-git@3.36.0:\n    resolution: {integrity: sha512-x}\n',
+        '  simple-git@3.36.0:\n    resolution: {integrity: sha512-x}\n  other-tool@2.0.0:\n    resolution: {integrity: sha512-x}\n',
+      ),
+      workspaceYaml: DECLARE(TWO_DECLARED),
+    });
+    expect(r.status, `expected failure, got:\n${r.out}`).toBe(1);
+    expect(r.out).toMatch(/other-tool@2\.0\.0 pulls no affected package/);
+  });
+
   it('still FIRES for a fixed advisory with no declaration at all', () => {
     // The gate must not have widened: the declaration is the only way in, and
     // forgetting it is indistinguishable from not having considered the fix.

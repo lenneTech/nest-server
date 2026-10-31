@@ -98,6 +98,8 @@ export * from './core/common/persistence/mongoose-data-store.js';
 export * from './core/common/persistence/persisted-model.decorator.js';
 export * from './core/common/persistence/persistence.tokens.js';
 export * from './core/common/persistence/persistence-runtime.registry.js';
+export { VersionConflictError } from './core/common/persistence/policies/sync.policy.js';
+export * from './core/common/persistence/sync-model.js';
 export * from './core/common/persistence/unsupported-capability.error.js';
 export * from './core/common/persistence/sql/mysql/mysql-data-store.js';
 export * from './core/common/persistence/sql/mysql/mysql-lock-store.js';
@@ -275,6 +277,25 @@ export * from './core/modules/permissions/permissions-scanner.js';
 export * from './core/modules/system-setup/core-system-setup.controller.js';
 export * from './core/modules/system-setup/core-system-setup.module.js';
 export * from './core/modules/system-setup/core-system-setup.service.js';
+
+// =====================================================================================================================
+// Core - Modules - Sync (offline sync)
+// =====================================================================================================================
+
+export * from './core/modules/sync/core-sync-base.controller.js';
+export * from './core/modules/sync/core-sync.constants.js';
+export * from './core/modules/sync/core-sync.controller.js';
+export * from './core/modules/sync/core-sync.decorators.js';
+export * from './core/modules/sync/core-sync-hints.controller.js';
+export * from './core/modules/sync/core-sync-hints.service.js';
+export * from './core/modules/sync/core-sync-infrastructure.models.js';
+export * from './core/modules/sync/core-sync.module.js';
+export * from './core/modules/sync/core-sync-mutation.store.js';
+export * from './core/modules/sync/core-sync.resolver.js';
+export * from './core/modules/sync/core-sync.service.js';
+export * from './core/modules/sync/core-sync-state.store.js';
+export * from './core/modules/sync/interfaces/core-sync.interfaces.js';
+export * from './core/modules/sync/models/core-sync-hint.model.js';
 
 // =====================================================================================================================
 // Core - Modules - Tus

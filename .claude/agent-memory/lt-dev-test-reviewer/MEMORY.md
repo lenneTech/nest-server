@@ -30,3 +30,10 @@
 - [Redis Resubscribe Test Facts](redis-resubscribe-test-facts.md) — ioredis offline-queue flush vs commandTimeout decides vacuity of "Redis down at boot" tests; DEV-3894 mutations measured; exit spec accepts a commented line.
 - [IAM User-Cache Broadcast Test Facts](iam-user-cache-broadcast-test-facts.md) — DEV-3895: WS re-check test proves ORDER (reauthenticate is called synchronously); mapper Redis wiring probed green in assembled CoreModule.
 - [Cron Scheduled-Instant + Running-Lease Test Facts](cron-scheduled-instant-running-lease-test-facts.md) — DEV-3896: fireAt() faithful to cron 4.4.0; stale-instant mutation red on key only; heartbeat proven; fail-open pinned since the review.
+- [Mutation Sharding Test Facts](mutation-sharding-test-facts.md) — DEV-3910: --list --shard union probe covers main(); on-demand plan job unpinned; BSD seq trailing comma trap.
+- [Offline-Sync Cursor Lab Facts](offline-sync-cursor-lab-facts.md) — DEV-3899 harness: LOST = convergence (later writes mask), C1d late holds BEFORE the stamp, no multi-row case; no false zero found.
+- [Offline-Sync DataStore Test Facts](offline-sync-datastore-test-facts.md) — DEV-3900 sync-* cells: Mongo aggregate hook ignores includeTombstones; server-clock case vacuous (Date.now only); mutations seen red.
+- [Offline-Sync Contract Test Facts](offline-sync-contract-test-facts.md) — DEV-3901 7-column matrix: derived window W asserted by no test (windowSeconds:2 pin); 7 sync-* mutations checked non-vacuous.
+- [Offline-Sync Hints + Purge Test Facts](offline-sync-hints-purge-test-facts.md) — DEV-3902: 7 mutations non-vacuous, purge pair byte-identical; negative-hint strength per case; unit order test pins call order only.
+- [Offline-Sync Clients + Skew Test Facts](offline-sync-clients-skew-test-facts.md) — DEV-3903: skew 5 s < derived W makes Mongo skew columns unfailable; client push list/mark split + fold-into-sent lose edits (all fixed in 78db22b).
+- [Sync Release Cross-Phase Facts](sync-release-cross-phase-facts.md) — 12.2.0: CoreModule sync gate untested (inversion survives suite); check-mutations ignores `drivers`; contract-suite history.

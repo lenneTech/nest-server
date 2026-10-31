@@ -18,6 +18,11 @@ import {
   grantStatement,
   type PostgresSchemaOptions,
   RLS_VERSION,
+  SYNC_STAMP_FUNCTION,
+  SYNC_TRIGGER,
+  SYNC_TRIGGER_VERSION,
+  syncFunctionStatements,
+  syncTableStatements,
   TENANT_FILTER_FUNCTION,
   TENANT_POLICY,
   tenantFilterFunctionStatements,
@@ -63,10 +68,15 @@ interface CatalogTable {
   granted: boolean;
   policyVersion: null | string;
   rls: boolean;
+  /** Change-order triggers (`lt_sync_*`) on the table */
+  syncTriggers: Set<string>;
 }
 
 interface Catalog {
   functionVersion: null | string;
+  /** Sequences of synchronized tables → whether the application role may use them */
+  sequences: Map<string, boolean>;
+  syncFunctionVersion: null | string;
   schema: string;
   /** Whether the application role may use the schema */
   schemaUsage: boolean;
@@ -124,8 +134,17 @@ export async function planPostgresSchema(
     run,
     tables.map((table) => table.name),
     options.appRole,
+    tables.flatMap((table) => (table.sync ? [table.sync.sequence] : [])),
   );
   const changes: SchemaChange[] = [];
+
+  if (tables.some((table) => table.sync) && catalog.syncFunctionVersion !== SYNC_TRIGGER_VERSION) {
+    changes.push({
+      description: `${catalog.syncFunctionVersion ? 'update' : 'create'} the change-order function ${SYNC_STAMP_FUNCTION}()`,
+      kind: 'automatic',
+      statements: syncFunctionStatements(),
+    });
+  }
 
   if (tables.some((table) => table.tenantIsolated) && catalog.functionVersion !== RLS_VERSION) {
     changes.push({
@@ -146,7 +165,9 @@ export async function planPostgresSchema(
       changes.push({ description: notice, kind: 'notice', statements: [], table: table.name });
     }
     const existing = catalog.tables.get(table.name);
-    changes.push(...(existing ? planExistingTable(table, existing, options) : planNewTable(table, options)));
+    changes.push(
+      ...(existing ? planExistingTable(table, existing, catalog.sequences, options) : planNewTable(table, options)),
+    );
   }
   return changes;
 }
@@ -161,6 +182,7 @@ function planNewTable(table: DesiredTable, options: PostgresSchemaOptions): Sche
         ...table.indexes.map((index) => index.create),
         ...(table.tenantIsolated ? tenantPolicyStatements(table.name) : []),
         grantStatement(table.name, options.appRole),
+        ...(table.sync ? syncTableStatements(table.name, table.sync, options.appRole) : []),
       ],
       table: table.name,
     },
@@ -170,6 +192,7 @@ function planNewTable(table: DesiredTable, options: PostgresSchemaOptions): Sche
 function planExistingTable(
   table: DesiredTable,
   existing: CatalogTable,
+  sequences: Map<string, boolean>,
   options: PostgresSchemaOptions,
 ): SchemaChange[] {
   const changes: SchemaChange[] = [];
@@ -249,7 +272,7 @@ function planExistingTable(
       description: `create ${index.unique ? 'unique ' : ''}index ${index.name} on ${name}`,
       // A unique index can fail on the rows already stored, and it changes what may be written: a reviewed decision
       kind: index.unique ? 'migration' : 'automatic',
-      statements: [index.create],
+      statements: index.unique ? liveUniqueMigration(table, existing, index, wanted) : [index.create],
       table: name,
     });
   }
@@ -294,7 +317,95 @@ function planExistingTable(
       table: name,
     });
   }
+  changes.push(...planSync(table, existing, sequences, options));
   return changes;
+}
+
+/**
+ * A synchronized table's change order: the trigger of the current version, its sequence and the application role's
+ * use of it. A trigger of an earlier version is replaced; a table that is no longer synchronized keeps its trigger
+ * (and its numbering) until a migration removes it
+ */
+function planSync(
+  table: DesiredTable,
+  existing: CatalogTable,
+  sequences: Map<string, boolean>,
+  options: PostgresSchemaOptions,
+): SchemaChange[] {
+  const name = table.name;
+  const quoted = quoteIdentifier(name);
+  if (!table.sync) {
+    return existing.syncTriggers.size
+      ? [
+          {
+            description: `${name} is no longer synchronized; its change-order trigger is kept until a migration drops it`,
+            kind: 'notice',
+            statements: [],
+            table: name,
+          },
+        ]
+      : [];
+  }
+  if (!existing.syncTriggers.has(SYNC_TRIGGER)) {
+    const outdated = [...existing.syncTriggers].map(
+      (trigger) => `DROP TRIGGER IF EXISTS ${quoteIdentifier(trigger)} ON ${quoted}`,
+    );
+    return [
+      {
+        description: `${outdated.length ? 'replace' : 'add'} the change-order trigger of ${name}`,
+        kind: 'automatic',
+        statements: [...outdated, ...syncTableStatements(name, table.sync, options.appRole)],
+        table: name,
+      },
+    ];
+  }
+  if (!sequences.get(table.sync.sequence)) {
+    return [
+      {
+        description: `let ${options.appRole} use the change-order sequence of ${name}`,
+        kind: 'automatic',
+        statements: syncTableStatements(name, table.sync, options.appRole).slice(0, 2),
+        table: name,
+      },
+    ];
+  }
+  return [];
+}
+
+/**
+ * The statements of a new unique index's migration. A synchronized model's index reads `deleted_at`: when the table
+ * does not have it yet (an existing model that became synchronized), the column comes first — the boot that refuses the
+ * index never adds it. A framework unique index over the same fields that the model no longer declares is the one the
+ * live-only index replaces: it goes last, because a tombstone (which keeps no values) would collide on it
+ */
+function liveUniqueMigration(
+  table: DesiredTable,
+  existing: CatalogTable,
+  index: DesiredTable['indexes'][number],
+  wanted: Set<string>,
+): string[] {
+  const statements: string[] = [];
+  const deletedAt = table.columns.find((column) => column.name === 'deleted_at');
+  if (table.sync && deletedAt && !existing.columns.has('deleted_at') && index.create.includes('"deleted_at"')) {
+    statements.push(
+      `ALTER TABLE ${quoteIdentifier(table.name)} ADD COLUMN ${columnDefinition({ ...deletedAt, primaryKey: false })}`,
+    );
+  }
+  statements.push(index.create);
+  if (table.sync) {
+    const stem = indexStem(index.name);
+    for (const [old, unique] of existing.indexes) {
+      if (unique && !wanted.has(old) && indexStem(old) === stem) {
+        statements.push(`DROP INDEX IF EXISTS ${quoteIdentifier(old)}`);
+      }
+    }
+  }
+  return statements;
+}
+
+/** A framework index name without its definition hash (`ux_<table>__<fields>_<hash>`) */
+function indexStem(name: string): string {
+  return name.replace(/_[0-9a-f]{8}$/, '');
 }
 
 function sameType(
@@ -321,7 +432,7 @@ function typeChange(
   };
 }
 
-async function readCatalog(run: Run, tables: string[], appRole: string): Promise<Catalog> {
+async function readCatalog(run: Run, tables: string[], appRole: string, sequences: string[]): Promise<Catalog> {
   // One query after the other: inside the migration transaction they share a single connection
   const schemaResult = await run({
     params: [appRole],
@@ -359,14 +470,31 @@ async function readCatalog(run: Run, tables: string[], appRole: string): Promise
       WHERE n.nspname = current_schema() AND c.relname = ANY($1) AND k.contype = 'c'`,
   });
   const functionResult = await run({
-    params: [TENANT_FILTER_FUNCTION],
-    text: `SELECT obj_description(p.oid, 'pg_proc') AS version
+    params: [[TENANT_FILTER_FUNCTION, SYNC_STAMP_FUNCTION]],
+    text: `SELECT p.proname AS name, obj_description(p.oid, 'pg_proc') AS version
       FROM pg_proc p JOIN pg_namespace n ON n.oid = p.pronamespace
-      WHERE n.nspname = current_schema() AND p.proname = $1 AND p.pronargs = 0`,
+      WHERE n.nspname = current_schema() AND p.proname = ANY($1) AND p.pronargs = 0`,
   });
+  const triggerResult = await run({
+    params: [tables],
+    text: `SELECT c.relname AS table, t.tgname AS name
+      FROM pg_trigger t JOIN pg_class c ON c.oid = t.tgrelid JOIN pg_namespace n ON n.oid = c.relnamespace
+      WHERE n.nspname = current_schema() AND c.relname = ANY($1) AND NOT t.tgisinternal AND t.tgname LIKE 'lt\\_sync\\_%'`,
+  });
+  const sequenceResult = sequences.length
+    ? await run({
+        params: [sequences, appRole],
+        text: `SELECT c.relname AS name, has_sequence_privilege($2, c.oid, 'USAGE') AS usage
+          FROM pg_class c JOIN pg_namespace n ON n.oid = c.relnamespace
+          WHERE n.nspname = current_schema() AND c.relkind = 'S' AND c.relname = ANY($1)`,
+      })
+    : { rowCount: 0, rows: [] };
+  const versionOf = (fn: string) => functionResult.rows.find((row) => row.name === fn)?.version ?? null;
 
   const catalog: Catalog = {
-    functionVersion: functionResult.rows[0]?.version ?? null,
+    functionVersion: versionOf(TENANT_FILTER_FUNCTION),
+    sequences: new Map(sequenceResult.rows.map((row: { name: string; usage: boolean }) => [row.name, row.usage])),
+    syncFunctionVersion: versionOf(SYNC_STAMP_FUNCTION),
     schema: schemaResult.rows[0].schema,
     schemaUsage: schemaResult.rows[0].usage,
     tables: new Map(),
@@ -380,7 +508,11 @@ async function readCatalog(run: Run, tables: string[], appRole: string): Promise
       indexes: new Map(),
       policyVersion: row.policy_version ?? null,
       rls: row.rls,
+      syncTriggers: new Set(),
     });
+  }
+  for (const row of triggerResult.rows) {
+    catalog.tables.get(row.table)?.syncTriggers.add(row.name);
   }
   for (const row of columnResult.rows) {
     catalog.tables.get(row.table)?.columns.set(row.name, { collation: row.collation ?? null, type: row.type });

@@ -1,5 +1,5 @@
 ---
-version: "12.1.0"
+version: "12.2.0"
 technologies:
   - NestJS 12
   - GraphQL (Apollo Server 5)
@@ -23,7 +23,8 @@ customer: "lenne.Tech (Open Source)"
 12.1 liegen die Daten wahlweise in MongoDB, PostgreSQL, MySQL oder MariaDB, auf Wunsch auch gemischt je Modell, hinter
 einem einzigen `CrudService` und einer einzigen Sicherheits-Pipeline. Als Open-Source-Bibliothek liefert sie eine
 vollständige Basis für Backend-Anwendungen: Authentifizierung, Rechte bis auf Feldebene, Mandantentrennung,
-Dateiverwaltung, Migrationen, Health-Checks, einen KI-Assistenten mit MCP-Server und ein Betriebscockpit. Das Framework
+Dateiverwaltung, Migrationen, Health-Checks, Offline-Synchronisation für Mobile-, Web- und Desktop-Clients, einen
+KI-Assistenten mit MCP-Server und ein Betriebscockpit. Das Framework
 wird als npm-Paket veröffentlicht und in zahlreichen Produktionsprojekten eingesetzt; Projekte können den Kern auch als
 eigenen Code übernehmen (Vendor-Modus).
 
@@ -106,7 +107,11 @@ Optional Redis und S3: geteilte Rate-Limits, Cron-Deduplizierung, GraphQL-Subscr
 tus.io-Protokoll für unterbrechungssichere Uploads bis 50 GB, mit Besitzer- und Mandantenprüfung und S3-Staging.
 - **Evidenz:** `src/core/modules/tus/core-tus.service.ts`, `src/core/modules/tus/core-tus.controller.ts`
 
-### 12. Modul-Vererbungsmuster
+### 12. Offline-Synchronisation
+Mobile Apps (React Native, Capacitor), PWAs und Desktop-Clients lesen und schreiben ohne Verbindung und gleichen sich danach ab: Delta-Pull per Cursor ohne Änderungsverlust über Instanzen und Uhren hinweg, Push mit Konfliktstrategien und clientseitig erzeugten IDs, Tombstones für Löschungen, Hinweise per SSE und GraphQL. Auf jeder Datenbank, durch dieselbe Sicherheits-Pipeline; ein PWA- und ein Node-Test-Client beweisen das Protokoll Ende zu Ende.
+- **Evidenz:** `src/core/modules/sync/core-sync.service.ts`, `docs/offline-sync-protocol.md`, `tests/sync-contract.e2e-spec.ts`, `tests/sync-pwa-client.e2e-spec.ts`
+
+### 13. Modul-Vererbungsmuster
 Architekturelles Kernmuster: Projekte erweitern `Core*`-Klassen durch Vererbung statt Hooks oder Events.
 - **Evidenz:** `src/core/modules/better-auth/core-better-auth.resolver.ts` (CoreBetterAuthResolver als abstrakte Basis)
 
@@ -154,6 +159,7 @@ nest-server/
 ## Highlights
 
 - **Eine Pipeline, jede Datenbank:** Sicherheitsregeln und Ausgabefilter existieren einmal und gelten auf MongoDB, PostgreSQL, MySQL und MariaDB; die gesamte e2e-Suite läuft auf MongoDB und PostgreSQL
+- **Offline-Sync ohne Sonderweg:** Pull und Push laufen durch den `CrudService` des Modells; dieselbe Vertragssuite ist auf sieben Datenbank-Varianten grün
 - **Vererbungs-Architektur:** Module werden durch Vererbung (`extends Core*`) erweitert, nicht durch Hooks oder Events
 - **Konfigurierbare Features:** „Presence implies enabled“ und „Boolean shorthand“ für alle optionalen Features
 - **Dual-API:** GraphQL und REST/Swagger parallel oder einzeln
@@ -175,6 +181,7 @@ verzichten.
 
 | Version | Datum | Änderungen |
 |---------|-------|-------------|
+| 12.2.0 | 2026-11 | Offline-Synchronisation für Mobile-, Web- und Desktop-Clients auf jeder Datenbank |
 | 12.1.0 | 2026-10 | Datenbankunabhängigkeit: PostgreSQL, MySQL, MariaDB neben MongoDB, MongoDB-Bibliotheken optional |
 | 12.0.0 | 2026-10 | NestJS 12, TypeScript 6, ESM-Paket, SWC statt ts-node |
 | 11.42.0 | 2026-10 | Schutz auf jedem Einstiegspunkt, SSRF-Schutz, deaktivierbare Mandanten |

@@ -17,6 +17,7 @@ An enterprise-grade extension layer on top of [NestJS](https://nestjs.com/) for 
 - [Multi-Tenancy](#multi-tenancy)
 - [Databases](#databases)
 - [API Tokens](#api-tokens)
+- [Offline Sync](#offline-sync)
 - [AI Assistant & MCP](#ai-assistant--mcp)
 - [Operator Hub](#operator-hub)
 - [Scalability](#scalability)
@@ -63,6 +64,7 @@ This generates a complete module with model, inputs, resolver, controller, and s
 | **Authorization** | Extensible role-based access control, field-level restrictions (also on nested types), system roles, hierarchy roles; every entry point checked, not just the route |
 | **Database** | MongoDB (Mongoose), PostgreSQL, MySQL or MariaDB (TypeORM, Kysely or Drizzle) — per project or per model — behind one CrudService and security pipeline; tenant isolation enforced by row-level security on PostgreSQL; schema evolution and SQL migrations by the framework; advanced filtering & pagination |
 | **Multi-Tenancy** | Header-based tenant isolation, membership management, hierarchy roles, auto-filtering, a tenant row check after every read, deactivatable tenants |
+| **Offline Sync** | Mobile, web and desktop clients read and write offline and reconcile later: delta pull by cursor, push with conflict strategies, tombstones, client-generated ids, change hints over SSE and GraphQL — on every supported database, through the same security pipeline |
 | **File Handling** | GridFS, S3 or filesystem storage, presigned downloads, resumable uploads via TUS protocol (up to 50 GB, S3 staging) |
 | **AI** | AI assistant with tool registry, plan mode, confirmation policy, token budgets, conversations and SSE streaming; MCP server (`/ai/mcp`) with OAuth 2.1 |
 | **Security** | Defense-in-depth: input validation, password hashing, role guard, audit fields, response filtering, security headers, SSRF guard for user-entered URLs, re-checked WebSocket subscriptions |
@@ -361,6 +363,21 @@ Opt-in bearer tokens for integrations and scripts (`apiTokens` configuration):
 
 Details: [src/core/modules/api-token/README.md](src/core/modules/api-token/README.md).
 
+## Offline Sync
+
+Opt-in (`sync` configuration) for apps that must work without a connection — React Native or Capacitor with SQLite,
+PWAs with IndexedDB, desktop and Node clients:
+
+- **Protocol** — HTTP with JSON, fully documented in [docs/offline-sync-protocol.md](docs/offline-sync-protocol.md); a client needs `fetch` and nothing else
+- **Pull** by an opaque cursor that loses no change across instances, clocks and late commits; pages bounded by count and size; `410` with a clear reason when a resync is needed
+- **Push** item by item with idempotent mutation ids, client-generated ids, conditional writes on `version`, and the strategies `reject`, `lww`, `merge` and `custom`
+- **Tombstones** for deletions, hourly purge behind a retention horizon; hints over SSE (`GET /sync/hints`) and the GraphQL subscription `syncHint`
+- **Security** — every pull and push runs through the model's `CrudService` (`@Restricted`, `securityCheck()`, tenant policy, row-level security); lost access forces a resync
+
+A model takes part with `@PersistedModel({ sync: { roles, strategy } })` and `@SyncService()` on its service.
+Details: [src/core/modules/sync/README.md](src/core/modules/sync/README.md), client duties in
+[src/core/modules/sync/SECURITY.md](src/core/modules/sync/SECURITY.md).
+
 ## AI Assistant & MCP
 
 An optional AI module (`ai` configuration) for any OpenAI-compatible model endpoint:
@@ -440,6 +457,7 @@ The Module Inheritance Pattern ensures any core module can be extended to integr
 | **Hub** | ADMIN-only operator cockpit at `/hub` |
 | **Migrate** | Migrations for MongoDB and SQL with distributed locking for cluster deployments |
 | **Permissions** | Security map report: routes, roles and `@Restricted` fields (HTML, JSON, Markdown) |
+| **Sync** | Offline sync for mobile, web and desktop clients: pull, push, conflicts, tombstones, hints |
 | **SystemSetup** | Initial admin creation for fresh deployments |
 
 ### CrudService

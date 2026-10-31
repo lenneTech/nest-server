@@ -70,6 +70,7 @@ proves the build loads and runs with them unresolvable. Rules: `.claude/rules/pe
 | **Hub** | Build-free ADMIN-gated operator cockpit at `/hub` (config-gated per environment; 17 panels, runtime collectors, mailbox, admin actions) |
 | **Migrate** | Database migration utilities |
 | **Permissions** | ADMIN-gated security-map report (routes + roles + `@Restricted` fields); also surfaced in the Hub's "Routes / Permissions" panel |
+| **Sync** | Opt-in (`sync`) offline sync for models declared `@PersistedModel({ sync })`: pull by cursor, push with idempotency and conflict strategies, resync on access loss — through the model's CrudService; change hints over SSE and GraphQL, filtered per subscriber; hourly tombstone purge under a lease |
 | **SystemSetup** | Initial admin creation for fresh deployments |
 | **Tus** | Resumable file uploads via tus.io protocol |
 | **User** | Core user management functionality |

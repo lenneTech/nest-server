@@ -1,6 +1,6 @@
 # @lenne.tech/nest-server — Framework API Reference
 
-> Auto-generated from source code as of 2026-10-29 (v12.1.1)
+> Auto-generated from source code as of 2026-11-01 (v12.2.0)
 > File: `FRAMEWORK-API.md` — compact, machine-readable API surface for Claude Code
 
 ## CoreModule.forRoot()
@@ -52,6 +52,7 @@
   - `sha256?`: `boolean` — Whether to enable verification and automatic encryption for received passwords that are not in sha256 format
   - `shutdownDelayMs?`: `number` (default: `0 (no delay)`) — Delay in milliseconds between receiving a shutdown signal and starting the
   - `staticAssets?`: `{ options?: ServeStaticOptions; path?: string; }` — Configuration for useStaticAssets
+  - `sync?`: `boolean | ISync` — Offline sync (`docs/offline-sync-protocol.md`): `GET/POST /sync/{model}` for the models whose service carries
   - `systemSetup?`: `ISystemSetup` — System setup configuration for initial admin creation.
   - `templates?`: `{ engine?: string; path?: string; }` — Templates
   - `trustProxy?`: `string | number | boolean | string[]` (default: `false (Express default — the forwarded chain is not trusted)`) — Express `trust proxy` setting — how far up the `X-Forwarded-For` chain this app believes.
@@ -215,6 +216,7 @@ When `passkey` is enabled, `trustedOrigins` is required (compile-time enforcemen
 ### ICoreModuleOverrides
 
   - `apiToken?`: `{ model?: Type<any>; service?: Type<any>; }` — Override API token collaborators with project-specific subclasses (`apiTokens` config).
+  - `sync?`: `{ controller?: Type<any>; hintsController?: Type<any>; resolver?: Type<any>; ...` — Override the offline sync endpoints, the hint subscription and their service (`sync` config).
   - `ai?`: `{ budgetService?: Type<any>; connectionResolver?: Type<any>; connectionServic...` — Override AI module collaborators with project-specific subclasses.
   - `betterAuth?`: `{ controller?: Type<any>; resolver?: Type<any>; }` — Override BetterAuth controller and/or resolver.
   - `errorCode?`: `{ controller?: Type<any>; service?: Type<any>; }` — Override ErrorCode controller and/or service.
@@ -284,9 +286,12 @@ When `passkey` is enabled, `trustedOrigins` is required (compile-time enforcemen
   - `checkRights?`: `boolean`
   - `collation?`: `CollationOptions`
   - `create?`: `boolean`
+  - `createId?`: `string`
   - `currentUser?`: `{ [key: string]: any; id: string; roles?: string[]; }`
   - `fieldSelection?`: `FieldSelection`
+  - `expectedVersion?`: `number`
   - `force?`: `boolean`
+  - `includeTombstones?`: `boolean`
   - `inputType?`: `new (...params: any[]) => any`
   - `outputType?`: `new (...params: any[]) => any`
   - `populate?`: `string | PopulateOptions | (string | PopulateOptions)[]`
@@ -311,7 +316,7 @@ Generic: `CrudService<Model, CreateInput, UpdateInput>`
 - `async create(input: PlainObject<CreateInput>, serviceOptions?: ServiceOptions)`: `Promise<Model>` — Create item
 - `async createForce(input: PlainObject<CreateInput>, serviceOptions?: ServiceOptions)`: `Promise<Model>` — Create item without checks or restrictions
 - `async createRaw(input: PlainObject<CreateInput>, serviceOptions?: ServiceOptions)`: `Promise<Model>` — Create item without checks, restrictions or preparations
-- `distinct(property: string)`: `Promise<string[]>` — Get distinct values of a property
+- `distinct(property: string, serviceOptions?: ServiceOptions)`: `Promise<string[]>` — Get distinct values of a property
 - `async get(id: string, serviceOptions?: ServiceOptions)`: `Promise<Model>` — Get item by ID
 - `async getForce(id: string, serviceOptions?: ServiceOptions)`: `Promise<Model>` — Get item by ID without checks or restrictions
 - `async getRaw(id: string, serviceOptions?: ServiceOptions)`: `Promise<Model>` — Get item by ID without checks, restrictions or preparations
@@ -338,6 +343,15 @@ Generic: `CrudService<Model, CreateInput, UpdateInput>`
 - `async updateForce(id: string, input: PlainObject<UpdateInput>, serviceOptions?: ServiceOptions)`: `Promise<Model>` — Update item via ID without checks or restrictions
 - `async updateRaw(id: string, input: PlainObject<UpdateInput>, serviceOptions?: ServiceOptions)`: `Promise<Model>` — Update item via ID without checks, restrictions or preparations
 - `async delete(id: string, serviceOptions?: ServiceOptions)`: `Promise<Model>` — Delete item via ID
+- `withTombstones(query: Q, serviceOptions?: ServiceOptions)`: `Q` — A Mongoose query or aggregation that also sees tombstones when the caller asked (`includeTombstones`)
+- `expectedVersionOf(serviceOptions?: ServiceOptions)`: `number` — `serviceOptions.expectedVersion`, checked; only a synchronized model has a version
+- `assertVersion(id: string, stored: any, expectedVersion: number)`: `void` — The early answer to a conditional change on a record that already has another version
+- `versionConflict(id: string)`: `never`
+- `syncAccessSnapshot(stored: Record<string, any>)`: `Record<string, any>` — The tenant and scope fields of a stored record as they are BEFORE a write — taken before `mergePlain()`, which
+- `async reportSyncAccessMove(stored: Record<string, any>, written: Record<string, any>)`: `Promise<void>` — Tell the sync module that this write took a synchronized record away from users who could see it: moved to
+- `reportSyncChange(records: Record<string, any>[])`: `void` — Tell the sync module that a write of a synchronized record succeeded, so the subscribers of its hints learn of it
+- `syncChanged(created: R)`: `R` — `reportSyncChange()` for a created record, which it answers
+- `async removeOrTombstone(id: string, expectedVersion: number)`: `Promise<void>` — Delete through the store: a synchronized model's record becomes a tombstone (conditional on `expectedVersion`),
 - `async deleteForce(id: string, serviceOptions?: ServiceOptions)`: `Promise<Model>` — Delete item via ID without checks or restrictions
 - `async deleteRaw(id: string, serviceOptions?: ServiceOptions)`: `Promise<Model>` — Delete item via ID without checks, restrictions or preparations
 - `async pushToArray(id: string | Types.ObjectId | { id?: any; _id?: any; }, field: string, items: any, options?: { $slice?: number; $position?: number; $sort?: Record<string, 1 | -1>; })`: `Promise<void>` — Append items to an array field without loading the full array.
@@ -364,6 +378,7 @@ Generic: `CrudService<Model, CreateInput, UpdateInput>`
 | `hub` | README, CHECKLIST | `src/core/modules/hub/` |
 | `migrate` | README | `src/core/modules/migrate/` |
 | `permissions` | README, CHECKLIST | `src/core/modules/permissions/` |
+| `sync` | README, CHECKLIST | `src/core/modules/sync/` |
 | `system-setup` | README, CHECKLIST | `src/core/modules/system-setup/` |
 | `tenant` | README, CHECKLIST | `src/core/modules/tenant/` |
 | `tus` | README, CHECKLIST | `src/core/modules/tus/` |
