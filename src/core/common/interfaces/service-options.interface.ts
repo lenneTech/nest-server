@@ -50,8 +50,9 @@ export interface ServiceOptions {
   // Determines whether all restrictions are ignored
   force?: boolean;
 
-  // Read (and, for update / delete, match) a synchronized model's tombstones too — its deleted records, which every
-  // other read leaves out. Applies to the main model only: a populated reference to a tombstone stays empty
+  // Read a synchronized model's tombstones too — its deleted records, which every other read leaves out (get, find,
+  // findOne, findAndCount, distinct). Reads only: update() and delete() never touch a tombstone and answer 404 for one.
+  // Applies to the main model only: a populated reference to a tombstone stays empty
   includeTombstones?: boolean;
 
   // Overwrites type of input (array items)

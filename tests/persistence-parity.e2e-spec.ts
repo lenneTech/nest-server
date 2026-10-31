@@ -1226,6 +1226,44 @@ for (const driver of PERSISTENCE_DRIVERS) {
       expect(later.map((record) => [record.id, !!record.deletedAt])).toEqual([[b.id, true]]);
     });
 
+    /**
+     * @regression   DEV-3900 review — on MySQL / MariaDB a multi-row write locks index gaps an insert waits for; an
+     *   insert that took its change number in the trigger first deadlocked with it (1213).
+     * @seen-failing Make MysqlDataStore.numbersLast() return false in
+     *   src/core/common/persistence/sql/mysql/mysql-data-store.ts — registered as mutation
+     *   `mysql-sync-numbers-not-last` in tests/regression-mutations.json (the six MySQL / MariaDB columns go red).
+     */
+    persistenceIt('sync-concurrent-writes', driver, async () => {
+      await run({ tenantId: 'A' }, async () => {
+        for (let i = 0; i < 20; i++) {
+          await synced.insert({ name: `seed-${i}`, score: i });
+        }
+      });
+      const inserts = Array.from({ length: 4 }, (_, writer) =>
+        run({ tenantId: 'A' }, async () => {
+          for (let i = 0; i < 25; i++) {
+            await synced.insert({ name: `w${writer}-${i}`, score: 100 + i });
+          }
+        }),
+      );
+      const bulk = run({ tenantId: 'A' }, async () => {
+        for (let i = 0; i < 10; i++) {
+          await synced.updateMany({ score: { $gte: 100 } }, { $inc: { score: 1 } });
+          await synced.deleteMany({ score: { $lt: 5 + i } });
+        }
+      });
+      const results = await Promise.allSettled([...inserts, bulk]);
+      expect(
+        results.filter((result) => result.status === 'rejected').map((result: any) => result.reason?.message),
+      ).toEqual([]);
+      const all = await run({ tenantId: 'A' }, () => synced.find({}, { includeTombstones: true }));
+      expect(all).toHaveLength(120);
+      if (synced.capabilities.changeOrder === 'seq') {
+        expect(new Set(all.map((record) => record.syncSeq)).size).toBe(120);
+        expect(all.every((record) => record.syncSeq > 0)).toBe(true);
+      }
+    });
+
     persistenceIt('sync-pull-across-tenants', driver, async () => {
       const pause = driver === 'mongodb' ? tick : async () => undefined;
       for (const [tenantId, name] of [
@@ -1244,6 +1282,12 @@ for (const driver of PERSISTENCE_DRIVERS) {
     });
 
     if (driver === 'mongodb') {
+      /**
+       * @regression   DEV-3900 review — the case skewed `Date.now` only, so an insert stamped with `new Date()` passed it.
+       * @seen-failing Stamp syncAt with `new Date()` in the save hook of
+       *   src/core/common/persistence/mongo/sync-schema.plugin.ts — registered as mutation
+       *   `sync-insert-stamps-app-clock` in tests/regression-mutations.json.
+       */
       persistenceIt('sync-server-clock', driver, async () => {
         const realNow = Date.now;
         const serverNow = async () => {
@@ -1253,27 +1297,28 @@ for (const driver of PERSISTENCE_DRIVERS) {
             .command({ hello: 1 });
           return (hello.localTime as Date).getTime();
         };
-        const spy = vi.spyOn(Date, 'now').mockImplementation(() => realNow() - 10 * 60_000);
+        // The whole Date skewed — `Date.now()` and `new Date()` — as on a replica whose clock runs behind
+        vi.useFakeTimers({ now: realNow() - 10 * 60_000, toFake: ['Date'] });
         try {
           const record = await synced.insert({ name: 'skewed' });
           const updated = await synced.updateById(record.id, { name: 'still skewed' });
+          vi.useRealTimers();
           const now = await serverNow();
           expect(Math.abs(record.syncAt.getTime() - now)).toBeLessThan(5_000);
           expect(Math.abs(updated.syncAt.getTime() - now)).toBeLessThan(5_000);
         } finally {
-          spy.mockRestore();
+          vi.useRealTimers();
         }
       });
     } else {
       persistenceComplement('sync-server-clock', driver, async () => {
-        const realNow = Date.now;
-        const spy = vi.spyOn(Date, 'now').mockImplementation(() => realNow() - 10 * 60_000);
+        vi.useFakeTimers({ now: Date.now() - 10 * 60_000, toFake: ['Date'] });
         try {
           const first = await synced.insert({ name: 'first' });
           const second = await synced.insert({ name: 'second' });
           expect(second.syncSeq).toBeGreaterThan(first.syncSeq);
         } finally {
-          spy.mockRestore();
+          vi.useRealTimers();
         }
       });
     }
@@ -1342,6 +1387,13 @@ for (const driver of PERSISTENCE_DRIVERS) {
       ).rejects.toBeInstanceOf(ForbiddenException);
     });
 
+    /**
+     * @regression   DEV-3900 review — the MongoDB aggregate hook ignored includeTombstones, so findAndCount() with it
+     *   left the tombstones out on MongoDB only.
+     * @seen-failing Drop the includeTombstones check from the aggregate hook in
+     *   src/core/common/persistence/mongo/sync-schema.plugin.ts — registered as mutation
+     *   `sync-aggregate-ignores-include-tombstones` in tests/regression-mutations.json.
+     */
     persistenceIt('sync-crud-service', driver, async () => {
       const service = new SyncedCrudService(synced);
       const parent: any = await run(inTenantA, () => service.create({ name: 'parent' }, asAdmin));
@@ -1363,6 +1415,10 @@ for (const driver of PERSISTENCE_DRIVERS) {
       expect((await run(inTenantA, () => service.find({}, asAdmin))).map((item: any) => item.id)).toEqual([child.id]);
       expect(await run(inTenantA, () => service.find({}, { ...asAdmin, includeTombstones: true }))).toHaveLength(2);
       expect((await run(inTenantA, () => service.findAndCount({}, asAdmin))).totalCount).toBe(1);
+      const withTombstones = await run(inTenantA, () =>
+        service.findAndCount({}, { ...asAdmin, includeTombstones: true }),
+      );
+      expect([withTombstones.items.length, withTombstones.totalCount]).toEqual([2, 2]);
     });
   });
 }

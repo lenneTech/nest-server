@@ -272,7 +272,7 @@ function planExistingTable(
       description: `create ${index.unique ? 'unique ' : ''}index ${index.name} on ${name}`,
       // A unique index can fail on the rows already stored, and it changes what may be written: a reviewed decision
       kind: index.unique ? 'migration' : 'automatic',
-      statements: [index.create],
+      statements: index.unique ? liveUniqueMigration(table, existing, index, wanted) : [index.create],
       table: name,
     });
   }
@@ -370,6 +370,42 @@ function planSync(
     ];
   }
   return [];
+}
+
+/**
+ * The statements of a new unique index's migration. A synchronized model's index reads `deleted_at`: when the table
+ * does not have it yet (an existing model that became synchronized), the column comes first — the boot that refuses the
+ * index never adds it. A framework unique index over the same fields that the model no longer declares is the one the
+ * live-only index replaces: it goes last, because a tombstone (which keeps no values) would collide on it
+ */
+function liveUniqueMigration(
+  table: DesiredTable,
+  existing: CatalogTable,
+  index: DesiredTable['indexes'][number],
+  wanted: Set<string>,
+): string[] {
+  const statements: string[] = [];
+  const deletedAt = table.columns.find((column) => column.name === 'deleted_at');
+  if (table.sync && deletedAt && !existing.columns.has('deleted_at') && index.create.includes('"deleted_at"')) {
+    statements.push(
+      `ALTER TABLE ${quoteIdentifier(table.name)} ADD COLUMN ${columnDefinition({ ...deletedAt, primaryKey: false })}`,
+    );
+  }
+  statements.push(index.create);
+  if (table.sync) {
+    const stem = indexStem(index.name);
+    for (const [old, unique] of existing.indexes) {
+      if (unique && !wanted.has(old) && indexStem(old) === stem) {
+        statements.push(`DROP INDEX IF EXISTS ${quoteIdentifier(old)}`);
+      }
+    }
+  }
+  return statements;
+}
+
+/** A framework index name without its definition hash (`ux_<table>__<fields>_<hash>`) */
+function indexStem(name: string): string {
+  return name.replace(/_[0-9a-f]{8}$/, '');
 }
 
 function sameType(

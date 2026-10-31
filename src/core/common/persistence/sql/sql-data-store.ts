@@ -26,6 +26,7 @@ import {
   liveFilter,
   SYNC_DELETED_FIELD,
   SYNC_SEQUENCE_FIELD,
+  SYNC_SEQUENCE_PENDING,
   SYNC_SYSTEM_FIELDS,
   SYNC_VERSION_FIELD,
 } from '../sync-model.js';
@@ -488,6 +489,7 @@ export class SqlDataStore<T = Record<string, any>> implements DataStore<T> {
         params: write.values,
         text: `UPDATE ${this.table} SET ${assignments.join(', ')} WHERE ${this.quote('id')} = ${write.add(rows[0].id)}`,
       });
+      await this.numberPending(run, [rows[0].id]);
       return record;
     });
   }
@@ -495,10 +497,14 @@ export class SqlDataStore<T = Record<string, any>> implements DataStore<T> {
   /**
    * A write to several rows of a synchronized model (plan §3.4, C1d): the rows are locked first, then the transaction
    * takes its change numbers, then its final statements write the rows with their numbers set explicitly — the order
-   * is always "rows first, counter last", so the multi-row write cannot deadlock with single-row writes, and the
-   * numbers commit with it. Returns how many rows matched.
+   * is always "rows first, counter last", so the multi-row write cannot deadlock with another store write — on MySQL
+   * and MariaDB, whose `FOR UPDATE` also locks index gaps, only because every store write there takes its number last
+   * too (`numbersLast()`). The numbers commit with the write. Returns how many rows matched.
    */
   protected async updateRows(where: Where<T>, patch: Record<string, any>, options: UpdateOptions): Promise<number> {
+    // The rows get their numbers in the final statements, not the pending marker
+    const { [SYNC_SEQUENCE_FIELD]: _pending, ...set } = patch.$set ?? {};
+    const update = { ...patch, $set: set };
     return this.transact(async (run) => {
       const params = new SqlParams();
       const { rows } = await run<{ id: string }>({
@@ -508,25 +514,53 @@ export class SqlDataStore<T = Record<string, any>> implements DataStore<T> {
       if (!rows.length) {
         return 0;
       }
-      const numbers = await this.takeChangeNumbers(run, rows.length);
-      for (let start = 0; start < rows.length; start += SYNC_CHUNK) {
-        const chunk = rows.slice(start, start + SYNC_CHUNK);
-        const write = new SqlParams();
-        const cases = chunk
-          .map((row, index) => `WHEN ${write.add(row.id)} THEN ${this.bigintParam(write, numbers[start + index])}`)
-          .join(' ');
-        const assignments = [
-          ...this.compileUpdate(patch, write),
-          `${this.quote('sync_seq')} = CASE ${this.quote('id')} ${cases} END`,
-        ];
-        const ids = chunk.map((row) => write.add(row.id)).join(', ');
-        await run({
-          params: write.values,
-          text: `UPDATE ${this.table} SET ${assignments.join(', ')} WHERE ${this.quote('id')} IN (${ids})`,
-        });
-      }
-      return rows.length;
+      const ids = rows.map((row) => row.id);
+      await this.writeChangeNumbers(run, ids, await this.takeChangeNumbers(run, ids.length), update);
+      return ids.length;
     });
+  }
+
+  /**
+   * Whether a store write takes its change number LAST, in its own transaction, instead of through the trigger: the
+   * write marks the row pending (`sync_seq = -1`, which the trigger leaves alone), then the number is taken and set.
+   * Needed where a trigger's counter would be held while the write still waits for a lock — MySQL and MariaDB, whose
+   * inserts wait for gap locks after the BEFORE INSERT trigger ran. PostgreSQL takes no gap locks: the trigger suffices
+   */
+  protected numbersLast(): boolean {
+    return false;
+  }
+
+  /** Number the rows a store write marked pending, as the last step of its transaction (`numbersLast()`) */
+  protected async numberPending(run: SqlRun, ids: readonly string[]): Promise<void> {
+    if (!this.model.sync || !this.numbersLast() || !ids.length) {
+      return;
+    }
+    await this.writeChangeNumbers(run, ids, await this.takeChangeNumbers(run, ids.length));
+  }
+
+  /** Set the rows' change numbers explicitly (the trigger keeps them), with the update's other assignments, in chunks */
+  protected async writeChangeNumbers(
+    run: SqlRun,
+    ids: readonly string[],
+    numbers: readonly string[],
+    update: Record<string, any> = {},
+  ): Promise<void> {
+    for (let start = 0; start < ids.length; start += SYNC_CHUNK) {
+      const chunk = ids.slice(start, start + SYNC_CHUNK);
+      const write = new SqlParams();
+      const cases = chunk
+        .map((id, index) => `WHEN ${write.add(id)} THEN ${this.bigintParam(write, numbers[start + index])}`)
+        .join(' ');
+      const assignments = [
+        ...(Object.keys(update).length ? this.compileUpdate(update, write) : []),
+        `${this.quote('sync_seq')} = CASE ${this.quote('id')} ${cases} END`,
+      ];
+      const list = chunk.map((id) => write.add(id)).join(', ');
+      await run({
+        params: write.values,
+        text: `UPDATE ${this.table} SET ${assignments.join(', ')} WHERE ${this.quote('id')} IN (${list})`,
+      });
+    }
   }
 
   /**
@@ -613,6 +647,9 @@ export class SqlDataStore<T = Record<string, any>> implements DataStore<T> {
     if (updatedAt) {
       doc[updatedAt] = now;
     }
+    if (this.model.sync && this.numbersLast()) {
+      doc[SYNC_SEQUENCE_FIELD] = SYNC_SEQUENCE_PENDING;
+    }
     return doc;
   }
 
@@ -623,6 +660,9 @@ export class SqlDataStore<T = Record<string, any>> implements DataStore<T> {
       // tombstone write sets `deletedAt` (plan §3.3, E1). The change position is the trigger's
       stripSyncFields(update, options.tombstone === true);
       update.$inc = { ...update.$inc, [SYNC_VERSION_FIELD]: 1 };
+      if (this.numbersLast()) {
+        update.$set = { ...update.$set, [SYNC_SEQUENCE_FIELD]: SYNC_SEQUENCE_PENDING };
+      }
     }
     if (this.model.tenantScoped) {
       const single = resolveSingleTenantId(this.modelName);

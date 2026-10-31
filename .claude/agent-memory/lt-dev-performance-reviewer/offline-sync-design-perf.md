@@ -43,5 +43,20 @@ single-tenant pulls (header-less pull spans `tenantId $in memberships`).
 whether bypass/migration writes follow the sentinel protocol, the pull indexes on a tenant-scoped model (`explain()`),
 and how W is sized per MongoDB topology.
 
+## Phase 3 (DEV-3900, 2026-10-31, code review): one High
+- HIGH (MySQL/MariaDB only): the BEFORE INSERT trigger bumps the counter row BEFORE InnoDB's insert-intention gap
+  check, so a store INSERT holds the counter and then waits on a REPEATABLE-READ gap lock of `updateRows()`'s
+  `SELECT … FOR UPDATE` (or a non-PK `lockFirst`/`tombstone` pick), which then asks for the counter → ER_LOCK_DEADLOCK
+  1213, unmapped → 500. Measured (probe db, real tables, verbatim trigger): 4 insert loops + 1 multi-row loop on one
+  tenant, 8 s: MySQL 810 insert deadlocks / ~6.2k, MariaDB 798 / ~16.5k; same with the multi-row tx under READ
+  COMMITTED: 0 on both. PG unaffected (no gap locks). Scripts: scratchpad `mysql-sync-deadlock*.mjs` pattern.
+- Status: fixed in DEV-3900 before the merge — every MySQL / MariaDB store write of a synchronized model takes its
+  number last (`numbersLast()`), matrix case `sync-concurrent-writes`, mutation `mysql-sync-numbers-not-last`.
+- Settled: non-sync paths unchanged (same statements/query counts; getters are symbol/WeakMap reads); PG uses advisory
+  xact lock + sequence (no counter tuple versions — P2 #2 resolved); tenant-led pull indexes present on Mongo + SQL
+  (P2 #3 resolved); MySQL live-key unique columns get the base-column companion index; trigger skips rows whose
+  sync_seq the statement sets, so updateRows takes the lock once; MySQL counter held across readback+COMMIT RTTs is
+  the plan-named design cost (§5), it widens the deadlock window.
+
 Scratch MongoDB tests: a PreToolUse hook blocks `dropDatabase`. Name scratch DBs
 `nest-server-e2e-run-<ts>-p<pid>-<suffix>`, so the next e2e run's startup sweep removes them once the PID is dead.

@@ -261,6 +261,11 @@ export const PERSISTENCE_CASES: readonly PersistenceCase[] = [
   },
   {
     drivers: ALL,
+    id: 'sync-concurrent-writes',
+    title: 'inserts racing updateMany and deleteMany on one tenant all succeed, and every change gets its own position',
+  },
+  {
+    drivers: ALL,
     id: 'sync-pull-across-tenants',
     title: 'a pull over two tenants (no tenant header) sees both tenants’ changes in one order, and no third tenant',
   },

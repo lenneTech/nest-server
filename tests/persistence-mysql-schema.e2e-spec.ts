@@ -441,9 +441,29 @@ for (const variant of ['mysql', 'mariadb'] as MysqlVariant[]) {
           return sync ? withSequenceField(withSyncDescriptor(model, resolveSyncOptions(true, 'SchemaCode')!)) : model;
         };
         await applyMysqlSchema(owner, [codes(false)], options);
+        for (const [id, code] of [
+          ['6720c0aabbccddeeff00c001', 'A'],
+          ['6720c0aabbccddeeff00c002', 'B'],
+        ]) {
+          await owner.run({ params: [id, code], text: 'INSERT INTO schema_codes (id, code) VALUES ($1, $2)' }, SYSTEM);
+        }
         const refusal = await applyMysqlSchema(owner, [codes(true)], options).catch((error: unknown) => error);
         expect(refusal).toBeInstanceOf(SchemaMigrationRequiredError);
-        expect(String((refusal as Error).message)).toContain('lt_lk_code');
+        // The suggested migration brings the column the live-key column reads, and drops the full index it replaces
+        const [change] = (refusal as SchemaMigrationRequiredError).changes;
+        expect(change.statements[0]).toMatch(/^ALTER TABLE `schema_codes` ADD COLUMN `deleted_at`/);
+        expect(change.statements.some((statement) => statement.includes('`lt_lk_code`'))).toBe(true);
+        expect(change.statements.at(-1)).toMatch(/^DROP INDEX `ux_schema_codes__code_\w+` ON `schema_codes`$/);
+
+        for (const text of change.statements) {
+          await owner.run({ params: [], text }, SYSTEM);
+        }
+        await applyMysqlSchema(owner, [codes(true)], options);
+        const store = new MysqlDataStore<any>(app as MysqlExecutor, codes(true));
+        await store.deleteById('6720c0aabbccddeeff00c001');
+        await store.deleteById('6720c0aabbccddeeff00c002');
+        expect(await store.count({}, { includeTombstones: true })).toBe(2);
+        expect((await store.insert({ code: 'A' })).code).toBe('A');
       });
     });
 

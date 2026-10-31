@@ -138,8 +138,15 @@ not used for batches (MongoDB standalone has no transactions, `capabilities.tran
   `deleteMany`) lock their rows with `SELECT … FOR UPDATE`, then take their numbers, then set them explicitly in their
   final statement — rows first, numbers last, without the sentinel round trip (the trigger keeps a value the statement
   sets itself). PostgreSQL takes the numbers under the model's advisory lock from a sequence (measured, §5), MySQL and
-  MariaDB from the counter row. Store inserts use the trigger form: the wait on an uncommitted duplicate is bounded by
-  a one-statement transaction. Rows a table holds when it becomes synchronized are numbered at the schema change.
+  MariaDB from the counter row. On PostgreSQL store inserts and single-row writes use the trigger. On MySQL and
+  MariaDB every store write takes its number last (row marked `-1`, numbered before COMMIT): their `FOR UPDATE` locks
+  index gaps, and an insert whose trigger held the counter while it waited for such a gap deadlocked with a multi-row
+  write (review measurement: ~13 % of inserts, matrix case `sync-concurrent-writes`). Rows a table holds when it
+  becomes synchronized are numbered at the schema change.
+- **An existing model becoming synchronized** is a migration on every database: SQL refuses with the statements
+  (`deleted_at`, the live-only index, `DROP` of the full index it replaces), MongoDB refuses at boot
+  (`assertSyncCollectionReady()`: old unique indexes, documents without `syncAt`). A unique index inside an embedded
+  object is refused at registration — MongoDB keeps it on the child schema, out of reach of the rewrite.
 - **Ids**: `capabilities.idType` is the model's format, `capabilities.changeOrder` (`seq` / `clock`) is present for a
   synchronized model only. A client id in the wrong format is refused (400) rather than replaced; a server id that is
   taken is generated anew, three attempts.

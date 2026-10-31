@@ -15,6 +15,7 @@ import {
   UnsafeDatabaseRoleError,
   verifyPostgresSchema,
 } from '../src/core/common/persistence/sql/postgres/postgres-schema.migrator';
+import { SqlDataStore } from '../src/core/common/persistence/sql/sql-data-store';
 import { createSqlExecutor } from '../src/core/common/persistence/sql/sql-executor.factory';
 import { runSqlMigration } from '../src/core/modules/migrate/sql-migration.helper';
 import type { SqlExecutor, SqlTenantScope } from '../src/core/common/persistence/sql/sql-executor.interface';
@@ -456,9 +457,30 @@ describe('PostgreSQL schema evolution and row-level security (e2e)', () => {
         return sync ? withSequenceField(withSyncDescriptor(model, resolveSyncOptions(true, 'SchemaCode')!)) : model;
       };
       await applyPostgresSchema(owner, [codes(false)], OPTIONS);
+      for (const [id, code] of [
+        ['6720c0aabbccddeeff00c001', 'A'],
+        ['6720c0aabbccddeeff00c002', 'B'],
+      ]) {
+        await owner.run({ params: [id, code], text: 'INSERT INTO schema_codes (id, code) VALUES ($1, $2)' }, SYSTEM);
+      }
       const refusal = await applyPostgresSchema(owner, [codes(true)], OPTIONS).catch((error: unknown) => error);
       expect(refusal).toBeInstanceOf(SchemaMigrationRequiredError);
-      expect(String((refusal as Error).message)).toMatch(/NULLS NOT DISTINCT WHERE \("deleted_at" IS NULL\)/);
+      // The suggested migration brings the column the new index reads, and drops the full index it replaces
+      const [change] = (refusal as SchemaMigrationRequiredError).changes;
+      expect(change.statements[0]).toMatch(/^ALTER TABLE "schema_codes" ADD COLUMN "deleted_at"/);
+      expect(change.statements[1]).toMatch(/NULLS NOT DISTINCT WHERE \("deleted_at" IS NULL\)$/);
+      expect(change.statements[2]).toMatch(/^DROP INDEX IF EXISTS "ux_schema_codes__code_/);
+
+      for (const text of change.statements) {
+        await owner.run({ params: [], text }, SYSTEM);
+      }
+      await applyPostgresSchema(owner, [codes(true)], OPTIONS);
+      // Two tombstones, both without the value: the old full index would refuse the second one
+      const store = new SqlDataStore<any>(app, codes(true));
+      await store.deleteById('6720c0aabbccddeeff00c001');
+      await store.deleteById('6720c0aabbccddeeff00c002');
+      expect(await store.count({}, { includeTombstones: true })).toBe(2);
+      expect((await store.insert({ code: 'A' })).code).toBe('A');
     });
   });
 

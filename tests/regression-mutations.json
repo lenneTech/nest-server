@@ -5063,6 +5063,39 @@
         "tests/unit/mutation-sharding.spec.ts"
       ],
       "driverSpecific": false
+    },
+    {
+      "id": "mysql-sync-numbers-not-last",
+      "defect": "DEV-3900 (offline sync phase 3, review) — on MySQL / MariaDB a store insert of a synchronized model took its change number in the BEFORE INSERT trigger and then waited for the gap a concurrent updateMany / deleteMany had locked with FOR UPDATE, which in turn waited for the counter: InnoDB aborted one side with a deadlock (1213), measured at ~13 % of inserts.",
+      "file": "src/core/common/persistence/sql/mysql/mysql-data-store.ts",
+      "find": "  protected override numbersLast(): boolean {\n    return true;\n  }",
+      "replace": "  protected override numbersLast(): boolean {\n    return false;\n  }",
+      "specs": [
+        "tests/persistence-parity.e2e-spec.ts"
+      ],
+      "driverSpecific": false
+    },
+    {
+      "id": "sync-insert-stamps-app-clock",
+      "defect": "DEV-3900 (offline sync phase 3, review) — a MongoDB insert of a synchronized model stamped syncAt with the application's clock: a replica whose clock runs behind writes change positions behind what clients already pulled, and those changes never reach them.",
+      "file": "src/core/common/persistence/mongo/sync-schema.plugin.ts",
+      "find": "      this.set(SYNC_CLOCK_FIELD, await mongoServerNow(connection));\n      return;",
+      "replace": "      this.set(SYNC_CLOCK_FIELD, new Date());\n      return;",
+      "specs": [
+        "tests/persistence-parity.e2e-spec.ts"
+      ],
+      "driverSpecific": false
+    },
+    {
+      "id": "sync-aggregate-ignores-include-tombstones",
+      "defect": "DEV-3900 (offline sync phase 3, review) — the sync plugin's aggregate hook added the live-record $match whatever the query asked, so CrudService.findAndCount(…, { includeTombstones: true }) left every tombstone out on MongoDB while every SQL store returned them.",
+      "file": "src/core/common/persistence/mongo/sync-schema.plugin.ts",
+      "find": "    if (!this[INCLUDE_TOMBSTONES]) {\n      matchLiveInPipeline(pipeline);\n    }",
+      "replace": "    matchLiveInPipeline(pipeline);",
+      "specs": [
+        "tests/persistence-parity.e2e-spec.ts"
+      ],
+      "driverSpecific": false
     }
   ]
 }

@@ -106,6 +106,66 @@ export function applySyncSchema(schema: any, sync: SyncDescriptor): void {
   registerHooks(schema);
 }
 
+/** A MongoDB collection that holds data from before its model was synchronized — the migration it needs */
+export class SyncMigrationRequiredError extends Error {
+  override readonly name = 'SyncMigrationRequiredError';
+
+  constructor(
+    readonly model: string,
+    readonly statements: string[],
+  ) {
+    super(
+      `${model} is synchronized, but its collection holds data from before: run these statements in a migration, ` +
+        `then start again —\n${statements.map((statement) => `  ${statement}`).join('\n')}\n` +
+        'Until the old unique indexes are dropped, a second delete fails on them (a tombstone keeps no values), and a ' +
+        'document without a change position never reaches a client.',
+    );
+  }
+}
+
+/**
+ * Refuse to run a synchronized model on a collection that is not ready for it — the MongoDB counterpart of the SQL
+ * migrator's refusal (offline-sync plan §3.6). Two things block: a unique index that is not restricted to live
+ * records (Mongoose cannot replace it under the same name, and a tombstone's missing value collides on it), and a
+ * document without `syncAt` (written before the model was synchronized: no version, no change position). Reads the
+ * index list and one document id through the driver — an administrative read, no data leaves the process.
+ */
+export async function assertSyncCollectionReady(model: any): Promise<void> {
+  if (!isSyncSchema(model?.schema) || !model.collection) {
+    return;
+  }
+  let indexes: Array<{ key: Record<string, unknown>; name: string; partialFilterExpression?: any; unique?: boolean }>;
+  try {
+    indexes = await model.collection.indexes();
+  } catch (error) {
+    // A collection that does not exist yet holds nothing from before
+    if ((error as { code?: unknown })?.code === 26) {
+      return;
+    }
+    throw error;
+  }
+  const name = model.collection.collectionName ?? model.collection.name;
+  const statements: string[] = [];
+  for (const index of indexes) {
+    if (index.unique && index.name !== '_id_' && index.partialFilterExpression?.[SYNC_DELETED_FIELD] !== null) {
+      statements.push(`db.getCollection(${JSON.stringify(name)}).dropIndex(${JSON.stringify(index.name)})`);
+    }
+  }
+  const unstamped = await model.collection.findOne(
+    { [SYNC_CLOCK_FIELD]: { $exists: false } },
+    { projection: { _id: 1 } },
+  );
+  if (unstamped) {
+    statements.push(
+      `db.getCollection(${JSON.stringify(name)}).updateMany({ ${SYNC_CLOCK_FIELD}: { $exists: false } }, ` +
+        `[{ $set: { ${SYNC_VERSION_FIELD}: { $ifNull: ['$${SYNC_VERSION_FIELD}', 1] }, ${SYNC_DELETED_FIELD}: { $ifNull: ['$${SYNC_DELETED_FIELD}', null] }, ${SYNC_CLOCK_FIELD}: '$$NOW' } }])`,
+    );
+  }
+  if (statements.length) {
+    throw new SyncMigrationRequiredError(model.modelName, statements);
+  }
+}
+
 /**
  * The server's clock (plan §3.4: app clocks differ between instances, so the insert's stamp must follow the
  * database's). Read through `hello.localTime` and carried forward with this process's MONOTONIC clock — never its wall
@@ -242,10 +302,28 @@ function registerHooks(schema: any): void {
 
   schema.pre('aggregate', function (this: any) {
     const pipeline = this.pipeline();
-    const model = this._model;
-    pipeline.unshift({ $match: liveFilter() });
-    matchLiveInJoins(pipeline, model);
+    if (!this[INCLUDE_TOMBSTONES]) {
+      matchLiveInPipeline(pipeline);
+    }
+    // A join into a synchronized collection sees live records only, whatever the source asked for
+    matchLiveInJoins(pipeline, this._model);
   });
+}
+
+/**
+ * Restrict an aggregation over a synchronized collection to its live records. A stage MongoDB requires first
+ * (`$geoNear`, `$search`, `$searchMeta`, `$vectorSearch`) keeps its place: `$geoNear` takes the live filter into its
+ * own `query`, the search stages get the `$match` right after them.
+ */
+export function matchLiveInPipeline(pipeline: any[]): void {
+  const first = pipeline[0];
+  if (first?.$geoNear) {
+    first.$geoNear.query = first.$geoNear.query ? { $and: [first.$geoNear.query, liveFilter()] } : liveFilter();
+  } else if (first && (first.$search || first.$searchMeta || first.$vectorSearch)) {
+    pipeline.splice(1, 0, { $match: liveFilter() });
+  } else {
+    pipeline.unshift({ $match: liveFilter() });
+  }
 }
 
 function matchLive(query: any): void {
@@ -274,7 +352,14 @@ function syncUpdate(update: any, tombstone: boolean): any {
       continue;
     }
     if (value && typeof value === 'object' && !Array.isArray(value)) {
-      const kept = Object.fromEntries(Object.entries(value).filter(([path]) => !isSystemPath(path, tombstone)));
+      // `$rename` names a path on both sides: neither may be a system field
+      const kept = Object.fromEntries(
+        Object.entries(value).filter(
+          ([path, target]) =>
+            !isSystemPath(path, tombstone) &&
+            !(key === '$rename' && typeof target === 'string' && isSystemPath(target, false)),
+        ),
+      );
       if (Object.keys(kept).length) {
         result[key] = { ...result[key], ...kept };
       }

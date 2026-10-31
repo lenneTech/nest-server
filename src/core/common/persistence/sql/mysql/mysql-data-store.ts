@@ -89,6 +89,33 @@ export class MysqlDataStore<T = Record<string, any>> extends SqlDataStore<T> {
     return MYSQL_STORE_CAPABILITIES;
   }
 
+  /**
+   * Every store write of a synchronized model takes its change number last: `FOR UPDATE` locks index gaps here, and an
+   * insert waits for them after its BEFORE INSERT trigger ran — a trigger holding the counter meanwhile would deadlock
+   * with a multi-row write that locked those gaps and now asks for the counter (measured, DEV-3900 review)
+   */
+  protected override numbersLast(): boolean {
+    return true;
+  }
+
+  /** A single-column write (pullFromArray, a one-stage push) — in a transaction, so a synchronized row is numbered */
+  protected override async updateColumn(id: string, column: string, value: string, params: SqlParams): Promise<void> {
+    if (!this.model.sync) {
+      return super.updateColumn(id, column, value, params);
+    }
+    const { $setOnInsert: _insertOnly, ...stamped } = await this.beforeUpdate({});
+    const assignments = [`${column} = ${value}`, ...this.compileUpdate(stamped, params)];
+    await this.transaction(async (run) => {
+      const { rowCount } = await run({
+        params: params.values,
+        text: `UPDATE ${this.table} SET ${assignments.join(', ')} WHERE ${this.where({ id } as Where<T>, params)}`,
+      });
+      if (rowCount) {
+        await this.numberPending(run, [id]);
+      }
+    });
+  }
+
   // -- reads ----------------------------------------------------------------------------------------------
 
   override async count(where?: Where<T>, options: ReadOptions = {}): Promise<number> {
@@ -168,6 +195,7 @@ export class MysqlDataStore<T = Record<string, any>> extends SqlDataStore<T> {
           params: params.values,
           text: `INSERT INTO ${this.table} (${columns.join(', ')}) VALUES (${values.join(', ')})`,
         });
+        await this.numberPending(run, [id]);
         return (await this.readById(run, id))!;
       });
     });
@@ -191,7 +219,11 @@ export class MysqlDataStore<T = Record<string, any>> extends SqlDataStore<T> {
         text: `UPDATE ${this.table} SET ${assignments.join(', ')} WHERE ${condition}`,
       });
       // The driver counts MATCHED rows (CLIENT_FOUND_ROWS), so an update that changes nothing still finds its record
-      return rowCount ? this.readById(run, id) : null;
+      if (!rowCount) {
+        return null;
+      }
+      await this.numberPending(run, [id]);
+      return this.readById(run, id);
     });
   }
 
@@ -215,6 +247,7 @@ export class MysqlDataStore<T = Record<string, any>> extends SqlDataStore<T> {
         params: params.values,
         text: `UPDATE ${this.table} SET ${assignments.join(', ')} WHERE \`id\` = ${params.add(id)}`,
       });
+      await this.numberPending(run, [id]);
       return this.readById(run, id);
     });
   }
@@ -322,6 +355,7 @@ export class MysqlDataStore<T = Record<string, any>> extends SqlDataStore<T> {
           return;
         }
       }
+      await this.numberPending(run, [id]);
     });
   }
 

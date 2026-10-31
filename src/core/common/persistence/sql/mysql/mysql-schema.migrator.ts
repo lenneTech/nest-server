@@ -413,16 +413,38 @@ function planExistingTable(table: MysqlDesiredTable, existing: CatalogTable): Sc
     }
     const sentinels = (index.sentinels ?? []).filter((sentinel) => deferred.has(sentinel) && !added.has(sentinel));
     sentinels.forEach((sentinel) => added.add(sentinel));
+    // A synchronized model's live-key columns read `deleted_at`: an existing model that became synchronized has none
+    // yet, and the boot that refuses this index never adds it
+    const deletedAt = table.columns.find((column) => column.name === 'deleted_at');
+    const needsDeletedAt =
+      !!table.sync &&
+      !!deletedAt &&
+      !existing.columns.has('deleted_at') &&
+      !added.has('deleted_at') &&
+      sentinels.some((sentinel) => sentinel.startsWith(LIVE_KEY_PREFIX));
+    if (needsDeletedAt) {
+      added.add('deleted_at');
+    }
+    // The framework unique index over the same fields that the model no longer declares is the one this live-only index
+    // replaces — a tombstone, which keeps no values, would collide on it
+    const stem = indexStem(index.name);
+    const superseded = table.sync
+      ? [...existing.indexes].filter(([old, unique]) => unique && !wanted.has(old) && indexStem(old) === stem)
+      : [];
     changes.push({
       description: `create ${index.unique ? 'unique ' : ''}index ${index.name} on ${name}`,
       // A unique index can fail on the rows already stored, and it changes what may be written: a reviewed decision
       kind: index.unique ? 'migration' : 'automatic',
       statements: [
+        ...(needsDeletedAt
+          ? [`ALTER TABLE ${quoted} ADD COLUMN ${mysqlColumnDefinition({ ...deletedAt!, primaryKey: false })}`]
+          : []),
         ...sentinels.map(
           (sentinel) =>
             `ALTER TABLE ${quoted} ADD COLUMN ${mysqlColumnDefinition(table.columns.find((column) => column.name === sentinel)!)}`,
         ),
         index.create,
+        ...superseded.map(([old]) => `DROP INDEX ${quoteMysqlIdentifier(old)} ON ${quoted}`),
       ],
       table: name,
     });
@@ -439,6 +461,11 @@ function planExistingTable(table: MysqlDesiredTable, existing: CatalogTable): Sc
   }
   changes.push(...planSync(table, existing));
   return changes;
+}
+
+/** A framework index name without its definition hash (`ux_<table>__<fields>_<hash>`) */
+function indexStem(name: string): string {
+  return name.replace(/_[0-9a-f]{8}$/, '');
 }
 
 function sameType(column: MysqlDesiredColumn, current: { collation: null | string; type: string }): boolean {

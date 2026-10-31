@@ -5,7 +5,7 @@ import type { Model } from 'mongoose';
 
 import { registerModelSchema } from './model-metadata.registry.js';
 import { isDeclaredSchema } from './mongo/model-declarations.js';
-import { applySyncSchema } from './mongo/sync-schema.plugin.js';
+import { applySyncSchema, assertSyncCollectionReady } from './mongo/sync-schema.plugin.js';
 import { MongooseDataStore } from './mongoose-data-store.js';
 import {
   getPersistedModelOptions,
@@ -103,6 +103,10 @@ export class CorePersistenceModule {
             ? // No SQL source and no MongoDB connection: the project runs without a database (`database: false`)
               unavailableStore(model.name, 'the project runs without a database (`database: false`)')
             : new MongooseDataStore(mongooseModel);
+        // A synchronized model on MongoDB: the collection must hold nothing from before it was synchronized
+        if (store.capabilities.mongoosePopulate && store.capabilities.changeOrder) {
+          await assertSyncCollectionReady(mongooseModel);
+        }
         registerDataStore(model.name, store);
         bindStoreToModel(mongooseModel, store);
         // A stand-in already refuses, naming the cause; a real Mongoose model of a model routed elsewhere is made to

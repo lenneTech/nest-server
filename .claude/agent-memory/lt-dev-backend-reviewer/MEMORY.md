@@ -37,3 +37,4 @@
 - [Better-Auth on MySQL (DEV-3904)](project_better-auth-mysql-dev3904.md) — foreignPool wrapper, collation swap, PG parity, IamSqlStorage change verified clean (2026-10-29).
 - [DEV-3897 stateless hardenings](project_dev-3897-stateless-hardenings.md) — relative migrationsDirectory MODULE_NOT_FOUND found and fixed (runner resolves since 12.1.1); Hub cursor read verified.
 - [Cron scheduled-instant + running lease (DEV-3896)](project_cron-scheduled-instant-running-lease.md) — cron 4.4 lastDate/timer facts verified, running lease sound; no High (2026-10-29).
+- [Offline sync phase 3 (DEV-3900)](project_offline-sync-phase3-dev3900.md) — 3 Highs: MySQL insert/updateRows deadlock, sync adoption with existing unique index, aggregate hook; PG order sound.

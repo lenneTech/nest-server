@@ -4,7 +4,11 @@ import { describe, expect, it } from 'vitest';
 
 import { generateUuidV7, isUuidV7 } from '../../src/core/common/persistence/id-format';
 import { describeSchema, registerModelSchema } from '../../src/core/common/persistence/model-metadata.registry';
-import { applySyncSchema, isSyncSchema } from '../../src/core/common/persistence/mongo/sync-schema.plugin';
+import {
+  applySyncSchema,
+  isSyncSchema,
+  matchLiveInPipeline,
+} from '../../src/core/common/persistence/mongo/sync-schema.plugin';
 import {
   assertClientId,
   insertWithServerId,
@@ -110,6 +114,15 @@ describe('synchronized models', () => {
       expect(() => withSyncDescriptor(describeSchema('Note', expiring), SYNC)).toThrow(/TTL/);
     });
 
+    it('refuses a unique index inside an embedded object, which the live-only rewrite cannot reach', () => {
+      const child = new mongoose.Schema({ sku: { type: String, unique: true } }, { _id: false });
+      for (const fields of [{ item: child }, { items: [child] }]) {
+        expect(() =>
+          withSyncDescriptor(describeSchema('Note', new mongoose.Schema(fields)), resolveSyncOptions(true, 'Note')!),
+        ).toThrow(/embedded/);
+      }
+    });
+
     it('withSequenceField adds the commit-ordered position and its index led by the tenant, for SQL only', () => {
       const descriptor = withSequenceField(withSyncDescriptor(describeSchema('Note', notesSchema()), SYNC));
       expect(descriptor.fields.syncSeq).toMatchObject({ hasDefault: false, kind: 'bigint' });
@@ -161,6 +174,23 @@ describe('synchronized models', () => {
       expect(schema.path('_id').instance).toBe('UUID');
       const Model = mongoose.model(`UuidNote${Date.now()}`, schema);
       expect(isUuidV7(String(new Model({ name: 'a' })._id))).toBe(true);
+    });
+  });
+
+  describe('matchLiveInPipeline', () => {
+    it('puts the live filter first, into $geoNear, or after a search stage — wherever MongoDB requires', () => {
+      const plain: any[] = [{ $sort: { name: 1 } }];
+      matchLiveInPipeline(plain);
+      expect(plain[0]).toEqual({ $match: { deletedAt: null } });
+
+      const geo: any[] = [{ $geoNear: { near: [0, 0], query: { name: 'a' } } }];
+      matchLiveInPipeline(geo);
+      expect(geo).toHaveLength(1);
+      expect(geo[0].$geoNear.query).toEqual({ $and: [{ name: 'a' }, { deletedAt: null }] });
+
+      const search: any[] = [{ $search: { text: {} } }, { $limit: 5 }];
+      matchLiveInPipeline(search);
+      expect(search.map((stage) => Object.keys(stage)[0])).toEqual(['$search', '$match', '$limit']);
     });
   });
 

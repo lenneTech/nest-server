@@ -107,6 +107,17 @@ export function withSyncDescriptor(descriptor: ModelDescriptor, sync: SyncDescri
       throw new Error(`${name}: sync.scope names "${field}", which the model does not declare`);
     }
   }
+  const nestedUnique = descriptor.indexes.find(
+    (index) => index.options.unique === true && Object.keys(index.fields).some((path) => path.includes('.')),
+  );
+  if (nestedUnique) {
+    // MongoDB keeps such an index on the embedded schema, out of reach of the live-only rewrite: a tombstone (which
+    // keeps no values) would collide on it with the next deletion
+    throw new Error(
+      `${name}: a unique index inside an embedded object (${JSON.stringify(nestedUnique.fields)}) is not supported on a ` +
+        'synchronized model — declare the unique field on the model itself',
+    );
+  }
   if (
     descriptor.indexes.some((index) => 'expireAfterSeconds' in index.options) ||
     Object.values(descriptor.fields).some((field) => field.expiresAfterSeconds !== undefined)
