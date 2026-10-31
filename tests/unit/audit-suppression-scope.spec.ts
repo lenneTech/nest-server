@@ -23,9 +23,17 @@ import { describe, expect, it } from 'vitest';
 const ROOT = join(__dirname, '../..');
 
 /**
- * Packages whose advisories are currently suppressed, and must stay dev-only.
+ * Packages whose advisories are currently suppressed, and the production reach each justification allows.
  *
- * EMPTY since 2026-10-24. GHSA-vfj7-8cjw-p6xm (braces, via nodemon / npm-watch > chokidar@3)
+ * Since 2026-10-31 (owner decision, DEV-3899), two entries, both with a fix only in a new major that no consumer can
+ * take yet (`unusableFixConsumers` in `pnpm-workspace.yaml`, re-tested by `check:overrides`):
+ *
+ * - GHSA-3g3m-2fjr-6pw4 (glob, via rimraf): dev tooling only — any glob in the production tree voids it.
+ * - GHSA-g3hv-75wg-m249 (minimatch): reaches production through exactly ONE path, ts-morph's `@ts-morph/common`,
+ *   which the Permissions module's scanner uses with globs the developer writes. The argument is "no request input
+ *   reaches the matcher", and it holds only for that path, so any other production parent voids it (`prodVia`).
+ *
+ * Empty from 2026-10-24 until then. GHSA-vfj7-8cjw-p6xm (braces, via nodemon / npm-watch > chokidar@3)
  * had an entry here from 2026-10-11, an advisory with NO patched release at all, reached only
  * through dev tooling. GitHub withdrew it on 2026-10-23, `check:overrides` flagged the
  * suppression as obsolete, and entry and guard left together (see `pnpm-workspace.yaml`).
@@ -71,7 +79,10 @@ const ROOT = join(__dirname, '../..');
  * An entry added below should still carry a date to re-verify by — the guard tells you
  * when upstream moves, not when your own reasoning stopped applying.
  */
-const DEV_ONLY_SUPPRESSIONS: { ghsa: string; pkg: string; vulnerableInProd: RegExp }[] = [];
+const DEV_ONLY_SUPPRESSIONS: { ghsa: string; pkg: string; prodVia?: string; vulnerableInProd: RegExp }[] = [
+  { ghsa: 'GHSA-3g3m-2fjr-6pw4', pkg: 'glob', vulnerableInProd: /glob@/ },
+  { ghsa: 'GHSA-g3hv-75wg-m249', pkg: 'minimatch', prodVia: '@ts-morph/common', vulnerableInProd: /minimatch@/ },
+];
 
 describe('audit suppressions stay within their justification', () => {
   const workspace = readFileSync(join(ROOT, 'pnpm-workspace.yaml'), 'utf8');
@@ -83,8 +94,8 @@ describe('audit suppressions stay within their justification', () => {
     expect(listed.sort()).toEqual(DEV_ONLY_SUPPRESSIONS.map((s) => s.ghsa).sort());
   });
 
-  for (const { ghsa, pkg, vulnerableInProd } of DEV_ONLY_SUPPRESSIONS) {
-    it(`keeps ${pkg} (${ghsa}) out of the production dependency tree`, () => {
+  for (const { ghsa, pkg, prodVia, vulnerableInProd } of DEV_ONLY_SUPPRESSIONS) {
+    it(`keeps ${pkg} (${ghsa}) ${prodVia ? `in production only under ${prodVia}` : 'out of the production dependency tree'}`, () => {
       // `--prod` walks `dependencies` only. If the vulnerable major shows up
       // here, the "dev tooling only, no consumer and no runtime reaches it"
       // argument behind the suppression no longer holds.
@@ -98,7 +109,17 @@ describe('audit suppressions stay within their justification', () => {
         stdio: ['ignore', 'pipe', 'pipe'],
       });
 
-      expect(out).not.toMatch(vulnerableInProd);
+      if (!prodVia) {
+        expect(out).not.toMatch(vulnerableInProd);
+        return;
+      }
+      // The direct parents are the first-level children under each `<pkg>@<version>` header.
+      const parents = Array.from(out.matchAll(/^[└├]─[┬─] (\S+)/gm)).map((m) => m[1]);
+      expect(parents.length, `expected a production path, got:\n${out}`).toBeGreaterThan(0);
+      expect(
+        parents.filter((parent) => !parent.startsWith(`${prodVia}@`)),
+        `a production parent other than ${prodVia} voids the suppression:\n${out}`,
+      ).toEqual([]);
     }, 60_000);
   }
 });
