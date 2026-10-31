@@ -14,6 +14,11 @@ import { SyncClient } from '../clients/sync-client.mjs';
  * (`tests/sync-node-client.e2e-spec.ts`, `tests/sync-pwa-client.e2e-spec.ts`); this keeps a client bug from costing one.
  */
 class FakeSyncServer {
+  /** Apply the next push, then fail like a connection lost before the answer arrived */
+  dropNextAnswer = false;
+  forbidden = false;
+  /** Runs while a push is in flight, before the server answers it */
+  duringPush?: () => Promise<void>;
   gone = false;
   inProgress = new Set<string>();
   outcomes = new Map<string, any>();
@@ -30,7 +35,18 @@ class FakeSyncServer {
     if (init.method === 'POST') {
       const { items } = JSON.parse(init.body);
       this.pushes.push(items);
-      return this.answer(200, { results: items.map((item: any) => this.apply(item)) });
+      const during = this.duringPush;
+      this.duringPush = undefined;
+      await during?.();
+      const results = items.map((item: any) => this.apply(item));
+      if (this.dropNextAnswer) {
+        this.dropNextAnswer = false;
+        throw new TypeError('fetch failed');
+      }
+      return this.answer(200, { results });
+    }
+    if (this.forbidden) {
+      return this.answer(403, { message: 'Forbidden' });
     }
     if (this.gone && url.searchParams.get('cursor')) {
       this.gone = false;
@@ -194,10 +210,54 @@ describe('offline-sync test client (sync-client.mjs on SQLite)', () => {
     expect(await client.sync()).toMatchObject({ applied: 0, needsLogin: true });
     const queued = await outbox();
     expect(queued).toHaveLength(1);
-    expect(queued[0].sentAt).toBeUndefined();
+    expect(queued[0].attempted).toBe(true);
     server.unauthorized = false;
     expect(await client.sync()).toMatchObject({ applied: 1, needsLogin: false });
     expect(server.pushes.at(-1)?.[0].mutationId).toBe(queued[0].mutationId);
+  });
+
+  /**
+   * @regression   DEV-3903 review — the push read the outbox in one transaction and marked it in a second one, with the
+   *   copy it read first; an edit in between folded into an item already on its way and was lost on both sides.
+   * @seen-failing Fold an edit into a change a push has carried, in SyncClient.update() (tests/clients/sync-client.mjs)
+   *   — registered as mutation `sync-client-folds-into-carried-change` in tests/regression-mutations.json.
+   */
+  it('keeps an edit made while a push is in flight, as a change of its own', async () => {
+    const { client, outbox, server } = setup();
+    const note = await client.create({ title: 'draft' });
+    server.duringPush = async () => {
+      await client.update(note.id, { body: 'typed while the push was in flight' });
+    };
+    // The edit is a change of its own, and the same sync carries it right after the create
+    await client.sync();
+    expect(await outbox()).toEqual([]);
+    expect(server.pushes.map((items) => items.map((item: any) => item.baseVersion))).toEqual([[undefined], [1]]);
+    expect(server.records.get(note.id)).toMatchObject({ data: { body: 'typed while the push was in flight', title: 'draft' }, version: 2 });
+    expect(await client.get(note.id)).toMatchObject({ data: { body: 'typed while the push was in flight' }, version: 2 });
+  });
+
+  /**
+   * @regression   DEV-3903 review — after a lost answer a later edit folded into the change the server had already
+   *   recorded under its mutation id; the repeat was answered with the recorded outcome and the edit was gone.
+   * @seen-failing Fold an edit into a change a push has carried, in SyncClient.update() (tests/clients/sync-client.mjs)
+   *   — registered as mutation `sync-client-folds-into-carried-change` in tests/regression-mutations.json.
+   */
+  it('never folds an edit into a change a push has carried — the server may have recorded it', async () => {
+    const { client, outbox, server } = setup();
+    const note = await client.create({ title: 'one' });
+    await client.sync();
+    await client.update(note.id, { title: 'edit 1' });
+    server.dropNextAnswer = true;
+    expect(await client.sync()).toMatchObject({ offline: true });
+    expect(server.records.get(note.id)).toMatchObject({ version: 2 });
+    await client.update(note.id, { body: 'edit 2' });
+    const queued = await outbox();
+    expect(queued.map(({ attempted, baseVersion }) => ({ attempted, baseVersion }))).toEqual([
+      { attempted: true, baseVersion: 1 },
+      { attempted: undefined, baseVersion: 2 },
+    ]);
+    expect(await client.sync()).toMatchObject({ applied: 2, conflicts: [] });
+    expect(server.records.get(note.id)).toMatchObject({ data: { body: 'edit 2', title: 'edit 1' }, version: 3 });
   });
 
   it('sends a change again that was still in progress elsewhere (`retry`), and settles it once recorded', async () => {
@@ -224,6 +284,25 @@ describe('offline-sync test client (sync-client.mjs on SQLite)', () => {
     expect(await outbox()).toEqual([]);
     expect(await client.get(synced.id)).toMatchObject({ data: { title: 'changed on the server' }, version: 2 });
     expect(server.records.get(local.id)).toMatchObject({ version: 1 });
+  });
+
+  it('drops the local copies and the cursor when a pull answers 403 — access lost for good', async () => {
+    const { client, network, outbox, server, store } = setup();
+    const note = await client.create({ title: 'seen before' });
+    await client.sync();
+    network.online = false;
+    const unsent = await client.create({ title: 'unsent' });
+    network.online = true;
+    server.forbidden = true;
+    const before = server.pushes.length;
+    const result = await client.sync();
+    expect(result).toMatchObject({ forbidden: true });
+    // The push went out before the pull was refused; every copy goes, the pushed record's too
+    expect(server.pushes.length).toBe(before + 1);
+    expect(await client.get(note.id)).toBeUndefined();
+    expect(await store.run((tx) => tx.getMeta('cursor:Note'))).toBeUndefined();
+    expect((await outbox()).map((item) => item.id)).not.toContain(note.id);
+    expect(await client.get(unsent.id)).toBeUndefined();
   });
 
   it('pulls page by page and continues from the stored cursor', async () => {

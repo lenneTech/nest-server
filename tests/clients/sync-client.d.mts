@@ -10,18 +10,21 @@ export interface SyncLocalRecord {
 }
 
 export interface SyncOutboxItem {
+  /** A push carried it; it is never changed again */
+  attempted?: boolean;
   baseVersion?: number;
   data?: Record<string, any>;
   id: string;
   mutationId: string;
   op: 'delete' | 'upsert';
-  sentAt?: number;
   seq?: number;
 }
 
 export interface SyncRunResult {
   applied: number;
   conflicts: any[];
+  /** A pull answered 403: the caller may no longer pull the model; the local copies were dropped */
+  forbidden: boolean;
   needsLogin: boolean;
   offline: boolean;
   rejected: any[];

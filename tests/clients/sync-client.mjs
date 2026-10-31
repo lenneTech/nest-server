@@ -12,7 +12,9 @@
  *
  * A local record is `{ id, version, updatedAt, deletedAt, data }`; `version` 0 means "created here, not on the server
  * yet". The outbox holds the unsent changes in the order they were made (`seq`), each a protocol push item plus
- * `sentAt` while a push carries it.
+ * `attempted` once a push has carried it. An attempted item is never changed again: the server may have recorded it
+ * under its mutation id, and a repeat must carry the same change (protocol §6.2, §6.5) — a later edit becomes an item
+ * of its own.
  */
 
 /** The request could not reach the server — the client is offline */
@@ -107,7 +109,7 @@ export class SyncClient {
     return record;
   }
 
-  /** Change fields of a record; folded into an unsent change of the same record where there is one */
+  /** Change fields of a record; folded into a change of the same record that no push has carried yet */
   async update(id, data) {
     return this.store.run(async (tx) => {
       const record = await tx.getRecord(id);
@@ -115,7 +117,7 @@ export class SyncClient {
         throw new Error(`no live local record ${id}`);
       }
       const pending = this.lastPending(await tx.listOutbox(), id);
-      if (pending && pending.op === 'upsert' && !pending.sentAt) {
+      if (pending && pending.op === 'upsert' && !pending.attempted) {
         await tx.putOutbox({ ...pending, data: { ...pending.data, ...data } });
       } else {
         await tx.addOutbox({ baseVersion: this.nextBase(record, pending), data, id, mutationId: newUuidV7(), op: 'upsert' });
@@ -134,7 +136,7 @@ export class SyncClient {
         return;
       }
       const pending = this.lastPending(await tx.listOutbox(), id);
-      if (pending && !pending.sentAt) {
+      if (pending && !pending.attempted) {
         await tx.removeOutbox(pending.mutationId);
         if (pending.baseVersion === undefined) {
           // Created and deleted before it ever reached the server: nothing to tell the server
@@ -142,13 +144,13 @@ export class SyncClient {
           return;
         }
       }
-      const baseVersion = pending && !pending.sentAt ? pending.baseVersion : this.nextBase(record, pending);
+      const baseVersion = pending && !pending.attempted ? pending.baseVersion : this.nextBase(record, pending);
       await tx.addOutbox({ baseVersion, id, mutationId: newUuidV7(), op: 'delete' });
       await tx.putRecord({ ...record, data: undefined, deletedAt: new Date().toISOString() });
     });
   }
 
-  /** The last unsent change of a record */
+  /** The last queued change of a record */
   lastPending(outbox, id) {
     return outbox.filter((item) => item.id === id).at(-1);
   }
@@ -168,7 +170,7 @@ export class SyncClient {
    * for an offline client or an ended session: the result says so, and the outbox keeps every change.
    */
   async sync() {
-    const result = { applied: 0, conflicts: [], needsLogin: false, offline: false, rejected: [], resynced: false, retried: 0 };
+    const result = { applied: 0, conflicts: [], forbidden: false, needsLogin: false, offline: false, rejected: [], resynced: false, retried: 0 };
     try {
       await this.push(result);
       if (await this.pull(result)) {
@@ -188,28 +190,24 @@ export class SyncClient {
   }
 
   async push(result) {
-    const outbox = await this.store.run((tx) => tx.listOutbox());
-    for (let start = 0; start < outbox.length; start += 100) {
-      const chunk = outbox.slice(start, start + 100);
-      await this.store.run(async (tx) => {
-        for (const item of chunk) {
-          await tx.putOutbox({ ...item, sentAt: Date.now() });
+    const carried = new Set();
+    for (;;) {
+      // Read and mark in ONE transaction, and send what that transaction read: an edit between a separate read and
+      // mark would fold into an item already on its way and be lost
+      const chunk = await this.store.run(async (tx) => {
+        const items = (await tx.listOutbox()).filter((item) => !carried.has(item.mutationId)).slice(0, 100);
+        for (const item of items) {
+          await tx.putOutbox({ ...item, attempted: true });
         }
+        return items;
       });
-      let response;
-      try {
-        response = await this.request('POST', `/sync/${this.model}`, { items: chunk.map((item) => this.pushItem(item)) });
-      } catch (error) {
-        await this.store.run(async (tx) => {
-          for (const item of chunk) {
-            const current = (await tx.listOutbox()).find((entry) => entry.mutationId === item.mutationId);
-            if (current) {
-              await tx.putOutbox({ ...current, sentAt: undefined });
-            }
-          }
-        });
-        throw error;
+      if (!chunk.length) {
+        return;
       }
+      for (const item of chunk) {
+        carried.add(item.mutationId);
+      }
+      const response = await this.request('POST', `/sync/${this.model}`, { items: chunk.map((item) => this.pushItem(item)) });
       const results = response.body.results ?? [];
       for (let index = 0; index < chunk.length; index++) {
         await this.store.run((tx) => this.settle(tx, chunk[index], results[index], result));
@@ -227,12 +225,9 @@ export class SyncClient {
   async settle(tx, item, outcome, result) {
     const status = outcome?.status;
     if (status === 'retry' || !status) {
-      // The same change is still in progress elsewhere (a second tab), or the server had a transient problem
+      // The same change is still in progress elsewhere (a second tab), or the server had a transient problem: it stays
+      // queued, unchanged, and goes out again with the next sync
       result.retried++;
-      const current = (await tx.listOutbox()).find((entry) => entry.mutationId === item.mutationId);
-      if (current) {
-        await tx.putOutbox({ ...current, sentAt: undefined });
-      }
       return;
     }
     await tx.removeOutbox(item.mutationId);
@@ -285,6 +280,16 @@ export class SyncClient {
         query.set('cursor', cursor);
       }
       const response = await this.request('GET', `/sync/${this.model}?${query}`);
+      if (response.status === 403) {
+        // The caller may no longer pull this model (pull roles withdrawn, tenant left): the copies go, like on `410
+        // access`. The unsent changes stay, but they cannot be pushed under this account any more (SECURITY.md)
+        result.forbidden = true;
+        await this.store.run(async (tx) => {
+          await tx.clearRecords(new Set((await tx.listOutbox()).map((item) => item.id)));
+          await tx.deleteMeta(cursorKey);
+        });
+        return false;
+      }
       if (response.status === 410) {
         if (result.resynced) {
           throw new Error(`resync loop: ${JSON.stringify(response.body)}`);
@@ -345,8 +350,8 @@ export class SyncClient {
     }
     const text = await response.text();
     const body = text ? JSON.parse(text) : undefined;
-    if (response.status === 410) {
-      return { body, status: 410 };
+    if (response.status === 410 || (response.status === 403 && method === 'GET')) {
+      return { body, status: response.status };
     }
     if (!response.ok) {
       throw new Error(`${method} ${path} answered ${response.status}: ${text.slice(0, 300)}`);

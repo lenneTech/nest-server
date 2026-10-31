@@ -335,8 +335,9 @@ Error bodies use the framework's error-code format, sync codes in `#LTNS_0700`�
 
 * Pull and push run through the same `@Restricted`, `securityCheck`, tenant and output pipeline as every other
   request, with the operation roles the model declares for sync (§1); hints reach only callers with the pull roles.
-* A pull never delivers a record or tombstone of another tenant; a push never changes one and never reveals that one
-  exists (`not_found` / `ID_UNAVAILABLE`, §3, §7).
+* A pull never delivers a record or tombstone of another tenant; a push never changes one. An update or delete of it
+  answers `not_found` like an unused id, a create on its id `ID_UNAVAILABLE` — the same answer for every reason, with
+  nothing about the record; that an id is taken stays observable by design (§3, decided O2, §15).
 * Tombstones carry no content field. On a model whose records only certain users may see, the tombstone keeps the
   user-id fields the model declares as its scope (e.g. `ownerId`, decided O1, §15), so it reaches exactly the users who
   could see the record — never the rest of the tenant.

@@ -1,6 +1,6 @@
 ---
 name: offline-sync-spec-review-traps
-description: Offline-sync epic DEV-3819 — phases 1-5 (DEV-3898…3902) plan, protocol and implementation claims that disagree with code; re-check in DEV-3902+
+description: Offline-sync epic DEV-3819 — phases 1-6 (DEV-3898…3903) plan, protocol and implementation claims that disagree with code; re-check in DEV-3902+
 metadata:
   type: project
 ---
@@ -98,3 +98,17 @@ clean with `deleteMany`. See [[executable-doc-recipes]].
 - Verified sound: SSE re-check (`reauthenticate: () => undefined` → every revalidate terminates), purge order (horizon
   first, `$lt`-only advance), lease order Redis → `lt_locks` → `cron-locks`, all new `@default`s, mutation counts
   468 / 253 unit / 215 e2e, `runSqlMigration` MySQL path runs inside a transaction (`withMysqlSchemaLock`).
+
+**Phase 6 (DEV-3903, reviewed 2026-10-31, commit cfab12d, read-only)** — SECURITY.md, test clients, guide 12.1.x→12.2.x:
+
+- **Access loss is NOT always `410 access`**: `pull()` runs `checkRights(roles: pull)` BEFORE the cursor, and the tenant
+  guard refuses a header naming a left/deactivated tenant — both answer **403**. Only access that still permits a pull
+  yields 410 (the contract cases `resync-access-*` keep pull roles / pull header-less). Docs that say "on access loss
+  the client gets 410 and deletes" leave a client keeping data on 403.
+- **`ServiceOptions.expectedVersion` throws on an unsynchronized model** (`CrudService.expectedVersionOf()` →
+  `UnsupportedCapabilityError`); the guide claimed "works without sync, as an optimistic lock".
+- **Non-JSON push is 400** (`SYNC_INVALID_REQUEST`), only origin / `Sec-Fetch-Site` are 403 (contract case asserts 400).
+- **"a push never reveals that one exists"** (protocol §12, SECURITY.md) contradicts §3 / O2: create on a foreign id →
+  `ID_UNAVAILABLE` vs `applied` on a free id — existence observable by design.
+- Verified sound: clock skew ±5 s = "10 s apart", 7 contract columns, cursor bound to user (`410 invalid`), sw.js split,
+  `crypto.getRandomValues` ids, `runSqlMigration(ownerUrl, [{ syncUpdate }])`, no package dependency change since 12.1.1.

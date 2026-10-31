@@ -5367,6 +5367,28 @@
         "tests/unit/sql-migration-sync-update.spec.ts"
       ],
       "driverSpecific": false
+    },
+    {
+      "id": "sync-mongo-stamp-app-clock",
+      "defect": "DEV-3903 (offline sync phase 6) — an application clock must never stamp a change on MongoDB: two instances whose clocks differ by more than the window W order changes by their skew, and a cursor handed between them passes some for good.",
+      "file": "src/core/common/persistence/mongo/sync-schema.plugin.ts",
+      "find": "  return new Date(reading.server + (performance.now() - reading.mono));\n",
+      "replace": "  return new Date();\n",
+      "specs": [
+        "tests/sync-clock-skew.e2e-spec.ts"
+      ],
+      "driverSpecific": false
+    },
+    {
+      "id": "sync-client-folds-into-carried-change",
+      "defect": "DEV-3903 review (offline sync phase 6) — the test client folded a later edit into a change a push had already carried; the server answered the repeat with the recorded outcome and the edit was lost.",
+      "file": "tests/clients/sync-client.mjs",
+      "find": "      if (pending && pending.op === 'upsert' && !pending.attempted) {\n",
+      "replace": "      if (pending && pending.op === 'upsert') {\n",
+      "specs": [
+        "tests/unit/sync-client.spec.ts"
+      ],
+      "driverSpecific": false
     }
   ]
 }

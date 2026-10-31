@@ -39,7 +39,10 @@ describe.each(CLOCK_DRIVERS)('offline sync — two server processes with skewed 
     const overrides = {
       ...database.config,
       auth: { rateLimit: { enabled: false } },
-      sync: { cursorSecret: 'sync-clock-cursor-secret', hints: false, rateLimit: false },
+      // A window W of 2 s (the contract matrix's): the derived one (30 s standalone, 90 s replica set) would cover any
+      // stamp a skewed application clock wrote, and MongoDB could not lose a change here whatever clock it used. The
+      // derived window itself is pinned by the contract case `pull-window-derived`
+      sync: { cursorSecret: 'sync-clock-cursor-secret', hints: false, pull: { windowSeconds: 2 }, rateLimit: false },
     };
     // One after the other: the first applies the schema, the second finds it in place
     instances.push(await startSyncServerProcess(overrides, SKEW_MS));
@@ -86,6 +89,13 @@ describe.each(CLOCK_DRIVERS)('offline sync — two server processes with skewed 
     return decodeURIComponent(/session_token=([^;]+)/.exec(cookie)![1]).split('.')[0];
   };
 
+  /**
+   * @regression   DEV-3903 — an application clock must never stamp a change: two instances whose clocks differ by more
+   *   than the window W would order changes by their skew, and a cursor handed between them would pass some for good.
+   * @seen-failing Stamp MongoDB writes with the process clock in mongoServerNow()
+   *   (src/core/common/persistence/mongo/sync-schema.plugin.ts) — registered as mutation `sync-mongo-stamp-app-clock`
+   *   in tests/regression-mutations.json.
+   */
   it('loses no change while writers on both instances race readers that switch instances', async () => {
     const token = await account();
     const known = new Map<string, number>();

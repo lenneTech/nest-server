@@ -337,7 +337,7 @@ server (`tests/helpers/sync-test-app.ts`, which the contract matrix boots too):
 |-------|------|-------|
 | `tests/sync-pwa-client.e2e-spec.ts` | The PWA test client (`tests/clients/pwa/`, IndexedDB, service worker) in Chrome, served by the test server, offline via Playwright | an installed Chrome (`playwright-core` downloads none; GitHub's Ubuntu runners ship one; `SYNC_PWA_CHROME` names another executable) |
 | `tests/sync-node-client.e2e-spec.ts` | The same client on SQLite (`node:sqlite`), bearer session token | nothing extra |
-| `tests/sync-clock-skew.e2e-spec.ts` | Two server PROCESSES with clocks 5 s ahead and behind, parallel writers on both, readers switching instances: no change lost | the containers above |
+| `tests/sync-clock-skew.e2e-spec.ts` | Two server PROCESSES with clocks 5 s ahead and behind, parallel writers on both, readers switching instances: no change lost. MongoDB runs with `pull.windowSeconds: 2` — the derived window (30 s / 90 s) would cover any skew, and the suite could not fail there (mutation `sync-mongo-stamp-app-clock`) | the containers above |
 
 The two client suites share one protocol implementation (`tests/clients/sync-client.mjs`) and one scenario list
 (`tests/helpers/sync-client-scenarios.ts`); `tests/unit/sync-client-scenarios.spec.ts` fails when a suite misses a
@@ -410,7 +410,7 @@ pnpm run check:mutations -- --id=<id>       # one mutation
 pnpm run check:mutations -- --list          # the registry, without running anything
 pnpm run check:mutations -- --allow-dirty   # when the fix and its evidence share a working tree
 pnpm run check:mutations -- --jobs=4        # N mutations at a time (default: 2, or 4 on >=12 cores)
-pnpm run check:mutations -- --no-infra      # only the 257 that need no MongoDB
+pnpm run check:mutations -- --no-infra      # only the 258 that need no MongoDB
 pnpm run check:mutations -- --since=<ref>   # only mutations touching files changed since <ref>
 pnpm run check:mutations -- --shard=2/4     # this job's quarter of the selection (CI splits the full run)
 ```
@@ -430,7 +430,7 @@ when the registry, a vitest config or a setup file changed, since those can move
 commit, and in CI alongside the publish without blocking it. The price of caching is a cache that
 has to model each spec's full dependency closure correctly, and getting that wrong produces a stale
 PASS for a test that has since gone vacuous — exactly what the gate is there to prevent. Bad trade
-at 472 mutations.
+at 474 mutations.
 
 **Decided 2026-10-03 (repo owner): keep the full run.** Measured at 128 mutations, the CI job for
 11.41.6 took **14 minutes**. The trigger to revisit is that wall time, not the mutation count —
@@ -501,9 +501,9 @@ exactly the environment where the answer matters.
 
 ### The cost is vitest's cold start, not the tests
 
-Worth knowing before optimising the wrong thing: the specs behind all 215 e2e mutations add up to
+Worth knowing before optimising the wrong thing: the specs behind all 216 e2e mutations add up to
 **~40 seconds**. The step takes ~740s. The remaining ~700s is paying vitest's startup — process
-spawn, transform, module graph, mongod connect, DB create and drop — once per mutation, 472 times.
+spawn, transform, module graph, mongod connect, DB create and drop — once per mutation, 474 times.
 That work is largely single-threaded I/O and barely scales with cores: the full registry measures
 **744s on a 12-core laptop and 777s on a 4-vCPU CI runner**.
 
