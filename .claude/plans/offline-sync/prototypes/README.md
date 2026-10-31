@@ -18,23 +18,25 @@ docker run -d --name nest-server-proto-mongo-rs -p 27027:27017 mongo:7.0 --replS
 node -e "const {MongoClient}=require('mongodb');(async()=>{const c=await new MongoClient('mongodb://127.0.0.1:27027/?directConnection=true').connect();await c.db('admin').command({replSetInitiate:{_id:'rs0',members:[{_id:0,host:'127.0.0.1:27017'}]}});await c.close()})()"
 
 cd .claude/plans/offline-sync/prototypes
-node cursor-lab.mjs --targets=pg-typeorm --scenarios=parallel,late --reps=3 --out=/tmp/cursor.json
+node cursor-lab.mjs --targets=pg-typeorm --scenarios=parallel,late --reps=3 | tee run.log
+node summarize.mjs run.log                    # the §5 tables from the printed lines (not from --out JSON)
 node partial-unique.mjs                       # MONGO_OLD_URL=… adds an older MongoDB (measured: 5.0.31)
-docker rm -f nest-server-proto-mongo-rs
+node commit-lag-probe.mjs
 ```
 
 The MongoDB claim of PLAN.md §3.4 — W above the server's transaction limit makes C2 exact — is reproduced with a
-limit below W and writes that are not retried:
+limit below W and writes that are not retried. Run it last: the limit stays until it is set back.
 
 ```bash
 node -e "const {MongoClient}=require('mongodb');(async()=>{const c=await new MongoClient('mongodb://127.0.0.1:27027/?directConnection=true').connect();await c.db('admin').command({setParameter:1,transactionLifetimeLimitSeconds:3});await c.close()})()"
 MONGO_TXN_NO_RETRY=1 node cursor-lab.mjs --targets=mongo-rs --variants=C2 --scenarios=late-beyond-w --reps=3
+docker rm -f nest-server-proto-mongo-rs       # drops the limit with the container
 ```
 
 `cursor-lab.mjs` options: `--targets` (`mongo-standalone`, `mongo-rs`, `pg-typeorm`, `pg-kysely`, `pg-drizzle`,
 `mysql`, `mariadb`), `--variants` (`C0`, `C1n`, `C1`, `C1d`, `C1t`, `C1x`, `C2`), `--scenarios` (`parallel`, `late`,
 `late-beyond-w`, `backfill`, `volume`), `--reps`, `--duration` (ms per run, default 15000), `--window` (W in ms,
-default 5000), `--out` (JSON). Run the three PostgreSQL targets one after the other: the container allows 100
+default 5000), `--out` (the results as JSON; `summarize.mjs` reads the printed lines instead). Run the three PostgreSQL targets one after the other: the container allows 100
 connections. `CURSOR_DB_SUFFIX=<x>` gives a run databases of its own, so two runs against one server do not drop each
 other's.
 

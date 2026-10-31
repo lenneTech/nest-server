@@ -87,7 +87,7 @@ delete or overwrite any record the caller may read. `sync.roles` is passed as `s
 operation without roles is open to `ADMIN` only; `sync: true` declares none, so the boot warns once per model until
 roles are declared.
 
-The descriptor gains a `sync` section: strategy, per-field strategies, operation roles, accepted id formats (both), and the system
+The descriptor gains a `sync` section: strategy, per-field strategies, operation roles, the model's id format (one, default `objectId`, §3.5), and the system
 fields `version` (number, default 1), `deletedAt` (date, default `null`), the cursor field(s) chosen in phase 2, and
 their indexes. On SQL these are new columns with defaults and new indexes — the automatic path of the schema evolution.
 Unique indexes become partial (§3.6), which is **changed uniqueness** and therefore a migration for an existing model.
@@ -104,7 +104,7 @@ bit for bit. Cross-checked against `.claude/rules/persistence.md`.
 | E3 | **Partial unique indexes**: the descriptor of a sync model rewrites every unique index (field-level `unique` included) to apply to live records only. | Delete-then-recreate with the same unique value must not fail (DEV-3819). | MongoDB and PostgreSQL: the existing partial-index path. MySQL / MariaDB: **new compiler path** — the compiler refuses partial unique indexes today, so each part becomes a VIRTUAL live-key column (§3.6) next to the existing null-sentinel columns. Turning an existing unique index partial is changed uniqueness → `migrate create <name> --sql` / a MongoDB migration, never automatic. |
 | E4 | **Change order**: a way to read "everything after cursor X, in change order, tombstones included", in pages. Decided in phase 2 (§3.4): on SQL a commit-ordered sequence `syncSeq` (counter row taken last, by trigger or by the transaction's final statement); on MongoDB `syncAt` from the server clock plus a window W. | The cursor must not lose changes (DEV-3819). | Must be expressible in the neutral query subset (`$gt`, sort, limit) or as a store method with one implementation per dialect and one contract suite; never `raw()`. |
 | E5 | **Capabilities**: `idType` becomes per model (`idFormat: 'objectId' \| 'uuidv7'`, one per model, default `objectId`; §3.5). No `changeFeed` capability: hints come from the store's own write events on every database (P2-5, §11). | Sync asks capabilities, never the driver name (DEV-3819). | Capabilities exist for exactly this (db-agnostic §3.6). |
-| E6 | **Client-supplied ids**: `insert({ id })` accepts the model's format for sync models (§3.5); MongoDB stores ObjectId-hex as ObjectId and uuidv7 as a BSON UUID (subtype 4). Validation `isWellFormedId()` stays the rule for every other model. A **server-generated** id that meets a duplicate key on a sync model is generated anew and the insert retried (bounded): `generateId()` and bson's ObjectId are predictable from one observed id (time, per-process value, counter), so a client could occupy the next ones and make every normal create on that process fail; a server id was never shown to anyone, so replacing it is invisible. | Clients create ids offline; both formats (decision 2026-10-29). | Ids stay strings in the core (`generateId()`, `isObjectIdLike()`), no `new Types.ObjectId()` in the core. |
+| E6 | **Client-supplied ids**: `insert({ id })` accepts the model's format for sync models (§3.5); MongoDB stores ObjectId-hex as ObjectId and uuidv7 as a BSON UUID (subtype 4). Validation `isWellFormedId()` stays the rule for every other model. A **server-generated** id that meets a duplicate key on a sync model is generated anew and the insert retried (bounded): `generateId()` and bson's ObjectId are predictable from one observed id (time, per-process value, counter), so a client could occupy the next ones and make every normal create on that process fail; a server id was never shown to anyone, so replacing it is invisible. | Clients create ids offline, in the model's format (decision 2026-10-29, §11). | Ids stay strings in the core (`generateId()`, `isObjectIdLike()`), no `new Types.ObjectId()` in the core. |
 | E7 | **Infrastructure stores** (Mongo + SQL each, one contract suite): `SyncMutationStore` (claim, then outcome per `(model, id, mutationId)`, explicit `expiresAt`; §3.7), `SyncAccessEpochStore` (epoch per `(model, tenant)`, bump + read), tombstone retention horizon per model. Swept by the expiry sweep under the `LockStore` lease. | Idempotency, access-loss detection and the horizon must outlive a process and never depend on a TTL monitor (DEV-3819, db-agnostic §3.7). | "Never rely on a TTL monitor for correctness"; every reader checks the expiry itself. |
 | E8 | **Tombstone purge**: `deleteMany({ deletedAt: { $lt: horizon } }, { includeTombstones: true })`, run by a cron job under a lease; advances the per-model horizon **before** deleting. | Bounded storage; a cursor older than the horizon must answer 410, never miss a deletion. | Hard delete stays internal; the horizon is written first so no pull can pass a gap. |
 
@@ -143,10 +143,27 @@ changes and a terminating run on every target, or stop and report.
   with the sentinel `sync_seq = -1` (the trigger leaves it alone) and take the counter with their final statement
   before COMMIT, after every row lock they need. The counter's row lock is held until COMMIT, so sequence order is
   commit order: `sync_seq > cursor ORDER BY sync_seq` can never pass a number that commits later. No horizon, no
-  window, no clock, no duplicates. The trigger also numbers writes that bypass the store (tier 2/3, migrations). The
-  price is a per-model serialization point: writes to one sync model wait for each other's final statement and commit
-  (measured ~3,100 writes/s on PostgreSQL against ~8,500 without a counter, §5); phase 3 keys the counter per
-  (model, tenant) on tenant-scoped models, so the ceiling applies per tenant.
+  window, no clock, no duplicates. The trigger also numbers writes that bypass the store (tier 2/3, migrations) —
+  with one exception to "counter last": a statement that writes **several** rows without the sentinel takes the
+  counter at its first row and only then locks the rest, the order rejected for C1, so it can deadlock with store
+  writes (MySQL / MariaDB roll back the smaller transaction, usually the store's). Multi-row writes outside the store
+  (data migrations, the backfill that makes a model syncable) therefore use the sentinel form too, built into
+  `runSqlMigration()`. Likewise an `INSERT` through the trigger takes the counter before its unique check, so a wait
+  on an uncommitted duplicate holds it; phase 3 decides whether store inserts use the deferred form for that reason.
+  The price is a per-model serialization point: writes to one sync model wait for each other's final statement and commit
+  (measured ~3,100 writes/s on PostgreSQL against ~8,500 without a counter, §5). One counter per model is what was
+  measured. A counter per (model, tenant) would lift the ceiling per tenant, but only together with a cursor that
+  keeps one position per tenant of the pull's scope, or with pulls restricted to one tenant: a pull without
+  `X-Tenant-Id` spans every membership, and one position over several independent sequences skips changes. Phase 3
+  decides that with its own contract case (a header-less pull over two tenants).
+  **PostgreSQL keeps a version per counter update.** One row updated per write leaves one dead version each; a long
+  snapshot anywhere in the database (`pg_dump`, a long report, an idle-in-transaction session, a replication slot,
+  `hot_standby_feedback`) keeps them all, and every later update walks past them — the write ceiling falls with write
+  rate × snapshot age, the same coupling to other sessions that rules out C1x, measured here only on 15 s runs. A final
+  statement over N rows must therefore bump the counter once (`seq = seq + N`, rows stamped `base + row_number`) rather
+  than N times in one transaction, which is quadratic. Phase 3 measures the alternative that writes no row versions —
+  `pg_advisory_xact_lock(<model>)` plus a sequence, which keeps commit order because the lock is released only after
+  the commit is visible — against the counter row under a held snapshot. MySQL and MariaDB update in place.
 * **MongoDB — standalone and replica set: the server clock with a window (C2).** Every write path stamps
   `syncAt: '$$NOW'` (one operation, the server's clock); pull by keyset `(syncAt, _id)`, and each run starts once
   from its low-water mark, the previous run's start minus W, measured on the server's clock. The store has no
@@ -155,6 +172,12 @@ changes and a terminating run on every target, or stop and report.
   `transactionLifetimeLimitSeconds` (default 60 s) with margin, and sync writes carry a `maxTimeMS` below W. A run
   repeats what changed within W (P2-2: yes, on MongoDB); clients keep the higher `version` either way. Measured: with
   the server's limit below W, the server aborted every transaction held past it and nothing was lost (§5).
+  **The window is a cost:** each run re-reads the R·W records changed within W however little is new, and a client
+  pulling every Δ seconds receives each change about W/Δ times, every copy through the output pipeline (no lean pull) —
+  2 changes/s, W = 60 s and one pull per second are 120 records per pull for about 2 that are new. So W is sized per
+  topology: a standalone has no transactions, and its W covers the operation bound (`maxTimeMS`) plus a clock-step
+  margin; a replica set needs the transaction-lifetime W only because project code could write a sync model in a
+  transaction, and phase 3 decides whether to refuse that instead. §5 measured W = 5 s.
 
 Rejected, each with its measurement in §5:
 
@@ -163,7 +186,7 @@ Rejected, each with its measurement in §5:
 | C0 (archived cursor: app clock + id) | loses on every target |
 | C1n (plain sequence, no horizon) | allocation order is not commit order: loses on every SQL target |
 | C1 (counter bumped first) | exact, but holds the counter for the whole transaction: under late commits writes collapse to single digits per second, MySQL runs into lock-wait timeouts, and mixed with row-first writes it deadlocks |
-| C1t alone (trigger, no deferral) | the trigger fires at the first write of a transaction, so a long transaction holds the counter like C1 — it is C1d's single-statement path, not a design of its own |
+| C1t alone (trigger, no deferral) | the trigger fires at the first write of a transaction (and at the first row of a multi-row statement), so a long transaction holds the counter like C1 — it is C1d's single-row path, not a design of its own |
 | C1x (PostgreSQL `xid8` below `pg_snapshot_xmin`) | exact and without write serialization (~2.8× C1d's write rate, §5), but PostgreSQL only, and its horizon is cluster-wide: any open writing transaction in any database of the server — another project's batch job, an idle-in-transaction session, a forgotten prepared transaction — holds every pull back until it ends; on a cluster several projects share, that couples their availability. One mechanism for PostgreSQL and MySQL is worth more; C1x stays the measured fallback should a project hit the counter's ceiling |
 | C2 on SQL | loses whenever a commit lags its stamp by more than W, and neither MySQL nor MariaDB bounds a transaction's lifetime on the server; MySQL / MariaDB `NOW(6)` stamps the statement **start**, so a lock wait alone exceeds W (measured: lost changes with transactions open ≤ 2 s at W = 5 s) |
 | C1 on MongoDB | standalone has no transactions, counter and write are two operations, and the gap loses changes even without late commits; on a replica set the counter document in a transaction is exact but write conflicts throttle every writer of the model |
@@ -172,10 +195,17 @@ Rejected, each with its measurement in §5:
 sync table from the schema compiler (as the owner, a changed trigger body is a schema change the migrator detects), the
 store's multi-row and transaction paths with the sentinel, the pull as `{ syncSeq: { $gt } }` + sort + limit in the
 neutral subset; the application role needs `UPDATE` on the counter table on PostgreSQL (MySQL triggers run with the
-definer's rights). MongoDB — `syncAt: '$$NOW'` on every write path (pipeline update, upsert for inserts), index
+definer's rights). MongoDB — `syncAt: '$$NOW'` on every write path (pipeline update), and an insert that still fails
+on a taken id: a plain upsert would update the existing document instead and break E6 and the protocol's `conflict` /
+`ID_UNAVAILABLE`, so phase 3 uses a form that can only insert (an upsert whose filter cannot match, to be verified)
+and pins it with a contract case — a create on a taken id leaves the stored record unchanged; index
 `{ syncAt: 1, _id: 1 }`, the run start from the server clock (`hello.localTime` from 4.4 on; `$documents` with `$$NOW`
 needs 5.1), W from `getParameter` with a configured fallback where the parameter cannot be read; the keyset pull in the
-neutral subset. The cursor names its mechanism (`seq` / `clock`); a cursor of another mechanism or source — a model
+neutral subset. **Indexes on a tenant-scoped sync model lead with the tenant**: `(tenant_id, sync_seq)` and
+`{ tenantId: 1, syncAt: 1, _id: 1 }` — every pull there carries the tenant policy's `tenantId` condition (`=` or `$in`),
+and an index without it either scans every tenant's changes since the cursor or sorts the tenant's whole set per page
+(§5's latencies come from tables without a tenant column); a contract case checks the plan (`explain()`, documents
+examined). The cursor names its mechanism (`seq` / `clock`); a cursor of another mechanism or source — a model
 moved between databases — is answered like an expired one (full resync).
 
 The cursor is serialized as `base64url(JSON { v, model, pos, fp, epoch, iat })` plus an HMAC over it (key from the
@@ -191,8 +221,11 @@ own drivers do. uuidv7 is a per-model choice for **new** models only; on MongoDB
 subtype 4), on SQL as text, and the core keeps ids as strings (the store converts at its boundary, like ObjectId).
 Every other model keeps ObjectId-hex only. The protocol §3 states the client rules. Collision with an invisible record →
 uniform `ID_UNAVAILABLE`, ids unique across tenants (decided O2, §11): the one observable bit carries no tenant, owner or
-content. Hardening does not depend on the format: rights on every access, the uniform answer plus the push rate limit,
-and a server id occupied by a client is generated anew (E6). A uuidv7 validator joins `id-format.ts` beside
+content. Hardening: rights on every access, the uniform answer plus the push rate limit, a server id occupied by a
+client is generated anew (E6), and client ids are unpredictable in either format — uuidv7 by construction, a client's
+ObjectId with 8 secure random bytes after its timestamp (protocol §3). A driver's default ObjectId would let a member
+who saw one of a client's ids create its next ones first; the server cannot detect the generator, so the rule is the
+client's and the phase 6 test clients follow it. A uuidv7 validator joins `id-format.ts` beside
 `isWellFormedId()` (version nibble `7`, variant `8–b`, lowercase). The former P2-3 (ObjectId and string `_id` side by
 side) cannot arise and was dropped.
 
@@ -378,14 +411,14 @@ below its final database version, tombstones included, summed over both clients.
 | Assumption | Result |
 |---|---|
 | The harness detects losses (negative controls) | C0 loses 66–77 % of the records per client on every target it ran on; C1n 15–19 % under late commits and 0.01–0.11 % without them on every SQL target; MongoDB standalone C1 (counter and write as two operations) loses in every scenario (up to 17 %) |
-| **A commit-ordered counter taken last loses nothing (C1d, SQL)** | **0 lost in all 30 concurrent runs on the five SQL targets** (late and beyond W, 3 runs each), and in the `parallel` run of each |
-| Taking the counter first is exact but stalls (C1, C1t) | 0 lost, but 5–7 writes/s under late commits and 1–3 beyond W, where C1d keeps 94–108 and 18–26 (means); MySQL / MariaDB ran into lock-wait timeouts (`retries`). The first C1d draft, which mixed C1's counter-first single writes with row-first deferred writes, deadlocked (14 retries in one 6 s run on MariaDB) — the reason C1d takes the counter last on every path |
+| **A commit-ordered counter taken last loses nothing (C1d, SQL)** | **0 lost in all 30 concurrent runs on the five SQL targets** (late and beyond W, 3 runs each), and in the `parallel` run of each. C1d's late transactions wait before they take the counter; that a counter held until COMMIT keeps sequence order equal to commit order is shown by C1 and C1t, which hold it through the wait (0 lost in every run) |
+| Taking the counter first is exact but stalls (C1, C1t) | 0 lost, but 5–7 writes/s under late commits and 1–3 beyond W, where C1d keeps 94–108 and 18–26 (means); MySQL / MariaDB ran into lock-wait timeouts (`retries`). The first C1d draft, which mixed C1's counter-first single writes with row-first deferred writes, deadlocked (14 retries in one 6 s run on MariaDB) — the reason C1d takes the counter last on every store path, and multi-row writes outside the store use the sentinel too (§3.4) |
 | The PostgreSQL horizon is exact (C1x) | 0 lost on all three engines, late and beyond W |
 | The database clock with W is exact while commits lag less than W (C2) | 0 lost on PostgreSQL × 3 and MongoDB in `late`; **lost on MySQL** in `late` (2 in run 3: a hot record, final version 50, client 45); lost on every target with transactions held open beyond W; MongoDB standalone cannot hold a write open, so it has no late case |
 | **W derived from the server's transaction limit makes C2 exact on MongoDB** | replica set with `transactionLifetimeLimitSeconds: 3`, W = 5 s, transactions held 6–8 s, writes without retry (`MONGO_TXN_NO_RETRY=1`): the server aborted every one of them (83–91 failed commits per run, none committed late), **0 lost in 3 runs** |
 | Why MySQL loses with commits below W | `commit-lag-probe.mjs`: with a 3 s row-lock wait, MySQL / MariaDB `NOW(6)` stamps the statement start (commit − stamp ≈ 3,000 ms), `SYSDATE(6)` and PostgreSQL `clock_timestamp()` the moment after the wait (≈ 2 ms), PostgreSQL `now()` the transaction start |
 | A run terminates with equal keys (progress) | 500 records with one identical key (one backfill statement, one `$$NOW`): every variant on every target delivers all 500 in 21 pages of 25 / 6 pages of 100; C2's next run re-reads the 500 (the window) and terminates too. No non-terminating run in any scenario; the longest run had 17,768 pages (MongoDB standalone C2 at ~35,000 writes/s) |
-| The counter costs write throughput (C1d) | one counter per model serializes its writes for the final statement and the commit: PostgreSQL ~3,100 writes/s against ~8,500 for C0 / C1x, MySQL 1,075 against 3,777, MariaDB 12,332 against 14,961 (12 writers, local containers, one 10 s run). On a disk where a commit waits for its flush, a counter allows about one commit per flush — phase 3 keys the counter per (model, tenant) on tenant-scoped models, and C1x stays the measured alternative for PostgreSQL |
+| The counter costs write throughput (C1d) | one counter per model serializes its writes for the final statement and the commit: PostgreSQL ~3,100 writes/s against ~8,500 for C0 / C1x, MySQL 1,075 against 3,777, MariaDB 12,332 against 14,961 (12 writers, local containers, one 10 s run). On a disk where a commit waits for its flush, a counter allows about one commit per flush. Ways out, both for phase 3 to decide (§3.4): a counter per (model, tenant) with a cursor position per tenant, or C1x on PostgreSQL |
 | A counter on MongoDB is not viable (C1) | standalone loses (above); replica set in a transaction: exact, but 728 writes/s with 7,663 write-conflict retries against C2's 5,328 in the same setup, and 1–7 writes/s under late commits |
 
 **Lost changes, three runs per cell, `late` (writes/s, mean, in brackets):**
@@ -446,9 +479,13 @@ whose field is `null` or missing (two documents without the field and the same v
 uses it (IXSCAN) while `$type: 'null'` does not (COLLSCAN) — the reverse of a `$type` index.
 
 **What this does not prove** — left to the phase 3 contract cases: a replica set with several members (failover, clock
-difference between members; W covers a clock step smaller than W); C1d's path for one statement over many rows
-(measured: single-row writes and long transactions); per-tenant counters; `$currentDate` as an alternative to `$$NOW`;
-commit latencies of a real disk and a network instead of local containers.
+difference between members; W covers a clock step smaller than W); C1d's path for one statement over many rows, and
+multi-row writes outside the store racing store writes (measured: single-row writes and long transactions);
+PostgreSQL's counter row under a held snapshot; the MySQL / MariaDB store path, which wraps a write in a transaction
+with a read-back, so it holds the counter at least one round trip longer than the autocommitted statement measured
+here; per-tenant counters; tenant-prefixed pull indexes on a table with
+many tenants; `$currentDate` as an alternative to `$$NOW`; commit latencies of a real disk and a network instead of
+local containers.
 
 ## 6. Gates and abort criteria
 
@@ -484,7 +521,11 @@ Phase 2 ~1,500 (prototypes, infra) · Phase 3 ~3,000 · Phase 4 ~3,500 · Phase 
 None from phase 2: P2-1 … P2-5, O1 and O2 are decided (§11, protocol §15). Left to phase 3, as implementation choices
 inside the decision: the margin of W over MongoDB's transaction lifetime (and whether a transaction can still commit
 between its limit and the server's reaper run), and whether PostgreSQL stamps the sequence by trigger or by the
-store's statement (measured equal, §5; the trigger also numbers writes that bypass the store).
+store's statement (measured equal, §5; the trigger also numbers writes that bypass the store); whether the counter
+stays one per model or becomes one per (model, tenant) with a cursor position per tenant (§3.4); the PostgreSQL counter
+row against an advisory lock plus a sequence under a held snapshot, and the trigger or deferred form for store inserts
+(§3.4); W per MongoDB topology, or refusing transactions on sync models (§3.4); and the MongoDB insert form that stamps
+`syncAt` and still fails on a taken id (§3.4, consequences).
 
 ## 11. Decisions
 
@@ -509,6 +550,9 @@ P2-4 — the MongoDB live filter is `{ deletedAt: null }` (replaces phase 1's `$
 `NULLS NOT DISTINCT` with the live condition (the compiler drops it for partial unique indexes today — a parity gap for
 existing partial unique indexes too, handed to phase 3, whose E3 rewrites this path), MySQL / MariaDB use the virtual
 live-key column (§3.6). P2-5 — no change feed; hints come from the store's write events on every database (§3.9).
+From the phase 2 review: a client generates ObjectId-hex ids with 8 secure random bytes after the timestamp (protocol
+§3) — a driver's default ObjectId lets a member who saw one of a client's ids take its next ones first; and a
+per-tenant counter is not decided, because it needs a cursor position per tenant (§3.4).
 
 **Phase 1, autopilot (DEV-3898, recorded as assumptions on the ticket):** protocol in `docs/` rather than
 `src/core/modules/sync/` (a directory there is listed as a core module by the FRAMEWORK-API generator before the module

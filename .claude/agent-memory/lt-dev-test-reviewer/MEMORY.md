@@ -31,3 +31,4 @@
 - [IAM User-Cache Broadcast Test Facts](iam-user-cache-broadcast-test-facts.md) — DEV-3895: WS re-check test proves ORDER (reauthenticate is called synchronously); mapper Redis wiring probed green in assembled CoreModule.
 - [Cron Scheduled-Instant + Running-Lease Test Facts](cron-scheduled-instant-running-lease-test-facts.md) — DEV-3896: fireAt() faithful to cron 4.4.0; stale-instant mutation red on key only; heartbeat proven; fail-open pinned since the review.
 - [Mutation Sharding Test Facts](mutation-sharding-test-facts.md) — DEV-3910: --list --shard union probe covers main(); on-demand plan job unpinned; BSD seq trailing comma trap.
+- [Offline-Sync Cursor Lab Facts](offline-sync-cursor-lab-facts.md) — DEV-3899 harness: LOST = convergence (later writes mask), C1d late holds BEFORE the stamp, no multi-row case; no false zero found.

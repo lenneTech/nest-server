@@ -44,6 +44,7 @@
 - [project-redis-channel-registry-resubscribe-facts.md](project-redis-channel-registry-resubscribe-facts.md) — DEV-3894 channel refcount + ready re-subscribe sound; ioredis 6 nextTick ready order; TCP-proxy probe
 - [project-synchronized-up-lock-and-hub-cursor-facts.md](project-synchronized-up-lock-and-hub-cursor-facts.md) — DEV-3897: synchronizedUp precheck vs withMigrationLock ('' / lock:false run unlocked by design); not HTTP-reachable
 - [project-offline-sync-spec-dev3898-facts.md](project-offline-sync-spec-dev3898-facts.md) — DEV-3898 sync spec: route @Roles not carried to /sync, create-repeat oracle, ObjectId squatting; re-check in phase 4
+- [project-offline-sync-phase2-dev3899-facts.md](project-offline-sync-phase2-dev3899-facts.md) — DEV-3899: ObjectId-default client ids squattable (bson counter); per-tenant counter vs header-less pulls
 
 ## Review Methodology
 

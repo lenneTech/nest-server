@@ -1,6 +1,6 @@
 ---
 name: offline-sync-spec-review-traps
-description: Offline-sync epic DEV-3819 (phase 1 DEV-3898, 2026-10-29) — plan/protocol claims that disagree with 12.1 code; re-check them in phases 2-6 reviews
+description: Offline-sync epic DEV-3819 — phase 1 (DEV-3898) and phase 2 (DEV-3899) plan/protocol claims that disagree with code or Mongo/tenant semantics; re-check in phases 3-6
 metadata:
   type: project
 ---
@@ -28,6 +28,22 @@ in the IMPLEMENTATION when phases 2-6 land:
 - DEV-3819 requirement trace (protocol §14) checked complete against the ticket text (27 requirements). The ticket
   says "kein Mongoose-Plugin"; E1/E2 put the policies on MongoDB into plugin hooks like the tenant policy — read as the
   port's implementation, not sync code; not flagged.
+
+**Phase 2 (DEV-3899, reviewed 2026-10-31, commit 99c69f4)** — decision: SQL = C1d (trigger counter taken last),
+MongoDB = C2 (`syncAt: '$$NOW'` + window W from `transactionLifetimeLimitSeconds`), live filter `{ deletedAt: null }`,
+one id format per model. Traps found in the text, re-check in phase 3/4 code:
+
+- **"upsert for inserts" on MongoDB** (PLAN §3.4 consequences; prototype `targets.mjs` writeDoc C2) — an
+  `updateOne({ _id }, pipeline, { upsert: true })` on a taken id UPDATES the existing doc (version reset to 1) instead of
+  E11000, which E6's server-id retry and protocol §3 conflict/`ID_UNAVAILABLE` rely on. The filter must never match.
+- **Per-(model, tenant) counter vs scalar cursor** — header-less requests carry `tenantIds` (all memberships,
+  `core-tenant.guard.ts` `resolveUserTenantIds`), so one `sync_seq > cursor` over several independent counters skips
+  the lower tenant's changes. Needs a per-tenant position, a single-tenant pull, or one counter per model.
+- Stale "both formats per model" survived the one-format decision: protocol §7 `INVALID_ID` "neither accepted format",
+  the §5.2/§6.2/§6.6 examples mixing uuidv7 + ObjectId in one model, PLAN §3.2 "accepted id formats (both)".
+- §3.9 says "the CrudService emits" hints while E5/§11/Phase 5/protocol say the store — dropped as Medium (hints optional).
+- `summarize.mjs` parses stdout LOGS, not `--out` JSON (silent empty output); README's replica-set block 2 runs after
+  block 1's `docker rm -f` and leaves `transactionLifetimeLimitSeconds: 3` set.
 
 Probe recipe: the Bash hook refuses any command whose text contains `dropDatabase` — write the probe with the Write
 tool, name the DB per the e2e run scheme (`nest-server-e2e-run-<ts>-p<pid>-…`) so the startup sweep collects it, and
