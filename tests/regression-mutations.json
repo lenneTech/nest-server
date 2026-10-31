@@ -2021,7 +2021,7 @@
       "id": "unusable-fix-ignores-moved-consumer",
       "defect": "A suppression whose consumer has MOVED is reported as if a SECOND consumer had appeared — \"@nuxt/devtools@3.5.0 also pulls an affected package\" for what is the same package one version further on. The consumer-set check does catch the move on its own since it compares `name@version`, so this is a diagnosis defect rather than a hole: the reader is sent looking for a second consumer instead of re-assessing the declared one against its new version. Pinned on the MESSAGE for exactly that reason.",
       "file": "scripts/check-overrides.mjs",
-      "find": "    if (!present.includes(assessedAt)) {\n      note(`${consumer} moved from ${assessedAt} to ${present.join(', ')}`);\n      continue;\n    }\n",
+      "find": "        if (!present.includes(assessedAt)) {\n          return `${consumer} moved from ${assessedAt} to ${present.join(', ')}`;\n        }\n",
       "replace": "",
       "specs": [
         "tests/unit/check-overrides.guard.spec.ts"
@@ -2032,7 +2032,7 @@
       "id": "unusable-fix-accepts-absent-consumer",
       "defect": "The declared consumer has left the tree, so nothing pulls the vulnerable version in any more and the finding should have disappeared — but the suppression is still accepted, keeping dead config that reads like a considered risk decision.",
       "file": "scripts/check-overrides.mjs",
-      "find": "    if (present.length === 0) {\n      note(`no ${consumer} in the tree any more, so the suppression is moot`);\n      continue;\n    }\n",
+      "find": "        if (present.length === 0) {\n          return `no ${consumer} in the tree any more, so the suppression is moot`;\n        }\n",
       "replace": "",
       "specs": [
         "tests/unit/check-overrides.guard.spec.ts"
@@ -2054,7 +2054,7 @@
       "id": "unusable-fix-ignores-second-consumer",
       "defect": "A second package starts pulling the affected package, possibly one in the production closure. `ignoreGhsas` hides the advisory everywhere, so without this check the declaration keeps arguing \"only this one dev-tooling consumer\" while that is no longer true.",
       "file": "scripts/check-overrides.mjs",
-      "find": "    const others = allParents.filter((parent) => parent !== expected);\n    if (others.length > 0) {",
+      "find": "    const others = allParents.filter((parent) => !expected.includes(parent));\n    if (others.length > 0) {",
       "replace": "    const others = [];\n    if (others.length > 0) {",
       "specs": [
         "tests/unit/check-overrides.guard.spec.ts"
@@ -2078,6 +2078,17 @@
       "file": "scripts/check-overrides.mjs",
       "find": "  return [...new Set([...found].map((m) => m[1]))];",
       "replace": "  return [...new Set([...found].map((m) => m[1]))].slice(0, 1);",
+      "specs": [
+        "tests/unit/check-overrides.guard.spec.ts"
+      ],
+      "driverSpecific": false
+    },
+    {
+      "id": "unusable-fix-accepts-idle-consumer",
+      "defect": "A declaration lists several consumers and one of them stops pulling the affected package. It is still in the tree at its assessed version, so every other check passes, and the declaration keeps covering a path that no longer exists.",
+      "file": "scripts/check-overrides.mjs",
+      "find": "    const idle = expected.filter((entry) => !allParents.includes(entry));",
+      "replace": "    const idle = [];",
       "specs": [
         "tests/unit/check-overrides.guard.spec.ts"
       ],

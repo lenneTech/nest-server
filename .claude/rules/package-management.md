@@ -401,6 +401,13 @@ any has moved:
    second version of the same consumer is a path nobody assessed, and comparing by name alone let
    one ride along on the other's declaration, with the winner decided by lockfile order.
 
+**Several consumers (12.1.1+)** are joined with ` + `, each at its assessed version —
+`'@nestjs/cli@12.0.11 + nodemon@3.1.14 cannot use 11.0.1'`. One vulnerable package often sits under
+several dev tools at once, and before this a declaration could name only one, so such a finding had no
+honest way in. Every listed consumer gets checks 1 and 3, and one more: a listed consumer that no
+longer pulls an affected package fails too (mutation `unusable-fix-accepts-idle-consumer`), because a
+list is where a path that is gone would otherwise keep covering.
+
 The third check reads **both halves** of the lockfile. `importers:` holds what the repository itself
 declares (`.`, `projects/api`, `projects/app`), `snapshots:` the edges between third-party packages
 — and the first is the likelier production path, because a direct dependency can simply be raised.
@@ -430,7 +437,15 @@ plus one for the opposite failure, a guard that rejects a declaration which is s
 matters just as much: a check that cries wolf on correct entries is a check that gets switched off,
 which is how the hole this feature closes came about in the first place.
 
-**No current entry (since 2026-10-24).** `GHSA-vfj7-8cjw-p6xm` (braces, via nodemon / npm-watch) was
+**Current entries (since 2026-10-31, owner decision, DEV-3899).** `GHSA-g3hv-75wg-m249` (minimatch
+`< 11.0.1`) and `GHSA-3g3m-2fjr-6pw4` (glob `<= 14.0.1`), both moderate, both fixed only in a new major
+released 2026-10-27 that none of their consumers can take yet — five for minimatch (`@nestjs/cli` pins
+10.2.6 exactly), rimraf for glob. The justification is in the comment above `ignoreGhsas`, the
+declarations in `unusableFixConsumers`. `tests/unit/audit-suppression-scope.spec.ts` keeps glob out of
+the production tree and allows minimatch there only under `@ts-morph/common` (ts-morph, the Permissions
+module's scanner, matching globs the developer writes) — its `prodVia` form.
+
+**Before that, no entry from 2026-10-24.** `GHSA-vfj7-8cjw-p6xm` (braces, via nodemon / npm-watch) was
 listed from 2026-10-11 to 2026-10-24: a dev-tooling-only path of an advisory with no patched release
 at all. GitHub withdrew the advisory on 2026-10-23, and `check:overrides` reported the entry as
 obsolete on the next run — the guard doing exactly its job, since a withdrawal changes nothing in
