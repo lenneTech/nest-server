@@ -129,6 +129,15 @@ const INVENTORY: StateEntry[] = [
   },
   {
     because:
+      'The models offered under /sync, discovered at bootstrap from @SyncService() and @PersistedModel({ sync }). Every '
+      + 'replica discovers the same registrations from the same code; the state a pull or push depends on — mutation '
+      + 'claims, access epochs, horizons — lives in the database (SyncMutation, SyncState), never here.',
+    classification: 'derived',
+    file: 'modules/sync/core-sync.service.ts',
+    name: 'models',
+  },
+  {
+    because:
       'One connection pool per configured SQL source, opened as the application role. It holds live sockets, so it '
       + 'cannot leave the process; every replica opens its own pool against the same database, and nothing the '
       + 'replicas must agree on lives in it — tenant scope is written per transaction, schema state is in the catalog.',

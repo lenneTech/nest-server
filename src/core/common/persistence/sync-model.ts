@@ -18,6 +18,29 @@ export type { SyncDescriptor, SyncIdFormat } from './model-descriptor.interface.
  * file may import it without an import cycle.
  */
 
+/**
+ * How a push meets a record that changed since the client's base version (protocol §6.4): `reject` answers `conflict`,
+ * `lww` applies the change on top (last to ARRIVE at the server wins), `merge` applies the fields the client changed
+ * unless one of them is declared `@SyncField('reject')`, `custom` asks the model service's `resolveSyncConflict()`.
+ */
+export type SyncConflictStrategy = 'custom' | 'lww' | 'merge' | 'reject';
+
+/**
+ * Who may do what through the sync routes (protocol §1.3), passed as `serviceOptions.roles` to every `CrudService`
+ * call of the module — so `S_CREATOR` and `S_SELF` are decided against the stored record, as everywhere. The roles
+ * a project puts on its own routes do not reach `/sync`; an operation without roles here is open to `ADMIN` only.
+ */
+export interface SyncOperationRoles {
+  create?: string[];
+  delete?: string[];
+  /** Also who may receive hints for the model; `S_CREATOR` / `S_SELF` decide nothing here (a pull has no record) */
+  pull?: string[];
+  update?: string[];
+}
+
+const SYNC_STRATEGIES: readonly SyncConflictStrategy[] = ['custom', 'lww', 'merge', 'reject'];
+const SYNC_OPERATIONS: readonly (keyof SyncOperationRoles)[] = ['create', 'delete', 'pull', 'update'];
+
 export interface SyncModelOptions {
   /**
    * Format of the model's ids. `uuidv7` is meant for NEW models: ids are stored as text on SQL and as a BSON UUID
@@ -26,11 +49,21 @@ export interface SyncModelOptions {
    */
   idFormat?: SyncIdFormat;
   /**
+   * Operation roles of the sync routes (`SyncOperationRoles`). Read by the sync module only.
+   * @default every operation open to ADMIN only (the boot warns until roles are declared)
+   */
+  roles?: SyncOperationRoles;
+  /**
    * The user-id fields a tombstone keeps besides `tenantId` (e.g. `['ownerId']`), so a deletion reaches exactly the
    * users who could see the record. Every other content field is cleared when the record is deleted.
    * @default []
    */
   scope?: string[];
+  /**
+   * What a push does when the record changed since the client's base version. Read by the sync module only.
+   * @default 'reject'
+   */
+  strategy?: SyncConflictStrategy;
 }
 
 /** Incremented by every write; `1` after the insert */
@@ -82,6 +115,28 @@ export function resolveSyncOptions(
   const scope = options.scope ?? [];
   if (!Array.isArray(scope) || scope.some((field) => typeof field !== 'string' || !field)) {
     throw new Error(`@PersistedModel(${model}): sync.scope must be a list of field names`);
+  }
+  if (options.strategy !== undefined && !SYNC_STRATEGIES.includes(options.strategy)) {
+    throw new Error(
+      `@PersistedModel(${model}): sync.strategy must be one of ${SYNC_STRATEGIES.join(', ')}, got ${JSON.stringify(options.strategy)}`,
+    );
+  }
+  if (options.roles !== undefined) {
+    const roles = options.roles;
+    const invalid =
+      !roles ||
+      typeof roles !== 'object' ||
+      Object.entries(roles).some(
+        ([operation, list]) =>
+          !SYNC_OPERATIONS.includes(operation as keyof SyncOperationRoles) ||
+          !Array.isArray(list) ||
+          list.some((role) => typeof role !== 'string' || !role),
+      );
+    if (invalid) {
+      throw new Error(
+        `@PersistedModel(${model}): sync.roles maps ${SYNC_OPERATIONS.join(', ')} to lists of role names`,
+      );
+    }
   }
   return { idFormat, scope: Object.freeze([...scope]) };
 }

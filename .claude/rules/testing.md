@@ -32,10 +32,10 @@ that every `*.spec.ts` / `*.test.ts` in the repo is claimed by **exactly one** r
 mis-named suite fails the build instead of silently passing. Type-only tests
 (`tests/types/*.type-test.ts`) are compiled by `pnpm run test:types`, never executed.
 
-## Infrastructure containers (Redis + S3 + PostgreSQL + MySQL + MariaDB)
+## Infrastructure containers (Redis + S3 + PostgreSQL + MySQL + MariaDB + MongoDB replica set)
 
-**Twenty** e2e suites talk to a **real** Redis, a **real** S3-compatible store and/or a **real**
-PostgreSQL, MySQL or MariaDB rather than a mock, and they **fail loudly** when it is missing — a silently skipped
+**Twenty-one** e2e suites talk to a **real** Redis, a **real** S3-compatible store and/or a **real**
+PostgreSQL, MySQL, MariaDB or MongoDB replica set rather than a mock, and they **fail loudly** when it is missing — a silently skipped
 infrastructure test is how an untested driver ships:
 
 | Suite | Needs |
@@ -60,13 +60,14 @@ infrastructure test is how an untested driver ships:
 | `tests/persistence-mysql-executor.e2e-spec.ts` | MySQL + MariaDB |
 | `tests/persistence-mysql-schema.e2e-spec.ts` | MySQL + MariaDB |
 | `tests/persistence-mysql-wiring.e2e-spec.ts` | MySQL + MariaDB |
+| `tests/sync-contract.e2e-spec.ts` | PostgreSQL + MySQL + MariaDB + MongoDB replica set (and MongoDB) |
 
-Beyond these twenty, the `postgres` vitest project runs the whole e2e suite once more on PostgreSQL (see "Behaviour
+Beyond these twenty-one, the `postgres` vitest project runs the whole e2e suite once more on PostgreSQL (see "Behaviour
 matrices" below), so without the PostgreSQL container that project fails as a whole while `e2e` runs.
 
-`tests/global-setup.ts` starts all five containers automatically, so `pnpm test` works from a clean
+`tests/global-setup.ts` starts all six containers automatically, so `pnpm test` works from a clean
 machine with no manual docker command. It is idempotent (a running container is reused) and never
-fatal: without Docker every other suite still runs, and the twenty above report their own actionable
+fatal: without Docker every other suite still runs, and the twenty-one above report their own actionable
 error.
 
 ```bash
@@ -75,10 +76,10 @@ pnpm run test:infra:status   # what is running
 pnpm run test:infra:down     # stop and remove
 ```
 
-| | Redis | S3 (RustFS) | PostgreSQL | MySQL 8.4 | MariaDB 11.8 |
-|---|---|---|---|---|---|
-| Port | 6380 (6379 is an auth-protected TurboOps Redis on lt dev machines) | 9102 | 5440 | 3316 | 3317 |
-| Container | `nest-server-2985-redis` | `nest-server-2985-rustfs` | `nest-server-2985-postgres` | `nest-server-2985-mysql` | `nest-server-2985-mariadb` |
+| | Redis | S3 (RustFS) | PostgreSQL | MySQL 8.4 | MariaDB 11.8 | MongoDB 8.0 replica set |
+|---|---|---|---|---|---|---|
+| Port | 6380 (6379 is an auth-protected TurboOps Redis on lt dev machines) | 9102 | 5440 | 3316 | 3317 | 27019 |
+| Container | `nest-server-2985-redis` | `nest-server-2985-rustfs` | `nest-server-2985-postgres` | `nest-server-2985-mysql` | `nest-server-2985-mariadb` | `nest-server-2985-mongo-rs` |
 
 **PostgreSQL runs with two roles, as every environment does** (`.claude/plans/db-agnostic/PLAN.md`
 §3.9): `nest_owner` owns the databases and their schema, `nest_app` owns nothing and has neither
@@ -97,6 +98,12 @@ Overridable via `MYSQL_HOST`, `MYSQL_PORT`, `MARIADB_HOST`, `MARIADB_PORT`, `MYS
 `MYSQL_OWNER_PASSWORD`, `MYSQL_APP_USER`, `MYSQL_APP_PASSWORD`. MySQL and MariaDB are not a third run of the
 whole e2e suite: the matrices carry their columns (persistence: one per engine; core modules and where
 parity: one per server).
+
+**The MongoDB replica set** (one node, `rs0`) exists for the sync contract matrix (DEV-3901): on a replica set a
+project's transaction can commit a synchronized write long after its stamp — what the pull window must cover — and the
+standalone MongoDB every other suite uses shows nothing of that. The readiness step initiates the set idempotently;
+the suite connects with `directConnection=true` and drops its database itself in `afterAll` (the database lifecycle
+collects only the standalone). Overridable via `MONGO_RS_HOST`, `MONGO_RS_PORT`.
 
 **CI provisions its own** containers in `.github/workflows/*.yml` and sets `LT_TEST_INFRA=0` so the
 automatic start stays out of the way. Same images, same ports — only who starts them differs. Set
@@ -311,6 +318,13 @@ reason, never fall back to MongoDB, while the `e2e` project runs. `--project e2e
 
 The **data store** contract follows the same discipline: `tests/helpers/persistence-matrix.ts` declares the cases (CRUD contract plus the security policies), `tests/persistence-parity.e2e-spec.ts` executes them against a store obtained via `CorePersistenceModule.forFeature()` + `@InjectStore()` with every security plugin registered, and `tests/unit/persistence-parity-matrix.spec.ts` guards that every (case, database) cell is declared. It has ten columns: `mongodb`, PostgreSQL once per engine (`postgres-typeorm`, `postgres-kysely`, `postgres-drizzle`) — a `SqlDataStore` over the schema the migrator created, connected as the application role, so row-level security binds every case — and MySQL and MariaDB once per engine (`mysql-*`, `mariadb-*`, phase 6), a `MysqlDataStore` connected as the DML-only application account. Without row-level security there, `native-api-tenant-refused` is DIFFERENT-BY-DESIGN for those six columns and its complement asserts that a native query reaches every tenant while the store still isolates. Each tenant layer of the SQL store is additionally proven ALONE in `tests/persistence-sql-store.e2e-spec.ts` — the matrix runs them together, where one layer hides the loss of another.
 
+The **offline-sync protocol** follows it one level above the store: `tests/helpers/sync-contract-matrix.ts` declares
+what `GET/POST /sync/{model}` promise — pull, resume, resync, push with every strategy, idempotency, two tabs, tenant
+isolation, the infrastructure stores — and `tests/sync-contract.e2e-spec.ts` runs it through HTTP on seven columns:
+MongoDB standalone and replica set, PostgreSQL × three engines, MySQL, MariaDB. The window repeats of MongoDB are
+DIFFERENT-BY-DESIGN against SQL's "never repeated", each side with its own case. Its structural guard is
+`tests/unit/sync-contract-matrix.spec.ts`; the reference model it runs on is `src/server/modules/sync-note/`.
+
 ### A cell is EXECUTED, IMPOSSIBLE, or DIFFERENT-BY-DESIGN — never merely absent
 
 Omitting a case for one implementation and declaring it impossible there produce the same artefact
@@ -392,7 +406,7 @@ when the registry, a vitest config or a setup file changed, since those can move
 commit, and in CI alongside the publish without blocking it. The price of caching is a cache that
 has to model each spec's full dependency closure correctly, and getting that wrong produces a stale
 PASS for a test that has since gone vacuous — exactly what the gate is there to prevent. Bad trade
-at 449 mutations.
+at 456 mutations.
 
 **Decided 2026-10-03 (repo owner): keep the full run.** Measured at 128 mutations, the CI job for
 11.41.6 took **14 minutes**. The trigger to revisit is that wall time, not the mutation count —
@@ -463,9 +477,9 @@ exactly the environment where the answer matters.
 
 ### The cost is vitest's cold start, not the tests
 
-Worth knowing before optimising the wrong thing: the specs behind all 197 e2e mutations add up to
+Worth knowing before optimising the wrong thing: the specs behind all 204 e2e mutations add up to
 **~40 seconds**. The step takes ~740s. The remaining ~700s is paying vitest's startup — process
-spawn, transform, module graph, mongod connect, DB create and drop — once per mutation, 449 times.
+spawn, transform, module graph, mongod connect, DB create and drop — once per mutation, 456 times.
 That work is largely single-threaded I/O and barely scales with cores: the full registry measures
 **744s on a 12-core laptop and 777s on a 4-vCPU CI runner**.
 

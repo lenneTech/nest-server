@@ -32,6 +32,7 @@ import { CoreAiToolPolicy } from '../../src/core/modules/ai/models/core-ai-tool-
 import { CoreApiTokenModel } from '../../src/core/modules/api-token/core-api-token.model';
 import { CoreTenantMemberModel } from '../../src/core/modules/tenant/core-tenant-member.model';
 import { FILE_METADATA_MODELS } from '../../src/core/modules/file/file-metadata.models';
+import { SyncMutationSchema, SyncStateSchema } from '../../src/core/modules/sync/core-sync-infrastructure.models';
 import { FileInfo } from '../../src/server/modules/file/file-info.model';
 import { User } from '../../src/server/modules/user/user.model';
 
@@ -249,6 +250,8 @@ describe('persistence model descriptor', () => {
       ['AiMcpOAuthClient', AiMcpOAuthClientSchema],
       ['AiMcpOAuthCode', AiMcpOAuthCodeSchema],
       ['AiMcpOAuthRefreshToken', AiMcpOAuthRefreshTokenSchema],
+      ['SyncMutation', SyncMutationSchema],
+      ['SyncState', SyncStateSchema],
     ];
     for (const [name, schema] of inline) {
       const declared = new DeclaredSchema({ definition: schema.obj, options: schema.options });

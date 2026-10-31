@@ -132,8 +132,25 @@ export interface StoreCapabilities {
   changeOrder?: 'clock' | 'seq';
 }
 
+/** The database's clock as a pull over `changeOrder: 'clock'` reads it (offline-sync plan §3.4) */
+export interface ChangeClock {
+  /** The database server's current time */
+  now: Date;
+  /**
+   * The window W: how long a write may take from its stamp until it is visible. A pull run starts this far below the
+   * previous run's start, so a change stamped before that start but committed after it is not passed.
+   */
+  windowMs: number;
+}
+
 export interface DataStore<T = Record<string, any>> {
   readonly capabilities: StoreCapabilities;
+  /**
+   * The database's clock and the window W of a synchronized model whose change order is the clock
+   * (`capabilities.changeOrder === 'clock'`); absent on every other store. What the sync module reads instead of
+   * asking for the driver.
+   */
+  changeClock?(): Promise<ChangeClock>;
   /** The database behind the store (`mongodb`, `postgres`, …) */
   readonly driver: string;
   readonly modelName: string;

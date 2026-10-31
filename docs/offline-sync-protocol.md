@@ -1,9 +1,10 @@
 # Offline sync protocol
 
-> **Status: specification, not implemented yet.** Phase 1 of the offline-sync epic (DEV-3819, phase DEV-3898), the
-> open points decided by the cursor prototype of phase 2 (DEV-3899). Nothing described here exists in the package
-> before the sync module ships (phase 4). The implementation plan, the port extensions, the reasoning and the
-> measurements live in the framework repository under `.claude/plans/offline-sync/PLAN.md`; §15 lists every decision.
+> **Status: pull, push, conflicts, client ids and resync are implemented** by the sync module
+> (`src/core/modules/sync/`, DEV-3901, 12.2.0); hints (§9) and the tombstone purge follow with DEV-3902. Specified in
+> phase 1 of the offline-sync epic (DEV-3819, DEV-3898), the open points decided by the cursor prototype of phase 2
+> (DEV-3899). The implementation plan, the port extensions, the reasoning and the measurements live in the framework
+> repository under `.claude/plans/offline-sync/PLAN.md`; §15 lists every decision.
 
 Clients read and write while disconnected and reconcile with the server when they are back: they pull what changed
 since their cursor, push what they changed locally, and receive tombstones for deletions. The protocol is HTTP with
@@ -93,9 +94,11 @@ and an id generated as above (uuidv7, or ObjectId-hex with its random tail) cann
 * **Writes with cookie authentication** follow the rules of every writing endpoint — the session cookie is
   `SameSite=lax`, credentialed CORS is answered for the trusted origins (for any origin under `cors.allowAll`, a
   development setting) — and push additionally requires
-  `Content-Type: application/json` (which forces a CORS preflight) and refuses a request whose `Origin` is not a
-  trusted origin or whose `Sec-Fetch-Site` is `cross-site`. A bearer-authenticated request carries no ambient
-  credential and is not subject to these checks.
+  `Content-Type: application/json` (which forces a CORS preflight; required of every push, `400` otherwise) and,
+  while the server uses cookies, refuses a request whose `Origin` is not a trusted origin or whose `Sec-Fetch-Site` is
+  `cross-site` (`403`). The trusted origins are those credentialed CORS answers plus the app's and the API's own. A
+  client without fetch metadata (a native app, a server) sends neither header and is not affected; a browser app
+  using a bearer token runs on a trusted origin anyway, or CORS would refuse it first.
 * **Session expired while offline:** push answers `401` for the whole request before it looks at any item. Nothing is
   applied and nothing is discarded; after signing in again the client sends the same items with the same mutation ids
   and gets no duplicates (§6.5).
@@ -139,9 +142,9 @@ GET /sync/{model}?cursor={cursor}&limit={n}
 * **Ordering and duplicates.** Pages are ordered by the server's change order, not by `updatedAt`. A record may appear
   more than once across pages (it changed again while the client was paging) — keep the item with the higher
   `version`. Depending on the database the server runs on, a pull also repeats **unchanged** records (decided in
-  phase 2, P2-2): on MongoDB a run re-reads what changed within a window W before its cursor (up to the server's
-  transaction lifetime, 60 s by default, on a replica set), on SQL databases it
-  never does. Clients compare `version` and need not know which.
+  phase 2, P2-2): on MongoDB a run re-reads what changed within a window W before its cursor (on a replica set the
+  server's transaction lifetime — 60 s by default — plus 30 s, on a standalone 30 s; decided in DEV-3901), on SQL
+  databases it never does. Clients compare `version` and need not know which.
 * Without a cursor the client receives every record and every unexpired tombstone it may see, then continues with the
   last cursor like any delta. A client whose local storage was cleared (Safari removes the storage of a site not
   installed after seven days without interaction) simply starts without a cursor.
@@ -305,7 +308,9 @@ Sync API exists only in Chromium).
 | `429` | Rate limit; `Retry-After` says when to try again. |
 | `503` | A store needed for the request is unavailable; retry later. |
 
-Error bodies use the framework's error-code format (`#LTNS_…` codes, registered when the module ships).
+Error bodies use the framework's error-code format, sync codes in `#LTNS_0700`–`#LTNS_0799` (`SYNC_RESYNC_REQUIRED`,
+`SYNC_MODEL_NOT_FOUND`, `SYNC_INVALID_REQUEST`, `SYNC_ORIGIN_REFUSED`, `SYNC_STORE_UNAVAILABLE`; 429 is
+`RATE_LIMIT_EXCEEDED`). The `410` body is always the one §8 shows, whatever exception filter the project registered.
 
 ## 11. Client duties
 

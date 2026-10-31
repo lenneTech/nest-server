@@ -26,6 +26,7 @@ import {
 import { DataSourceConfigError } from '../../common/persistence/data-source.config.js';
 import type { DataStore } from '../../common/persistence/data-store.interface.js';
 import { getStoreToken } from '../../common/persistence/persistence.tokens.js';
+import { getSyncAccessListener } from '../../common/persistence/sync-access.registry.js';
 import { ConfigService } from '../../common/services/config.service.js';
 import { ResolvedTenantContext, setTenantContextResolver } from '../../common/services/core-tenant-context.registry.js';
 import { CoreRedisService } from '../../common/services/core-redis.service.js';
@@ -383,6 +384,13 @@ export class CoreTenantGuard implements CanActivate, OnApplicationBootstrap, OnM
   invalidateTenant(tenantId: string): void {
     this.clearTenant(tenantId);
     this.publishInvalidation({ scope: 'tenant', tenantId });
+    // Offline sync: the tenant's members resync on their next pull (a no-op without the sync module). Once, here —
+    // the epoch lives in the database, so a replica receiving the broadcast must not bump it again
+    void getSyncAccessListener()
+      ?.tenantInvalidated(tenantId)
+      .catch((error) =>
+        this.logger.warn(`Sync access epoch of tenant ${tenantId} not bumped: ${(error as Error)?.message ?? error}`),
+      );
   }
 
   /**

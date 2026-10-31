@@ -3510,6 +3510,16 @@ export interface IServerOptions {
   };
 
   /**
+   * Offline sync (`docs/offline-sync-protocol.md`): `GET/POST /sync/{model}` for the models whose service carries
+   * `@SyncService()` and whose model is declared with `@PersistedModel({ sync })`. Presence implies enabled — `true`
+   * or `{}` enables it with the defaults, `{ enabled: false }` pre-configures without enabling. Absent: no route, no
+   * store, no code path.
+   *
+   * @since 12.2.0
+   */
+  sync?: boolean | ISync;
+
+  /**
    * System setup configuration for initial admin creation.
    *
    * When enabled, provides REST endpoints for creating the first admin user
@@ -3829,6 +3839,88 @@ export interface IS3Config {
    * @default same as `bucket`
    */
   stagingBucket?: string;
+}
+
+/**
+ * Offline sync (`sync`, presence implies enabled). See `src/core/modules/sync/README.md`.
+ *
+ * @since 12.2.0
+ */
+export interface ISync {
+  /**
+   * Secret the pull cursors are signed with (HMAC; the key is derived from it). Falls back to the
+   * `SECRETS_ENCRYPTION_KEY` environment variable. REQUIRED in `production` / `staging` — the boot fails without it;
+   * elsewhere an insecure development default is used with a warning. Changing it answers every client's next pull
+   * with a full resync (`410 invalid`).
+   */
+  cursorSecret?: string;
+
+  /**
+   * Pre-configure without enabling.
+   * @default true (when the object is present)
+   */
+  enabled?: boolean;
+
+  /**
+   * Route prefix of the sync endpoints.
+   * @default 'sync'
+   */
+  path?: string;
+
+  pull?: {
+    /**
+     * Records per page when the client sends no `limit`.
+     * @default 200
+     */
+    defaultLimit?: number;
+    /**
+     * Upper bound of the serialized size of one page; a page ends before it would exceed it (it always holds at least
+     * one item when one is pending).
+     * @default 1048576 (1 MiB)
+     */
+    maxBytes?: number;
+    /**
+     * Highest `limit` a client may ask for (at most 1000).
+     * @default 1000
+     */
+    maxLimit?: number;
+    /**
+     * MongoDB only: the window W a pull run re-reads below its previous start (plan §3.4). Changes stamped within W
+     * before a run started may be repeated; a write that takes longer than W from its stamp until it is visible would
+     * be missed, so W must cover the longest such write.
+     * @default replica set / sharded: the server's `transactionLifetimeLimitSeconds` (60 when unreadable) + 30;
+     *   standalone: 30
+     */
+    windowSeconds?: number;
+  };
+
+  push?: {
+    /**
+     * Items per push request; more answer 400.
+     * @default 100
+     */
+    maxItems?: number;
+  };
+
+  /**
+   * Per-user rate limits of pull and push (fixed window; exact across replicas when `redis` is configured). `false`
+   * switches both off, `{ pull: false }` one of them.
+   * @default pull 120 / 60 s, push 60 / 60 s
+   */
+  rateLimit?:
+    | false
+    | {
+        pull?: false | { max?: number; windowSeconds?: number };
+        push?: false | { max?: number; windowSeconds?: number };
+      };
+
+  retention?: {
+    /**
+     * How long the outcome of a pushed mutation is kept, so a repeat is answered with it (protocol §6.5).
+     * @default 30
+     */
+    mutationsDays?: number;
+  };
 }
 
 export interface ISystemSetup {
@@ -4828,6 +4920,22 @@ export interface ICoreModuleOverrides {
    */
   apiToken?: {
     model?: Type<any>;
+    service?: Type<any>;
+  };
+
+  /**
+   * Override the offline sync endpoints and their service (`sync` config).
+   *
+   * - `controller` must extend `CoreSyncController` (e.g. to release a sync scope to API tokens)
+   * - `service` must extend `CoreSyncService`
+   *
+   * @example
+   * ```typescript
+   * { sync: { controller: SyncController } }
+   * ```
+   */
+  sync?: {
+    controller?: Type<any>;
     service?: Type<any>;
   };
 

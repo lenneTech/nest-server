@@ -2,7 +2,13 @@ import { Logger } from '@nestjs/common';
 import type { Model } from 'mongoose';
 
 import { getStringIds } from '../helpers/id.helper.js';
-import { includeTombstones, syncOfSchema, tombstoneWrite } from './mongo/sync-schema.plugin.js';
+import {
+  includeTombstones,
+  mongoChangeWindowMs,
+  mongoServerNow,
+  syncOfSchema,
+  tombstoneWrite,
+} from './mongo/sync-schema.plugin.js';
 import type { SyncDescriptor } from './model-descriptor.interface.js';
 import {
   assertClientId,
@@ -20,6 +26,7 @@ import {
   assertSelectFields,
 } from './store-guards.js';
 import type {
+  ChangeClock,
   DataStore,
   DataStoreUpdate,
   DeleteOptions,
@@ -69,6 +76,15 @@ export class MongooseDataStore<T = Record<string, any>> implements DataStore<T> 
 
   get modelName(): string {
     return this.model.modelName;
+  }
+
+  /** The server clock and the window W of a synchronized model (its change order is the clock, plan §3.4) */
+  async changeClock(): Promise<ChangeClock> {
+    if (!this.sync) {
+      throw new Error(`changeClock(): ${this.modelName} is not a synchronized model (@PersistedModel({ sync }))`);
+    }
+    const [now, windowMs] = await Promise.all([mongoServerNow(this.model.db), mongoChangeWindowMs(this.model.db)]);
+    return { now, windowMs };
   }
 
   async count(where?: Where<T>, options: ReadOptions = {}): Promise<number> {
