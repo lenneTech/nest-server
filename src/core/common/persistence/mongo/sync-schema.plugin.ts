@@ -78,6 +78,7 @@ export function applySyncSchema(schema: any, sync: SyncDescriptor): void {
 
   if (sync.idFormat === 'uuidv7') {
     schema.add({ _id: { default: generateUuidV7, type: 'UUID' } });
+    allowUuidRanges(schema.path('_id'));
   }
   schema.add({
     [SYNC_CLOCK_FIELD]: { type: Date },
@@ -104,6 +105,26 @@ export function applySyncSchema(schema: any, sync: SyncDescriptor): void {
   );
 
   registerHooks(schema);
+}
+
+/**
+ * Let range operators (`$gt`, `$gte`, `$lt`, `$lte`) be cast on a UUID path, as Mongoose casts them on an ObjectId
+ * path. Mongoose's UUID type refuses them ("Can't use $gt with UUID."), so the keyset of a pull — `(syncAt, _id)`,
+ * continued strictly after the last record — could not be expressed for a uuidv7 model, nor a neutral
+ * `find({ id: { $gt } })`. MongoDB orders BSON UUIDs (binary subtype 4) by their bytes, the order `sort({ _id: 1 })`
+ * uses. Defined on this path only: the handlers object on the prototype is shared by every UUID path of the process.
+ */
+function allowUuidRanges(path: any): void {
+  if (!path?.$conditionalHandlers) {
+    return;
+  }
+  const single = function (this: any, value: unknown) {
+    return this.cast(value);
+  };
+  Object.defineProperty(path, '$conditionalHandlers', {
+    enumerable: false,
+    value: { ...path.$conditionalHandlers, $gt: single, $gte: single, $lt: single, $lte: single },
+  });
 }
 
 /** A MongoDB collection that holds data from before its model was synchronized — the migration it needs */
@@ -187,6 +208,56 @@ export async function mongoServerNow(connection: any): Promise<Date> {
       });
   }
   return new Date(reading.server + (performance.now() - reading.mono));
+}
+
+/**
+ * The margin of the window W over the time a write needs from its stamp until it is visible (plan §3.4, §10; decided in
+ * DEV-3901). An insert is stamped before it is sent, so a write waiting for a pooled connection or a slow network ages
+ * by that wait; a window too small loses such a change for good, a larger one only repeats records a client already has.
+ */
+export const SYNC_WINDOW_MARGIN_MS = 30_000;
+
+/** MongoDB's default `transactionLifetimeLimitSeconds`, assumed when the server does not tell */
+const DEFAULT_TRANSACTION_LIFETIME_SECONDS = 60;
+
+const changeWindows = new WeakMap<object, Promise<number>>();
+
+/**
+ * The window W of a pull on this connection: on a replica set or a sharded cluster a write in a project's transaction
+ * is stamped when it executes and becomes visible at commit, up to `transactionLifetimeLimitSeconds` later, so W covers
+ * that limit plus the margin; a standalone has no transactions and needs the margin only. Read once per connection. A
+ * server that cannot be asked gets the larger window — too large repeats records, too small loses changes.
+ */
+export function mongoChangeWindowMs(connection: any): Promise<number> {
+  let window = changeWindows.get(connection);
+  if (!window) {
+    window = readChangeWindow(connection);
+    changeWindows.set(connection, window);
+  }
+  return window;
+}
+
+async function readChangeWindow(connection: any): Promise<number> {
+  const transactional = DEFAULT_TRANSACTION_LIFETIME_SECONDS * 1000 + SYNC_WINDOW_MARGIN_MS;
+  try {
+    const admin = connection.db.admin();
+    const hello = await admin.command({ hello: 1 });
+    if (!hello?.setName && hello?.msg !== 'isdbgrid') {
+      return SYNC_WINDOW_MARGIN_MS;
+    }
+    try {
+      const parameter = await admin.command({ getParameter: 1, transactionLifetimeLimitSeconds: 1 });
+      const lifetime = Number(parameter?.transactionLifetimeLimitSeconds);
+      return Number.isFinite(lifetime) && lifetime > 0 ? lifetime * 1000 + SYNC_WINDOW_MARGIN_MS : transactional;
+    } catch {
+      // The application user may not read server parameters: assume the default lifetime
+      return transactional;
+    }
+  } catch {
+    // Not asked successfully: not cached, the next pull asks again
+    changeWindows.delete(connection);
+    return transactional;
+  }
 }
 
 const CLOCK_REFRESH_MS = 30_000;

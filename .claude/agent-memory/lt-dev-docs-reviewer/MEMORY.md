@@ -44,5 +44,5 @@
 - [Redis outage fallback claims](redis-outage-fallback-claims.md) — configured-but-down Redis: TUS locker + CoreRedisPubSub have NO fallback; "every consumer falls back" is false
 - [Migrate doc-example traps](migrate-programmatic-runner-doc-traps.md) — relative migrationsDirectory threw before 12.1.1 (runner resolves it now); loadAsync() is {} on first run
 - [Cron doc surfaces](cron-doc-surfaces.md) — which docs carry CoreCronJobs mechanics; deprecated CronJobConfig JSDoc is the live one
-- [Offline-sync spec traps](offline-sync-spec-review-traps.md) — ph1-3: Mongo upsert overwrites, tenant counter; ph3 includeTombstones gaps, existing Mongo model→sync unguarded
+- [Offline-sync spec traps](offline-sync-spec-review-traps.md) — ph1-4: Mongo upsert overwrites; ph3 includeTombstones; ph4 push lookup skips pull roles, header-less Mongo create
 - [Evidence-gate doc facts](regression-evidence-gate-doc-facts.md) — DEV-3910 shards; empty --id exits 1 not 2; run-timing ids; stale 740s cold-start prose; issue body overclaims

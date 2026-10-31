@@ -22,6 +22,7 @@
  * - LTNS_0400-LTNS_0499: Resource errors
  * - LTNS_0500-LTNS_0599: File errors
  * - LTNS_0600-LTNS_0699: AI errors
+ * - LTNS_0700-LTNS_0799: Offline sync errors
  * - LTNS_0900-LTNS_0999: Internal errors
  *
  * @example
@@ -709,6 +710,55 @@ export const LtnsErrors = {
     translations: {
       de: 'Die KI-Verbindung hat keine gültige Basis-URL.',
       en: 'The AI connection has no valid base URL.',
+    },
+  },
+
+  // =====================================================
+  // Offline Sync Errors (LTNS_0700-LTNS_0799)
+  // =====================================================
+
+  SYNC_RESYNC_REQUIRED: {
+    code: 'LTNS_0700',
+    message: 'Resync required',
+    translations: {
+      de: 'Die lokalen Daten müssen vollständig neu geladen werden.',
+      en: 'The local data must be loaded again in full.',
+    },
+  },
+
+  SYNC_MODEL_NOT_FOUND: {
+    code: 'LTNS_0701',
+    message: 'Model is not available for sync',
+    translations: {
+      de: 'Diese Daten können nicht synchronisiert werden.',
+      en: 'This data cannot be synchronized.',
+    },
+  },
+
+  SYNC_INVALID_REQUEST: {
+    code: 'LTNS_0702',
+    message: 'Invalid sync request',
+    translations: {
+      de: 'Die Synchronisierungsanfrage ist ungültig.',
+      en: 'The synchronization request is invalid.',
+    },
+  },
+
+  SYNC_ORIGIN_REFUSED: {
+    code: 'LTNS_0703',
+    message: 'Origin not allowed for this request',
+    translations: {
+      de: 'Diese Anfrage ist von dieser Seite aus nicht erlaubt.',
+      en: 'This request is not allowed from this site.',
+    },
+  },
+
+  SYNC_STORE_UNAVAILABLE: {
+    code: 'LTNS_0704',
+    message: 'Sync store unavailable',
+    translations: {
+      de: 'Die Synchronisierung ist gerade nicht verfügbar. Bitte später erneut versuchen.',
+      en: 'Synchronization is unavailable right now. Please try again later.',
     },
   },
 } as const satisfies IErrorRegistry;

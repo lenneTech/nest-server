@@ -84,6 +84,7 @@ import { isHubEnabled, isHubQueriesEnabled } from './core/modules/hub/hub-config
 import { CorePermissionsModule } from './core/modules/permissions/core-permissions.module.js';
 import { CoreSystemSetupModule } from './core/modules/system-setup/core-system-setup.module.js';
 import { CoreApiTokenModule } from './core/modules/api-token/core-api-token.module.js';
+import { CoreSyncModule } from './core/modules/sync/core-sync.module.js';
 import { CoreTenantModule } from './core/modules/tenant/core-tenant.module.js';
 
 /** Configuration warnings of `forRoot()`, through Nest's logger so log levels and a project's logger apply. */
@@ -674,6 +675,21 @@ export class CoreModule implements NestModule {
       (typeof apiTokensConfig === 'object' && apiTokensConfig !== null && apiTokensConfig.enabled !== false)
     ) {
       imports.push(CoreApiTokenModule.forRoot({ ...overrides?.apiToken }));
+    }
+
+    // Add CoreSyncModule when sync is configured (boolean shorthand, presence implies enabled). Without it nothing of
+    // offline sync is registered: no route, no infrastructure model, no listener on the write paths.
+    const syncConfig = config.sync;
+    if (
+      syncConfig === true ||
+      (typeof syncConfig === 'object' && syncConfig !== null && syncConfig.enabled !== false)
+    ) {
+      imports.push(
+        CoreSyncModule.forRoot({
+          ...overrides?.sync,
+          path: typeof syncConfig === 'object' ? syncConfig.path : undefined,
+        }),
+      );
     }
 
     // Set exports

@@ -5096,6 +5096,149 @@
         "tests/persistence-parity.e2e-spec.ts"
       ],
       "driverSpecific": false
+    },
+    {
+      "id": "sync-scope-move-reads-merged-record",
+      "defect": "DEV-3901 (offline sync phase 4) — CrudService.update() compared the tenant and scope fields of the stored record with the written ones AFTER mergePlain() had merged the input into that very object, so a record handed to another owner looked unchanged: the previous owner's access epoch was never bumped and their client kept the record.",
+      "file": "src/core/common/services/crud.service.ts",
+      "find": "    const scope = getModelDescriptor(this.dataStore.modelName)?.sync?.scope ?? [];\n    return Object.fromEntries(",
+      "replace": "    const scope = getModelDescriptor(this.dataStore.modelName)?.sync?.scope ?? [];\n    return stored;\n    return Object.fromEntries(",
+      "specs": [
+        "tests/sync-contract.e2e-spec.ts"
+      ],
+      "driverSpecific": false
+    },
+    {
+      "id": "sync-uuid-range-refused",
+      "defect": "DEV-3901 (offline sync phase 4) — Mongoose's UUID type refuses $gt/$gte/$lt/$lte, so the pull's keyset (syncAt, _id) could not be continued for a uuidv7 model on MongoDB: a page boundary inside one server millisecond answered 503.",
+      "file": "src/core/common/persistence/mongo/sync-schema.plugin.ts",
+      "find": "    allowUuidRanges(schema.path('_id'));\n",
+      "replace": "",
+      "specs": [
+        "tests/sync-contract.e2e-spec.ts"
+      ],
+      "driverSpecific": true,
+      "drivers": [
+        "mongodb",
+        "mongodb-rs"
+      ]
+    },
+    {
+      "id": "sync-header-less-pull-unscoped",
+      "defect": "DEV-3901 (offline sync phase 4) — the tenant guard admits an S_USER route without resolving the caller's memberships, so a pull without X-Tenant-Id of a tenant-scoped model hit the tenant policy's safety net (403) instead of spanning every tenant the caller belongs to.",
+      "file": "src/core/modules/sync/core-sync.controller.ts",
+      "find": "    await this.limit('pull', currentUser, res);\n    await this.scopeTenants(req, currentUser);\n",
+      "replace": "    await this.limit('pull', currentUser, res);\n",
+      "specs": [
+        "tests/sync-contract.e2e-spec.ts"
+      ],
+      "driverSpecific": false
+    },
+    {
+      "id": "sync-create-drops-client-id",
+      "defect": "DEV-3901 (offline sync phase 4) — a pushed create passed the client's id inside the input, and mapping the input to its input class dropped every undeclared field: the record got a server id, the client's own id answered not_found ever after.",
+      "file": "src/core/modules/sync/core-sync.service.ts",
+      "find": "        createId: item.id,\n",
+      "replace": "",
+      "specs": [
+        "tests/sync-contract.e2e-spec.ts"
+      ],
+      "driverSpecific": false
+    },
+    {
+      "id": "sync-pull-skips-security-check",
+      "defect": "DEV-3901 (offline sync phase 4) — guard: a pull delivers a record only after the model's securityCheck(); without it every record of the tenant reaches every member, whatever the model hides (the archived concept's pullLean did exactly that).",
+      "file": "src/core/modules/sync/core-sync.service.ts",
+      "find": "    const checked = typeof record.securityCheck === 'function' ? record.securityCheck(currentUser, false) : record;",
+      "replace": "    const checked = record;",
+      "specs": [
+        "tests/sync-contract.e2e-spec.ts"
+      ],
+      "driverSpecific": false
+    },
+    {
+      "id": "sync-cursor-ignores-user",
+      "defect": "DEV-3901 (offline sync phase 4) — guard: a cursor is bound to the user it was issued for; accepted for another user it is answered as an access change instead of as invalid (protocol §8).",
+      "file": "src/core/modules/sync/core-sync.service.ts",
+      "find": "      state.user !== access.user ||\n",
+      "replace": "",
+      "specs": [
+        "tests/sync-contract.e2e-spec.ts"
+      ],
+      "driverSpecific": false
+    },
+    {
+      "id": "sync-push-update-without-roles",
+      "defect": "DEV-3901 (offline sync phase 4) — guard: the roles of a project's own routes do not reach /sync, so a push's update must carry the model's sync roles (S_CREATOR decided against the stored record); without them any member who may read a record may overwrite it.",
+      "file": "src/core/modules/sync/core-sync.service.ts",
+      "find": "      inputType: registration.updateInput,\n      roles: [...registration.roles.update],\n",
+      "replace": "      inputType: registration.updateInput,\n",
+      "specs": [
+        "tests/sync-contract.e2e-spec.ts"
+      ],
+      "driverSpecific": false
+    },
+    {
+      "id": "sync-push-reads-without-pull-roles",
+      "defect": "DEV-3901 (offline sync phase 4) — a push read the existing record without the model's pull roles and answered a create on a taken id, or a stale baseVersion, with that record: the content of a model the caller may not pull (ADMIN only by default) went to any signed-in user who knew an id.",
+      "file": "src/core/modules/sync/core-sync.service.ts",
+      "find": "        includeTombstones: true,\n        roles: [...registration.roles.pull],\n      });\n",
+      "replace": "        includeTombstones: true,\n      });\n",
+      "specs": [
+        "tests/sync-contract.e2e-spec.ts"
+      ],
+      "driverSpecific": false
+    },
+    {
+      "id": "sync-pull-position-after-content",
+      "defect": "DEV-3901 (offline sync phase 4) — a pull took the cursor position from a read made after the content read: a record changed in between lent the page its new position, and the cursor jumped past every record after its old one — lost to the client for good, without a resync.",
+      "file": "src/core/modules/sync/core-sync.service.ts",
+      "find": "      last = this.positionOf(registration, raw);\n",
+      "replace": "      last = this.positionOf(\n        registration,\n        (await this.readSystemFields(registration, [String(raw.id)])).get(String(raw.id)) ?? raw,\n      );\n",
+      "specs": [
+        "tests/sync-contract.e2e-spec.ts"
+      ],
+      "driverSpecific": false
+    },
+    {
+      "id": "sync-tenant-pages-unmerged",
+      "defect": "DEV-3901 (offline sync phase 4) — guard: without X-Tenant-Id a tenant-scoped model is read once per tenant and the pages are merged by position; concatenated instead, the cursor moves past the other tenants' earlier records.",
+      "file": "src/core/modules/sync/core-sync.service.ts",
+      "find": "      .sort((a, b) => this.comparePositions(registration, a, b))\n",
+      "replace": "",
+      "specs": [
+        "tests/sync-contract.e2e-spec.ts"
+      ],
+      "driverSpecific": false
+    },
+    {
+      "id": "sync-window-ignores-transaction-lifetime",
+      "defect": "DEV-3901 (offline sync phase 4) — guard: on a replica set the pull window W must cover the server's transaction lifetime; the margin alone loses every change whose transaction commits later than it, for good.",
+      "file": "src/core/common/persistence/mongo/sync-schema.plugin.ts",
+      "find": "      return Number.isFinite(lifetime) && lifetime > 0 ? lifetime * 1000 + SYNC_WINDOW_MARGIN_MS : transactional;\n",
+      "replace": "      return SYNC_WINDOW_MARGIN_MS;\n",
+      "specs": [
+        "tests/sync-contract.e2e-spec.ts"
+      ],
+      "driverSpecific": true,
+      "drivers": [
+        "mongodb-rs"
+      ]
+    },
+    {
+      "id": "sync-create-without-tenant-stored-tenantless",
+      "defect": "DEV-3901 (offline sync phase 4) — a create without X-Tenant-Id ran with the caller's membership list, from which nothing can stamp a tenant: MongoDB stored the record without one (applied, then invisible to everyone, its creator included) while SQL refused it.",
+      "file": "src/core/modules/sync/core-sync.service.ts",
+      "find": "    if (registration.tenantScoped && resolveTenantScope().kind === 'tenants') {\n",
+      "replace": "    if (false && registration.tenantScoped) {\n",
+      "specs": [
+        "tests/sync-contract.e2e-spec.ts"
+      ],
+      "driverSpecific": true,
+      "drivers": [
+        "mongodb",
+        "mongodb-rs"
+      ]
     }
   ]
 }

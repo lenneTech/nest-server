@@ -93,6 +93,8 @@ export const POSTGRES_E2E_EXCLUDED: Readonly<Record<string, string>> = {
   'tests/persistence-sql-wiring.e2e-spec.ts': 'OWN-DATABASES: creates the PostgreSQL databases it boots on',
   'tests/persistence-tenant-row-check.e2e-spec.ts':
     'MONGODB-ONLY: the tenant row check of the Mongoose plugin hooks; the SQL store has its own (persistence matrix)',
+  'tests/sync-contract.e2e-spec.ts':
+    'OWN-DATABASES: the sync contract matrix runs MongoDB (standalone and replica set), every PostgreSQL engine, MySQL and MariaDB itself',
 };
 
 /**

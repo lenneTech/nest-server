@@ -32,6 +32,11 @@ export interface ServiceOptions {
   // If truly: create mode is activated
   create?: boolean;
 
+  // The id `create()` gives the new record: on a synchronized model the id a client chose offline, in the model's
+  // format (refused otherwise), on any other model a 24-character hex id. Passed beside the input because an input
+  // class keeps only the fields it declares: an `id` inside the input is lost the moment `inputType` maps it
+  createId?: string;
+
   // Current user to set ownership, check rights and other things
   currentUser?: {
     [key: string]: any;

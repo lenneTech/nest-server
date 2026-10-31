@@ -1,6 +1,7 @@
 # Offline sync — pull, push and tombstones on every database
 
-> **Status:** planned 2026-10-29 against nest-server 12.1.0 (develop `e2f0a4a`), phase 1 of DEV-3819.
+> **Status:** planned 2026-10-29 against nest-server 12.1.0 (develop `e2f0a4a`), phase 1 of DEV-3819. Phases 1–4
+> built (DEV-3898 – DEV-3901); hints and cleanup (DEV-3902) and the test clients (DEV-3903) remain.
 > **Linear:** epic DEV-3819; one ticket per phase: DEV-3898 (1, this plan + protocol), DEV-3899 (2, cursor prototype),
 > DEV-3900 (3, DataStore extensions), DEV-3901 (4, sync module), DEV-3902 (5, hints + cleanup), DEV-3903 (6, test
 > clients, browser E2E, docs, release). Worked one per `/lt-dev:ticket-cycle --autopilot` run.
@@ -426,6 +427,40 @@ review, one squash-merged PR into `develop`. Phases 3–5 change **nothing** for
    foreign record or tombstone in a pull, foreign ids refused without revealing them); multi-instance test with skewed
    clocks.
 
+**Built in phase 4 (DEV-3901), the contract a matrix on seven columns** (`tests/helpers/sync-contract-matrix.ts`:
+MongoDB standalone and replica set — a one-node set joined the test infrastructure —, PostgreSQL × three engines, MySQL,
+MariaDB; executor `tests/sync-contract.e2e-spec.ts`, the reference model `src/server/modules/sync-note/`):
+
+- **Registration**: the `sync` configuration enables the module; a model is offered by `@PersistedModel({ sync: { roles,
+  strategy } })` plus `@SyncService({ model, createInput, updateInput })` on its CrudService, discovered at bootstrap.
+  Per-field strategies through `@SyncField('reject' | 'lww')` (the ticket's name; §3.2's `@UnifiedField({ sync })` was
+  not built), applied by `merge`. A model without roles is ADMIN only, with a boot warning.
+- **Pull** reads the page's positions and system fields through the store FIRST (tombstones included), then their
+  content through the service's `find()` with the pull roles, and runs every record through `securityCheck()`. The
+  system fields come from the store because a class-level `@Restricted(ADMIN)` strips every field a model does not
+  declare from the CrudService output; they are read first because a position read after the content let the cursor
+  jump past records when one changed in between (review of DEV-3901). Without `X-Tenant-Id` a tenant-scoped model is
+  read once per tenant and merged by position — the change index is led by the tenant, and `tenantId IN (…)` would
+  sort the whole remaining scope on every page. `limit` counts records read, visible or not.
+- **Push** claims the mutation first (`SyncMutation`, key = model, user, record, mutation id), then creates
+  (`ServiceOptions.createId` — an id inside the input is dropped by the input class), updates or deletes with
+  `expectedVersion`. A conflict is resolved by the strategy, writes on top always conditional on the current version.
+  The record of a conflict is read with the pull roles (system fields first): a caller who may not pull a record never
+  receives it from a push. A create needs `X-Tenant-Id` on a tenant-scoped model — from a membership list nothing could
+  stamp a tenant (MongoDB would store the record tenant-less, SQL refuses it), so it is `FORBIDDEN` on every database.
+- **Infrastructure stores (E7)** are framework models (`SyncMutation`, `SyncState`) on every database through the port;
+  expiry is checked by every reader.
+- **Access**: a fingerprint of the caller's access plus epochs per (model, tenant) and (model, tenant, user) in the
+  cursor. `CrudService.update()` reports a record moved to another tenant or away from a scope user — from a snapshot
+  taken BEFORE `mergePlain()`, which merges into the stored object; `invalidateTenant()` bumps the tenant epoch.
+- **Header-less requests** span the caller's memberships through the tenant guard's resolver: the guard admits an
+  `S_USER` route without resolving them.
+- **MongoDB uuidv7**: the `_id` path accepts `$gt`/`$gte`/`$lt`/`$lte` (Mongoose's UUID type refuses them), or the
+  keyset could not continue inside one server millisecond.
+- **Two application processes** with skewed clocks are not part of the matrix (two Nest applications in one process share
+  the persistence registry); the cursor mechanism under several processes was measured in phase 2 (§5), and an
+  application's clock never stamps a change (DEV-3900). The matrix case `pull-during-writes` covers concurrent writers.
+
 ### Phase 5 — Hints and cleanup (DEV-3902)
 1. SSE endpoint and GraphQL subscription, store-emitted hints via in-process / Redis pub/sub (no change feed, P2-5),
    debounce, per-subscriber filtering, registration + re-check of the long-lived channels.
@@ -563,9 +598,9 @@ Phase 2 ~1,500 (prototypes, infra) · Phase 3 ~3,000 · Phase 4 ~3,500 · Phase 
 ## 10. Open questions
 
 Phase 3 settled what phase 2 left (§11): one counter per model, the advisory lock on PostgreSQL, the trigger form for
-inserts, transactions on synchronized models not refused, the MongoDB insert form. Left to DEV-3901, where the pull is
-built: the margin of W over MongoDB's transaction lifetime (and whether a transaction can still commit between its
-limit and the server's reaper run). Left to DEV-3902: a `runSqlMigration()` helper that numbers a data migration's
+inserts, transactions on synchronized models not refused, the MongoDB insert form. Phase 4 settled the margin of W
+(§11): 30 s over the transaction lifetime on a replica set, 30 s on a standalone. Left to DEV-3902: a
+`runSqlMigration()` helper that numbers a data migration's
 multi-row writes on a synchronized table the way the store does — until then such a migration locks its rows, takes
 the numbers and sets `sync_seq` itself, or runs while nothing else writes the table.
 
@@ -584,6 +619,16 @@ answer should be as safe as possible; how ObjectId and uuidv7 coexist (P2-3) is 
 every model, one format per model and never mixed, uuidv7 a per-model choice for new models only (MongoDB: BSON UUID,
 binary subtype 4; SQL: text); the hardening (rights on every access, uniform `ID_UNAVAILABLE` + rate limit, server ids
 regenerated on collision) holds for either format. P2-3 dropped.
+
+**Phase 4, autopilot (DEV-3901, recorded on the ticket):** registration through the `sync` configuration,
+`@PersistedModel({ sync: { roles, strategy } })` and `@SyncService()`; `@SyncField()` for field strategies; operation
+roles ADMIN-only by default; `custom` through the service's `resolveSyncConflict()`, refused at boot when missing; E7 as
+two framework models, the mutation key including the user; a claim younger than 30 s answers `retry`; the cursor signed
+with `sync.cursorSecret` → `SECRETS_ENCRYPTION_KEY`, required in production and staging; W = transaction lifetime + 30 s
+on a replica set, 30 s on a standalone, read through the new optional port method `changeClock()`; access loss through
+fingerprint and epochs, writes past `CrudService.update()` through `bumpAccessEpoch()`; the horizon checked (advanced
+by DEV-3902); the cookie-push rules applied whenever the server uses cookies; per-user rate limits; error codes
+`LTNS_0700`–`LTNS_0799`; a push `delete` without `baseVersion` rejected. Details: §4 "Built in phase 4".
 
 **Phase 3, autopilot (DEV-3900, recorded on the ticket):** E1–E6 here, E7 to DEV-3901, E8 to DEV-3902 (§4). A delete of
 a synchronized model leaves a tombstone on every framework path; the module's push `delete` goes through

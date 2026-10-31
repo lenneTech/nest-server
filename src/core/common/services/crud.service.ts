@@ -9,6 +9,8 @@ import { convertFilterArgsToQuery } from '../helpers/filter.helper.js';
 import { mergePlain, prepareServiceOptionsForCreate } from '../helpers/input.helper.js';
 import { ServiceOptions } from '../interfaces/service-options.interface.js';
 import type { FindOptions, Where } from '../persistence/data-store.interface.js';
+import { getModelDescriptor } from '../persistence/model-metadata.registry.js';
+import { getSyncAccessListener } from '../persistence/sync-access.registry.js';
 import { UnsupportedCapabilityError } from '../persistence/unsupported-capability.error.js';
 import { isDuplicateIdError } from '../persistence/mongoose-data-store.js';
 import { includeTombstones, syncOfSchema } from '../persistence/mongo/sync-schema.plugin.js';
@@ -84,8 +86,14 @@ export abstract class CrudService<
     return this.process(
       async (data) => {
         const currentUserId = serviceOptions?.currentUser?.id;
+        const createId = serviceOptions?.createId;
         if (this.usesNeutralStore) {
-          return this.dataStore.insert({ ...data.input, createdBy: currentUserId, updatedBy: currentUserId } as any);
+          return this.dataStore.insert({
+            ...data.input,
+            ...(createId === undefined || createId === null ? {} : { id: createId }),
+            createdBy: currentUserId,
+            updatedBy: currentUserId,
+          } as any);
         }
         const build = (id?: string) =>
           new (this.mainDbModel as MongooseModel<Document & Model>)({
@@ -96,10 +104,10 @@ export abstract class CrudService<
           });
         const sync = this.mongoSync;
         if (!sync) {
-          return build().save();
+          return build(createId ?? undefined).save();
         }
         // A synchronized model keeps a client's id in its format and replaces a taken server id (plan §3.3, E6)
-        const supplied = suppliedId(data.input ?? {});
+        const supplied = createId ?? suppliedId(data.input ?? {});
         if (supplied !== undefined && supplied !== null) {
           return build(assertClientId(supplied, sync.idFormat, this.mainDbModel.modelName)).save();
         }
@@ -705,14 +713,19 @@ export abstract class CrudService<
         async (data) => {
           // The same write as on MongoDB: the stored record merged with the input, written back whole — minus
           // the id, which never changes, and the update time, which the store stamps
+          const before = this.syncAccessSnapshot(stored);
           const merged = mergePlain(stored, data.input, { updatedBy: serviceOptions?.currentUser?.id });
           const { _id: _mongoId, id: _id, updatedAt: _updatedAt, ...patch } = merged as Record<string, any>;
-          if (expectedVersion === undefined) {
-            return this.dataStore.updateById(id, patch as any);
+          const updated =
+            expectedVersion === undefined
+              ? await this.dataStore.updateById(id, patch as any)
+              : // One statement with the version as its condition: of two changes made on the same version, one applies
+                ((await this.dataStore.updateOne({ id, version: expectedVersion } as Where, patch as any)) ??
+                this.versionConflict(id));
+          if (updated) {
+            await this.reportSyncAccessMove(before, merged);
           }
-          // One statement with the version as its condition: of two changes made on the same version, one applies
-          const updated = await this.dataStore.updateOne({ id, version: expectedVersion } as Where, patch as any);
-          return updated ?? this.versionConflict(id);
+          return updated;
         },
         { dbObject: stored, input, serviceOptions },
       );
@@ -725,6 +738,7 @@ export abstract class CrudService<
     return this.process(
       async (data) => {
         const currentUserId = serviceOptions?.currentUser?.id;
+        const before = this.syncAccessSnapshot(dbObject);
         const merged = mergePlain(dbObject, data.input, { updatedBy: currentUserId });
         const query =
           expectedVersion === undefined
@@ -736,7 +750,11 @@ export abstract class CrudService<
           query.select(serviceOptions.select);
         }
         const updated = await query.exec();
-        return updated || expectedVersion === undefined ? updated : this.versionConflict(id);
+        if (!updated) {
+          return expectedVersion === undefined ? updated : this.versionConflict(id);
+        }
+        await this.reportSyncAccessMove(before, merged);
+        return updated;
       },
       { dbObject, input, serviceOptions },
     );
@@ -844,6 +862,62 @@ export abstract class CrudService<
 
   protected versionConflict(id: string): never {
     throw new VersionConflictError(this.mainModelConstructor?.name ?? this.dataStore.modelName, id);
+  }
+
+  /**
+   * The tenant and scope fields of a stored record as they are BEFORE a write — taken before `mergePlain()`, which
+   * merges the input INTO the stored object. `undefined` when nobody listens or the model is not synchronized.
+   */
+  protected syncAccessSnapshot(stored: Record<string, any> | undefined): Record<string, any> | undefined {
+    if (!stored || !getSyncAccessListener() || !this.isSynchronized) {
+      return undefined;
+    }
+    const scope = getModelDescriptor(this.dataStore.modelName)?.sync?.scope ?? [];
+    return Object.fromEntries(
+      ['tenantId', ...scope].map((field) => [field, Array.isArray(stored[field]) ? [...stored[field]] : stored[field]]),
+    );
+  }
+
+  /**
+   * Tell the sync module that this write took a synchronized record away from users who could see it: moved to
+   * another tenant, or a scope field (`sync.scope`, e.g. `ownerId`) changed away from a user (offline-sync plan §3.8).
+   * Their clients then answer the next pull with a full resync and lose the local copy. A no-op without the module.
+   * A failure is logged, never thrown: the write it follows has happened.
+   */
+  protected async reportSyncAccessMove(
+    stored: Record<string, any> | undefined,
+    written: Record<string, any>,
+  ): Promise<void> {
+    const listener = getSyncAccessListener();
+    if (!listener || !stored) {
+      return;
+    }
+    const model = this.dataStore.modelName;
+    const ids = (value: unknown): string[] =>
+      value === undefined || value === null
+        ? []
+        : (Array.isArray(value) ? value : [value]).flatMap((item) =>
+            item === undefined || item === null ? [] : [String(getStringIds(item))],
+          );
+    const after = (field: string) => (field in written ? written[field] : stored[field]);
+    const [tenantBefore] = ids(stored.tenantId);
+    const tenantChanged = !!tenantBefore && ids(after('tenantId'))[0] !== tenantBefore;
+    const usersLost = (getModelDescriptor(model)?.sync?.scope ?? []).flatMap((field) => {
+      const now = new Set(ids(after(field)));
+      return ids(stored[field]).filter((user) => !now.has(user));
+    });
+    if (!tenantChanged && !usersLost.length) {
+      return;
+    }
+    try {
+      await listener.recordMoved({ model, tenantChanged, tenantId: tenantBefore, usersLost: [...new Set(usersLost)] });
+    } catch (error) {
+      Logger.error(
+        `Sync access epoch for a moved ${model} record not bumped — affected clients keep their copy until their next ` +
+          `full resync: ${(error as Error)?.message ?? error}`,
+        this.constructor.name,
+      );
+    }
   }
 
   /**
