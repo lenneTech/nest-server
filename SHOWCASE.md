@@ -1,5 +1,5 @@
 ---
-version: "12.1.0"
+version: "12.2.0"
 technologies:
   - NestJS 12
   - GraphQL (Apollo Server 5)
@@ -181,6 +181,7 @@ verzichten.
 
 | Version | Datum | Änderungen |
 |---------|-------|-------------|
+| 12.2.0 | 2026-11 | Offline-Synchronisation für Mobile-, Web- und Desktop-Clients auf jeder Datenbank |
 | 12.1.0 | 2026-10 | Datenbankunabhängigkeit: PostgreSQL, MySQL, MariaDB neben MongoDB, MongoDB-Bibliotheken optional |
 | 12.0.0 | 2026-10 | NestJS 12, TypeScript 6, ESM-Paket, SWC statt ts-node |
 | 11.42.0 | 2026-10 | Schutz auf jedem Einstiegspunkt, SSRF-Schutz, deaktivierbare Mandanten |

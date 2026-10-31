@@ -1,6 +1,6 @@
 {
   "name": "@lenne.tech/nest-server",
-  "version": "12.1.1",
+  "version": "12.2.0",
   "type": "module",
   "description": "Server framework in TypeScript on top of NestJS: GraphQL and REST APIs on MongoDB, PostgreSQL, MySQL or MariaDB, with authentication, field-level permissions, multi-tenancy, offline sync and an AI assistant.",
   "keywords": [
