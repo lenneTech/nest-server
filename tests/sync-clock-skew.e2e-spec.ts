@@ -13,8 +13,9 @@ import { type SyncTestDatabase, syncTestDatabase } from './helpers/sync-test-dat
  *
  * Two reference servers run as processes of their own (two Nest applications in one process share the persistence
  * registry), one clock 5 s ahead, one 5 s behind (`tests/helpers/skewed-clock.mjs`), on one database. Writers push
- * creates, changes and deletes to both at once; readers pull from both in turn, cursor handed from one instance to the
- * other, all the while. Afterwards each reader's latest version of every record must equal what the server holds.
+ * creates, changes and deletes to both at once; readers pull all the while — one from each instance, one handing its
+ * cursor from one instance to the other on every page. Afterwards each reader's latest version of every record must
+ * equal what the server holds.
  *
  * The columns cover both change orders and both SQL numbering paths: MongoDB orders by the database clock with a window
  * (standalone and replica set), PostgreSQL numbers under an advisory lock, MySQL through its counter row. The store-level
@@ -25,7 +26,13 @@ const CLOCK_DRIVERS: readonly SyncDriver[] = ['mongodb', 'mongodb-rs', 'postgres
 const SKEW_MS = 5000;
 const WRITERS = 6;
 const STEPS = 30;
-const READERS = 2;
+/**
+ * Which instance each reader pulls from, page by page: one stays with the clock ahead, one with the clock behind, one
+ * hands its cursor to the other instance on every page. Only a reader that STAYS with the clock ahead sees a stamp the
+ * slow clock wrote fall below its window; a reader switching instances soon starts a run on the slow one and picks
+ * such a change up again, so on its own it could not show the defect.
+ */
+const READERS: readonly ((page: number) => number)[] = [() => 0, () => 1, (page) => page % 2];
 
 const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
 const objectId = () => Math.floor(Date.now() / 1000).toString(16).padStart(8, '0') + randomBytes(8).toString('hex');
@@ -96,7 +103,7 @@ describe.each(CLOCK_DRIVERS)('offline sync — two server processes with skewed 
    *   (src/core/common/persistence/mongo/sync-schema.plugin.ts) — registered as mutation `sync-mongo-stamp-app-clock`
    *   in tests/regression-mutations.json.
    */
-  it('loses no change while writers on both instances race readers that switch instances', async () => {
+  it('loses no change while writers on both instances race readers on either instance and across them', async () => {
     const token = await account();
     const known = new Map<string, number>();
     const unexpected: any[] = [];
@@ -142,14 +149,13 @@ describe.each(CLOCK_DRIVERS)('offline sync — two server processes with skewed 
     };
 
     const progress = { writing: true };
-    const reader = async (index: number) => {
+    const reader = async (instanceFor: (page: number) => number) => {
       const seen = new Map<string, { deletedAt: unknown; version: number }>();
       let cursor: string | undefined;
-      let turn = index;
+      let turn = 0;
       const run = async () => {
         for (let page = 0; page < 5000; page++) {
-          // Every page from the other instance than the one before: the cursor one issued, the other continues
-          const base = instances[turn++ % instances.length].baseUrl;
+          const base = instances[instanceFor(turn++)].baseUrl;
           const query = new URLSearchParams({ limit: '25', ...(cursor ? { cursor } : {}) });
           const { body } = await request(base, `/sync/SyncNote?${query}`, { token });
           for (const item of body.items) {
@@ -175,7 +181,7 @@ describe.each(CLOCK_DRIVERS)('offline sync — two server processes with skewed 
       return seen;
     };
 
-    const readers = Array.from({ length: READERS }, (_, index) => reader(index));
+    const readers = READERS.map((instanceFor) => reader(instanceFor));
     await Promise.all(Array.from({ length: WRITERS }, (_, index) => writer(index)));
     progress.writing = false;
     const views = await Promise.all(readers);

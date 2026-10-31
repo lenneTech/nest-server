@@ -520,8 +520,9 @@ MariaDB; executor `tests/sync-contract.e2e-spec.ts`, the reference model `src/se
 - **Scenarios** (`tests/helpers/sync-client-scenarios.ts`, both clients, guarded by a unit spec): offline create /
   change / delete then online, conflict (the server wins), two tabs pushing at once, an expired session, cleared storage.
 - **Two instances, skewed clocks** (`tests/sync-clock-skew.e2e-spec.ts`): two server processes (+5 s / −5 s,
-  `tests/helpers/skewed-clock.mjs`) on MongoDB standalone and replica set, PostgreSQL and MySQL; six writers, two
-  readers handing the cursor between instances on every page; every reader's latest version equals the server's. W is
+  `tests/helpers/skewed-clock.mjs`) on MongoDB standalone and replica set, PostgreSQL and MySQL; six writers, three
+  readers (one per instance, one handing the cursor between them on every page); every reader's latest version equals
+  the server's. W is
   2 s there: the derived window would cover a ±5 s skew, so MongoDB could not fail the suite with it.
 - **Docs**: the module's `SECURITY.md` (client duties on logout and account switch, credentials, caching), README
   "Clients", the protocol's acceptance trace (§14), migration guide `12.1.x-to-12.2.x`, the root README, `SHOWCASE.md`
