@@ -48,7 +48,7 @@
 
 ## Review Methodology
 
-- [project-check-overrides-unusable-fix-residual.md](project-check-overrides-unusable-fix-residual.md) — unusableFixConsumers (landed 11.42.5): backport, second parent, importers edge, second consumer version must all RE-TEST
+- [project-check-overrides-unusable-fix-residual.md](project-check-overrides-unusable-fix-residual.md) — unusableFixConsumers incl. ` + ` multi-consumer form (2026-10-31): fail-closed probe matrix, prodVia scope, starter port lag
 - [project-check-overrides-pnpm11-outage-shapes.md](project-check-overrides-pnpm11-outage-shapes.md) — pnpm 11 audit-failure shapes + registry env facts; false "ok" (926b691) and skipped suppression checks (40073c2) both FIXED; re-run recipe
 - [project-pnpm-overrides-propagation.md](project-pnpm-overrides-propagation.md) — overrides never reach npm consumers; THREE exact-pin leaks (ws, js-yaml, @graphql-tools/utils@12.0.0); docs/security-overrides.md must be updated; `pnpm audit --prod` triage for ignoreGhsas
 

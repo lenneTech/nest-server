@@ -1,6 +1,6 @@
 ---
 name: project-check-overrides-unusable-fix-residual
-description: `auditConfig.unusableFixConsumers` in check-overrides (landed 11.42.5 after two review rounds) — the expiry checks and the repro cases that must keep failing; re-run them when the guard changes
+description: `auditConfig.unusableFixConsumers` in check-overrides (landed 11.42.5, multi-consumer ` + ` form 2026-10-31) — expiry checks, the parse-edge probe matrix that must stay fail-closed, starter port lag
 metadata:
   type: project
 ---
@@ -8,25 +8,31 @@ metadata:
 **Status:** landed in nest-server 11.42.5 (2026-10-06) after two review rounds. Round 1 (first attempt,
 reverted): backport and second parent stayed green. Round 2 found `dependentsOf()` reading only
 `snapshots:` (a direct dependency in `importers:` stayed green) and parents compared by name only
-(a second consumer version rode along). Both fixed; repro cases A–J in the review scratchpad all
-fail/pass as expected (A,B,C,D,D2,H,I,J → exit 1; E,F,G → 0), six `unusable-fix-*` mutations registered.
-Below: the first attempt's description, kept as the checklist for any future change to this guard.
+(a second consumer version rode along). Both fixed; six `unusable-fix-*` mutations registered.
 
-The reverted attempt gave `scripts/check-overrides.mjs` an `auditConfig.unusableFixConsumers: { GHSA: '<consumer>@<version>' }`
-(2026-10-06, written by the lt-crm session for three `simple-git` advisories reachable only via
-`nuxt > @nuxt/devtools`). A declared suppression over a FIXED advisory passes as a "residual" as long
-as `resolvedVersion(consumer)` (first lockfile match) equals the recorded version.
+**Multi-consumer form (commit dcc1f0b, 2026-10-31, reviewed clean):** `'a@1 + b@2 cannot use X'`.
+`expected` is an ARRAY and compared with `Array#includes` (exact element match, never substring); every
+consumer gets the moved/absent check, then backport, then `others` (undeclared parent), then the new
+`idle` check (declared consumer that pulls nothing affected, mutation `unusable-fix-accepts-idle-consumer`).
+Probe matrix run in a scratch dir copying the script (spec-style workspace + `--advisory-file`): trailing
+`+`, leading `+`, empty entry, `+` without spaces, consumer without `@version` (scoped or not), a
+"workspace package" pseudo-consumer, missing `cannot use`, second version of a declared consumer,
+importer direct dep, undeclared third parent, idle consumer → ALL exit 1. Only a correct list and a
+duplicated entry pass. Workspace parents never contain `@`, expected always does → importer edges can
+never be declared away. `dependentsOf` counts parents of ANY version of the affected package (over-counts, safe).
 
-**Blind spots found in review (reported as High, gate defect):**
-- `advisoryStatus()` collapses `vulnerabilities[].first_patched_version` to the first non-null value;
-  the declared branch only checks that one exists. An upstream in-major BACKPORT the consumer can use
-  never re-opens the check — the exact GHSA-mh99-v99m-4gvg precedent the package-management rule cites.
-  The green-path line then claims "fix X exists but <consumer> cannot use it", which is false.
-- Only the declared consumer is watched. A second parent pulling the same vulnerable package (prod
-  path included) is covered by the global `ignoreGhsas` and the guard stays exit 0.
+**First live entries:** GHSA-g3hv-75wg-m249 (minimatch, 5 consumers incl. PROD `@ts-morph/common@0.29.0`
+via ts-morph → Permissions scanner, fixed globs joined with `findProjectRoot()`) and GHSA-3g3m-2fjr-6pw4
+(glob, rimraf only, dev). Prod scope guarded by `audit-suppression-scope.spec.ts` `prodVia` — checks DIRECT
+parents only (regex `^[└├]─[┬─] (\S+)` on pnpm 11 `why` output, asserts ≥1 parent so not vacuous). Residual
+gap below bar: a second prod package reaching `@ts-morph/common@0.29.0` passes both guards.
 
-**How to apply:** when this file changes again, re-run the scratch demo (temp dir with the script,
-`ignoreGhsas` + declaration, lockfile with devtools@3.4.1 AND a second parent, advisory-file with an
-in-major `first_patched_version`) and check for exit 0. If it now fails with RE-TEST, the gap is closed.
+**Starter lag:** nest-server-starter's `scripts/check-overrides.mjs` port still has the SINGLE-consumer
+`parseResidual` (lastIndexOf '@' over the whole left side) — a copied ` + ` declaration there fails closed
+("no <long string> in the tree"), never permissive. Re-review when the starter port is updated.
 
-Related: [[project-pnpm-overrides-propagation]]
+**How to apply:** when this guard changes again, re-run the probe matrix above against the new script and
+each `unusable-fix-*` mutation (apply `find`→`replace` to a scratch copy); every case except the correct
+list must stay exit 1.
+
+Related: [[project-pnpm-overrides-propagation]], [[project-check-overrides-pnpm11-outage-shapes]]
