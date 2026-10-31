@@ -11,4 +11,5 @@
 - [Without-MongoDB gate](project_without-mongodb-gate.md) — 12.1.0 optional Mongo peers; prove dist/--package gates without rebuilding dist or a DB; DROP-DATABASE hook.
 - [Cross-repo patch hoist contract](project_cross-repo-patch-hoist-contract.md) — starter `patchedDependencies` need CLI ≥1.50.4 (older drops it, init breaks); e2e Docker proof recipe.
 - [Template image smoke + CI tokens](project_starter-image-smoke-and-ci-tokens.md) — app image OOMs on `/` without API URL (pre-existing); which CI passes GITHUB_TOKEN to the guards.
+- [Regression-evidence CI](project_regression-evidence-ci.md) — DEV-3910 4-shard matrix + report job; preflight reads run conclusion only; BSD seq trailing-comma trap.
 - [PID-1 signal contract](project_pid1-signal-contract.md) — SUPERSEDED by 11.32.0 (tini + `enableShutdownHooks()`); kept so the stale conclusion is not re-derived.

@@ -172,17 +172,26 @@ jobs:
   #   3. `/lt-dev:publish` checks this job's last conclusion BEFORE starting a new release and
   #      refuses to proceed silently past a red one.
   # Remove any of the three and this becomes a job nobody reads.
+  #
+  # SHARDED (DEV-3910): one runner took 53 min for 442 mutations in 12.1.1, almost all of it vitest's
+  # cold start per mutation. Four parallel shards split the SAME full run (`--shard=i/4`, every
+  # mutation in exactly one shard, pinned by tests/unit/mutation-sharding.spec.ts) — nothing is
+  # cached or skipped. `fail-fast: false` is load-bearing: GitHub cancels the other matrix jobs when
+  # one fails, which would throw away their verdicts. Raise the shard count (matrix AND `--shard`)
+  # once the slowest shard exceeds 30 minutes; the spec keeps the two in step.
   regression-evidence:
-    name: Regression evidence (non-blocking)
+    name: Regression evidence (non-blocking, shard ${{ matrix.shard }}/4)
     runs-on: ubuntu-latest
     # No `needs:` — this is the point. It starts with the publish job, not after it.
     strategy:
+      fail-fast: false
       matrix:
         node-version: [ 24.x ]
         mongodb-version: [ '7.0' ]
+        shard: [ 1, 2, 3, 4 ]
     env:
-      REDIS_CONTAINER: evidence-redis
-      RUSTFS_CONTAINER: evidence-rustfs
+      REDIS_CONTAINER: evidence-redis-${{ matrix.shard }}
+      RUSTFS_CONTAINER: evidence-rustfs-${{ matrix.shard }}
     steps:
       - name: Git checkout
         uses: actions/checkout@v7
@@ -214,14 +223,24 @@ jobs:
 
       - name: Regression evidence (mutation check)
         id: evidence
-        run: pnpm run check:mutations
+        run: pnpm run check:mutations -- --shard=${{ matrix.shard }}/4
 
-      # Opens an issue when the gate goes red. Without this, a red run is only noticed at the NEXT
-      # release — which may be weeks away, and the whole point is that nobody has to watch.
-      # `if: failure()` covers a crashed run too, which is itself a finding: an INCONCLUSIVE gate
-      # proves nothing about the evidence.
+      - name: Remove test infrastructure
+        if: always()
+        run: docker rm -f "$REDIS_CONTAINER" "$RUSTFS_CONTAINER" 2>/dev/null || true
+
+  # Opens ONE issue when any shard goes red. Without this, a red run is only noticed at the NEXT
+  # release — which may be weeks away, and the whole point is that nobody has to watch. A crashed
+  # shard counts too: an INCONCLUSIVE gate proves nothing about the evidence. It runs once, after the
+  # matrix, because two red shards opening their own issue at the same moment would each find none
+  # open and create one.
+  regression-evidence-report:
+    name: Regression evidence report
+    runs-on: ubuntu-latest
+    needs: regression-evidence
+    if: ${{ always() && needs.regression-evidence.result == 'failure' }}
+    steps:
       - name: Open an issue on failure
-        if: failure()
         uses: actions/github-script@v8
         with:
           script: |
@@ -239,7 +258,8 @@ jobs:
               '',
               '### What to do',
               '',
-              '1. Read which mutation failed. `FAIL … stayed GREEN` means a vacuous test;',
+              '1. Open the log of the red shard (each shard prints only its own verdicts) and read which',
+              '   mutation failed. `FAIL … stayed GREEN` means a vacuous test;',
               '   `INCONCLUSIVE` means the run crashed and proved nothing either way.',
               '2. Reproduce locally: `pnpm run check:mutations -- --id=<mutation-id>`',
               '3. Either repair the test so it observes the defect again, or re-point the mutation if',
@@ -265,7 +285,3 @@ jobs:
               body,
               labels: ['regression-evidence'],
             });
-
-      - name: Remove test infrastructure
-        if: always()
-        run: docker rm -f "$REDIS_CONTAINER" "$RUSTFS_CONTAINER" 2>/dev/null || true

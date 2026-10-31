@@ -41,8 +41,9 @@
  *   pnpm run check:mutations -- --jobs=4        run 4 mutations at a time (see below)
  *   pnpm run check:mutations -- --no-infra      only the mutations that need no MongoDB
  *   pnpm run check:mutations -- --since=<ref>   only mutations touching files changed since <ref>
+ *   pnpm run check:mutations -- --shard=2/4     this job's quarter of the selection (see SHARDING)
  *
- * `--no-infra` selects the 248 mutations whose specs are all unit specs — the unit runner has no
+ * `--no-infra` selects the 251 mutations whose specs are all unit specs — the unit runner has no
  * `globalSetup`, so those need no MongoDB and no test containers. It is a CAPABILITY filter, for a
  * machine that cannot start the infrastructure; it is not a "quick mode". When you are iterating on
  * one mutation, `--id=<id>` is both faster and more relevant.
@@ -53,17 +54,30 @@
  * refactor three modules away can hollow out a test it will happily skip — which is exactly the
  * failure this tool exists to catch. Fast feedback while you work; never the evidence.
  *
- * Why the release gate still runs all 442 rather than caching per-mutation verdicts: the gate
+ * Why the release gate still runs all 445 rather than caching per-mutation verdicts: the gate
  * runs ONCE PER RELEASE, not per commit, and in CI it runs alongside the publish without blocking
  * it. The price of caching would be a cache that has to model each spec's full dependency closure
  * correctly, and the failure mode of getting that wrong is a stale PASS for a test that has since
- * gone vacuous — the precise thing the gate is there to prevent. Bad trade at 442 mutations.
+ * gone vacuous — the precise thing the gate is there to prevent. Bad trade at 445 mutations.
  *
  * DECIDED 2026-10-03 (repo owner): keep the full run. Measured at 128 mutations, the CI job for
  * 11.41.6 took 14 minutes. The trigger to revisit is that WALL TIME, not the mutation count —
  * the count was never the cost: re-evaluate once the "Regression evidence" job in publish.yml
  * exceeds 30 minutes (`gh run view <id> --json jobs`). Adding a mutation needs no decision below
  * that line.
+ *
+ * SHARDING (re-evaluated 2026-10-30, DEV-3910)
+ * --------------------------------------------
+ * The line was crossed: 53 min for 442 mutations on one runner at 12.1.1. The run stays FULL; CI
+ * splits it. `publish.yml` and `regression-evidence.yml` run a matrix of jobs, each `--shard=i/n` of
+ * the same selection (`shardMutations()`: every mutation in exactly one shard, unit and e2e dealt out
+ * separately so no shard collects the slow ones). New trigger: the slowest SHARD exceeds 30 minutes →
+ * raise n in the workflows. `tests/unit/mutation-sharding.spec.ts` pins the partition, the matrix
+ * against `--shard`, `fail-fast: false` and the single issue job.
+ *
+ * Sharding applies AFTER the emptiness check: a selection that is empty still fails (2 = "no
+ * verdict" for `--since` / `--no-infra`, 1 for an unmatched `--id`), while a shard that merely holds
+ * none of a non-empty selection ends 0 and says so.
  *
  * PARALLELISM
  * -----------
@@ -103,6 +117,7 @@ const allowDirty = args.includes('--allow-dirty');
 const jobsArg = args.find((arg) => arg.startsWith('--jobs='))?.slice('--jobs='.length);
 const noInfra = args.includes('--no-infra');
 const since = args.find((arg) => arg.startsWith('--since='))?.slice('--since='.length);
+const shardArg = args.find((arg) => arg.startsWith('--shard='))?.slice('--shard='.length);
 
 /** Files restored on any exit path, keyed by absolute path. */
 const originals = new Map();
@@ -396,6 +411,52 @@ export function selectMutations({ changed, mutations, noInfra: infraFree = false
   }
 
   return { mutations: selected, notes };
+}
+
+/**
+ * Parse `--shard=<index>/<count>` (1-based) — pure, so a misread spec can be pinned without a run.
+ *
+ * Strict on purpose: a spec read loosely is a silent gap. `5/4` would select nothing and exit green,
+ * `1.5/4` would match no position — either way part of the registry goes unchecked while the job
+ * reports success.
+ *
+ * @param {string} value the raw `--shard=` argument
+ * @returns {{ ok: true, index: number, count: number } | { ok: false, reason: string }}
+ */
+export function parseShard(value) {
+  const match = /^(\d+)\/(\d+)$/.exec(String(value ?? ''));
+  const index = Number(match?.[1]);
+  const count = Number(match?.[2]);
+  if (!match || count < 1 || count > 64 || index < 1 || index > count) {
+    return { ok: false, reason: `\`--shard=${value}\` is not <index>/<count> with 1 <= index <= count <= 64.` };
+  }
+  return { count, index, ok: true };
+}
+
+/**
+ * The mutations of shard `index` of `count` — pure and deterministic, so CI jobs that never talk to
+ * each other agree on the split. See `tests/unit/mutation-sharding.spec.ts`.
+ *
+ * Unit and e2e mutations are dealt out separately, each round-robin in registry order: an e2e
+ * mutation costs several unit mutations (vitest's globalSetup, MongoDB, the containers), so a plain
+ * positional split would let the registry's ordering decide which shard sets the wall clock. Every
+ * mutation lands in exactly one shard; the order inside a shard is the registry's.
+ *
+ * @template {{ specs: string[] }} T
+ * @param {T[]} mutations the selection after `--id` / `--since` / `--no-infra`
+ * @param {{ index: number, count: number }} shard 1-based, as `parseShard()` returns it
+ * @returns {T[]}
+ */
+export function shardMutations(mutations, { count, index }) {
+  const isE2e = (mutation) => mutation.specs.some((spec) => !spec.startsWith('tests/unit/'));
+  const positionInKind = new Map();
+  for (const kind of [true, false]) {
+    mutations.filter((mutation) => isE2e(mutation) === kind).forEach((mutation, i) => positionInKind.set(mutation, i));
+  }
+  return mutations.filter((mutation) => {
+    const position = positionInKind.get(mutation);
+    return position % count === index - 1;
+  });
 }
 
 /**
@@ -743,14 +804,16 @@ async function main() {
     }
     changed = (diff.stdout ?? '').split('\n').filter(Boolean);
   }
-  const { mutations, notes } = selectMutations({
+  const { mutations: selection, notes } = selectMutations({
     changed,
     mutations: registry.mutations.filter((mutation) => !only || mutation.id === only),
     noInfra,
   });
   for (const note of notes) process.stdout.write(`${note}\n`);
 
-  if (!mutations.length) {
+  // Checked BEFORE sharding: "the filters selected nothing" is no verdict and exits 2. A shard that
+  // merely holds none of a non-empty selection is fine — the other shards run it.
+  if (!selection.length) {
     if (since || noInfra) {
       process.stdout.write(
         '\nNothing selected — no mutation matches the filters. This is NOT a pass.\n' +
@@ -760,6 +823,25 @@ async function main() {
     }
     process.stderr.write(`No mutation matches --id=${only}\n`);
     process.exit(1);
+  }
+
+  let mutations = selection;
+  let shardLabel = '';
+  if (shardArg !== undefined) {
+    const shard = parseShard(shardArg);
+    if (!shard.ok) {
+      process.stderr.write(`${shard.reason}\n`);
+      process.exit(1);
+    }
+    mutations = shardMutations(selection, shard);
+    shardLabel = ` (shard ${shard.index}/${shard.count})`;
+    process.stdout.write(
+      `--shard=${shard.index}/${shard.count}: ${mutations.length} of ${selection.length} selected mutations\n`,
+    );
+    if (!mutations.length) {
+      process.stdout.write('Nothing in this shard — the other shards run the selection.\n');
+      return;
+    }
   }
 
   if (listOnly) {
@@ -781,7 +863,7 @@ async function main() {
   }
 
   const failed = results.filter((result) => !result.ok);
-  process.stdout.write(`\n${results.length - failed.length}/${results.length} mutations confirmed\n`);
+  process.stdout.write(`\n${results.length - failed.length}/${results.length} mutations confirmed${shardLabel}\n`);
   // exitCode, never process.exit(): on a pipe (every CI runner) stdout is written asynchronously, and exit() drops
   // what is still queued. The parallel path writes every verdict block at the end, so the 12.1.0 publish run lost
   // the last 48 blocks AND this summary — a red gate that named no failing mutation. Nothing here keeps the
