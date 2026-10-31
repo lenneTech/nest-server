@@ -1,6 +1,6 @@
 ---
 name: offline-sync-spec-review-traps
-description: Offline-sync epic DEV-3819 — phase 1 (DEV-3898) and phase 2 (DEV-3899) plan/protocol claims that disagree with code or Mongo/tenant semantics; re-check in phases 3-6
+description: Offline-sync epic DEV-3819 — phases 1-3 (DEV-3898/3899/3900) plan, protocol and implementation claims that disagree with code; re-check in DEV-3901+
 metadata:
   type: project
 ---
@@ -44,6 +44,23 @@ one id format per model. Traps found in the text, re-check in phase 3/4 code:
 - §3.9 says "the CrudService emits" hints while E5/§11/Phase 5/protocol say the store — dropped as Medium (hints optional).
 - `summarize.mjs` parses stdout LOGS, not `--out` JSON (silent empty output); README's replica-set block 2 runs after
   block 1's `docker rm -f` and leaves `transactionLifetimeLimitSeconds: 3` set.
+
+**Phase 3 (DEV-3900, reviewed 2026-10-31, commit b1cd584)** — implementation landed; traps found, re-check in DEV-3901:
+
+- **`includeTombstones` is not honoured everywhere it is documented**: the MongoDB `pre('aggregate')` hook unshifts
+  the live `$match` unconditionally, so `CrudService.findAndCount(…, { includeTombstones })` drops tombstones on MongoDB
+  only (probed: find 2, aggregate 1); `update()` / `delete()` never forward it although `ServiceOptions` JSDoc says
+  they "match" tombstones.
+- **Existing MongoDB model → sync has no safeguard** (SQL has: boot stops on the unique index, `ADD COLUMN … DEFAULT 1`
+  + numbering): the rewritten partial index keeps Mongoose's auto name `email_1`, `init()` rejects with "existing index
+  has the same name" and Mongoose swallows it — the old full unique index stays, so the SECOND tombstone of that model
+  fails E11000 `{ email: null }`. Pre-existing docs have no `version`/`syncAt`: hydrated reads show the default 1, a
+  lean compare sees undefined → every `expectedVersion` 409s, `doc.save()` → DocumentNotFoundError.
+- **Status:** both fixed in DEV-3900 before the merge — the aggregate hook reads the flag, the `ServiceOptions` comment
+  now says reads only (update/delete answer 404 for a tombstone), and MongoDB refuses an unprepared collection at boot
+  (`assertSyncCollectionReady`); `.claude/rules/persistence.md` names the migration.
+- Probe recipe that works: `npx tsx <scratchpad>.mts` from the repo root, `createRequire('<repo>/package.json')` for
+  mongoose, `await import('<repo>/src/core/common/persistence/mongo/sync-schema.plugin.ts')` for the plugin.
 
 Probe recipe: the Bash hook refuses any command whose text contains `dropDatabase` — write the probe with the Write
 tool, name the DB per the e2e run scheme (`nest-server-e2e-run-<ts>-p<pid>-…`) so the startup sweep collects it, and

@@ -41,3 +41,29 @@ export function generateId(): string {
   bytes.writeUIntBE(counter, 9, 3);
   return bytes.toString('hex');
 }
+
+/**
+ * A uuidv7 as the framework stores it (plan §3.5): lowercase, hyphenated, version nibble `7`, variant `8`–`b`. The id
+ * format a synchronized model may choose instead of the ObjectId (`@PersistedModel({ sync: { idFormat: 'uuidv7' } })`).
+ */
+const UUID_V7 = /^[0-9a-f]{8}-[0-9a-f]{4}-7[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/;
+
+/** Whether a value is a uuidv7 in the stored form — lowercase only, so one id has exactly one spelling */
+export function isUuidV7(value: unknown): value is string {
+  return typeof value === 'string' && UUID_V7.test(value);
+}
+
+/**
+ * A new uuidv7 (RFC 9562): 48 bits of milliseconds, then 74 random bits — sortable by creation time like an ObjectId,
+ * but with nothing after the timestamp that one observed id would let anybody predict.
+ */
+export function generateUuidV7(): string {
+  const bytes = randomBytes(16);
+  const millis = Date.now();
+  bytes.writeUIntBE(Math.floor(millis / 0x10000), 0, 4);
+  bytes.writeUInt16BE(millis % 0x10000, 4);
+  bytes[6] = (bytes[6] & 0x0f) | 0x70;
+  bytes[8] = (bytes[8] & 0x3f) | 0x80;
+  const hex = bytes.toString('hex');
+  return `${hex.slice(0, 8)}-${hex.slice(8, 12)}-${hex.slice(12, 16)}-${hex.slice(16, 20)}-${hex.slice(20)}`;
+}

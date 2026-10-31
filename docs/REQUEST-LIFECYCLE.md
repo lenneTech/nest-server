@@ -131,6 +131,7 @@ JWT-based authentication for existing projects:
 | **Bulk Operations** | Batch create/update/delete |
 | **Force Mode** | `force: true` bypasses all security checks |
 | **Raw Mode** | `raw: true` skips prepareInput/prepareOutput |
+| **Synchronized models** | `@PersistedModel({ sync })` (offline sync, 12.x): the store writes `version`, `deletedAt` and the change position on every write path (on MongoDB through `mongo/sync-schema.plugin.ts`, applied to these schemas only); `CrudService.delete()` and every port delete leave a tombstone, reads leave tombstones out unless `includeTombstones`, and `ServiceOptions.expectedVersion` makes `update()` / `delete()` one conditional statement (409 `VersionConflictError` on another version). Unique indexes apply to live records only. See `.claude/rules/persistence.md` → "Synchronized models" |
 
 ### Models & Inputs
 

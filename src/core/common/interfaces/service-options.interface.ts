@@ -42,8 +42,18 @@ export interface ServiceOptions {
   // Field selection for results (will be overwritten by populate if populate was set)
   fieldSelection?: FieldSelection;
 
+  // Conditional change of a synchronized model (`@PersistedModel({ sync })`): `update()` and `delete()` apply only
+  // when the stored record still has this version, in one atomic statement, and throw a 409 (`VersionConflictError`)
+  // otherwise. Refused on a model that is not synchronized
+  expectedVersion?: number;
+
   // Determines whether all restrictions are ignored
   force?: boolean;
+
+  // Read a synchronized model's tombstones too — its deleted records, which every other read leaves out (get, find,
+  // findOne, findAndCount, distinct). Reads only: update() and delete() never touch a tombstone and answer 404 for one.
+  // Applies to the main model only: a populated reference to a tombstone stays empty
+  includeTombstones?: boolean;
 
   // Overwrites type of input (array items)
   inputType?: new (...params: any[]) => any;

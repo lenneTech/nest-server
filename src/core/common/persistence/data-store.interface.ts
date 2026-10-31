@@ -54,6 +54,11 @@ export interface FindOptions {
    * Not combinable with `select`, as MongoDB does not combine them either.
    */
   exclude?: readonly string[];
+  /**
+   * Read tombstones too (a synchronized model's deleted records, `deletedAt` set). Every read of such a model leaves
+   * them out unless asked — only the sync module asks. No effect on other models.
+   */
+  includeTombstones?: boolean;
   /** Field names to return; the id is always returned */
   select?: readonly string[];
   skip?: number;
@@ -61,12 +66,31 @@ export interface FindOptions {
   sort?: Record<string, -1 | 1>;
 }
 
+/** Options of a read that has no paging (`count`, `distinct`, `findById`) */
+export interface ReadOptions {
+  /** See `FindOptions.includeTombstones` */
+  includeTombstones?: boolean;
+}
+
 export interface UpdateOptions {
+  /** Match tombstones too (a synchronized model's deleted records) — see `FindOptions.includeTombstones` */
+  includeTombstones?: boolean;
   /**
    * `false` leaves the update time (`updatedAt`) as it is — for bookkeeping writes such as a last-used stamp, which
    * must not read as a change of the record (Mongoose's `timestamps: false`). @default true
    */
   timestamps?: boolean;
+}
+
+export interface DeleteOptions {
+  /**
+   * Remove the record for good. A synchronized model's delete otherwise leaves a tombstone (`deletedAt` set, the
+   * content cleared, the version incremented), which is how clients learn of it; a hard delete is the tombstone purge's
+   * (with `includeTombstones`). No effect on other models, whose delete always removes.
+   */
+  hardDelete?: boolean;
+  /** Match tombstones too — see `FindOptions.includeTombstones` */
+  includeTombstones?: boolean;
 }
 
 export interface PushOptions {
@@ -99,8 +123,13 @@ export interface StoreCapabilities {
   textSearch: boolean;
   /** Multi-statement transactions */
   transactions: boolean;
-  /** Format of generated ids */
-  idType: 'objectId';
+  /** Format of the model's ids — `uuidv7` only for a synchronized model that declares it */
+  idType: 'objectId' | 'uuidv7';
+  /**
+   * How a synchronized model orders its changes (offline-sync plan §3.4): `seq` — the commit-ordered `syncSeq` (SQL);
+   * `clock` — the server clock `syncAt`, read with a window (MongoDB). Absent for a model that is not synchronized.
+   */
+  changeOrder?: 'clock' | 'seq';
 }
 
 export interface DataStore<T = Record<string, any>> {
@@ -109,18 +138,25 @@ export interface DataStore<T = Record<string, any>> {
   readonly driver: string;
   readonly modelName: string;
 
-  count(where?: Where<T>): Promise<number>;
-  deleteById(id: string): Promise<null | StoredRecord<T>>;
-  /** Remove every record matching `where`; returns how many were removed. */
-  deleteMany(where: Where<T>): Promise<number>;
+  count(where?: Where<T>, options?: ReadOptions): Promise<number>;
+  /**
+   * Remove the record and return it as it was; `null` when there is none. On a synchronized model: turn it into a
+   * tombstone instead, unless `hardDelete` (see `DeleteOptions`).
+   */
+  deleteById(id: string, options?: DeleteOptions): Promise<null | StoredRecord<T>>;
+  /** Remove every record matching `where`; returns how many were removed (tombstoned on a synchronized model). */
+  deleteMany(where: Where<T>, options?: DeleteOptions): Promise<number>;
   /**
    * Remove the first record matching `where`, atomically (MongoDB's `findOneAndDelete`), and return it; `null` when
-   * nothing matches.
+   * nothing matches (tombstoned on a synchronized model).
    */
-  deleteOne(where: Where<T>): Promise<null | StoredRecord<T>>;
-  distinct(field: string, where?: Where<T>): Promise<unknown[]>;
+  deleteOne(where: Where<T>, options?: DeleteOptions): Promise<null | StoredRecord<T>>;
+  distinct(field: string, where?: Where<T>, options?: ReadOptions): Promise<unknown[]>;
   find(where?: Where<T>, options?: FindOptions): Promise<StoredRecord<T>[]>;
-  findById(id: string, options?: Pick<FindOptions, 'exclude' | 'select'>): Promise<null | StoredRecord<T>>;
+  findById(
+    id: string,
+    options?: Pick<FindOptions, 'exclude' | 'includeTombstones' | 'select'>,
+  ): Promise<null | StoredRecord<T>>;
   findOne(where: Where<T>, options?: Omit<FindOptions, 'limit' | 'skip'>): Promise<null | StoredRecord<T>>;
   insert(record: Partial<T>): Promise<StoredRecord<T>>;
   /**
@@ -145,11 +181,11 @@ export interface DataStore<T = Record<string, any>> {
   /** Apply `update` to the record and return it as stored afterwards; `null` when there is none. */
   updateById(id: string, update: DataStoreUpdate<T>, options?: UpdateOptions): Promise<null | StoredRecord<T>>;
   /** Apply `update` to every record matching `where`; returns how many records matched. */
-  updateMany(where: Where<T>, update: DataStoreUpdate<T>): Promise<number>;
+  updateMany(where: Where<T>, update: DataStoreUpdate<T>, options?: UpdateOptions): Promise<number>;
   /**
    * Apply `update` to the first record matching `where`, atomically: the record still matches when it is changed, and
    * concurrent callers never change the same record on the strength of one match (MongoDB's `findOneAndUpdate`).
    * Returns the record as stored afterwards; `null` when nothing matches.
    */
-  updateOne(where: Where<T>, update: DataStoreUpdate<T>): Promise<null | StoredRecord<T>>;
+  updateOne(where: Where<T>, update: DataStoreUpdate<T>, options?: UpdateOptions): Promise<null | StoredRecord<T>>;
 }

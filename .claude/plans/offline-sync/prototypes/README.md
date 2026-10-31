@@ -22,6 +22,7 @@ node cursor-lab.mjs --targets=pg-typeorm --scenarios=parallel,late --reps=3 | te
 node summarize.mjs run.log                    # the §5 tables from the printed lines (not from --out JSON)
 node partial-unique.mjs                       # MONGO_OLD_URL=… adds an older MongoDB (measured: 5.0.31)
 node commit-lag-probe.mjs
+node pg-counter-snapshot.mjs 60 8            # phase 3: seconds per run, writers
 ```
 
 The MongoDB claim of PLAN.md §3.4 — W above the server's transaction limit makes C2 exact — is reproduced with a
@@ -49,6 +50,7 @@ other's.
 | `cursor-lab.mjs` | §3.4, §5 | lost changes, duplicates, termination, page latency, write throughput per variant and target |
 | `partial-unique.mjs` | §3.6, P2-4 | unique index over live records only: tombstones, live `NULL`, the MongoDB filter form and its index use |
 | `commit-lag-probe.mjs` | §3.4 | which instant each database clock function stamps when the statement first waits for a row lock |
+| `pg-counter-snapshot.mjs` | §3.4, §5 | phase 3 (DEV-3900): PostgreSQL write rate of the per-model counter row against an advisory lock plus a sequence, with and without a snapshot held open elsewhere |
 | `summarize.mjs` | §5 | the §5 tables from saved `cursor-lab.mjs` output |
 
 The variants:

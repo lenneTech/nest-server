@@ -1,6 +1,6 @@
 # @lenne.tech/nest-server — Framework API Reference
 
-> Auto-generated from source code as of 2026-10-29 (v12.1.1)
+> Auto-generated from source code as of 2026-10-31 (v12.1.1)
 > File: `FRAMEWORK-API.md` — compact, machine-readable API surface for Claude Code
 
 ## CoreModule.forRoot()
@@ -286,7 +286,9 @@ When `passkey` is enabled, `trustedOrigins` is required (compile-time enforcemen
   - `create?`: `boolean`
   - `currentUser?`: `{ [key: string]: any; id: string; roles?: string[]; }`
   - `fieldSelection?`: `FieldSelection`
+  - `expectedVersion?`: `number`
   - `force?`: `boolean`
+  - `includeTombstones?`: `boolean`
   - `inputType?`: `new (...params: any[]) => any`
   - `outputType?`: `new (...params: any[]) => any`
   - `populate?`: `string | PopulateOptions | (string | PopulateOptions)[]`
@@ -311,7 +313,7 @@ Generic: `CrudService<Model, CreateInput, UpdateInput>`
 - `async create(input: PlainObject<CreateInput>, serviceOptions?: ServiceOptions)`: `Promise<Model>` — Create item
 - `async createForce(input: PlainObject<CreateInput>, serviceOptions?: ServiceOptions)`: `Promise<Model>` — Create item without checks or restrictions
 - `async createRaw(input: PlainObject<CreateInput>, serviceOptions?: ServiceOptions)`: `Promise<Model>` — Create item without checks, restrictions or preparations
-- `distinct(property: string)`: `Promise<string[]>` — Get distinct values of a property
+- `distinct(property: string, serviceOptions?: ServiceOptions)`: `Promise<string[]>` — Get distinct values of a property
 - `async get(id: string, serviceOptions?: ServiceOptions)`: `Promise<Model>` — Get item by ID
 - `async getForce(id: string, serviceOptions?: ServiceOptions)`: `Promise<Model>` — Get item by ID without checks or restrictions
 - `async getRaw(id: string, serviceOptions?: ServiceOptions)`: `Promise<Model>` — Get item by ID without checks, restrictions or preparations
@@ -338,6 +340,11 @@ Generic: `CrudService<Model, CreateInput, UpdateInput>`
 - `async updateForce(id: string, input: PlainObject<UpdateInput>, serviceOptions?: ServiceOptions)`: `Promise<Model>` — Update item via ID without checks or restrictions
 - `async updateRaw(id: string, input: PlainObject<UpdateInput>, serviceOptions?: ServiceOptions)`: `Promise<Model>` — Update item via ID without checks, restrictions or preparations
 - `async delete(id: string, serviceOptions?: ServiceOptions)`: `Promise<Model>` — Delete item via ID
+- `withTombstones(query: Q, serviceOptions?: ServiceOptions)`: `Q` — A Mongoose query or aggregation that also sees tombstones when the caller asked (`includeTombstones`)
+- `expectedVersionOf(serviceOptions?: ServiceOptions)`: `number` — `serviceOptions.expectedVersion`, checked; only a synchronized model has a version
+- `assertVersion(id: string, stored: any, expectedVersion: number)`: `void` — The early answer to a conditional change on a record that already has another version
+- `versionConflict(id: string)`: `never`
+- `async removeOrTombstone(id: string, expectedVersion: number)`: `Promise<void>` — Delete through the store: a synchronized model's record becomes a tombstone (conditional on `expectedVersion`),
 - `async deleteForce(id: string, serviceOptions?: ServiceOptions)`: `Promise<Model>` — Delete item via ID without checks or restrictions
 - `async deleteRaw(id: string, serviceOptions?: ServiceOptions)`: `Promise<Model>` — Delete item via ID without checks, restrictions or preparations
 - `async pushToArray(id: string | Types.ObjectId | { id?: any; _id?: any; }, field: string, items: any, options?: { $slice?: number; $position?: number; $sort?: Record<string, 1 | -1>; })`: `Promise<void>` — Append items to an array field without loading the full array.

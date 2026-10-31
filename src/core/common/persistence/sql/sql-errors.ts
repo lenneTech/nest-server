@@ -43,7 +43,11 @@ export class DuplicateKeyError extends BadRequestException {
   override readonly name = 'DuplicateKeyError';
   readonly code = 11000;
 
-  constructor(readonly model: string) {
+  /** `primaryKey`: the id itself is taken (an insert with a server id generates a new one, plan §3.3 E6) */
+  constructor(
+    readonly model: string,
+    readonly primaryKey = false,
+  ) {
     super(`E11000 duplicate key error: a unique value of ${model} already exists`);
   }
 }

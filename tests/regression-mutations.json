@@ -3426,8 +3426,8 @@
       "id": "sql-store-drops-tenant-filter",
       "defect": "DEV-3829 (db-agnostic phase 1) — without the store's own tenant predicate a tenant reads and writes every tenant's rows on any table or database without row-level security.",
       "file": "src/core/common/persistence/sql/sql-data-store.ts",
-      "find": "      tenantFilter && Object.keys(tenantFilter).length ? { $and: [where ?? {}, tenantFilter] } : (where ?? {});",
-      "replace": "      where ?? {};",
+      "find": "    if (tenantFilter && Object.keys(tenantFilter).length) {\n      conditions.push(tenantFilter);\n    }",
+      "replace": "    if (false) {\n      conditions.push(tenantFilter);\n    }",
       "specs": [
         "tests/persistence-sql-store.e2e-spec.ts"
       ],
@@ -4376,8 +4376,8 @@
       "id": "mysql-unique-null-distinct",
       "defect": "DEV-3848 (db-agnostic phase 6): MySQL and MariaDB admit any number of NULLs under a unique index, so a non-sparse unique field stored several records without a value where MongoDB and PostgreSQL admit one",
       "file": "src/core/common/persistence/sql/mysql/mysql-schema.compiler.ts",
-      "find": "    if (unique && !sparse && !column.primaryKey && STRING_KINDS.has(field.kind) && !field.isArray) {",
-      "replace": "    if (false) {",
+      "find": "    } else if (unique && !sparse && !column.primaryKey && STRING_KINDS.has(field.kind) && !field.isArray) {",
+      "replace": "    } else if (false) {",
       "specs": [
         "tests/persistence-mysql-schema.e2e-spec.ts"
       ]
@@ -4541,7 +4541,7 @@
       "id": "mysql-count-without-tenant-filter",
       "defect": "DEV-3848 (db-agnostic phase 6, review): count() on MySQL with the caller's filter alone counted every tenant's rows — aggregates pass no row check and MySQL has no row-level security",
       "file": "src/core/common/persistence/sql/mysql/mysql-data-store.ts",
-      "find": "      text: `SELECT COUNT(*) AS n FROM ${this.table} WHERE ${this.where(where, params)}`,",
+      "find": "      text: `SELECT COUNT(*) AS n FROM ${this.table} WHERE ${this.where(where, params, options)}`,",
       "replace": "      text: `SELECT COUNT(*) AS n FROM ${this.table} WHERE ${this.compileWhere((where ?? {}) as Where, params)}`,",
       "specs": [
         "tests/persistence-parity.e2e-spec.ts"
@@ -4552,7 +4552,7 @@
       "id": "mysql-distinct-without-tenant-filter",
       "defect": "DEV-3848 (db-agnostic phase 6, review): distinct() on MySQL with the caller's filter alone returned every tenant's values",
       "file": "src/core/common/persistence/sql/mysql/mysql-data-store.ts",
-      "find": "    const condition = this.where(where, params);",
+      "find": "    const condition = this.where(where, params, options);",
       "replace": "    const condition = this.compileWhere((where ?? {}) as Where, params);",
       "specs": [
         "tests/persistence-parity.e2e-spec.ts"
@@ -5061,6 +5061,39 @@
       "replace": "seq 2 \"$SHARDS\"",
       "specs": [
         "tests/unit/mutation-sharding.spec.ts"
+      ],
+      "driverSpecific": false
+    },
+    {
+      "id": "mysql-sync-numbers-not-last",
+      "defect": "DEV-3900 (offline sync phase 3, review) — on MySQL / MariaDB a store insert of a synchronized model took its change number in the BEFORE INSERT trigger and then waited for the gap a concurrent updateMany / deleteMany had locked with FOR UPDATE, which in turn waited for the counter: InnoDB aborted one side with a deadlock (1213), measured at ~13 % of inserts.",
+      "file": "src/core/common/persistence/sql/mysql/mysql-data-store.ts",
+      "find": "  protected override numbersLast(): boolean {\n    return true;\n  }",
+      "replace": "  protected override numbersLast(): boolean {\n    return false;\n  }",
+      "specs": [
+        "tests/persistence-parity.e2e-spec.ts"
+      ],
+      "driverSpecific": false
+    },
+    {
+      "id": "sync-insert-stamps-app-clock",
+      "defect": "DEV-3900 (offline sync phase 3, review) — a MongoDB insert of a synchronized model stamped syncAt with the application's clock: a replica whose clock runs behind writes change positions behind what clients already pulled, and those changes never reach them.",
+      "file": "src/core/common/persistence/mongo/sync-schema.plugin.ts",
+      "find": "      this.set(SYNC_CLOCK_FIELD, await mongoServerNow(connection));\n      return;",
+      "replace": "      this.set(SYNC_CLOCK_FIELD, new Date());\n      return;",
+      "specs": [
+        "tests/persistence-parity.e2e-spec.ts"
+      ],
+      "driverSpecific": false
+    },
+    {
+      "id": "sync-aggregate-ignores-include-tombstones",
+      "defect": "DEV-3900 (offline sync phase 3, review) — the sync plugin's aggregate hook added the live-record $match whatever the query asked, so CrudService.findAndCount(…, { includeTombstones: true }) left every tombstone out on MongoDB while every SQL store returned them.",
+      "file": "src/core/common/persistence/mongo/sync-schema.plugin.ts",
+      "find": "    if (!this[INCLUDE_TOMBSTONES]) {\n      matchLiveInPipeline(pipeline);\n    }",
+      "replace": "    matchLiveInPipeline(pipeline);",
+      "specs": [
+        "tests/persistence-parity.e2e-spec.ts"
       ],
       "driverSpecific": false
     }

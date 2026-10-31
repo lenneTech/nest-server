@@ -515,6 +515,15 @@ export const LtnsErrors = {
     },
   },
 
+  VERSION_CONFLICT: {
+    code: 'LTNS_0402',
+    message: 'Version conflict',
+    translations: {
+      de: 'Der Datensatz wurde inzwischen geändert.',
+      en: 'The record was changed in the meantime.',
+    },
+  },
+
   // =====================================================
   // File Errors (LTNS_0500-LTNS_0599)
   // =====================================================
