@@ -98,6 +98,8 @@ export * from './core/common/persistence/mongoose-data-store.js';
 export * from './core/common/persistence/persisted-model.decorator.js';
 export * from './core/common/persistence/persistence.tokens.js';
 export * from './core/common/persistence/persistence-runtime.registry.js';
+export { VersionConflictError } from './core/common/persistence/policies/sync.policy.js';
+export * from './core/common/persistence/sync-model.js';
 export * from './core/common/persistence/unsupported-capability.error.js';
 export * from './core/common/persistence/sql/mysql/mysql-data-store.js';
 export * from './core/common/persistence/sql/mysql/mysql-lock-store.js';

@@ -91,6 +91,24 @@ On every SQL database a path segment `__proto__`, `constructor` or `prototype` i
 object from path segments would otherwise reach `Object.prototype` — on MySQL that switched tenant isolation off for the
 whole process. Never build an update path from request data without validating it against the model.
 
+## Synchronized models (offline sync, 12.x)
+
+`@PersistedModel({ sync: true | { idFormat, scope } })` makes a model synchronizable (`common/persistence/sync-model.ts`,
+plan `.claude/plans/offline-sync/PLAN.md` §3.3). Only a model registered with `CorePersistenceModule.forFeature()`; a
+model without `sync` keeps every behaviour bit for bit.
+
+| Rule | Why |
+|---|---|
+| `version`, `deletedAt` and the change position (`syncSeq` on SQL, `syncAt` on MongoDB) are written by the store only — never put them in an input or update | they are stripped anyway; a version the caller could set would defeat the conditional change, a `deletedAt` would delete with update rights |
+| Every framework delete of such a model leaves a tombstone (`CrudService.delete()`, `deleteById/One/Many`); `hardDelete` with `includeTombstones` is the purge's | a hard delete through a normal route reaches no client — the record stays on every device |
+| Reads leave tombstones out; only the sync module passes `includeTombstones` (`ServiceOptions` or the port's options) | counts, distinct values and populated references must not show deleted records |
+| A conditional change is `ServiceOptions.expectedVersion` on `CrudService.update()` / `delete()` — one statement with the version as its condition, `VersionConflictError` (409) on another version | read-then-write lets two clients both apply their change |
+| A unique index applies to live records only, also for a missing value (MongoDB partial index, PostgreSQL `NULLS NOT DISTINCT … WHERE deleted_at IS NULL`, MySQL / MariaDB virtual `lt_lk_*` columns) — making an existing model synchronized changes its uniqueness, which is a migration | delete-then-recreate with the same value must work; tombstones keep no content, so their missing values must not collide |
+| No TTL on a synchronized model (refused at registration); no `replaceOne` / pipeline update on MongoDB (refused) | an expired record vanishes without a tombstone; a replacement carries no version increment |
+| On SQL the database numbers changes: a trigger per table (PostgreSQL: advisory lock + sequence; MySQL / MariaDB: the counter row `lt_sync_counters`); a write that sets `sync_seq` itself is not renumbered | tier-2/3 writes are numbered too; a multi-row write outside the store must lock its rows first and set the numbers last, as the store's `updateRows()` does, or it can deadlock with store writes |
+| On MySQL with binary logging, creating the triggers needs `SUPER` or `log_bin_trust_function_creators=1` for the owner account | MySQL refuses `CREATE TRIGGER` otherwise (error 1419); the application account never needs it |
+| MongoDB stamps updates with `$currentDate` and inserts with the server clock read through `hello.localTime` — never `Date.now()` | application clocks differ between replicas; the pull's window relies on one clock |
+
 ## Tests
 
 A suite proves a behaviour on both databases: the `e2e` vitest project runs it on MongoDB, the `postgres` project on

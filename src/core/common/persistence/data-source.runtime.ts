@@ -13,6 +13,7 @@ import {
 } from './data-source.config.js';
 import type { ModelDescriptor } from './model-descriptor.interface.js';
 import { getModelDescriptor } from './model-metadata.registry.js';
+import { withSequenceField } from './sync-model.js';
 import { MongooseDataStore } from './mongoose-data-store.js';
 import {
   getPersistedModels,
@@ -190,10 +191,12 @@ export class DataSourceRuntime implements PersistenceRuntime {
   }
 
   private async openStore(source: ResolvedDataSource, name: string): Promise<DataStore<any>> {
-    const model = getModelDescriptor(name);
-    if (!model) {
+    const declared = getModelDescriptor(name);
+    if (!declared) {
       throw new Error(`No descriptor for model "${name}" — register it with CorePersistenceModule.forFeature()`);
     }
+    // A synchronized model's table also carries its commit-ordered change position (offline-sync plan §3.4)
+    const model = withSequenceField(declared);
     const app = await this.executor(source);
     const dialect = this.dialect(source);
     let changes: SchemaChange[];

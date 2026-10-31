@@ -4,6 +4,7 @@ import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 
 import type { ModelDescriptor } from '../src/core/common/persistence/model-descriptor.interface';
 import { describeSchema } from '../src/core/common/persistence/model-metadata.registry';
+import { resolveSyncOptions, withSequenceField, withSyncDescriptor } from '../src/core/common/persistence/sync-model';
 import type { PostgresSchemaOptions } from '../src/core/common/persistence/sql/postgres/postgres-schema.compiler';
 import {
   applyPostgresSchema,
@@ -382,6 +383,85 @@ describe('PostgreSQL schema evolution and row-level security (e2e)', () => {
    *   src/core/common/persistence/sql/postgres/postgres-schema.compiler.ts — registered as mutation
    *   `sql-schema-allows-system-roles` in tests/regression-mutations.json.
    */
+  describe('a model that becomes synchronized (offline sync, DEV-3900)', () => {
+    const declared = (fields: Record<string, unknown>) =>
+      describeSchema('SchemaLog', new Schema(fields, { collection: 'schemaLogs' }));
+    const synced = (fields: Record<string, unknown>) =>
+      withSequenceField(withSyncDescriptor(declared(fields), resolveSyncOptions(true, 'SchemaLog')!));
+    const rows = async () =>
+      (
+        await owner.run<{ id: string; sync_seq: null | string; version: number }>(
+          { params: [], text: 'SELECT id, version, sync_seq::text AS sync_seq FROM schema_logs ORDER BY id' },
+          SYSTEM,
+        )
+      ).rows;
+
+    it('adds the system columns, numbers the rows it already holds, and the application role numbers new ones', async () => {
+      await applyPostgresSchema(owner, [declared({ message: String })], OPTIONS);
+      for (const id of ['l1', 'l2', 'l3']) {
+        await owner.run({ params: [id], text: "INSERT INTO schema_logs (id, message) VALUES ($1, 'before')" }, SYSTEM);
+      }
+
+      const changes = await applyPostgresSchema(owner, [synced({ message: String })], OPTIONS);
+      expect(changes.filter((change) => change.kind === 'migration')).toEqual([]);
+      expect(changes.map((change) => change.description)).toEqual(
+        expect.arrayContaining([
+          'create the change-order function lt_sync_stamp()',
+          'add column schema_logs.version',
+          'add column schema_logs.deleted_at',
+          'add column schema_logs.sync_seq',
+          'add the change-order trigger of schema_logs',
+        ]),
+      );
+      const numbered = await rows();
+      expect(numbered.map((row) => row.version)).toEqual([1, 1, 1]);
+      expect(new Set(numbered.map((row) => row.sync_seq)).size).toBe(3);
+      expect(numbered.every((row) => row.sync_seq !== null)).toBe(true);
+      await expect(verifyPostgresSchema(app, [synced({ message: String })], OPTIONS)).resolves.toBeDefined();
+
+      // The trigger, as the application role (nextval needs the sequence grant)
+      await app.run({ params: [], text: "INSERT INTO schema_logs (id, message) VALUES ('l4', 'after')" }, SYSTEM);
+      await app.run({ params: [], text: "UPDATE schema_logs SET message = 'changed' WHERE id = 'l1'" }, SYSTEM);
+      const after = await rows();
+      const highest = Math.max(...numbered.map((row) => Number(row.sync_seq)));
+      expect(Number(after.find((row) => row.id === 'l4')!.sync_seq)).toBeGreaterThan(highest);
+      expect(Number(after.find((row) => row.id === 'l1')!.sync_seq)).toBeGreaterThan(
+        Number(after.find((row) => row.id === 'l4')!.sync_seq),
+      );
+    });
+
+    it('replaces a change-order trigger of an earlier version', async () => {
+      await owner.run(
+        { params: [], text: 'ALTER TRIGGER lt_sync_stamp_v1 ON schema_logs RENAME TO lt_sync_stamp_v0' },
+        SYSTEM,
+      );
+      const changes = await applyPostgresSchema(owner, [synced({ message: String })], OPTIONS);
+      expect(changes.map((change) => change.description)).toContain('replace the change-order trigger of schema_logs');
+      const { rows: triggers } = await owner.run<{ name: string }>(
+        {
+          params: [],
+          text: "SELECT tgname AS name FROM pg_trigger WHERE tgrelid = 'schema_logs'::regclass AND NOT tgisinternal",
+        },
+        SYSTEM,
+      );
+      expect(triggers.map((trigger) => trigger.name)).toEqual(['lt_sync_stamp_v1']);
+    });
+
+    it('refuses to make an existing unique index live-only on its own: changed uniqueness is a migration', async () => {
+      const codes = (sync: boolean) => {
+        const model = describeSchema(
+          'SchemaCode',
+          new Schema({ code: { type: String, unique: true } }, { collection: 'schemaCodes' }),
+        );
+        return sync ? withSequenceField(withSyncDescriptor(model, resolveSyncOptions(true, 'SchemaCode')!)) : model;
+      };
+      await applyPostgresSchema(owner, [codes(false)], OPTIONS);
+      const refusal = await applyPostgresSchema(owner, [codes(true)], OPTIONS).catch((error: unknown) => error);
+      expect(refusal).toBeInstanceOf(SchemaMigrationRequiredError);
+      expect(String((refusal as Error).message)).toMatch(/NULLS NOT DISTINCT WHERE \("deleted_at" IS NULL\)/);
+    });
+  });
+
   it('refuses system roles in a roles column, as the system-role policy does', async () => {
     await app.run(
       {

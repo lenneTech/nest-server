@@ -120,6 +120,15 @@ const INVENTORY: StateEntry[] = [
   },
   {
     because:
+      'The descriptor of a synchronized model as it was declared, per schema object and model name — cached so a second '
+      + 'registration does not describe the system paths the sync plugin added. Every replica derives the same entry '
+      + 'from the same code; it holds no data.',
+    classification: 'derived',
+    file: 'common/persistence/model-metadata.registry.ts',
+    name: 'byName',
+  },
+  {
+    because:
       'One connection pool per configured SQL source, opened as the application role. It holds live sockets, so it '
       + 'cannot leave the process; every replica opens its own pool against the same database, and nothing the '
       + 'replicas must agree on lives in it — tenant scope is written per transaction, schema state is in the catalog.',

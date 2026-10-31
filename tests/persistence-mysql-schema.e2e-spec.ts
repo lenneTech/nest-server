@@ -3,6 +3,7 @@ import { Schema } from 'mongoose';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 
 import { describeSchema } from '../src/core/common/persistence/model-metadata.registry';
+import { resolveSyncOptions, withSequenceField, withSyncDescriptor } from '../src/core/common/persistence/sync-model';
 import { MYSQL_ERRORS, MysqlDataStore } from '../src/core/common/persistence/sql/mysql/mysql-data-store';
 import type { MysqlExecutor } from '../src/core/common/persistence/sql/mysql/mysql-executor';
 import {
@@ -381,6 +382,71 @@ for (const variant of ['mysql', 'mariadb'] as MysqlVariant[]) {
      *   src/core/common/persistence/sql/mysql/mysql-schema.compiler.ts — registered as mutation
      *   `mysql-roles-check-missing` in tests/regression-mutations.json.
      */
+    describe('a model that becomes synchronized (offline sync, DEV-3900)', () => {
+      const declared = (fields: Record<string, unknown>) =>
+        describeSchema('SchemaLog', new Schema(fields, { collection: 'schemaLogs' }));
+      const synced = (fields: Record<string, unknown>) =>
+        withSequenceField(withSyncDescriptor(declared(fields), resolveSyncOptions(true, 'SchemaLog')!));
+      const rows = async () =>
+        (
+          await owner.run<{ id: string; sync_seq: null | number | string; version: number }>(
+            { params: [], text: 'SELECT id, version, sync_seq FROM schema_logs ORDER BY id' },
+            SYSTEM,
+          )
+        ).rows;
+
+      it('adds the system columns, numbers the rows it already holds, and the application numbers new ones', async () => {
+        await applyMysqlSchema(owner, [declared({ message: String })], options);
+        for (const id of ['l1', 'l2', 'l3']) {
+          await owner.run(
+            { params: [id], text: "INSERT INTO schema_logs (id, message) VALUES ($1, 'before')" },
+            SYSTEM,
+          );
+        }
+        const changes = await applyMysqlSchema(owner, [synced({ message: String })], options);
+        expect(changes.filter((change) => change.kind === 'migration')).toEqual([]);
+        expect(changes.map((change) => change.description)).toEqual(
+          expect.arrayContaining([
+            'create the change-order counters lt_sync_counters',
+            'add column schema_logs.sync_seq',
+            'add the change-order triggers of schema_logs',
+          ]),
+        );
+        const numbered = await rows();
+        expect(numbered.map((row) => Number(row.version))).toEqual([1, 1, 1]);
+        expect(new Set(numbered.map((row) => String(row.sync_seq))).size).toBe(3);
+        expect(numbered.every((row) => row.sync_seq !== null)).toBe(true);
+        await expect(verifyMysqlSchema(app, [synced({ message: String })], options)).resolves.toBeDefined();
+
+        await app.run({ params: [], text: "INSERT INTO schema_logs (id, message) VALUES ('l4', 'after')" }, SYSTEM);
+        await app.run({ params: [], text: "UPDATE schema_logs SET message = 'changed' WHERE id = 'l1'" }, SYSTEM);
+        const after = await rows();
+        const highest = Math.max(...numbered.map((row) => Number(row.sync_seq)));
+        expect(Number(after.find((row) => row.id === 'l4')!.sync_seq)).toBeGreaterThan(highest);
+        expect(Number(after.find((row) => row.id === 'l1')!.sync_seq)).toBeGreaterThan(
+          Number(after.find((row) => row.id === 'l4')!.sync_seq),
+        );
+        // Nothing left to do, and the triggers belong to the owner, never the application account
+        const again = await applyMysqlSchema(owner, [synced({ message: String })], options);
+        expect(again.filter((change) => change.kind !== 'notice')).toEqual([]);
+        await expect(assertSafeMysqlApplicationAccount(app, variant)).resolves.toBeUndefined();
+      });
+
+      it('refuses to make an existing unique index live-only on its own: changed uniqueness is a migration', async () => {
+        const codes = (sync: boolean) => {
+          const model = describeSchema(
+            'SchemaCode',
+            new Schema({ code: { type: String, unique: true } }, { collection: 'schemaCodes' }),
+          );
+          return sync ? withSequenceField(withSyncDescriptor(model, resolveSyncOptions(true, 'SchemaCode')!)) : model;
+        };
+        await applyMysqlSchema(owner, [codes(false)], options);
+        const refusal = await applyMysqlSchema(owner, [codes(true)], options).catch((error: unknown) => error);
+        expect(refusal).toBeInstanceOf(SchemaMigrationRequiredError);
+        expect(String((refusal as Error).message)).toContain('lt_lk_code');
+      });
+    });
+
     it('refuses system roles in a roles column, as the system-role policy does', async () => {
       for (const [id, roles] of [
         ['m1', ['admin', 'tenantAdmin']],

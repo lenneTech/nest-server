@@ -2,6 +2,7 @@ import type { FieldDescriptor, IndexDescriptor, ModelDescriptor } from '../../mo
 import { UnsupportedQueryError } from '../sql-errors.js';
 import { columnName, quoteIdentifier, SqlLiterals, sqlLiteral } from '../sql-naming.js';
 import { schemaHash, shortName, tableName } from '../sql-schema.shared.js';
+import { isLiveFilter, SYNC_SEQUENCE_FIELD } from '../../sync-model.js';
 import { compilePostgresWhere } from './postgres-where.compiler.js';
 
 export { LOCK_MODEL, shortName, tableName } from '../sql-schema.shared.js';
@@ -23,6 +24,15 @@ export { LOCK_MODEL, shortName, tableName } from '../sql-schema.shared.js';
 /** Any string item that starts with `s_` after leading whitespace, case-insensitive (`looksLikeSystemRole`) */
 const SYSTEM_ROLE_PATH = '$[*] ? (@.type() == "string" && @ like_regex "^\\\\s*s_" flag "i")';
 
+/**
+ * Bumped whenever the change-order trigger (`lt_sync_stamp`) changes, so the migrator replaces the function and
+ * every table's trigger — the trigger's name carries the version, because a trigger has no comment the catalog query
+ * could read alongside the table
+ */
+export const SYNC_TRIGGER_VERSION = 'lt:sync:v1';
+export const SYNC_STAMP_FUNCTION = 'lt_sync_stamp';
+export const SYNC_TRIGGER = 'lt_sync_stamp_v1';
+
 /** Bumped whenever the generated guard function or policies change, so the migrator replaces them */
 export const RLS_VERSION = 'lt:tenant:v1';
 export const TENANT_FILTER_FUNCTION = 'lt_tenant_filter';
@@ -39,6 +49,12 @@ export interface DesiredColumn {
   primaryKey: boolean;
   /** Column name the field had before (`renamedFrom`) */
   renamedFrom?: string;
+}
+
+/** The objects that number a synchronized model's changes (offline-sync plan §3.4) */
+export interface DesiredSync {
+  /** The table's sequence: `nextval()` under the model's advisory lock gives commit order */
+  sequence: string;
 }
 
 export interface DesiredIndex {
@@ -61,6 +77,8 @@ export interface DesiredTable {
   name: string;
   /** What the model declares but the table cannot carry (text indexes, …), reported once */
   notices: string[];
+  /** Present for a synchronized model: its change-order sequence and trigger */
+  sync?: DesiredSync;
   /** Row-level security on `tenant_id` */
   tenantIsolated: boolean;
 }
@@ -119,7 +137,13 @@ export function desiredTable(model: ModelDescriptor, options: PostgresSchemaOpti
     indexes.push(desiredIndex(model, name, { fields: { tenantId: 1 }, options: {} }) as DesiredIndex);
   }
 
-  return { checks, columns, indexes, model, name, notices, tenantIsolated };
+  const sync = model.sync && model.fields[SYNC_SEQUENCE_FIELD] ? { sequence: syncSequenceName(name) } : undefined;
+  return { checks, columns, indexes, model, name, notices, ...(sync ? { sync } : {}), tenantIsolated };
+}
+
+/** The change-order sequence of a synchronized model's table */
+export function syncSequenceName(table: string): string {
+  return shortName('lt_sync', table, ['seq']);
 }
 
 function desiredColumn(field: FieldDescriptor): DesiredColumn {
@@ -223,7 +247,9 @@ function desiredIndex(model: ModelDescriptor, table: string, index: IndexDescrip
   const using = gin.length
     ? ` USING gin (${gin[0].expression} jsonb_path_ops)`
     : ` (${parts.map((part) => part.sql).join(', ')})`;
-  const nulls = unique && !conditions.length ? ' NULLS NOT DISTINCT' : '';
+  // A partial index admits NULL repeatedly unless told otherwise. That is harmless where the condition excludes NULL
+  // (sparse), but a synchronized model's live-record condition keeps MongoDB's rule: a second live NULL collides
+  const nulls = unique && (!conditions.length || (!sparse && isLiveFilter(partial))) ? ' NULLS NOT DISTINCT' : '';
   const where = conditions.length ? ` WHERE ${conditions.join(' AND ')}` : '';
   return {
     create: `CREATE ${unique ? 'UNIQUE ' : ''}INDEX ${quoteIdentifier(name)} ON ${quoteIdentifier(table)}${using}${nulls}${where}`,
@@ -278,6 +304,52 @@ export function addCheckStatement(table: string, check: DesiredCheck): string {
 
 export function grantStatement(table: string, appRole: string): string {
   return `GRANT SELECT, INSERT, UPDATE, DELETE ON ${quoteIdentifier(table)} TO ${quoteIdentifier(appRole)}`;
+}
+
+/**
+ * The trigger function that numbers a synchronized model's writes (offline-sync plan §3.4, C1d; DEV-3900 measured
+ * the advisory lock against a counter row). A BEFORE ROW trigger runs after the row is locked, so a write takes its
+ * row first and the order last; the transaction-scoped advisory lock is released only after the commit is visible,
+ * so sequence order is commit order, and `nextval()` leaves no row version a long snapshot could pile up.
+ *
+ * A value the statement sets itself is kept: the store's multi-row writes lock their rows, take their numbers and set
+ * them explicitly in their final statement.
+ */
+export function syncFunctionStatements(): string[] {
+  const fn = quoteIdentifier(SYNC_STAMP_FUNCTION);
+  return [
+    `CREATE OR REPLACE FUNCTION ${fn}() RETURNS trigger
+LANGUAGE plpgsql SET search_path = pg_catalog AS $lt$
+BEGIN
+  IF TG_OP = 'INSERT' THEN
+    IF NEW.sync_seq IS NOT NULL THEN
+      RETURN NEW;
+    END IF;
+  ELSIF NEW.sync_seq IS DISTINCT FROM OLD.sync_seq THEN
+    RETURN NEW;
+  END IF;
+  PERFORM pg_advisory_xact_lock(hashtext('lenne.tech:sync:' || TG_TABLE_SCHEMA || '.' || TG_TABLE_NAME));
+  NEW.sync_seq := nextval(format('%I.%I', TG_TABLE_SCHEMA, TG_ARGV[0])::regclass);
+  RETURN NEW;
+END
+$lt$`,
+    `COMMENT ON FUNCTION ${fn}() IS ${sqlLiteral(SYNC_TRIGGER_VERSION)}`,
+  ];
+}
+
+/**
+ * A synchronized table's sequence, the application role's use of it, the trigger, and the numbering of rows written
+ * before the table was synchronized (in the order of their ids, i.e. of their creation)
+ */
+export function syncTableStatements(table: string, sync: DesiredSync, appRole: string): string[] {
+  const quoted = quoteIdentifier(table);
+  const sequence = quoteIdentifier(sync.sequence);
+  return [
+    `CREATE SEQUENCE IF NOT EXISTS ${sequence}`,
+    `GRANT USAGE ON SEQUENCE ${sequence} TO ${quoteIdentifier(appRole)}`,
+    `CREATE TRIGGER ${quoteIdentifier(SYNC_TRIGGER)} BEFORE INSERT OR UPDATE ON ${quoted} FOR EACH ROW EXECUTE FUNCTION ${quoteIdentifier(SYNC_STAMP_FUNCTION)}(${sqlLiteral(sync.sequence)})`,
+    `UPDATE ${quoted} AS t SET "sync_seq" = n.seq FROM (SELECT "id", nextval(${sqlLiteral(sync.sequence)}::regclass) AS seq FROM (SELECT "id" FROM ${quoted} WHERE "sync_seq" IS NULL ORDER BY "id") AS o) AS n WHERE t."id" = n."id"`,
+  ];
 }
 
 /**

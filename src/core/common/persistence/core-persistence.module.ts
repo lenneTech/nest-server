@@ -4,8 +4,15 @@ import { getConnectionToken, getModelToken } from './mongo/mongoose-compat.js';
 import type { Model } from 'mongoose';
 
 import { registerModelSchema } from './model-metadata.registry.js';
+import { isDeclaredSchema } from './mongo/model-declarations.js';
+import { applySyncSchema } from './mongo/sync-schema.plugin.js';
 import { MongooseDataStore } from './mongoose-data-store.js';
-import { getPersistedModelOptions, getPersistedModelOptionsByName } from './persisted-model.decorator.js';
+import {
+  getPersistedModelOptions,
+  getPersistedModelOptionsByName,
+  getPersistedSyncByName,
+} from './persisted-model.decorator.js';
+import { resolveSyncOptions } from './sync-model.js';
 import {
   bindStoreToModel,
   getPersistenceRuntime,
@@ -46,7 +53,15 @@ export interface PersistenceModelDefinition extends ModelDefinition {
 export class CorePersistenceModule {
   static forFeature(models: PersistenceModelDefinition[]): DynamicModule {
     for (const model of models) {
-      registerModelSchema(model.name, model.schema);
+      const sync = resolveSyncOptions(
+        model.model ? getPersistedModelOptions(model.model)?.sync : getPersistedSyncByName(model.name),
+        model.name,
+      );
+      // Described as declared first, then prepared: the descriptor must not see the Mongoose sync paths
+      registerModelSchema(model.name, model.schema, sync);
+      if (sync && !isDeclaredSchema(model.schema)) {
+        applySyncSchema(model.schema, sync);
+      }
       registerPersistedModel({
         declaredSource:
           model.dataSource ??

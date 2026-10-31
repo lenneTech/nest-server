@@ -3426,8 +3426,8 @@
       "id": "sql-store-drops-tenant-filter",
       "defect": "DEV-3829 (db-agnostic phase 1) — without the store's own tenant predicate a tenant reads and writes every tenant's rows on any table or database without row-level security.",
       "file": "src/core/common/persistence/sql/sql-data-store.ts",
-      "find": "      tenantFilter && Object.keys(tenantFilter).length ? { $and: [where ?? {}, tenantFilter] } : (where ?? {});",
-      "replace": "      where ?? {};",
+      "find": "    if (tenantFilter && Object.keys(tenantFilter).length) {\n      conditions.push(tenantFilter);\n    }",
+      "replace": "    if (false) {\n      conditions.push(tenantFilter);\n    }",
       "specs": [
         "tests/persistence-sql-store.e2e-spec.ts"
       ],
@@ -4376,8 +4376,8 @@
       "id": "mysql-unique-null-distinct",
       "defect": "DEV-3848 (db-agnostic phase 6): MySQL and MariaDB admit any number of NULLs under a unique index, so a non-sparse unique field stored several records without a value where MongoDB and PostgreSQL admit one",
       "file": "src/core/common/persistence/sql/mysql/mysql-schema.compiler.ts",
-      "find": "    if (unique && !sparse && !column.primaryKey && STRING_KINDS.has(field.kind) && !field.isArray) {",
-      "replace": "    if (false) {",
+      "find": "    } else if (unique && !sparse && !column.primaryKey && STRING_KINDS.has(field.kind) && !field.isArray) {",
+      "replace": "    } else if (false) {",
       "specs": [
         "tests/persistence-mysql-schema.e2e-spec.ts"
       ]
@@ -4541,7 +4541,7 @@
       "id": "mysql-count-without-tenant-filter",
       "defect": "DEV-3848 (db-agnostic phase 6, review): count() on MySQL with the caller's filter alone counted every tenant's rows — aggregates pass no row check and MySQL has no row-level security",
       "file": "src/core/common/persistence/sql/mysql/mysql-data-store.ts",
-      "find": "      text: `SELECT COUNT(*) AS n FROM ${this.table} WHERE ${this.where(where, params)}`,",
+      "find": "      text: `SELECT COUNT(*) AS n FROM ${this.table} WHERE ${this.where(where, params, options)}`,",
       "replace": "      text: `SELECT COUNT(*) AS n FROM ${this.table} WHERE ${this.compileWhere((where ?? {}) as Where, params)}`,",
       "specs": [
         "tests/persistence-parity.e2e-spec.ts"
@@ -4552,7 +4552,7 @@
       "id": "mysql-distinct-without-tenant-filter",
       "defect": "DEV-3848 (db-agnostic phase 6, review): distinct() on MySQL with the caller's filter alone returned every tenant's values",
       "file": "src/core/common/persistence/sql/mysql/mysql-data-store.ts",
-      "find": "    const condition = this.where(where, params);",
+      "find": "    const condition = this.where(where, params, options);",
       "replace": "    const condition = this.compileWhere((where ?? {}) as Where, params);",
       "specs": [
         "tests/persistence-parity.e2e-spec.ts"

@@ -37,7 +37,7 @@ supports (MongoDB, PostgreSQL with any engine, MySQL / MariaDB) with the same ob
 | `version` | An integer the server increments on every change of the record, starting at 1. Never set by a client. |
 | `updatedAt` | The server's time of the last change. Informational; ordering never relies on it. |
 | `deletedAt` | `null` for a live record, the deletion time for a tombstone. |
-| Tombstone | What remains of a deleted record: `id`, `version`, `deletedAt`, `updatedAt`, on a tenant-scoped model `tenantId`, and the user-id fields the model declares as its scope (e.g. `ownerId`). No content field. |
+| Tombstone | What remains of a deleted record: `id`, `version`, `deletedAt`, `updatedAt`, on a tenant-scoped model `tenantId`, and the user-id fields the model declares as its scope (e.g. `ownerId`). The server also keeps its audit fields (`createdAt`, `createdBy`, `updatedBy` — who deleted it); a pull sends none of them. No content field. |
 | Cursor | Opaque string the server returns with every pull page; the client sends it back to continue. |
 | Retention horizon | How long tombstones are kept. A cursor older than the horizon cannot be continued (§8). |
 | Mutation id | A unique id the client gives every pushed change, so a repeated push is recognised (§6.5). |
@@ -192,8 +192,9 @@ Content-Type: application/json
 * `upsert` with `baseVersion` is an **atomic conditional change**: it applies only when the stored version still equals
   `baseVersion` (`WHERE id = … AND version = …` or the MongoDB equivalent; never read-then-write), and it increments
   `version`.
-* `delete` with a matching `baseVersion` turns the record into a tombstone through the normal update pipeline (rights,
-  `securityCheck`, audit apply). Deleting a tombstone again is answered `applied`.
+* `delete` with a matching `baseVersion` turns the record into a tombstone through the normal delete pipeline (the
+  model's delete rights, `securityCheck`, audit apply). Deleting a tombstone again is answered `applied`. A delete through
+  any other route of the server leaves a tombstone too, so clients learn of it the same way.
 * An `upsert` on a tombstone is a conflict, never a silent resurrection.
 
 ### 6.4 Conflicts
@@ -366,7 +367,7 @@ Every requirement of DEV-3819 and where this document meets it (P = `.claude/pla
 | Hints emitted by the store after every successful write, via in-process / Redis pub/sub; no change feed (P2-5, §15) | §9, P §3.9 |
 | Idempotency keys, rate-limit counters, retention horizon in infrastructure stores with explicit expiry; cron sweep under `LockStore` | §12, P §3.7 |
 | Every pull/push through the full pipeline; no `pullLean` | §1, §12 |
-| Tombstones carry `tenantId` and only `id`, `version`, `deletedAt`, `updatedAt` | §2, §12; plus declared user-id scope fields, decided O1 (§15) |
+| Tombstones carry `tenantId` and only `id`, `version`, `deletedAt`, `updatedAt` | §2, §12; plus declared user-id scope fields, decided O1 (§15); the server keeps the audit fields too (DEV-3900), a pull sends none |
 | Hard delete not reachable through sync | §6.2, §12 |
 | Access loss → client deletes local copies; at least a forced full resync | §8 |
 | Integration doc says what a client deletes on logout | §11 (detailed in the module's checklist, phase 6) |

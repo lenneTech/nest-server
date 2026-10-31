@@ -201,6 +201,100 @@ export const PERSISTENCE_CASES: readonly PersistenceCase[] = [
     id: 'native-api-tenant-refused',
     title: 'a query on a tenant table through the native engine API is refused by the database without a tenant scope',
   },
+  // --- Synchronized models (offline sync, DEV-3900: port extensions E1–E6) ---------------------------------------
+  {
+    drivers: ALL,
+    id: 'sync-model-unaffected',
+    title: 'a model without sync gets no system fields, no change order, and its delete removes the record',
+  },
+  {
+    drivers: ALL,
+    id: 'sync-insert-system-fields',
+    title: 'an insert stores version 1, no deletedAt and a change position, whatever the caller sent for them',
+  },
+  {
+    drivers: ALL,
+    id: 'sync-version-every-write',
+    title: 'every write path increments the version once and ignores a version or deletedAt in the update',
+  },
+  {
+    drivers: ALL,
+    id: 'sync-conditional-update',
+    title: 'a CrudService update or delete with expectedVersion applies on that version and answers 409 on another',
+  },
+  {
+    drivers: ALL,
+    id: 'sync-conditional-concurrent',
+    title: 'two concurrent conditional updates on one version through a CrudService: exactly one applies',
+  },
+  {
+    drivers: ALL,
+    id: 'sync-delete-tombstone',
+    title: 'a delete leaves a tombstone: deletedAt set, version incremented, content cleared, tenant and scope kept',
+  },
+  {
+    drivers: ALL,
+    id: 'sync-tombstones-hidden',
+    title: 'find, findOne, findById, count, distinct and sum leave tombstones out unless includeTombstones',
+  },
+  {
+    drivers: ALL,
+    id: 'sync-tombstone-not-written',
+    title: 'updates, array operations and a second delete do not match a tombstone',
+  },
+  {
+    drivers: ALL,
+    id: 'sync-delete-many-tombstones',
+    title: 'deleteMany and deleteOne tombstone their matches, each with a change position of its own',
+  },
+  { drivers: ALL, id: 'sync-hard-delete', title: 'hardDelete with includeTombstones removes a tombstone for good' },
+  {
+    drivers: ALL,
+    id: 'sync-unique-live-only',
+    title: 'a unique value (and a missing one) collides between live records only, never with a tombstone',
+  },
+  {
+    drivers: ALL,
+    id: 'sync-change-order',
+    title:
+      'every write moves the record to the end of the change order, and a page after a position finds exactly the later changes',
+  },
+  {
+    drivers: ALL,
+    id: 'sync-pull-across-tenants',
+    title: 'a pull over two tenants (no tenant header) sees both tenants’ changes in one order, and no third tenant',
+  },
+  {
+    drivers: ['mongodb'],
+    id: 'sync-server-clock',
+    title: 'the change position follows the database server’s clock, not a skewed application clock',
+  },
+  {
+    drivers: ALL,
+    id: 'sync-client-ids',
+    title: 'an insert keeps a client id in the model’s format (ObjectId or uuidv7) and refuses any other',
+  },
+  {
+    drivers: ALL,
+    id: 'sync-taken-id-unchanged',
+    title: 'an insert with a taken client id fails with 11000 and leaves the stored record as it was',
+  },
+  {
+    drivers: ALL,
+    id: 'sync-server-id-retried',
+    title: 'a server id a client occupied is generated anew, the insert succeeds',
+  },
+  {
+    drivers: ALL,
+    id: 'sync-tenant-policy',
+    title: 'tombstoning, conditional writes and tombstone reads stay inside the caller’s tenant',
+  },
+  {
+    drivers: ALL,
+    id: 'sync-crud-service',
+    title:
+      'a CrudService delete leaves a tombstone, get answers 404 for it, includeTombstones returns it, populate drops it',
+  },
 ];
 
 export const PERSISTENCE_EXCLUSIONS: readonly PersistenceExclusion[] = [
@@ -220,6 +314,14 @@ export const PERSISTENCE_EXCLUSIONS: readonly PersistenceExclusion[] = [
       'DIFFERENT-BY-DESIGN: MySQL and MariaDB have no row-level security; tenant isolation is the store’s, so a ' +
       'query through the native engine API reaches every tenant’s rows — the boot log says so, and native access ' +
       'on a tenant table must filter by tenantId itself',
+  })),
+  ...PERSISTENCE_DRIVERS.filter((driver) => driver !== 'mongodb').map((driver): PersistenceExclusion => ({
+    case: 'sync-server-clock',
+    driver,
+    provenBy: 'sync-change-order',
+    reason:
+      'DIFFERENT-BY-DESIGN: SQL orders changes by a commit-ordered sequence the database numbers (offline-sync plan ' +
+      '§3.4, C1d) — no clock takes part, so a skewed application clock cannot reorder anything',
   })),
 ];
 

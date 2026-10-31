@@ -16,7 +16,12 @@ import {
   desiredMysqlTable,
   type MysqlDesiredColumn,
   type MysqlDesiredTable,
+  LIVE_KEY_PREFIX,
+  MYSQL_SYNC_COUNTERS,
+  MYSQL_SYNC_TRIGGER_VERSION,
   mysqlColumnDefinition,
+  mysqlSyncCountersStatement,
+  mysqlSyncTableStatements,
   NULL_SENTINEL_PREFIX,
   variantLabel,
 } from './mysql-schema.compiler.js';
@@ -72,12 +77,18 @@ interface CatalogTable {
   columns: Map<string, { collation: null | string; generated: boolean; type: string }>;
   /** framework-named index → unique */
   indexes: Map<string, boolean>;
+  /** Change-order triggers (`lt_sync_*`) on the table, as far as the connection may see them (the owner does) */
+  syncTriggers: Set<string>;
+  /** The trigger version the counter row records — readable by the application account too */
+  syncTriggerVersion: null | string;
 }
 
 interface Catalog {
   database: string;
   /** Whether the application account holds every DML right on the database */
   granted: boolean;
+  /** Whether the counter table of synchronized models exists */
+  syncCounters: boolean;
   tables: Map<string, CatalogTable>;
 }
 
@@ -231,6 +242,13 @@ export async function planMysqlSchema(
     options.appAccount,
   );
   const changes: SchemaChange[] = [];
+  if (tables.some((table) => table.sync) && !catalog.syncCounters) {
+    changes.push({
+      description: `create the change-order counters ${MYSQL_SYNC_COUNTERS}`,
+      kind: 'automatic',
+      statements: [mysqlSyncCountersStatement()],
+    });
+  }
   if (!catalog.granted) {
     changes.push({
       description: `grant ${options.appAccount} SELECT, INSERT, UPDATE, DELETE on database ${catalog.database}`,
@@ -255,8 +273,49 @@ function planNewTable(table: MysqlDesiredTable): SchemaChange[] {
     {
       description: `create table ${table.name} (${table.model.name})`,
       kind: 'automatic',
-      statements: [createMysqlTableStatement(table), ...table.indexes.map((index) => index.create)],
+      statements: [
+        createMysqlTableStatement(table),
+        ...table.indexes.map((index) => index.create),
+        ...(table.sync ? mysqlSyncTableStatements(table.name, table.sync) : []),
+      ],
       table: table.name,
+    },
+  ];
+}
+
+/**
+ * A synchronized table's change order: both triggers of the current version and its counter row. Triggers of an earlier
+ * version are replaced; a table that is no longer synchronized keeps its triggers until a migration drops them
+ */
+function planSync(table: MysqlDesiredTable, existing: CatalogTable): SchemaChange[] {
+  const name = table.name;
+  if (!table.sync) {
+    return existing.syncTriggers.size
+      ? [
+          {
+            description: `${name} is no longer synchronized; its change-order triggers are kept until a migration drops them`,
+            kind: 'notice',
+            statements: [],
+            table: name,
+          },
+        ]
+      : [];
+  }
+  if (existing.syncTriggerVersion === MYSQL_SYNC_TRIGGER_VERSION) {
+    return [];
+  }
+  const current = new Set([table.sync.insertTrigger, table.sync.updateTrigger]);
+  return [
+    {
+      description: `${existing.syncTriggerVersion ? 'replace' : 'add'} the change-order triggers of ${name}`,
+      kind: 'automatic',
+      statements: [
+        ...[...existing.syncTriggers]
+          .filter((trigger) => !current.has(trigger))
+          .map((trigger) => `DROP TRIGGER IF EXISTS ${quoteMysqlIdentifier(trigger)}`),
+        ...mysqlSyncTableStatements(name, table.sync),
+      ],
+      table: name,
     },
   ];
 }
@@ -320,7 +379,12 @@ function planExistingTable(table: MysqlDesiredTable, existing: CatalogTable): Sc
     }
   }
   for (const column of existing.columns.keys()) {
-    if (!declared.has(column) && !column.startsWith(NULL_SENTINEL_PREFIX) && !isForeignColumn(name, column)) {
+    if (
+      !declared.has(column) &&
+      !column.startsWith(NULL_SENTINEL_PREFIX) &&
+      !column.startsWith(LIVE_KEY_PREFIX) &&
+      !isForeignColumn(name, column)
+    ) {
       changes.push({
         description: `${name}.${column} is no longer declared; the column is kept until a migration drops it`,
         kind: 'notice',
@@ -373,6 +437,7 @@ function planExistingTable(table: MysqlDesiredTable, existing: CatalogTable): Sc
       });
     }
   }
+  changes.push(...planSync(table, existing));
   return changes;
 }
 
@@ -433,20 +498,48 @@ async function readCatalog(run: Run, tables: string[], appAccount: string): Prom
     text: `SELECT PRIVILEGE_TYPE AS privilege FROM information_schema.SCHEMA_PRIVILEGES
       WHERE GRANTEE = $1 AND TABLE_SCHEMA = DATABASE()`,
   });
+  const triggerResult = await run({
+    params: tables,
+    text: `SELECT EVENT_OBJECT_TABLE AS t, TRIGGER_NAME AS name FROM information_schema.TRIGGERS
+      WHERE TRIGGER_SCHEMA = DATABASE() AND EVENT_OBJECT_TABLE IN (${list}) AND TRIGGER_NAME LIKE 'lt\\_sync\\_%'`,
+  });
+  const countersResult = await run({
+    params: [MYSQL_SYNC_COUNTERS],
+    text: `SELECT COUNT(*) AS n FROM information_schema.TABLES WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = $1`,
+  });
+  const counterRows = Number(countersResult.rows[0]?.n)
+    ? (
+        await run({
+          params: tables,
+          text: `SELECT \`model\` AS t, \`triggers\` AS version FROM ${quoteMysqlIdentifier(MYSQL_SYNC_COUNTERS)} WHERE \`model\` IN (${list})`,
+        })
+      ).rows
+    : [];
 
   const catalog: Catalog = {
     database,
     granted: DML.every((privilege) => grantResult.rows.some((row) => row.privilege === privilege)),
+    syncCounters: Number(countersResult.rows[0]?.n) > 0,
     tables: new Map(),
   };
   const table = (name: string) => {
     let entry = catalog.tables.get(name);
     if (!entry) {
-      entry = { checks: new Set(), columns: new Map(), indexes: new Map() };
+      entry = {
+        checks: new Set(),
+        columns: new Map(),
+        indexes: new Map(),
+        syncTriggers: new Set(),
+        syncTriggerVersion: null,
+      };
       catalog.tables.set(name, entry);
     }
     return entry;
   };
+  for (const row of triggerResult.rows) {
+    table(row.t).syncTriggers.add(row.name);
+  }
+
   for (const row of columnResult.rows) {
     table(row.t).columns.set(row.c, {
       collation: row.collation ?? null,
@@ -459,6 +552,12 @@ async function readCatalog(run: Run, tables: string[], appAccount: string): Prom
   }
   for (const row of checkResult.rows) {
     table(row.t).checks.add(row.name);
+  }
+  // After the columns: only a table that exists has a counter row worth reading
+  for (const row of counterRows) {
+    if (catalog.tables.has(row.t)) {
+      table(row.t).syncTriggerVersion = row.version ?? null;
+    }
   }
   return catalog;
 }

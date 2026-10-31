@@ -77,12 +77,24 @@ export interface IndexDescriptor {
   options: Record<string, unknown>;
 }
 
+/** The id format of a synchronized model: one per model, never mixed (offline-sync plan §3.5) */
+export type SyncIdFormat = 'objectId' | 'uuidv7';
+
+/** How a model is synchronized to offline clients — see `sync-model.ts` */
+export interface SyncDescriptor {
+  idFormat: SyncIdFormat;
+  /** User-id fields a tombstone keeps besides `tenantId` */
+  scope: readonly string[];
+}
+
 export interface ModelDescriptor {
   /** Explicit collection / table name, when the model declares one */
   collection?: string;
   fields: Record<string, FieldDescriptor>;
   indexes: IndexDescriptor[];
   name: string;
+  /** Present when the model is synchronized (`@PersistedModel({ sync })`); absent for every other model */
+  sync?: SyncDescriptor;
   /** Whether the model carries a `tenantId` — the same criterion the tenant plugin uses */
   tenantScoped: boolean;
   /** `createdAt` / `updatedAt` maintenance: `true`, `false`, or the configured field names */
