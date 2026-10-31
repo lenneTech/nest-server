@@ -60,3 +60,23 @@ and how W is sized per MongoDB topology.
 
 Scratch MongoDB tests: a PreToolUse hook blocks `dropDatabase`. Name scratch DBs
 `nest-server-e2e-run-<ts>-p<pid>-<suffix>`, so the next e2e run's startup sweep removes them once the PID is dead.
+
+## Phase 4 (DEV-3901, 2026-10-31, static review — no DB allowed): one High
+- HIGH: the pull (`readChanges`) orders by the change position, but the only change-order index is tenant-led
+  (`(tenant_id, sync_seq)` / `{ tenantId, syncAt, _id }`). A header-less pull (the protocol default: spans the
+  memberships) filters `tenantId: { $in }` → PG `tenant_id = ANY($n)`. A SAOP makes no constant EquivalenceClass, so
+  the index pathkeys stay `(tenant_id, sync_seq)` and `ORDER BY sync_seq` needs a Sort over ALL remaining scope rows
+  per page — even for ONE membership on PG (MySQL `IN (?)` single value is fine, ≥2 not). Admin bypass (no tenant
+  predicate) is the same on every DB incl. MongoDB. Full sync ≈ R²/(2L) rows. MongoDB members are fine (single $in =
+  point interval; multi = explode-for-sort).
+- Status: the member case is fixed in the same review — `readPositions()` reads a membership list once per tenant with
+  `tenantId` as an equality and merges by position (case `pull-across-tenants`). The admin-bypass case is NOT changed:
+  it would need a non-tenant-led change index on every tenant-scoped sync table, judged below the bar (platform admins
+  rarely run sync clients). Re-raise only with a concrete admin sync client.
+- Settled: `CrudService.update()` sync hooks short-circuit on a module variable (no clone/lookup without sync); pull =
+  limit+1 read + ONE `id IN` system-field query per page; push ≤ 100 items × constant queries; no timers/races.
+- Dropped: maxBytes read amplification (page reads limit+1 full records, may return few) — protocol defines the page.
+
+**How to apply (general):** whenever a pull/list paginates by a keyset under the tenant policy, check whether the
+scope is an equality (`tenantId`) or a list (`tenantIds` → `$in`/`ANY`): on PostgreSQL only the equality lets a
+tenant-led index serve the ORDER BY.

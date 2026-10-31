@@ -1,6 +1,6 @@
 ---
 name: offline-sync-spec-review-traps
-description: Offline-sync epic DEV-3819 — phases 1-3 (DEV-3898/3899/3900) plan, protocol and implementation claims that disagree with code; re-check in DEV-3901+
+description: Offline-sync epic DEV-3819 — phases 1-4 (DEV-3898/3899/3900/3901) plan, protocol and implementation claims that disagree with code; re-check in DEV-3902+
 metadata:
   type: project
 ---
@@ -61,6 +61,25 @@ one id format per model. Traps found in the text, re-check in phase 3/4 code:
   (`assertSyncCollectionReady`); `.claude/rules/persistence.md` names the migration.
 - Probe recipe that works: `npx tsx <scratchpad>.mts` from the repo root, `createRequire('<repo>/package.json')` for
   mongoose, `await import('<repo>/src/core/common/persistence/mongo/sync-schema.plugin.ts')` for the plugin.
+
+**Phase 4 (DEV-3901, reviewed 2026-10-31, commit a35b18f, read-only — no probes allowed that day)** — sync module:
+
+- **`findVisible()` calls `service.get()` WITHOUT `roles`** (core-sync.service.ts ~l.1005), although PLAN §3.2,
+  REQUEST-LIFECYCLE and the README say the model's `sync.roles` go on EVERY CrudService call. A create item
+  (no `baseVersion`) on an existing id answers `conflict` with the record before any role check, so a user without pull
+  roles (even on an ADMIN-only `sync: true` model) reads any record securityCheck admits, given its id. The contract
+  `push-roles` case only creates NEW ids, so it never sees this.
+- **Header-less push create on a tenant-scoped model**: `scopeTenants()` sets `req.tenantIds` on push too; the Mongo
+  tenant plugin's pre-save stamps only a SINGLE tenant, so MongoDB saves the row without `tenantId` and answers
+  `applied` (row invisible to everyone after). PG (RLS 42501) and MySQL (row check in `readById` inside the insert
+  transaction) refuse with FORBIDDEN. Checklist "Rejected by the tenant policy" is true on SQL only. No contract case.
+- Status of both: fixed in the same review — `findVisible()` reads with the pull roles (case `push-without-pull-roles`),
+  `applyCreate()` refuses a create without a single tenant with FORBIDDEN on every database (case
+  `push-create-without-tenant`); README and protocol §3 updated.
+- Verified sound: all `sync` defaults/env/error codes LTNS_0700–0704 across ISync JSDoc, configurable-features row,
+  README; W derivation (`mongoChangeWindowMs`); table names `sync_mutations`/`sync_states`; mutation count 456.
+- Accepted-as-low drift: protocol uses placeholder config names (`maxPushItems`, `maxPullBytes`, `mutationRetention`),
+  §12 says "never in a TTL index" while `SyncMutation.expiresAt` IS a TTL index (readers check expiry anyway).
 
 Probe recipe: the Bash hook refuses any command whose text contains `dropDatabase` — write the probe with the Write
 tool, name the DB per the e2e run scheme (`nest-server-e2e-run-<ts>-p<pid>-…`) so the startup sweep collects it, and
