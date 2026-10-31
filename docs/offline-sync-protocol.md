@@ -90,6 +90,8 @@ and an id generated as above (uuidv7, or ObjectId-hex with its random tail) cann
 ## 4. Requests and authentication
 
 * **Base path** `/sync` (configurable). Model names in paths are the names the project registered for sync.
+* **Tenant:** with `X-Tenant-Id` a request covers that one tenant (and requires an active membership in it); without the
+  header it spans every tenant the caller is an active member of.
 * **Authentication:** a Better-Auth session cookie or a bearer token (JWT or session token), exactly as for every other
   route. API tokens are refused on sync routes unless the project releases a sync scope for them.
 * **Writes with cookie authentication** follow the rules of every writing endpoint — the session cookie is
@@ -272,7 +274,7 @@ When the server cannot continue a cursor consistently, pull answers:
 | `reason` | Cause |
 |---|---|
 | `horizon` | The cursor is older than the tombstone retention horizon; deletions in between may be gone. |
-| `access` | The caller's access changed since the cursor was issued: a tenant membership removed, a role changed, a record moved to another tenant or visibility scope. |
+| `access` | The caller's access changed since the cursor was issued while the caller may still pull the model: a tenant membership removed (on a pull without `X-Tenant-Id`), a role changed, a record moved to another tenant or visibility scope. Once the caller may not pull the model at all, the pull answers `403` instead (§10). |
 | `invalid` | The cursor is malformed, was issued for another model or user, or for an incompatible sync configuration. |
 
 **Client procedure:** keep the unsent local changes, delete every local record of that model, pull without a cursor
@@ -307,7 +309,7 @@ Sync API exists only in Chromium).
 |---|---|
 | `400` | Malformed body or query, unknown `op`, more than `maxPushItems` items. |
 | `401` | Not authenticated or session expired. Nothing was applied. |
-| `403` | Authenticated, but without the model's pull roles (pull); a cookie-authenticated push failing the origin rules. A push item lacking the operation's roles is `rejected` / `FORBIDDEN` (§7). |
+| `403` | On a pull: the caller may not pull the model (pull roles withdrawn), or `X-Tenant-Id` names a tenant they left or that was deactivated — access loss like `410 access`: delete that model's (and tenant's) local records and cursor; the unsent changes cannot be pushed under this account (§11). On a push: a cookie-authenticated push failing the origin rules. A push item lacking the operation's roles is `rejected` / `FORBIDDEN` (§7). |
 | `404` | The model is not registered for sync. |
 | `410` | Resync required (§8). |
 | `413` | The body exceeds the server's limit. |
@@ -329,6 +331,9 @@ Error bodies use the framework's error-code format, sync codes in `#LTNS_0700`�
 * **On logout delete every local record, the cursors and the unsent changes**, and do the same before another user's
   first pull. The device holds personal data outside the server; the sync module's `SECURITY.md` lists what to delete
   and how to keep the credential out of reach.
+* **On `410 access` and on `403` to a pull, delete the local records of that model** (and tenant) and the cursor — the
+  caller lost access, and the device must not keep what the server would no longer send (§8, §10, the module's
+  `SECURITY.md`).
 * Treat a cleared storage as a fresh start (no cursor).
 
 ## 12. What the server guarantees
@@ -384,7 +389,7 @@ Every requirement of DEV-3819 and where this document meets it (P = `.claude/pla
 | Every pull/push through the full pipeline; no `pullLean` | §1, §12 |
 | Tombstones carry `tenantId` and only `id`, `version`, `deletedAt`, `updatedAt` | §2, §12; plus declared user-id scope fields, decided O1 (§15); the server keeps the audit fields too (DEV-3900), a pull sends none |
 | Hard delete not reachable through sync | §6.2, §12 |
-| Access loss → client deletes local copies; at least a forced full resync | §8 |
+| Access loss → client deletes local copies; at least a forced full resync | §8 (`410 access`), §10 / §11 (`403` on a pull) |
 | Integration doc says what a client deletes on logout | §11, the module's `SECURITY.md` and its checklist |
 | Acceptance: the same contract suite green on MongoDB standalone and replica set, PostgreSQL × three engines (and MySQL, MariaDB) | `tests/sync-contract.e2e-spec.ts` (framework repository) |
 | Acceptance: no lost change with parallel writers on two instances with skewed clocks | `tests/sync-clock-skew.e2e-spec.ts` |

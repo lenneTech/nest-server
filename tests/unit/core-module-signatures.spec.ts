@@ -21,6 +21,7 @@ import { CoreAuthService } from '../../src/core/modules/auth/services/core-auth.
 import { CoreBetterAuthModule } from '../../src/core/modules/better-auth/core-better-auth.module';
 import { ErrorCodeModule } from '../../src/core/modules/error-code/error-code.module';
 import { CoreHealthCheckModule } from '../../src/core/modules/health-check/core-health-check.module';
+import { CoreSyncModule } from '../../src/core/modules/sync/core-sync.module';
 
 // Mock AuthModule for testing
 const MockAuthModule = {
@@ -815,5 +816,31 @@ describe('CoreModule.forRoot() health check registration', () => {
     expect(healthCheckImported({ ...baseConfig, healthCheck: {} })).toBe(true);
     expect(healthCheckImported({ ...baseConfig, healthCheck: { enabled: true } })).toBe(true);
     expect(healthCheckImported({ ...baseConfig })).toBe(false);
+  });
+});
+
+describe('CoreModule.forRoot() offline sync registration', () => {
+  const syncImported = (sync: IServerOptions['sync'] | undefined) =>
+    (CoreModule.forRoot({ ...baseConfig, ...(sync === undefined ? {} : { sync }) }).imports || []).some(
+      (entry: any) => entry?.module === CoreSyncModule,
+    );
+
+  /**
+   * @regression   12.2.0 release review — without the `sync` configuration nothing of offline sync may be registered:
+   *   an always-registered module would refuse every production boot without `sync.cursorSecret`, and add two tables a
+   *   SQL application role without `ownerUrl` cannot create, for every project that never opted in.
+   * @seen-failing Register CoreSyncModule whatever `sync` says, in CoreModule.forRoot() (src/core.module.ts) —
+   *   registered as mutation `sync-module-registered-without-config` in tests/regression-mutations.json.
+   */
+  it('registers nothing of offline sync without the sync configuration, or with it switched off', () => {
+    expect(syncImported(undefined)).toBe(false);
+    expect(syncImported(false)).toBe(false);
+    expect(syncImported({ enabled: false })).toBe(false);
+  });
+
+  it('registers the sync module for `true`, `{}` and a configuration object', () => {
+    expect(syncImported(true)).toBe(true);
+    expect(syncImported({})).toBe(true);
+    expect(syncImported({ pull: { defaultLimit: 50 } })).toBe(true);
   });
 });

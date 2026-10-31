@@ -103,3 +103,16 @@ tenant-led index serve the ORDER BY.
 - Resolved in DEV-3902 before merge: the purge reads ids in primary-key order (keyset, 1000 per batch, no lock) and
   deletes `id IN (…) AND deleted_at < ?` per batch (mutation `sync-purge-single-statement`). No `deleted_at` index was
   added; the early-close leak was fixed too (mutation `sync-hint-stream-late-close`).
+
+## Release 12.2.0 (diff 12.1.1...develop 78db22b, 2026-11-01, static): zero Critical/High
+- Non-sync projects pay constant-time checks only: `mongoSync` getter (cached derived store + Symbol read on the
+  schema), `getSyncAccessListener()` module variable, `capabilities.changeOrder`; SQL `where()` builds the same
+  filter shape; `withServerId`/`numberPending` short-circuit on `!model.sync`. Sync schema plugin applied per sync
+  schema only (no global `mongoose.plugin`). Only request-path files touched: crud.service + tenant guard's
+  `invalidateTenant()` (fire-and-forget epoch bumps, not canActivate). Sync module imported only with `sync` config.
+- Boot, every SQL project: +1 catalog query per model open on PG (`pg_trigger`), +2..3 on MySQL (I_S.TRIGGERS,
+  I_S.TABLES, counter rows) — boot-only, ms. Index names hash fields/partial/sparse/unique, not the CREATE text, so the
+  new `NULLS NOT DISTINCT` rule for `{ deletedAt: null }` partials causes no migration on existing tables.
+- Below the bar, re-check with a big sync collection: `assertSyncCollectionReady()` runs
+  `findOne({ syncAt: { $exists: false } })` at EVERY boot; a tenant-scoped Mongo sync model has no syncAt-led index
+  (`{ tenantId, syncAt, _id }`), so a ready collection is a full COLLSCAN per boot per replica.

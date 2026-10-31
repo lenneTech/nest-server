@@ -54,6 +54,9 @@ export class CoreSyncModule {
       // whatever a project's controller re-declares
       controllers: [hintsController, controller],
       exports: [CoreSyncHintService, CoreSyncService],
+      // Global, as the tenant and API-token modules: a project's own service injects CoreSyncService to report writes
+      // past the CrudService (`notifyChange()`, `bumpAccessEpoch()`), and CoreModule does not re-export its imports
+      global: true,
       imports: [
         DiscoveryModule,
         CorePersistenceModule.forFeature([

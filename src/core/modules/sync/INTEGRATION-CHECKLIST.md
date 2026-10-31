@@ -33,6 +33,9 @@ WHY: the cursors are signed with it. Without `sync.cursorSecret` (or `SECRETS_EN
 - Do **not** declare `version`, `deletedAt`, `syncAt`, `syncSeq` — the store adds them (a declared one is refused).
 - Declare `createdBy` when an operation uses `S_CREATOR` or `securityCheck()` decides by the creator.
 - `securityCheck()` decides who sees a record — a pull and every push lookup run through it.
+- **MySQL / MariaDB:** the owner account creates the change-order triggers at boot. WHY: with binary logging on (the
+  MySQL 8.4 default) that needs `SUPER` or `log_bin_trust_function_creators=1` on the server — without it the boot stops
+  with error 1419. The application account needs neither.
 
 ### 3. The inputs
 

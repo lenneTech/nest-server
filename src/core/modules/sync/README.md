@@ -58,19 +58,19 @@ The model must be registered with `CorePersistenceModule.forFeature()`.
 
 ## Security model
 
-| Rule                            | How                                                                                                                                                                                                         |
-| ------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| The full pipeline, no lean path | Pull reads through the service's `find()` (`process()`, output `@Restricted`, tenant policy, RLS) and runs every record through `securityCheck()`; push writes through `create()` / `update()` / `delete()` |
-| Operation rights                | The model's `sync.roles`, deny by default (ADMIN only)                                                                                                                                                      |
-| Hidden fields                   | No answer depends on a value the caller may not read: a repeated create is always `conflict` with the record as the caller sees it, never compared with `data`                                              |
-| Foreign ids                     | Change / delete: `not_found`, exactly like a missing id. Create: `ID_UNAVAILABLE` — the same answer for every reason an id cannot be used                                                                   |
-| No hard delete                  | Push `delete` goes through `CrudService.delete()`, which tombstones a synchronized model on every path                                                                                                      |
-| Tombstones                      | Carry id, version, `deletedAt`, `updatedAt`, `tenantId` and the scope fields the caller may see — no content                                                                                                |
-| Cursor                          | Opaque, HMAC-signed, bound to model and user; another user's, another model's or a tampered cursor is `410 invalid`                                                                                         |
-| Access loss                     | A fingerprint of the caller's access (user, tenant scope, roles, membership role, verification) and access epochs travel in the cursor; a change answers `410 access`, the client resyncs in full           |
-| Cookie push                     | `Content-Type: application/json`; while the server uses cookies, `Sec-Fetch-Site: cross-site` and an untrusted `Origin` answer 403                                                                          |
-| API tokens                      | Refused like on every route without `@ApiTokenScopes()` (see "Extending")                                                                                                                                   |
-| Session expired                 | 401 for the whole request before any item; the client resends the same items, mutation ids recognise them                                                                                                   |
+| Rule                            | How                                                                                                                                                                                                                                                                                                                        |
+| ------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| The full pipeline, no lean path | Pull reads through the service's `find()` (`process()`, output `@Restricted`, tenant policy, RLS) and runs every record through `securityCheck()`; push writes through `create()` / `update()` / `delete()`                                                                                                                |
+| Operation rights                | The model's `sync.roles`, deny by default (ADMIN only)                                                                                                                                                                                                                                                                     |
+| Hidden fields                   | No answer depends on a value the caller may not read: a repeated create is always `conflict` with the record as the caller sees it, never compared with `data`                                                                                                                                                             |
+| Foreign ids                     | Change / delete: `not_found`, exactly like a missing id. Create: `ID_UNAVAILABLE` — the same answer for every reason an id cannot be used                                                                                                                                                                                  |
+| No hard delete                  | Push `delete` goes through `CrudService.delete()`, which tombstones a synchronized model on every path                                                                                                                                                                                                                     |
+| Tombstones                      | Carry id, version, `deletedAt`, `updatedAt`, `tenantId` and the scope fields the caller may see — no content                                                                                                                                                                                                               |
+| Cursor                          | Opaque, HMAC-signed, bound to model and user; another user's, another model's or a tampered cursor is `410 invalid`                                                                                                                                                                                                        |
+| Access loss                     | A fingerprint of the caller's access (user, tenant scope, roles, membership role, verification) and access epochs travel in the cursor; a change answers `410 access`, the client resyncs in full; a caller who may not pull at all, or names a left tenant in `X-Tenant-Id`, gets `403` and drops its copies the same way |
+| Cookie push                     | `Content-Type: application/json`; while the server uses cookies, `Sec-Fetch-Site: cross-site` and an untrusted `Origin` answer 403                                                                                                                                                                                         |
+| API tokens                      | Refused like on every route without `@ApiTokenScopes()` (see "Extending")                                                                                                                                                                                                                                                  |
+| Session expired                 | 401 for the whole request before any item; the client resends the same items, mutation ids recognise them                                                                                                                                                                                                                  |
 
 A pull or push without `X-Tenant-Id` spans every tenant the caller belongs to (the tenant guard's membership logic);
 writes to a tenant-scoped model need the header, as everywhere — a create without it is `rejected` / `FORBIDDEN` on
@@ -111,6 +111,11 @@ no repeats; on MongoDB the server clock (`syncAt`) with a window W below each ru
 are delivered again, clients keep the higher `version`. W is derived: replica set or sharded cluster — the server's
 `transactionLifetimeLimitSeconds` (60 when unreadable) + 30 s; standalone — 30 s. `sync.pull.windowSeconds` overrides
 it; it must cover the longest time a write can take from its stamp until it is visible.
+
+On MySQL / MariaDB the change numbers come from triggers the owner account (`database.ownerUrl`) creates at boot. With
+binary logging on — the MySQL 8.4 default — that needs `SUPER` or `log_bin_trust_function_creators=1` on the server
+(the parameter group on managed MySQL), otherwise the boot stops with error 1419. The application account needs
+neither.
 
 ## Hints
 
@@ -176,6 +181,8 @@ Override through `CoreModule.forRoot(env, { sync: { controller, hintsController,
   (`@Get(':model')`) would otherwise read `hints` as a model name. Extend it the same way to release hints to API
   tokens. `CoreSyncBaseController` holds what both share (`scopeTenants()`, `limit()`).
 - **`CoreSyncResolver`** — the `syncHint` subscription.
+- **`CoreSyncService` is global** while `sync` is configured: inject it in any project service (with `@Optional()` where
+  the project also runs without `sync`) to call `notifyChange()` / `bumpAccessEpoch()`.
 - **Access that moves past `CrudService.update()`** (a direct store write, a migration, the native API) bumps no epoch:
   call `CoreSyncService.bumpAccessEpoch(model, tenantId, userId?)` after such a write, or the clients concerned keep
   their copies until their next full resync.

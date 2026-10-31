@@ -27,5 +27,10 @@ The issue-opening step lives in a separate `regression-evidence-report` job
   `ci-*`) and teardown removes only Redis + RustFS — pre-existing, harmless on GitHub-hosted runners.
 - No YAML parser in node_modules and no pyyaml; `ruby -ryaml` works for structural parsing.
 - Empty shard of a non-empty selection exits 0; empty selection exits 2/1 before sharding.
+- Partition proof without executing anything: `node scripts/check-mutations.mjs --list --shard=i/4`
+  for i=1..4 prints `--shard=i/4: N of M selected mutations`; the N must sum to M (12.2.0 review,
+  2026-11-01: 119+119+118+118 = 474). Selection is env-independent (no auto `--no-infra`), so
+  every shard VM computes the same split.
+- Merged to develop as #662 and first shipped with 12.2.0. The 12.2.0 infra review found nothing.
 
 Related: [[project-infra-surface]], [[feedback-review-uncommitted-worktree]].

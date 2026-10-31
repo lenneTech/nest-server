@@ -35,4 +35,5 @@
 - [Offline-Sync DataStore Test Facts](offline-sync-datastore-test-facts.md) — DEV-3900 sync-* cells: Mongo aggregate hook ignores includeTombstones; server-clock case vacuous (Date.now only); mutations seen red.
 - [Offline-Sync Contract Test Facts](offline-sync-contract-test-facts.md) — DEV-3901 7-column matrix: derived window W asserted by no test (windowSeconds:2 pin); 7 sync-* mutations checked non-vacuous.
 - [Offline-Sync Hints + Purge Test Facts](offline-sync-hints-purge-test-facts.md) — DEV-3902: 7 mutations non-vacuous, purge pair byte-identical; negative-hint strength per case; unit order test pins call order only.
-- [Offline-Sync Clients + Skew Test Facts](offline-sync-clients-skew-test-facts.md) — DEV-3903: skew 5 s < derived W makes Mongo skew columns unfailable; client push list/mark split + fold-into-sent lose edits.
+- [Offline-Sync Clients + Skew Test Facts](offline-sync-clients-skew-test-facts.md) — DEV-3903: skew 5 s < derived W makes Mongo skew columns unfailable; client push list/mark split + fold-into-sent lose edits (all fixed in 78db22b).
+- [Sync Release Cross-Phase Facts](sync-release-cross-phase-facts.md) — 12.2.0: CoreModule sync gate untested (inversion survives suite); check-mutations ignores `drivers`; contract-suite history.

@@ -5389,6 +5389,28 @@
         "tests/unit/sync-client.spec.ts"
       ],
       "driverSpecific": false
+    },
+    {
+      "id": "sync-module-registered-without-config",
+      "defect": "12.2.0 release review — without the sync configuration nothing of offline sync may be registered: an always-registered module would refuse every production boot without sync.cursorSecret, for every project that never opted in.",
+      "file": "src/core.module.ts",
+      "find": "      syncConfig === true ||\n",
+      "replace": "      true ||\n",
+      "specs": [
+        "tests/unit/core-module-signatures.spec.ts"
+      ],
+      "driverSpecific": false
+    },
+    {
+      "id": "sync-module-not-global",
+      "defect": "12.2.0 release review — a non-global CoreSyncModule was invisible to project modules (CoreModule does not re-export its imports): injecting CoreSyncService for notifyChange() / bumpAccessEpoch() stopped the boot, or gave undefined with @Optional().",
+      "file": "src/core/modules/sync/core-sync.module.ts",
+      "find": "      global: true,\n",
+      "replace": "",
+      "specs": [
+        "tests/unit/sync-module.spec.ts"
+      ],
+      "driverSpecific": false
     }
   ]
 }

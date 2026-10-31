@@ -18,6 +18,7 @@ import {
   SyncService,
 } from '../../src/core/modules/sync/core-sync.decorators';
 import { CoreSyncHintService, type SyncHintEvent } from '../../src/core/modules/sync/core-sync-hints.service';
+import { CoreSyncModule } from '../../src/core/modules/sync/core-sync.module';
 import { CoreSyncService } from '../../src/core/modules/sync/core-sync.service';
 
 /**
@@ -36,6 +37,22 @@ const STATE: SyncCursorState = {
   since: 1_699_999_000_000,
   user: '6720c0aa0000000000000001',
 };
+
+describe('sync module registration', () => {
+  /**
+   * @regression   12.2.0 release review — a project's own service injects CoreSyncService to report writes past the
+   *   CrudService (`notifyChange()`, `bumpAccessEpoch()`). CoreModule does not re-export what it imports, so a
+   *   non-global sync module was invisible to project modules: a plain injection stopped the boot, an `@Optional()`
+   *   one received `undefined`, and a record moved away from a user stayed on that user's device.
+   * @seen-failing Drop `global: true` from CoreSyncModule.forRoot() (src/core/modules/sync/core-sync.module.ts) —
+   *   registered as mutation `sync-module-not-global` in tests/regression-mutations.json.
+   */
+  it('is a global module that exports the sync service to every project module', () => {
+    const module = CoreSyncModule.forRoot({});
+    expect(module.global).toBe(true);
+    expect(module.exports).toEqual(expect.arrayContaining([CoreSyncService, CoreSyncHintService]));
+  });
+});
 
 describe('sync cursor', () => {
   it('round-trips both positions, with and without a run in progress', () => {

@@ -22,6 +22,8 @@ sync-client + sync-client-scenarios green. E2E not run (resource rule).
   already recorded under that mutationId → recorded outcome `applied`, the edit silently dropped (repro: response lost
   after the server applied it).
 
+**Status: all three fixed in 78db22b** (see [[sync-release-cross-phase-facts]]).
+
 **Verified sound:** Node two-tabs IS deterministic — SqliteStore's per-path queue makes both tabs list the outbox
 before either marks/sends, so both POST U and C; a broken mutation-id dedupe would give version 3 (merge strategy on
 title). PWA two-tabs relies on near-simultaneous `online` events (not asserted, but practically always both send).

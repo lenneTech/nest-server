@@ -6,7 +6,7 @@
 - [API-Token Module Performance Profile](api-token-module-perf.md) — per-request cost with feature off/on (ns-level), token-request DB budget, bounded Map/rate-limit structures.
 - [Migrate Module Performance Profile](migrate-module-perf.md) — boot/CLI-only (no HTTP path); the per-migration state save is deliberate crash-safety, do NOT flag as N+1.
 - [Persistence layer (db-agnostic) costs](persistence-layer-db-agnostic-costs.md) — measured: tenant post-read row check 16-89 ns/row (~1-4 % of hydrate), ObjectId tag check faster than instanceof.
-- [Offline-sync design perf](offline-sync-design-perf.md) — phases 1-5: index forms, C1d, Mongo W, MySQL gap deadlock; P4 PG `= ANY`; P5 MySQL purge full-scan DELETE locks table.
+- [Offline-sync design perf](offline-sync-design-perf.md) — phases 1-5 Highs (C1d, Mongo W, MySQL gap deadlock, PG `= ANY`, purge); 12.2.0 release: non-sync cost ~0.
 - [SQL store perf profile](sql-store-perf-profile.md) — phases 1-6 + DEV-3904: BA sign-up tx starves pool; MySQL ALTER DATABASE X-locks every table (boot stall).
 
 ## Request Path
