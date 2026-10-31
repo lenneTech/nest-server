@@ -477,7 +477,11 @@ export class CoreSyncService implements OnApplicationBootstrap, OnModuleDestroy,
       return this.storeCall(() => registration.store.find(where, options));
     }
     const pages = await Promise.all(
-      tenants.map((tenantId) => this.storeCall(() => registration.store.find({ ...where, tenantId }, options))),
+      // The equality inside `$and`: MongoDB's tenant plugin writes its own `tenantId` condition onto the same key with
+      // `where()`, which replaces a top-level one — every per-tenant read would return every tenant
+      tenants.map((tenantId) =>
+        this.storeCall(() => registration.store.find({ $and: [where, { tenantId }] }, options)),
+      ),
     );
     return pages
       .flat()
