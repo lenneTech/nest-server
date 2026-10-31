@@ -18,6 +18,12 @@ import { DiscoveryService, ModuleRef } from '@nestjs/core';
 import { RoleEnum } from '../../common/enums/role.enum.js';
 import { getStringIds } from '../../common/helpers/db.helper.js';
 import {
+  ensureWsConnectionCurrent,
+  getWsConnection,
+  noteWsConnectionTenant,
+  registerWsConnection,
+} from '../../common/helpers/graphql-ws-connection.helper.js';
+import {
   buildCorsConfig,
   isCookiesEnabled,
   isProductionLikeEnv,
@@ -29,14 +35,21 @@ import { InjectStore } from '../../common/persistence/inject-store.decorator.js'
 import { getModelDescriptor } from '../../common/persistence/model-metadata.registry.js';
 import { isDuplicateIdError } from '../../common/persistence/mongoose-data-store.js';
 import { getPersistedModelOptions } from '../../common/persistence/persisted-model.decorator.js';
+import {
+  CRON_LOCK_COLLECTION,
+  cronMongoLocks,
+  defaultSqlLockStore,
+} from '../../common/persistence/infrastructure-locks.js';
+import type { LockStore } from '../../common/persistence/lock-store.interface.js';
 import { getStoreToken } from '../../common/persistence/persistence.tokens.js';
 import { isSyncId, VersionConflictError } from '../../common/persistence/policies/sync.policy.js';
-import { resolveTenantScope } from '../../common/persistence/policies/tenant.policy.js';
+import { allowedTenantIds, resolveTenantScope } from '../../common/persistence/policies/tenant.policy.js';
 import { DuplicateKeyError, QueryCastError, UnsupportedQueryError } from '../../common/persistence/sql/sql-errors.js';
 import {
   getSyncAccessListener,
   setSyncAccessListener,
   type SyncAccessListener,
+  type SyncRecordChange,
   type SyncRecordMove,
 } from '../../common/persistence/sync-access.registry.js';
 import {
@@ -48,6 +61,7 @@ import {
 } from '../../common/persistence/sync-model.js';
 import { MapAndValidatePipe } from '../../common/pipes/map-and-validate.pipe.js';
 import { ConfigService } from '../../common/services/config.service.js';
+import { getCronJobsInfrastructure } from '../../common/services/core-cron-jobs.registry.js';
 import { CoreRedisService } from '../../common/services/core-redis.service.js';
 import { CrudService } from '../../common/services/crud.service.js';
 import { InMemoryRateLimitStore, RateLimitStore, RedisRateLimitStore } from '../../common/services/rate-limit-store.js';
@@ -56,11 +70,15 @@ import { ErrorCode } from '../error-code/error-codes.js';
 import {
   SYNC_CLAIM_TIMEOUT_MS,
   SYNC_DEFAULTS,
+  SYNC_HINT_KEEPALIVE_MS,
   SYNC_MUTATION_MODEL,
   SYNC_PULL_LIMIT_CEILING,
+  SYNC_PURGE_BATCH,
+  SYNC_PURGE_INTERVAL_MS,
   SYNC_REAPPLY_ATTEMPTS,
   SYNC_STATE_MODEL,
 } from './core-sync.constants.js';
+import { CoreSyncHintService, type SyncHintEvent } from './core-sync-hints.service.js';
 import {
   decodeSyncCursor,
   deriveCursorKey,
@@ -158,6 +176,13 @@ export class CoreSyncService implements OnApplicationBootstrap, OnModuleDestroy,
   protected readonly stateStore: CoreSyncStateStore;
   protected cursorKey?: Buffer;
   protected rateLimitStore?: RateLimitStore;
+  /** The purge timer (plan §3.7, E8); `undefined` while none is scheduled */
+  protected purgeTimer?: ReturnType<typeof setInterval>;
+  protected purgeRunning?: Promise<unknown>;
+  /** The owner of this replica's purge lease */
+  protected readonly purgeOwner = `sync-purge:${process.pid}:${Math.random().toString(36).slice(2)}`;
+  /** How often the purge runs; a subclass may change it */
+  protected purgeIntervalMs = SYNC_PURGE_INTERVAL_MS;
 
   constructor(
     @InjectStore(SYNC_MUTATION_MODEL) mutations: DataStore<any>,
@@ -165,6 +190,7 @@ export class CoreSyncService implements OnApplicationBootstrap, OnModuleDestroy,
     protected readonly discoveryService: DiscoveryService,
     protected readonly moduleRef: ModuleRef,
     @Optional() protected readonly redisService?: CoreRedisService,
+    @Optional() protected readonly hintService?: CoreSyncHintService,
   ) {
     const days = positiveNumber(this.config.retention?.mutationsDays, SYNC_DEFAULTS.mutationsDays);
     this.mutationStore = new CoreSyncMutationStore(mutations, {
@@ -195,15 +221,21 @@ export class CoreSyncService implements OnApplicationBootstrap, OnModuleDestroy,
     setSyncAccessListener(this);
     if (this.models.size) {
       this.logger.log(`Offline sync for ${[...this.models.keys()].join(', ')}`);
+      this.schedulePurge();
     } else {
       this.logger.warn('Offline sync is configured, but no service declares @SyncService() — no model is offered');
     }
   }
 
-  onModuleDestroy(): void {
+  async onModuleDestroy(): Promise<void> {
     if (getSyncAccessListener() === this) {
       setSyncAccessListener(undefined);
     }
+    if (this.purgeTimer) {
+      clearInterval(this.purgeTimer);
+      this.purgeTimer = undefined;
+    }
+    await this.purgeRunning?.catch(() => undefined);
   }
 
   /** The registered models, by name */
@@ -1263,6 +1295,362 @@ export class CoreSyncService implements OnApplicationBootstrap, OnModuleDestroy,
   /** The tombstone horizon of a model — the purge (DEV-3902) advances it before it deletes */
   advanceHorizon(model: string, at: Date): Promise<void> {
     return this.stateStore.advanceHorizon(model, at);
+  }
+
+  // ===================================================================================================================
+  // Hints (protocol §9, plan §3.9)
+  // ===================================================================================================================
+
+  /** A write of `CrudService` on a synchronized model succeeded: a hint for its tenants */
+  recordChanged(change: SyncRecordChange): void {
+    this.notifyChange(change.model, change.tenantIds);
+  }
+
+  /**
+   * Hint that a synchronized model changed in these tenants (none on a model without tenants). `CrudService` sends it
+   * after every successful create, update and delete; a write past it (the data store, the native API, a migration)
+   * calls this, or its clients learn of the change only at their next pull.
+   */
+  notifyChange(model: string, tenantIds: readonly string[] = []): void {
+    if (!this.models.has(model)) {
+      return;
+    }
+    this.hintService?.notify(model, tenantIds.length ? tenantIds : [undefined]);
+  }
+
+  /** Whether a hint channel is offered (`sync.hints`, both on by default; the GraphQL one also needs GraphQL) */
+  hintsEnabled(channel: 'graphql' | 'sse'): boolean {
+    const hints = this.config.hints;
+    if (hints === false || !this.hintService?.enabled) {
+      return false;
+    }
+    if (hints && typeof hints === 'object' && hints[channel] === false) {
+      return false;
+    }
+    return channel === 'sse' || ConfigService.configFastButReadOnly?.graphQl !== false;
+  }
+
+  /**
+   * Which hints the caller may receive, decided once when the channel opens (a change of the caller's rights closes
+   * the channel, see openHintStream()): a model the caller holds the pull roles of — the check a pull makes — and, on
+   * a tenant-scoped model, a change in one of the caller's tenants: the validated `X-Tenant-Id`, without it every
+   * membership, everything for an administrator under `adminBypass`. `models` narrows it to the models the client
+   * named (protocol §9); a name that is not offered, or not the caller's, simply never matches — the filter tells
+   * nothing about which models exist. Must run inside the caller's request context.
+   */
+  protected async hintFilter(currentUser: any, models?: readonly string[]): Promise<(hint: SyncHintEvent) => boolean> {
+    const everywhere = Symbol('everywhere');
+    const scopes = new Map<string, readonly string[] | typeof everywhere>();
+    const wanted = models?.length ? new Set(models) : undefined;
+    for (const registration of this.models.values()) {
+      if (wanted && !wanted.has(registration.name)) {
+        continue;
+      }
+      try {
+        await registration.service.checkRights(undefined, currentUser, { roles: [...registration.roles.pull] });
+      } catch {
+        continue;
+      }
+      const tenants = registration.tenantScoped ? allowedTenantIds(registration.name) : undefined;
+      scopes.set(registration.name, tenants === undefined ? everywhere : [...tenants].map(String));
+    }
+    return (hint) => {
+      const scope = scopes.get(hint.model);
+      if (scope === undefined) {
+        return false;
+      }
+      return scope === everywhere || (!!hint.tenantId && scope.includes(hint.tenantId));
+    };
+  }
+
+  /** A hint as a subscriber receives it: the model and when it changed, nothing else (plan §3.9) */
+  protected hintPayload(hint: SyncHintEvent): { at: Date; model: string } {
+    return { at: new Date(hint.at), model: hint.model };
+  }
+
+  /**
+   * The SSE stream of `GET /sync/hints`: an `event: change` with `{ model, at }` for every hint the caller may receive
+   * (protocol §9), for the `models` named or all.
+   *
+   * The stream is registered like a GraphQL WebSocket (`registerWsConnection()`): an invalidation that names the
+   * caller or one of their tenants ends it at once, and otherwise it ends before the first hint after
+   * `graphQl.subscriptionRevalidationMs`. An HTTP stream has no handshake to repeat, so it is not re-checked in place —
+   * the EventSource reconnects (`retry`) and the new request passes the guards like every request. A client loses
+   * nothing by it: a hint only means "pull now".
+   */
+  async openHintStream(request: any, response: any, currentUser: any, models?: readonly string[]): Promise<void> {
+    const accepts = await this.hintFilter(currentUser, models);
+    const context = RequestContext.get();
+    const carrier = {};
+    const closeListeners: ((...args: any[]) => void)[] = [];
+    let closed = false;
+    let unsubscribe: () => void = () => undefined;
+    let keepalive: ReturnType<typeof setInterval> | undefined;
+    const write = (chunk: string) => {
+      if (!closed) {
+        response.write(chunk);
+        // Behind `compression` a stream is only sent when flushed
+        response.flush?.();
+      }
+    };
+    const end = () => {
+      if (closed) {
+        return;
+      }
+      closed = true;
+      unsubscribe();
+      if (keepalive) {
+        clearInterval(keepalive);
+      }
+      for (const listener of closeListeners.splice(0)) {
+        listener();
+      }
+      response.end?.();
+    };
+    // Before anything else may end the stream: a listener added after the client went away never runs
+    request?.once?.('close', end);
+    response.once?.('close', end);
+    registerWsConnection({
+      carrier,
+      // No credential to check again: every re-check ends the stream, and the reconnect is checked by the guards
+      reauthenticate: () => undefined,
+      socket: {
+        close: () => end(),
+        once: (event, listener) => {
+          if (event === 'close') {
+            closeListeners.push(listener);
+          }
+        },
+      },
+      user: currentUser,
+    });
+    const connection = getWsConnection(carrier);
+    if (connection && context) {
+      noteWsConnectionTenant(connection, {
+        isAdminBypass: context.isAdminBypass,
+        tenantId: context.tenantId,
+        tenantIds: context.tenantIds,
+        tenantRole: context.tenantRole,
+      });
+    }
+    // The client may have gone while the guards and the filter ran — `close` has fired then and comes no more
+    if (request?.destroyed || response?.destroyed || response?.writableEnded) {
+      end();
+      return;
+    }
+
+    response.status?.(200);
+    response.setHeader?.('Content-Type', 'text/event-stream; charset=utf-8');
+    response.setHeader?.('Cache-Control', 'no-cache, no-transform');
+    response.setHeader?.('Connection', 'keep-alive');
+    // nginx buffers proxied responses unless told otherwise
+    response.setHeader?.('X-Accel-Buffering', 'no');
+    response.flushHeaders?.();
+    write('retry: 3000\n: hints\n\n');
+
+    unsubscribe =
+      this.hintService?.subscribe((hint) => {
+        if (closed || !accepts(hint)) {
+          return;
+        }
+        const deliver = () => write(`event: change\ndata: ${JSON.stringify(this.hintPayload(hint))}\n\n`);
+        if (!connection) {
+          deliver();
+          return;
+        }
+        void ensureWsConnectionCurrent(connection).then((current) => {
+          if (current) {
+            deliver();
+          }
+        });
+      }) ?? unsubscribe;
+    keepalive = setInterval(() => {
+      if (response?.destroyed || response?.writableEnded) {
+        end();
+        return;
+      }
+      write(': keepalive\n\n');
+    }, SYNC_HINT_KEEPALIVE_MS);
+    keepalive.unref?.();
+  }
+
+  /**
+   * The GraphQL subscription `syncHint`: every hint the subscriber may receive. The socket it runs on is re-checked by
+   * `CoreModule` (`registerWsConnection()`), so a change of the subscriber's rights closes it. `models` narrows it as
+   * for SSE. Must be called inside the subscription's request context (the subscribe wrapper installs it).
+   */
+  async hintIterator(
+    currentUser: any,
+    models?: readonly string[],
+  ): Promise<AsyncIterableIterator<{ syncHint: { at: Date; model: string } }>> {
+    const accepts = await this.hintFilter(currentUser, models);
+    const queue: { syncHint: { at: Date; model: string } }[] = [];
+    const waiting: ((result: IteratorResult<{ syncHint: { at: Date; model: string } }>) => void)[] = [];
+    let done = false;
+    const unsubscribe =
+      this.hintService?.subscribe((hint) => {
+        if (done || !accepts(hint)) {
+          return;
+        }
+        const value = { syncHint: this.hintPayload(hint) };
+        const next = waiting.shift();
+        if (next) {
+          next({ done: false, value });
+        } else if (queue.length < 100) {
+          // Bounded: a subscriber that stopped reading loses old hints, never memory — one hint is enough to pull
+          queue.push(value);
+        }
+      }) ?? (() => undefined);
+    const finish = (): IteratorResult<any> => {
+      done = true;
+      unsubscribe();
+      for (const next of waiting.splice(0)) {
+        next({ done: true, value: undefined });
+      }
+      queue.length = 0;
+      return { done: true, value: undefined };
+    };
+    const iterator: AsyncIterableIterator<{ syncHint: { at: Date; model: string } }> = {
+      next: () => {
+        if (done) {
+          return Promise.resolve({ done: true, value: undefined });
+        }
+        const value = queue.shift();
+        return value ? Promise.resolve({ done: false, value }) : new Promise((resolve) => waiting.push(resolve));
+      },
+      return: () => Promise.resolve(finish()),
+      throw: (error?: unknown) => {
+        finish();
+        return Promise.reject(error);
+      },
+      [Symbol.asyncIterator]() {
+        return iterator;
+      },
+    };
+    return iterator;
+  }
+
+  // ===================================================================================================================
+  // Tombstone purge (plan §3.7, E8)
+  // ===================================================================================================================
+
+  /** `sync.retention.tombstonesDays`: `false` keeps tombstones for ever, an invalid value → the default */
+  protected tombstoneDays(): false | number {
+    const value = this.config.retention?.tombstonesDays;
+    if (value === false) {
+      return false;
+    }
+    return typeof value === 'number' && Number.isFinite(value) && value > 0 ? value : SYNC_DEFAULTS.tombstonesDays;
+  }
+
+  /** Run the purge now and every `purgeIntervalMs`, on one replica per run (a lease) */
+  protected schedulePurge(): void {
+    if (this.purgeTimer || this.tombstoneDays() === false) {
+      return;
+    }
+    const run = () => {
+      // One purge at a time: an interval that elapses during a slow purge is skipped, not queued
+      this.purgeRunning ??= this.leasedPurge().finally(() => {
+        this.purgeRunning = undefined;
+      });
+    };
+    run();
+    this.purgeTimer = setInterval(run, this.purgeIntervalMs);
+    this.purgeTimer.unref?.();
+  }
+
+  /** One scheduled purge, under the lease; fails open (logged, tried again at the next interval) */
+  protected async leasedPurge(): Promise<void> {
+    try {
+      const locks = await this.purgeLeaseStore();
+      const ttlSeconds = Math.max(1, Math.floor(this.purgeIntervalMs / 1000));
+      if (locks && !(await locks.tryAcquire('sync-purge', this.purgeOwner, ttlSeconds))) {
+        return;
+      }
+      await this.purgeTombstones();
+    } catch (error) {
+      this.logger.warn(`Sync tombstone purge failed, trying again later: ${(error as Error)?.message ?? error}`);
+    }
+  }
+
+  /**
+   * The store for the purge lease: Redis when configured, else the lease table of the default SQL source, else
+   * `cron-locks` in MongoDB — the cron leases' order. `undefined` without any: the purge then runs on every replica,
+   * which is harmless (it only deletes what is past the horizon, and the horizon only moves forward). The lease is
+   * never released, so the next replica takes it once it expired: one run per interval across the fleet.
+   */
+  protected async purgeLeaseStore(): Promise<LockStore | undefined> {
+    if (this.redisService?.enabled) {
+      const client = this.redisService.getClient();
+      const key = (name: string) => this.redisService.key('sync-lock', name);
+      return {
+        release: async () => false,
+        renew: async () => false,
+        tryAcquire: async (name, owner, ttlSeconds) =>
+          (await client.set(key(name), owner, 'EX', ttlSeconds, 'NX')) === 'OK',
+      };
+    }
+    const sqlLocks = await defaultSqlLockStore('sync');
+    if (sqlLocks) {
+      return sqlLocks;
+    }
+    const connection = getCronJobsInfrastructure().connection;
+    return connection?.db ? cronMongoLocks(connection.db.collection(CRON_LOCK_COLLECTION)) : undefined;
+  }
+
+  /**
+   * Remove the tombstones older than `before` (default: `sync.retention.tombstonesDays` ago) for good — of every
+   * synchronized model, or of one. The model's horizon moves to `before` FIRST: a cursor older than it answers its next
+   * pull with a full resync (`410 horizon`) instead of continuing past deletions it would never receive. Answers the
+   * number of tombstones removed per model.
+   */
+  async purgeTombstones(options: { before?: Date; model?: string } = {}): Promise<Record<string, number>> {
+    const days = this.tombstoneDays();
+    if (!options.before && days === false) {
+      return {};
+    }
+    const before = options.before ?? new Date(Date.now() - (days as number) * 86_400_000);
+    const removed: Record<string, number> = {};
+    for (const registration of this.models.values()) {
+      if (options.model && registration.name !== options.model) {
+        continue;
+      }
+      await this.stateStore.advanceHorizon(registration.name, before);
+      removed[registration.name] = await this.purgeModel(registration, before);
+    }
+    const total = Object.values(removed).reduce((sum, count) => sum + count, 0);
+    if (total) {
+      this.logger.log(`Sync: ${total} tombstone(s) older than ${before.toISOString()} removed`);
+    }
+    return removed;
+  }
+
+  /**
+   * Hard-delete one model's tombstones older than `before`, `SYNC_PURGE_BATCH` at a time: the ids are read in primary-key
+   * order without a lock, and only those rows are deleted (each statement re-checks `deletedAt`, so a row written in
+   * between stays). One `DELETE … WHERE deleted_at < ?` would scan the whole table — on MySQL / MariaDB under REPEATABLE
+   * READ that locks every row and gap it passes until it ends, and every write of the model waits for it.
+   */
+  protected async purgeModel(registration: SyncModelRegistration, before: Date): Promise<number> {
+    let removed = 0;
+    let after: string | undefined;
+    for (;;) {
+      const batch = await registration.store.find(
+        { deletedAt: { $lt: before }, ...(after ? { id: { $gt: after } } : {}) } as any,
+        { includeTombstones: true, limit: SYNC_PURGE_BATCH, select: ['id'], sort: { id: 1 } },
+      );
+      if (!batch.length) {
+        return removed;
+      }
+      removed += await registration.store.deleteMany(
+        { deletedAt: { $lt: before }, id: { $in: batch.map((record) => record.id) } } as any,
+        { hardDelete: true, includeTombstones: true },
+      );
+      if (batch.length < SYNC_PURGE_BATCH) {
+        return removed;
+      }
+      after = batch[batch.length - 1].id;
+    }
   }
 
   // ===================================================================================================================

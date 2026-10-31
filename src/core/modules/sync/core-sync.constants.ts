@@ -26,6 +26,7 @@ export const SYNC_REAPPLY_ATTEMPTS = 3;
 
 /** Defaults of the `sync` configuration (plan §3.10) */
 export const SYNC_DEFAULTS = Object.freeze({
+  hintDebounceMs: 250,
   maxBytes: 1_048_576,
   maxItems: 100,
   maxLimit: 1000,
@@ -34,7 +35,17 @@ export const SYNC_DEFAULTS = Object.freeze({
   pullLimit: 200,
   rateLimitPull: { max: 120, windowSeconds: 60 },
   rateLimitPush: { max: 60, windowSeconds: 60 },
+  tombstonesDays: 90,
 });
+
+/** How often the tombstone purge runs (on one replica per run, under a lease; plan §3.7, E8) */
+/** Tombstones per purge statement: small enough that a statement never holds many row locks at once */
+export const SYNC_PURGE_BATCH = 1000;
+
+export const SYNC_PURGE_INTERVAL_MS = 60 * 60_000;
+
+/** How often an open hint stream sends a comment, so proxies and load balancers keep it open */
+export const SYNC_HINT_KEEPALIVE_MS = 25_000;
 
 /** The hard upper bound of `sync.pull.maxLimit` (protocol §5.1) */
 export const SYNC_PULL_LIMIT_CEILING = 1000;

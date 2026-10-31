@@ -138,6 +138,42 @@ const INVENTORY: StateEntry[] = [
   },
   {
     because:
+      'The hint subscribers of this replica: its open SSE streams and GraphQL hint subscriptions, each a live '
+      + 'connection that cannot leave the process. With `redis` every replica receives every hint through one channel '
+      + 'and delivers it to its own subscribers, so where a client connected does not matter; without Redis a hint '
+      + 'stays on its replica, which costs a client nothing but the hint — it learns of the change at its next pull.',
+    classification: 'local',
+    file: 'modules/sync/core-sync-hints.service.ts',
+    name: 'subscribers',
+  },
+  {
+    because:
+      'Hints waiting out the debounce window, one timer per model and tenant, removed when it fires — at most '
+      + 'sync.hints.debounceMs old. Replicas debounce independently, so a burst written through two replicas may send '
+      + 'two hints; a hint only means "pull now", and a second one costs a pull, never a wrong state.',
+    classification: 'bounded',
+    file: 'modules/sync/core-sync-hints.service.ts',
+    name: 'pending',
+  },
+  {
+    because:
+      'The keepalive timer of one open SSE hint stream, cleared when the stream ends. It belongs to a live HTTP '
+      + 'response of this process and holds no data.',
+    classification: 'local',
+    file: 'modules/sync/core-sync.service.ts',
+    name: 'keepalive',
+  },
+  {
+    because:
+      'The tombstone purge timer. Every replica runs one; the run itself takes a lease (Redis, else the SQL lease '
+      + 'table, else cron-locks), so the fleet purges once per interval. Without any lease store every replica '
+      + 'purges, which is harmless: the horizon only moves forward and a purge only deletes what is behind it.',
+    classification: 'derived',
+    file: 'modules/sync/core-sync.service.ts',
+    name: 'purgeTimer',
+  },
+  {
+    because:
       'One connection pool per configured SQL source, opened as the application role. It holds live sockets, so it '
       + 'cannot leave the process; every replica opens its own pool against the same database, and nothing the '
       + 'replicas must agree on lives in it — tenant scope is written per transaction, schema state is in the catalog.',

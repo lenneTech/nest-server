@@ -39,3 +39,4 @@
 - [Cron scheduled-instant + running lease (DEV-3896)](project_cron-scheduled-instant-running-lease.md) — cron 4.4 lastDate/timer facts verified, running lease sound; no High (2026-10-29).
 - [Offline sync phase 3 (DEV-3900)](project_offline-sync-phase3-dev3900.md) — 3 Highs: MySQL insert/updateRows deadlock, sync adoption with existing unique index, aggregate hook; PG order sound.
 - [Offline sync phase 4 (DEV-3901)](project_offline-sync-phase4-dev3901.md) — 2 Highs: push conflict replies skip sync roles; pull pairs data and version/position from two reads.
+- [Offline sync phase 5 (DEV-3902)](project_offline-sync-phase5-dev3902.md) — 2 Highs: SSE close listener after awaits leaks streams; MySQL syncUpdate after DDL autocommits.

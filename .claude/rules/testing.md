@@ -320,10 +320,14 @@ The **data store** contract follows the same discipline: `tests/helpers/persiste
 
 The **offline-sync protocol** follows it one level above the store: `tests/helpers/sync-contract-matrix.ts` declares
 what `GET/POST /sync/{model}` promise — pull, resume, resync, push with every strategy, idempotency, two tabs, tenant
-isolation, the infrastructure stores — and `tests/sync-contract.e2e-spec.ts` runs it through HTTP on seven columns:
-MongoDB standalone and replica set, PostgreSQL × three engines, MySQL, MariaDB. The window repeats of MongoDB are
-DIFFERENT-BY-DESIGN against SQL's "never repeated", each side with its own case. Its structural guard is
-`tests/unit/sync-contract-matrix.spec.ts`; the reference model it runs on is `src/server/modules/sync-note/`.
+isolation, the infrastructure stores, the change hints over SSE and GraphQL (tenant and role filter, the stream ending
+on a re-check), the tombstone purge behind the horizon and the `syncUpdate` migration helper — and
+`tests/sync-contract.e2e-spec.ts` runs it through HTTP on seven columns: MongoDB standalone and replica set, PostgreSQL
+× three engines, MySQL, MariaDB. The window repeats of MongoDB are DIFFERENT-BY-DESIGN against SQL's "never repeated",
+each side with its own case; the migration helper is IMPOSSIBLE on the two MongoDB columns (it is a SQL statement). Its
+structural guard is `tests/unit/sync-contract-matrix.spec.ts`; the reference model it runs on is
+`src/server/modules/sync-note/`. Hints across replicas need a second application on one Redis and live in
+`tests/multi-replica.e2e-spec.ts`.
 
 ### A cell is EXECUTED, IMPOSSIBLE, or DIFFERENT-BY-DESIGN — never merely absent
 
@@ -386,7 +390,7 @@ pnpm run check:mutations -- --id=<id>       # one mutation
 pnpm run check:mutations -- --list          # the registry, without running anything
 pnpm run check:mutations -- --allow-dirty   # when the fix and its evidence share a working tree
 pnpm run check:mutations -- --jobs=4        # N mutations at a time (default: 2, or 4 on >=12 cores)
-pnpm run check:mutations -- --no-infra      # only the 252 that need no MongoDB
+pnpm run check:mutations -- --no-infra      # only the 257 that need no MongoDB
 pnpm run check:mutations -- --since=<ref>   # only mutations touching files changed since <ref>
 pnpm run check:mutations -- --shard=2/4     # this job's quarter of the selection (CI splits the full run)
 ```
@@ -406,7 +410,7 @@ when the registry, a vitest config or a setup file changed, since those can move
 commit, and in CI alongside the publish without blocking it. The price of caching is a cache that
 has to model each spec's full dependency closure correctly, and getting that wrong produces a stale
 PASS for a test that has since gone vacuous — exactly what the gate is there to prevent. Bad trade
-at 461 mutations.
+at 472 mutations.
 
 **Decided 2026-10-03 (repo owner): keep the full run.** Measured at 128 mutations, the CI job for
 11.41.6 took **14 minutes**. The trigger to revisit is that wall time, not the mutation count —
@@ -477,9 +481,9 @@ exactly the environment where the answer matters.
 
 ### The cost is vitest's cold start, not the tests
 
-Worth knowing before optimising the wrong thing: the specs behind all 209 e2e mutations add up to
+Worth knowing before optimising the wrong thing: the specs behind all 215 e2e mutations add up to
 **~40 seconds**. The step takes ~740s. The remaining ~700s is paying vitest's startup — process
-spawn, transform, module graph, mongod connect, DB create and drop — once per mutation, 461 times.
+spawn, transform, module graph, mongod connect, DB create and drop — once per mutation, 472 times.
 That work is largely single-threaded I/O and barely scales with cores: the full registry measures
 **744s on a 12-core laptop and 777s on a 4-vCPU CI runner**.
 

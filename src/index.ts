@@ -282,15 +282,20 @@ export * from './core/modules/system-setup/core-system-setup.service.js';
 // Core - Modules - Sync (offline sync)
 // =====================================================================================================================
 
+export * from './core/modules/sync/core-sync-base.controller.js';
 export * from './core/modules/sync/core-sync.constants.js';
 export * from './core/modules/sync/core-sync.controller.js';
 export * from './core/modules/sync/core-sync.decorators.js';
+export * from './core/modules/sync/core-sync-hints.controller.js';
+export * from './core/modules/sync/core-sync-hints.service.js';
 export * from './core/modules/sync/core-sync-infrastructure.models.js';
 export * from './core/modules/sync/core-sync.module.js';
 export * from './core/modules/sync/core-sync-mutation.store.js';
+export * from './core/modules/sync/core-sync.resolver.js';
 export * from './core/modules/sync/core-sync.service.js';
 export * from './core/modules/sync/core-sync-state.store.js';
 export * from './core/modules/sync/interfaces/core-sync.interfaces.js';
+export * from './core/modules/sync/models/core-sync-hint.model.js';
 
 // =====================================================================================================================
 // Core - Modules - Tus

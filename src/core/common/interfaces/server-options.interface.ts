@@ -3862,6 +3862,35 @@ export interface ISync {
   enabled?: boolean;
 
   /**
+   * Hints that a synchronized model changed (protocol §9): SSE `GET /sync/hints` and the GraphQL subscription
+   * `syncHint`, carrying `{ model, at }` only, to callers with the model's pull roles and — on a tenant-scoped model —
+   * for changes in their own tenants. A hint only means "pull now": a client works without them. `false` switches both
+   * channels off; with `redis` a hint reaches the subscribers of every replica.
+   * @default on (both channels)
+   */
+  hints?:
+    | boolean
+    | {
+        /**
+         * At most one hint per model and tenant within this many milliseconds — a burst of writes is one hint.
+         * @default 250
+         */
+        debounceMs?: number;
+        /** @default true (when the object is present) */
+        enabled?: boolean;
+        /**
+         * The GraphQL subscription `syncHint` (only where GraphQL is enabled).
+         * @default true
+         */
+        graphql?: boolean;
+        /**
+         * The SSE stream `GET /sync/hints`.
+         * @default true
+         */
+        sse?: boolean;
+      };
+
+  /**
    * Route prefix of the sync endpoints.
    * @default 'sync'
    */
@@ -3920,6 +3949,14 @@ export interface ISync {
      * @default 30
      */
     mutationsDays?: number;
+    /**
+     * How long a tombstone is kept. Every hour (on one replica, under a lease) the purge first moves the model's
+     * horizon to this age, then deletes the older tombstones for good; a client whose cursor is older than the horizon
+     * answers its next pull with a full resync (`410 horizon`). `false` keeps tombstones for ever; an invalid value
+     * (zero, negative, not a number) falls back to the default — never to "purge everything".
+     * @default 90
+     */
+    tombstonesDays?: false | number;
   };
 }
 
@@ -4924,9 +4961,11 @@ export interface ICoreModuleOverrides {
   };
 
   /**
-   * Override the offline sync endpoints and their service (`sync` config).
+   * Override the offline sync endpoints, the hint subscription and their service (`sync` config).
    *
    * - `controller` must extend `CoreSyncController` (e.g. to release a sync scope to API tokens)
+   * - `hintsController` must extend `CoreSyncHintsController` (`GET /sync/hints`, e.g. for API tokens there too)
+   * - `resolver` must extend `CoreSyncResolver` (the `syncHint` subscription)
    * - `service` must extend `CoreSyncService`
    *
    * @example
@@ -4936,6 +4975,8 @@ export interface ICoreModuleOverrides {
    */
   sync?: {
     controller?: Type<any>;
+    hintsController?: Type<any>;
+    resolver?: Type<any>;
     service?: Type<any>;
   };
 

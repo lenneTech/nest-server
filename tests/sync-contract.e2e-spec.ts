@@ -1,11 +1,15 @@
 import { randomBytes, randomUUID } from 'node:crypto';
+import { get as httpGet, type IncomingMessage } from 'node:http';
+import type { AddressInfo } from 'node:net';
 
 import { Injectable, Module } from '@nestjs/common';
 import { InputType, ObjectType } from '@nestjs/graphql';
 import { ScheduleModule } from '@nestjs/schedule';
 import { Test, TestingModule } from '@nestjs/testing';
 import { PubSub } from 'graphql-subscriptions';
+import { createClient } from 'graphql-ws';
 import mongoose from 'mongoose';
+import ws from 'ws';
 import { afterAll, beforeAll, describe, expect } from 'vitest';
 
 import {
@@ -42,10 +46,13 @@ import {
 import envConfig from '../src/config.env';
 import { getStoreToken } from '../src/core/common/persistence/persistence.tokens';
 import { generateUuidV7 } from '../src/core/common/persistence/id-format';
+import { getModelDescriptor } from '../src/core/common/persistence/model-metadata.registry';
+import { tableName } from '../src/core/common/persistence/sql/sql-schema.shared';
 import { Any } from '../src/core/common/scalars/any.scalar';
 import { DateScalar } from '../src/core/common/scalars/date.scalar';
 import { JSON as JSONScalar } from '../src/core/common/scalars/json.scalar';
 import { CoreAuthService } from '../src/core/modules/auth/services/core-auth.service';
+import { runSqlMigration } from '../src/core/modules/migrate/sql-migration.helper';
 import { CronJobs } from '../src/server/common/services/cron-jobs.service';
 import { AuthController } from '../src/server/modules/auth/auth.controller';
 import { AuthModule } from '../src/server/modules/auth/auth.module';
@@ -305,6 +312,8 @@ async function databaseFor(driver: SyncDriver): Promise<Database> {
 
 interface Harness {
   app: any;
+  /** The listening server: SSE and the GraphQL WebSocket need a real connection */
+  baseUrl: string;
   betterAuth: CoreBetterAuthService;
   moduleRef: TestingModule;
   sync: CoreSyncService;
@@ -312,6 +321,7 @@ interface Harness {
   tenantService: CoreTenantService;
   testHelper: TestHelper;
   users: DataStore<any>;
+  wsUrl: string;
 }
 
 function configFor(database: Database): Record<string, any> {
@@ -325,6 +335,8 @@ function configFor(database: Database): Record<string, any> {
     multiTenancy: {},
     sync: {
       cursorSecret: 'sync-contract-cursor-secret',
+      // Short, so a hint case does not wait out the production debounce
+      hints: { debounceMs: 20 },
       pull: { maxBytes: MAX_BYTES, windowSeconds: WINDOW_SECONDS },
       rateLimit: false,
     },
@@ -355,8 +367,12 @@ async function boot(config: Record<string, any>): Promise<Harness> {
   (app as any).setBaseViewsDir(config.templates.path);
   (app as any).setViewEngine(config.templates.engine);
   await app.init();
+  const server = app.getHttpServer();
+  await new Promise<void>((resolve) => server.listen(0, '127.0.0.1', () => resolve()));
+  const { port } = server.address() as AddressInfo;
   return {
     app,
+    baseUrl: `http://127.0.0.1:${port}`,
     betterAuth: moduleRef.get(CoreBetterAuthService, { strict: false }),
     moduleRef,
     sync: moduleRef.get(CoreSyncService, { strict: false }),
@@ -364,6 +380,7 @@ async function boot(config: Record<string, any>): Promise<Harness> {
     tenantService: moduleRef.get(CoreTenantService, { strict: false }),
     testHelper: new TestHelper(app),
     users: moduleRef.get(getStoreToken('User'), { strict: false }),
+    wsUrl: `ws://127.0.0.1:${port}/graphql`,
   };
 }
 
@@ -499,6 +516,111 @@ describe.each(SYNC_DRIVERS)('sync contract — %s (e2e)', (driver) => {
     harness.tenantGuard.invalidateUser(userId);
   };
 
+  const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
+
+  /** Wait until `check` holds; `false` after `timeoutMs` (a negative assertion waits it out on purpose) */
+  const until = async (check: () => boolean, timeoutMs = 3000): Promise<boolean> => {
+    const deadline = Date.now() + timeoutMs;
+    while (!check()) {
+      if (Date.now() >= deadline) {
+        return false;
+      }
+      await sleep(20);
+    }
+    return true;
+  };
+
+  /** Longer than the hint debounce and a delivery: a hint that would come has come by then */
+  const HINT_SETTLE_MS = 400;
+
+  /** Open `GET /sync/hints` as a real stream and collect its `change` events */
+  const openHints = async (options: CallOptions & { models?: string }) => {
+    const events: any[] = [];
+    let ended = false;
+    let buffer = '';
+    const query = options.models ? `?models=${encodeURIComponent(options.models)}` : '';
+    const request = httpGet(`${harness.baseUrl}/sync/hints${query}`, {
+      headers: {
+        accept: 'text/event-stream',
+        ...(options.token ? { authorization: `Bearer ${options.token}` } : {}),
+        ...headersOf(options),
+      },
+    });
+    const response = await new Promise<IncomingMessage>((resolve, reject) => {
+      request.once('response', resolve);
+      request.once('error', reject);
+    });
+    response.setEncoding('utf8');
+    response.on('data', (chunk: string) => {
+      buffer += chunk;
+      let index: number;
+      while ((index = buffer.indexOf('\n\n')) >= 0) {
+        const lines = buffer.slice(0, index).split('\n');
+        buffer = buffer.slice(index + 2);
+        const event = lines.find((line) => line.startsWith('event: '))?.slice('event: '.length);
+        const data = lines.find((line) => line.startsWith('data: '))?.slice('data: '.length);
+        if (event === 'change' && data) {
+          events.push(JSON.parse(data));
+        }
+      }
+    });
+    response.once('end', () => (ended = true));
+    response.once('close', () => (ended = true));
+    return {
+      close: () => request.destroy(),
+      get ended() {
+        return ended;
+      },
+      events,
+      of: (model: string) => events.filter((hint) => hint.model === model),
+      status: response.statusCode,
+    };
+  };
+
+  /** Subscribe `syncHint` over the GraphQL WebSocket and collect its hints */
+  const subscribeHints = async (options: CallOptions) => {
+    const events: any[] = [];
+    const errors: any[] = [];
+    let connected = false;
+    const client = createClient({
+      connectionParams: {
+        ...(options.token ? { Authorization: `Bearer ${options.token}` } : {}),
+        ...(options.tenant ? { 'x-tenant-id': options.tenant } : {}),
+      },
+      on: { connected: () => (connected = true) },
+      retryAttempts: 0,
+      url: harness.wsUrl,
+      webSocketImpl: ws,
+    });
+    const unsubscribe = client.subscribe(
+      { query: 'subscription { syncHint { at model } }' },
+      {
+        complete: () => undefined,
+        error: (error) => errors.push(error),
+        next: (message: any) => (message.errors ? errors.push(message.errors) : events.push(message.data?.syncHint)),
+      },
+    );
+    await until(() => connected);
+    // The subscription is set up after the handshake (its filter reads the subscriber's rights)
+    await sleep(200);
+    return {
+      close: async () => {
+        unsubscribe();
+        await client.dispose();
+      },
+      errors,
+      events,
+      of: (model: string) => events.filter((hint) => hint?.model === model),
+    };
+  };
+
+  /** A hint channel is live: a write in the subscriber's own scope has arrived (so a later silence means something) */
+  const awaitLive = async (channel: { of(model: string): any[] }, write: () => Promise<unknown>, model: string) => {
+    await write();
+    expect(await until(() => channel.of(model).length > 0)).toBe(true);
+    await sleep(HINT_SETTLE_MS);
+  };
+
   beforeAll(async () => {
     database = await databaseFor(driver);
     config = configFor(database);
@@ -511,6 +633,11 @@ describe.each(SYNC_DRIVERS)('sync contract — %s (e2e)', (driver) => {
   }, 120_000);
 
   afterAll(async () => {
+    const server = harness?.app?.getHttpServer();
+    if (server?.listening) {
+      server.closeAllConnections?.();
+      await new Promise<void>((resolve) => server.close(() => resolve()));
+    }
     await harness?.app?.close();
     await database?.drop();
     CoreBetterAuthModule.reset();
@@ -1324,6 +1451,121 @@ describe.each(SYNC_DRIVERS)('sync contract — %s (e2e)', (driver) => {
     expect(items.get(placed.id)).toMatchObject({ data: { title: 'in a' }, deletedAt: null });
   });
 
+  // --- hints (protocol §9) -------------------------------------------------------------------------------------
+
+  syncIt('hints-sse', driver, async () => {
+    const alice = await signUp('hints-sse');
+    const stream = await openHints({ token: alice.token });
+    // Narrowed to another model (and a name that does not exist, which simply never matches)
+    const narrowed = await openHints({ models: 'SyncLww,NoSuchModel', token: alice.token });
+    try {
+      expect(stream.status).toBe(200);
+      expect(narrowed.status).toBe(200);
+      await create('SyncNote', { body: 'secret body', title: 'hinted' }, { token: alice.token });
+      expect(await until(() => stream.of('SyncNote').length > 0)).toBe(true);
+      const [hint] = stream.of('SyncNote');
+      // The model and the time — nothing of the record
+      expect(Object.keys(hint).sort()).toEqual(['at', 'model']);
+      expect(Number.isNaN(new Date(hint.at).getTime())).toBe(false);
+      expect(JSON.stringify(stream.events)).not.toContain('secret body');
+      await sleep(HINT_SETTLE_MS);
+      expect(narrowed.of('SyncNote')).toEqual([]);
+      await create('SyncLww', { count: 1, title: 'lww' }, { token: alice.token }, generateUuidV7());
+      expect(await until(() => narrowed.of('SyncLww').length > 0)).toBe(true);
+    } finally {
+      stream.close();
+      narrowed.close();
+    }
+  });
+
+  /**
+   * @regression   DEV-3902 — a hint names only the model, but it still tells that something changed: one for another
+   *   tenant's write would tell a member when a foreign tenant works, over SSE and the GraphQL subscription alike.
+   * @seen-failing Let CoreSyncService.hintFilter() accept every tenant (src/core/modules/sync/core-sync.service.ts) —
+   *   registered as mutation `sync-hints-tenant-unfiltered` in tests/regression-mutations.json.
+   */
+  syncIt('hints-tenant', driver, async () => {
+    const alice = await signUp('hints-a');
+    const mallory = await signUp('hints-m');
+    const tenantA = tenant();
+    const tenantB = tenant();
+    await member(tenantA, alice.id);
+    await member(tenantB, mallory.id);
+    const writeA = () => create('SyncTask', { title: 'a' }, { tenant: tenantA, token: alice.token });
+    const writeB = () => create('SyncTask', { title: 'b' }, { tenant: tenantB, token: mallory.token });
+    // Without the header the stream spans alice's memberships; the socket names her tenant
+    const stream = await openHints({ token: alice.token });
+    const socket = await subscribeHints({ tenant: tenantA, token: alice.token });
+    try {
+      await awaitLive(stream, writeA, 'SyncTask');
+      expect(await until(() => socket.of('SyncTask').length > 0)).toBe(true);
+      stream.events.length = 0;
+      socket.events.length = 0;
+
+      await writeB();
+      await sleep(HINT_SETTLE_MS);
+      expect(stream.of('SyncTask')).toEqual([]);
+      expect(socket.of('SyncTask')).toEqual([]);
+      expect(socket.errors).toEqual([]);
+
+      // The same channels still receive their own tenant's changes
+      await writeA();
+      expect(await until(() => stream.of('SyncTask').length > 0 && socket.of('SyncTask').length > 0)).toBe(true);
+    } finally {
+      stream.close();
+      await socket.close();
+    }
+  });
+
+  /**
+   * @regression   DEV-3902 — a hint channel delivers only models the subscriber may pull: without the check a user
+   *   learns when records of an ADMIN-only model change.
+   * @seen-failing Drop the pull-role check from CoreSyncService.hintFilter() (src/core/modules/sync/core-sync.service.ts)
+   *   — registered as mutation `sync-hints-roles-unchecked` in tests/regression-mutations.json.
+   */
+  syncIt('hints-roles', driver, async () => {
+    const alice = await signUp('hints-roles');
+    const mine = await openHints({ token: alice.token });
+    const admins = await openHints({ token: adminToken });
+    try {
+      await awaitLive(admins, () => create('SyncLocked', { title: 'x' }, { token: adminToken }), 'SyncLocked');
+      // The write that reached the administrator sent alice nothing: she may not pull SyncLocked
+      expect(mine.of('SyncLocked')).toEqual([]);
+      // Her stream is live: a model she may pull reaches her
+      await create('SyncNote', { title: 'y' }, { token: alice.token });
+      expect(await until(() => mine.of('SyncNote').length > 0)).toBe(true);
+    } finally {
+      mine.close();
+      admins.close();
+    }
+  });
+
+  /**
+   * @regression   DEV-3902 — a hint stream outlives the request that authorized it; registered like a GraphQL
+   *   WebSocket, an invalidation naming the subscriber ends it, and the reconnect passes the guards again.
+   * @seen-failing Leave the stream out of the connection registry in CoreSyncService.openHintStream()
+   *   (src/core/modules/sync/core-sync.service.ts) — registered as mutation `sync-sse-not-registered` in
+   *   tests/regression-mutations.json.
+   */
+  syncIt('hints-revalidation', driver, async () => {
+    const alice = await signUp('hints-reval');
+    const tenantA = tenant();
+    await member(tenantA, alice.id);
+    const stream = await openHints({ tenant: tenantA, token: alice.token });
+    try {
+      expect(stream.status).toBe(200);
+      await sleep(100);
+      expect(stream.ended).toBe(false);
+      harness.tenantGuard.invalidateUser(alice.id);
+      expect(await until(() => stream.ended)).toBe(true);
+      const again = await openHints({ tenant: tenantA, token: alice.token });
+      expect(again.status).toBe(200);
+      again.close();
+    } finally {
+      stream.close();
+    }
+  });
+
   // --- concurrent writers --------------------------------------------------------------------------------------
 
   /**
@@ -1379,6 +1621,66 @@ describe.each(SYNC_DRIVERS)('sync contract — %s (e2e)', (driver) => {
     },
     90_000,
   );
+
+  // --- cleanup and migrations (plan §3.7 E8, §10) -------------------------------------------------------------
+
+  /**
+   * @regression   DEV-3902 — the purge removes tombstones for good; a cursor older than them continued past
+   *   deletions it would never receive. The horizon moves first, and such a cursor answers 410 `horizon`.
+   * @seen-failing Drop the horizon from CoreSyncService.purgeTombstones() (src/core/modules/sync/core-sync.service.ts) —
+   *   registered as mutation `sync-purge-continues-past-horizon` in tests/regression-mutations.json.
+   */
+  syncIt('purge-horizon', driver, async () => {
+    const alice = await signUp('purge');
+    const note = await create('SyncNote', { title: 'old' }, { token: alice.token });
+    expect((await remove('SyncNote', note.id, 1, { token: alice.token })).status).toBe('applied');
+    const run = await pullAll('SyncNote', { token: alice.token });
+    expect(latest(run.items).get(note.id)?.deletedAt).toBeTruthy();
+
+    await sleep(5);
+    const removed = await harness.sync.purgeTombstones({ before: new Date(), model: 'SyncNote' });
+    expect(removed.SyncNote).toBeGreaterThanOrEqual(1);
+    expect(await pull('SyncNote', { cursor: run.cursor, statusCode: 410, token: alice.token })).toMatchObject({
+      reason: 'horizon',
+    });
+    // The resync starts clean, and the purged tombstone is gone for good
+    const fresh = await pullAll('SyncNote', { token: alice.token });
+    expect(latest(fresh.items).has(note.id)).toBe(false);
+  });
+
+  /**
+   * @regression   DEV-3902 — a data migration's multi-row write on a synchronized table bypassed the store: its rows
+   *   kept their version, so a client that had edited the old content overwrote the migration without a conflict.
+   * @seen-failing Drop the version increment from applySyncUpdate() in src/core/modules/migrate/sql-migration.helper.ts —
+   *   registered as mutation `sync-migration-update-unversioned` in tests/regression-mutations.json.
+   */
+  syncIt('migration-sync-update', driver, async () => {
+    const alice = await signUp('migrate');
+    const notes: any[] = [];
+    for (const title of ['m-a', 'm-b', 'm-c']) {
+      notes.push(await create('SyncNote', { title }, { token: alice.token }));
+    }
+    const first = await pullAll('SyncNote', { token: alice.token });
+    const ids = notes.slice(0, 2).map((note) => `'${note.id}'`).join(', ');
+    await runSqlMigration(
+      String(config.database.ownerUrl),
+      [
+        // A DDL statement first: on MySQL / MariaDB it commits the migration's transaction, the syncUpdate opens its own
+        'CREATE TABLE IF NOT EXISTS lt_migration_probe (id int)',
+        { syncUpdate: { set: "title = 'migrated'", table: tableName(getModelDescriptor('SyncNote')!), where: `id IN (${ids})` } },
+      ],
+      { engine: config.database.sqlEngine },
+    );
+    const next = latest((await pullAll('SyncNote', { cursor: first.cursor, token: alice.token })).items);
+    for (const note of notes.slice(0, 2)) {
+      expect(next.get(note.id)).toMatchObject({ data: { title: 'migrated' }, version: 2 });
+    }
+    expect(next.has(notes[2].id)).toBe(false);
+    // A client still holding version 1 meets a conflict on a `reject` field, not a silent overwrite
+    expect(await change('SyncNote', notes[0].id, 1, { priority: 5 }, { token: alice.token })).toMatchObject({
+      status: 'conflict',
+    });
+  });
 
   // --- infrastructure stores (E7) ------------------------------------------------------------------------------
 

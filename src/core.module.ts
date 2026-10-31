@@ -687,6 +687,15 @@ export class CoreModule implements NestModule {
       imports.push(
         CoreSyncModule.forRoot({
           ...overrides?.sync,
+          // The subscription needs GraphQL, and is switched off with its channel or with all hints
+          graphQlHints:
+            config.graphQl !== false &&
+            !(
+              typeof syncConfig === 'object' &&
+              (syncConfig.hints === false ||
+                (typeof syncConfig.hints === 'object' &&
+                  (syncConfig.hints.graphql === false || syncConfig.hints.enabled === false)))
+            ),
           path: typeof syncConfig === 'object' ? syncConfig.path : undefined,
         }),
       );
