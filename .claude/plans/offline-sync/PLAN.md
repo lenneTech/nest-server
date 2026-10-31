@@ -100,18 +100,18 @@ bit for bit. Cross-checked against `.claude/rules/persistence.md`.
 | # | Extension | Why | `persistence.md` check |
 |---|---|---|---|
 | E1 | **Version policy**: `insert` sets `version: 1`; every write path (`updateById`, `updateOne`, `updateMany`, `pushToArray`, `pullFromArray`, upserts, soft delete) adds `$inc: { version: 1 }`, also with `UpdateOptions.timestamps: false`. **The conditional change goes through `CrudService`, not around it**: `CrudService.update()` today loads by id, merges and writes back by id alone (`updateById` on SQL, `findByIdAndUpdate` on MongoDB — `common/services/crud.service.ts`), so two pushes with the same `baseVersion` would both apply, and calling `store.updateOne()` directly would skip `process()` (operation roles, input `@Restricted`, `securityCheck`). Phase 3 adds a version condition to `ServiceOptions` (`expectedVersion`) that `update()` — and a delete through `update()` — sends inside `process()` as `dataStore.updateOne({ id, version: expected }, patch)` on SQL and `findOneAndUpdate({ _id, version: expected }, …)` on MongoDB; no match is a conflict. The write-back drops `version`, so `$inc` is the only operator on it. A contract case proves "two concurrent conditional changes, exactly one wins" at the `CrudService` level on every store, not only at the store level. | Optimistic lock must be one atomic statement (DEV-3819); a write path that forgets the increment makes a pull miss a change. | Neutral operators only (`$inc` + `$set` on different paths — MySQL and MongoDB refuse two operators on one path, so `version` is never part of the update — neither in `data` nor in the `CrudService.update()` write-back, which carries the stored record); policies live in the store, on MongoDB as policy functions the plugins call. |
-| E2 | **Tombstone filter**: every read where gets `deletedAt: { $type: 'null' }` — the partial unique indexes' own filter (§3.6), because MongoDB uses a partial index only for a query that implies its filter, and `deletedAt: null` (which also matches a missing field) does not: a lookup by a unique field then scans the whole collection (measured on MongoDB 8.2 with 20k documents: COLLSCAN for `null` and `$eq: null`, IXSCAN for `$type: 'null'`). On SQL both compile to `IS NULL`. Applied to `find`, `findOne`, `findById`, `count`, `distinct`, `sum`, populate follow-up reads, and the matching part of `updateOne`/`updateMany`/`deleteOne`/`deleteMany` — unless the caller passes the explicit option `includeTombstones`, used only by the sync module — pull, and push for its conditional change, existence and visibility checks (an `upsert` on a tombstone must answer `conflict`, a repeated delete `applied`, a create on the caller's own deleted id `conflict`; filtered, all three would answer `not_found` and the client would drop its change) — and by the cleanup. | Tombstones must vanish from all normal reads (DEV-3819), including counts and populate; an update must not silently revive one. | On MongoDB the CrudService still reads through Mongoose documents (`mongoosePopulate`), so the filter is a policy function the Mongoose path applies too, like the tenant policy. Tier 2/3 (`native`, `raw`) bypass it by definition — documented, never used by sync. |
+| E2 | **Tombstone filter**: every read where gets `deletedAt: null` — the partial unique indexes' own filter (§3.6), because MongoDB uses a partial index only for a query that implies its filter. Phase 1 measured a `$type: 'null'` index (COLLSCAN for `null`, IXSCAN for `$type`); phase 2 measured the equality index on MongoDB 5.0, 7.0 and 8.2 (IXSCAN for `null`, COLLSCAN for `$type`) and chose it, because it also covers a document without the field. Filter and index always use the same form. On SQL it compiles to `IS NULL`. Applied to `find`, `findOne`, `findById`, `count`, `distinct`, `sum`, populate follow-up reads, and the matching part of `updateOne`/`updateMany`/`deleteOne`/`deleteMany` — unless the caller passes the explicit option `includeTombstones`, used only by the sync module — pull, and push for its conditional change, existence and visibility checks (an `upsert` on a tombstone must answer `conflict`, a repeated delete `applied`, a create on the caller's own deleted id `conflict`; filtered, all three would answer `not_found` and the client would drop its change) — and by the cleanup. | Tombstones must vanish from all normal reads (DEV-3819), including counts and populate; an update must not silently revive one. | On MongoDB the CrudService still reads through Mongoose documents (`mongoosePopulate`), so the filter is a policy function the Mongoose path applies too, like the tenant policy. Tier 2/3 (`native`, `raw`) bypass it by definition — documented, never used by sync. |
 | E3 | **Partial unique indexes**: the descriptor of a sync model rewrites every unique index (field-level `unique` included) to apply to live records only. | Delete-then-recreate with the same unique value must not fail (DEV-3819). | MongoDB and PostgreSQL: the existing partial-index path. MySQL / MariaDB: **new compiler path** — the compiler refuses partial unique indexes today, so each part becomes a VIRTUAL live-key column (§3.6) next to the existing null-sentinel columns. Turning an existing unique index partial is changed uniqueness → `migrate create <name> --sql` / a MongoDB migration, never automatic. |
-| E4 | **Change order**: a way to read "everything after cursor X, in change order, tombstones included", in pages. Shape depends on phase 2 (§3.4): a store-assigned sequence field plus a commit-horizon read, or a timestamp field set from the database clock plus an overlap window. | The cursor must not lose changes (DEV-3819). | Must be expressible in the neutral query subset (`$gt`, sort, limit) or as a store method with one implementation per dialect and one contract suite; never `raw()`. |
-| E5 | **Capabilities**: `idType` becomes per model (`idFormats: ['objectId', 'uuidv7']` for sync models); `changeFeed` tells the truth per topology (MongoDB replica set: change streams; PostgreSQL: `LISTEN/NOTIFY`; standalone MongoDB, MySQL: false). | Sync asks capabilities, never the driver name (DEV-3819). | Capabilities exist for exactly this (db-agnostic §3.6). |
-| E6 | **Client-supplied ids**: `insert({ id })` accepts both formats for sync models; MongoDB stores ObjectId-hex as ObjectId and uuidv7 as a string `_id`, decided by the format alone. Validation `isWellFormedId()` stays the rule for every other model. A **server-generated** id that meets a duplicate key on a sync model is generated anew and the insert retried (bounded): `generateId()` and bson's ObjectId are predictable from one observed id (time, per-process value, counter), so a client could occupy the next ones and make every normal create on that process fail; a server id was never shown to anyone, so replacing it is invisible. | Clients create ids offline; both formats (decision 2026-10-29). | Ids stay strings in the core (`generateId()`, `isObjectIdLike()`), no `new Types.ObjectId()` in the core. |
+| E4 | **Change order**: a way to read "everything after cursor X, in change order, tombstones included", in pages. Decided in phase 2 (§3.4): on SQL a commit-ordered sequence `syncSeq` (counter row taken last, by trigger or by the transaction's final statement); on MongoDB `syncAt` from the server clock plus a window W. | The cursor must not lose changes (DEV-3819). | Must be expressible in the neutral query subset (`$gt`, sort, limit) or as a store method with one implementation per dialect and one contract suite; never `raw()`. |
+| E5 | **Capabilities**: `idType` becomes per model (`idFormat: 'objectId' \| 'uuidv7'`, one per model, default `objectId`; §3.5). No `changeFeed` capability: hints come from the store's own write events on every database (P2-5, §11). | Sync asks capabilities, never the driver name (DEV-3819). | Capabilities exist for exactly this (db-agnostic §3.6). |
+| E6 | **Client-supplied ids**: `insert({ id })` accepts the model's format for sync models (§3.5); MongoDB stores ObjectId-hex as ObjectId and uuidv7 as a BSON UUID (subtype 4). Validation `isWellFormedId()` stays the rule for every other model. A **server-generated** id that meets a duplicate key on a sync model is generated anew and the insert retried (bounded): `generateId()` and bson's ObjectId are predictable from one observed id (time, per-process value, counter), so a client could occupy the next ones and make every normal create on that process fail; a server id was never shown to anyone, so replacing it is invisible. | Clients create ids offline; both formats (decision 2026-10-29). | Ids stay strings in the core (`generateId()`, `isObjectIdLike()`), no `new Types.ObjectId()` in the core. |
 | E7 | **Infrastructure stores** (Mongo + SQL each, one contract suite): `SyncMutationStore` (claim, then outcome per `(model, id, mutationId)`, explicit `expiresAt`; §3.7), `SyncAccessEpochStore` (epoch per `(model, tenant)`, bump + read), tombstone retention horizon per model. Swept by the expiry sweep under the `LockStore` lease. | Idempotency, access-loss detection and the horizon must outlive a process and never depend on a TTL monitor (DEV-3819, db-agnostic §3.7). | "Never rely on a TTL monitor for correctness"; every reader checks the expiry itself. |
 | E8 | **Tombstone purge**: `deleteMany({ deletedAt: { $lt: horizon } }, { includeTombstones: true })`, run by a cron job under a lease; advances the per-model horizon **before** deleting. | Bounded storage; a cursor older than the horizon must answer 410, never miss a deletion. | Hard delete stays internal; the horizon is written first so no pull can pass a gap. |
 
 Not a port extension, by decision: a batch transaction. Push is item-atomic everywhere; `store.transaction(fn)` is
 not used for batches (MongoDB standalone has no transactions, `capabilities.transactions` would split behaviour).
 
-### 3.4 Cursor candidates (measured in phase 2)
+### 3.4 Cursor (candidates measured in phase 2, decision below)
 
 The old cursor `{ updatedAt, _id }` loses changes: app clocks differ between instances, timestamps collide, and on
 PostgreSQL / MySQL a transaction that commits after a younger change was pulled lands behind the client's cursor. The
@@ -134,23 +134,79 @@ than `maxLimit` records with one identical timestamp and a burst larger than `ma
 with `hasMore: false`; duplicates per page; pull latency for 10k / 100k records; write overhead. **Gate:** zero lost
 changes and a terminating run on every target, or stop and report.
 
+**Decided in phase 2 (DEV-3899, measurements in §5): C3, one mechanism per database family.**
+
+* **SQL — PostgreSQL × three engines, MySQL 8.4, MariaDB 11.8: a commit-ordered change sequence, counter taken
+  last (C1d).** One counter row per sync model (`lt_sync_counters`). A `BEFORE INSERT OR UPDATE` row trigger bumps it
+  and stamps `sync_seq`; the trigger runs after the row lock, so a write takes its row first and the counter last. A
+  statement that writes several rows of a sync model, and a transaction with more than one statement, write their rows
+  with the sentinel `sync_seq = -1` (the trigger leaves it alone) and take the counter with their final statement
+  before COMMIT, after every row lock they need. The counter's row lock is held until COMMIT, so sequence order is
+  commit order: `sync_seq > cursor ORDER BY sync_seq` can never pass a number that commits later. No horizon, no
+  window, no clock, no duplicates. The trigger also numbers writes that bypass the store (tier 2/3, migrations). The
+  price is a per-model serialization point: writes to one sync model wait for each other's final statement and commit
+  (measured ~3,100 writes/s on PostgreSQL against ~8,500 without a counter, §5); phase 3 keys the counter per
+  (model, tenant) on tenant-scoped models, so the ceiling applies per tenant.
+* **MongoDB — standalone and replica set: the server clock with a window (C2).** Every write path stamps
+  `syncAt: '$$NOW'` (one operation, the server's clock); pull by keyset `(syncAt, _id)`, and each run starts once
+  from its low-water mark, the previous run's start minus W, measured on the server's clock. The store has no
+  multi-document transactions (`capabilities.transactions: false`), so a framework write is visible when its operation
+  returns; W must still cover a transaction opened by project code on a replica set, so it is derived from
+  `transactionLifetimeLimitSeconds` (default 60 s) with margin, and sync writes carry a `maxTimeMS` below W. A run
+  repeats what changed within W (P2-2: yes, on MongoDB); clients keep the higher `version` either way. Measured: with
+  the server's limit below W, the server aborted every transaction held past it and nothing was lost (§5).
+
+Rejected, each with its measurement in §5:
+
+| Candidate | Why not |
+|---|---|
+| C0 (archived cursor: app clock + id) | loses on every target |
+| C1n (plain sequence, no horizon) | allocation order is not commit order: loses on every SQL target |
+| C1 (counter bumped first) | exact, but holds the counter for the whole transaction: under late commits writes collapse to single digits per second, MySQL runs into lock-wait timeouts, and mixed with row-first writes it deadlocks |
+| C1t alone (trigger, no deferral) | the trigger fires at the first write of a transaction, so a long transaction holds the counter like C1 — it is C1d's single-statement path, not a design of its own |
+| C1x (PostgreSQL `xid8` below `pg_snapshot_xmin`) | exact and without write serialization (~2.8× C1d's write rate, §5), but PostgreSQL only, and its horizon is cluster-wide: any open writing transaction in any database of the server — another project's batch job, an idle-in-transaction session, a forgotten prepared transaction — holds every pull back until it ends; on a cluster several projects share, that couples their availability. One mechanism for PostgreSQL and MySQL is worth more; C1x stays the measured fallback should a project hit the counter's ceiling |
+| C2 on SQL | loses whenever a commit lags its stamp by more than W, and neither MySQL nor MariaDB bounds a transaction's lifetime on the server; MySQL / MariaDB `NOW(6)` stamps the statement **start**, so a lock wait alone exceeds W (measured: lost changes with transactions open ≤ 2 s at W = 5 s) |
+| C1 on MongoDB | standalone has no transactions, counter and write are two operations, and the gap loses changes even without late commits; on a replica set the counter document in a transaction is exact but write conflicts throttle every writer of the model |
+
+**Consequences for the port (E4, phase 3):** SQL — `sync_seq bigint` + index, the counter table and one trigger per
+sync table from the schema compiler (as the owner, a changed trigger body is a schema change the migrator detects), the
+store's multi-row and transaction paths with the sentinel, the pull as `{ syncSeq: { $gt } }` + sort + limit in the
+neutral subset; the application role needs `UPDATE` on the counter table on PostgreSQL (MySQL triggers run with the
+definer's rights). MongoDB — `syncAt: '$$NOW'` on every write path (pipeline update, upsert for inserts), index
+`{ syncAt: 1, _id: 1 }`, the run start from the server clock (`hello.localTime` from 4.4 on; `$documents` with `$$NOW`
+needs 5.1), W from `getParameter` with a configured fallback where the parameter cannot be read; the keyset pull in the
+neutral subset. The cursor names its mechanism (`seq` / `clock`); a cursor of another mechanism or source — a model
+moved between databases — is answered like an expired one (full resync).
+
 The cursor is serialized as `base64url(JSON { v, model, pos, fp, epoch, iat })` plus an HMAC over it (key from the
 server's secrets), so it stays opaque, cannot be edited into another user's or model's cursor, and is refused as
-`invalid` when tampered with.
+`invalid` when tampered with. For MongoDB `pos` carries the run's low-water mark and start, so a cursor stored in the
+middle of a run resumes that run, and the next run after its last page starts from the run start minus W.
 
 ### 3.5 Identifiers
 
-Both formats for sync models (decision 2026-10-29); every other model keeps ObjectId-hex only. The protocol §3 states
-the client rules. Collision with an invisible record → uniform `ID_UNAVAILABLE`, ids unique across tenants (decided O2, §11): the one
-observable bit carries no tenant, owner or content. A uuidv7 validator joins `id-format.ts` beside `isWellFormedId()`
-(version nibble `7`, variant `8–b`, lowercase).
+**One format per model, never mixed** (owner, 2026-10-29, §11): ObjectId-hex stays the default for every model —
+existing models and projects change nothing, and a sync model with ObjectIds lets clients generate them, as MongoDB's
+own drivers do. uuidv7 is a per-model choice for **new** models only; on MongoDB it is stored as a BSON UUID (binary
+subtype 4), on SQL as text, and the core keeps ids as strings (the store converts at its boundary, like ObjectId).
+Every other model keeps ObjectId-hex only. The protocol §3 states the client rules. Collision with an invisible record →
+uniform `ID_UNAVAILABLE`, ids unique across tenants (decided O2, §11): the one observable bit carries no tenant, owner or
+content. Hardening does not depend on the format: rights on every access, the uniform answer plus the push rate limit,
+and a server id occupied by a client is generated anew (E6). A uuidv7 validator joins `id-format.ts` beside
+`isWellFormedId()` (version nibble `7`, variant `8–b`, lowercase). The former P2-3 (ObjectId and string `_id` side by
+side) cannot arise and was dropped.
 
 ### 3.6 Tombstones and unique indexes
 
-Live records store `deletedAt: null` (never "absent"): MongoDB's `partialFilterExpression` accepts `$exists: true` but
-not `$exists: false`, so the live filter is `{ deletedAt: { $type: 'null' } }` — a document without the field is in
-no such index, so the migration that makes an existing model syncable also backfills `deletedAt: null`. PostgreSQL:
-`… WHERE deleted_at IS NULL`. MySQL / MariaDB have no partial index and the compiler refuses one today; each part of a
+Live records store `deletedAt: null`. The live filter is the equality `{ deletedAt: null }`, measured in phase 2
+(P2-4, `prototypes/partial-unique.mjs`, MongoDB 5.0.31, 7.0, 8.2): MongoDB accepts it as a `partialFilterExpression`,
+it covers a document whose field is `null` **or missing** (so making an existing model syncable needs no backfill), and
+a query `{ …, deletedAt: null }` uses the index. Phase 1's `{ deletedAt: { $type: 'null' } }` works too but leaves a
+document without the field out of the index (a duplicate then passes) and is used only by a `$type` query — so the
+read filter (E2) and the index filter must be the same form, and the equality is the one that also compiles to
+`IS NULL` on SQL. PostgreSQL: `… NULLS NOT DISTINCT WHERE deleted_at IS NULL` — the `NULLS NOT DISTINCT` is
+load-bearing: the compiler drops it today for every partial unique index (`postgres-schema.compiler.ts`, `nulls =
+unique && !conditions.length`), and measured, a second live `NULL` then passes on PostgreSQL where MongoDB refuses it. MySQL / MariaDB have no partial index and the compiler refuses one today; each part of a
 unique index becomes a VIRTUAL column `IF(deleted_at IS NULL, IFNULL(<field>, <sentinel>), NULL)` (the sentinel is the
 one the existing null-sentinel columns use, so a live `NULL` still collides like on MongoDB; a sparse unique index
 leaves it out) and the unique index spans
@@ -159,7 +215,9 @@ those columns — a tombstone yields `NULL` in every part, and MySQL lets `NULL`
 tombstone reaches exactly the users who could see the record); every content field is cleared in the same atomic update
 (on SQL set to `NULL`, on MongoDB `$unset`). This needs no schema change: on SQL every column but `id` is nullable (the database never enforces `required`, validation does —
 `sql/postgres/postgres-schema.compiler.ts`), and MongoDB runs no update validators; only the input validators must not
-apply to the tombstone write. **OPEN (P2-4):** verified as a contract case in phase 2.
+apply to the tombstone write. **Measured in phase 2 (P2-4, §5):** on every target a second live value and a second live
+`NULL` are refused and tombstones may repeat a live value; on MySQL / MariaDB reviving a tombstone whose value is live
+again is refused. DEV-3900 turns this into a matrix case on all ten columns.
 
 ### 3.7 Idempotency, horizon, rate limits
 
@@ -204,8 +262,8 @@ A per-record removal signal may follow later.
 ### 3.9 Hints
 
 SSE `GET /sync/hints` (core) and the GraphQL subscription `syncHint` carry `{ model, at }` only. Source: the CrudService
-emits after every successful write of a sync model, in process or through `CoreRedisPubSub` across replicas; a
-`changeFeed` capability is used where phase 2 shows it is worth it (P2-5). Delivery is filtered per subscriber by the
+emits after every successful write of a sync model, in process or through `CoreRedisPubSub` across replicas — on every
+database, no change feed (P2-5, decided in phase 2, §11). Delivery is filtered per subscriber by the
 tenant of the change and the subscriber's read right on the model; bursts are debounced. Both channels are long-lived:
 they register with the connection registry like `registerWsConnection()` and are re-checked on invalidation and every
 `subscriptionRevalidationMs` (`.claude/rules/role-system.md` → "Open WebSockets": a guard asked once is not enough for
@@ -265,7 +323,8 @@ review, one squash-merged PR into `develop`. Phases 3–5 change **nothing** for
 
 ### Phase 2 — Cursor prototype on every target database (DEV-3899)
 1. Prototype scripts under `.claude/plans/offline-sync/prototypes/` (like db-agnostic's), each runnable against the test
-   containers; a MongoDB **replica set** container joins the test infrastructure for this.
+   containers; the MongoDB **replica set** was a throwaway container (`mongo:7.0`, one node) and joins the test
+   infrastructure with phase 3, where matrix cases need it.
 2. C1 and C2 (and C3 where it applies) on MongoDB standalone and replica set, PostgreSQL × three engines, MySQL,
    MariaDB, with the scenarios of §3.4; numbers recorded in §5.
 3. Answers P2-1 … P2-5 (protocol §15); the decision goes into §11 and the protocol's OPEN markers are resolved.
@@ -292,8 +351,8 @@ review, one squash-merged PR into `develop`. Phases 3–5 change **nothing** for
    clocks.
 
 ### Phase 5 — Hints and cleanup (DEV-3902)
-1. SSE endpoint and GraphQL subscription, CrudService-emitted hints via in-process / Redis pub/sub, `changeFeed` where
-   phase 2 recommends it, debounce, per-subscriber filtering, registration + re-check of the long-lived channels.
+1. SSE endpoint and GraphQL subscription, store-emitted hints via in-process / Redis pub/sub (no change feed, P2-5),
+   debounce, per-subscriber filtering, registration + re-check of the long-lived channels.
 2. Tombstone purge cron under a `LockStore` lease (horizon first), mutation-store sweep through the expiry sweep.
 
 ### Phase 6 — Test clients, browser E2E, docs, release (DEV-3903)
@@ -305,8 +364,91 @@ review, one squash-merged PR into `develop`. Phases 3–5 change **nothing** for
 
 ## 5. Validated assumptions
 
-Empty until phase 2 records its measurements here (scripts in `prototypes/`, one row per assumption: what was measured,
-on which targets, result).
+Measured 2026-10-31 (DEV-3899) with `prototypes/` (how to run them: its README) on the test containers — PostgreSQL
+18.6, MySQL 8.4.10, MariaDB 11.8.8 — the local MongoDB 8.2.3 standalone and a one-node MongoDB 7.0 replica set; SQL
+through the framework's own executors (`dist/`), so the three PostgreSQL engines run their own transaction paths.
+
+**Setup of a concurrent run** (`cursor-lab.mjs`): 15 s on a fresh table; three app instances, each its own process and
+pool with its own clock (0, +5 s, −5 s), 4 write loops each (12 in the late scenarios); 50 % inserts, 40 % updates,
+10 % tombstones, 30 % of updates and tombstones on five hot records; two clients pull run after run all along (pages of
+25 and 100) and twice more over the same cursor after the writers stopped. **Lost** = a record whose client version is
+below its final database version, tombstones included, summed over both clients. W = 5 s in the prototype.
+`late`: 15 % of the transactions stay open 0.2–2 s after their write; `beyond W`: 10 % stay open 6–8 s.
+
+| Assumption | Result |
+|---|---|
+| The harness detects losses (negative controls) | C0 loses 66–77 % of the records per client on every target it ran on; C1n 15–19 % under late commits and 0.01–0.11 % without them on every SQL target; MongoDB standalone C1 (counter and write as two operations) loses in every scenario (up to 17 %) |
+| **A commit-ordered counter taken last loses nothing (C1d, SQL)** | **0 lost in all 30 concurrent runs on the five SQL targets** (late and beyond W, 3 runs each), and in the `parallel` run of each |
+| Taking the counter first is exact but stalls (C1, C1t) | 0 lost, but 5–7 writes/s under late commits and 1–3 beyond W, where C1d keeps 94–108 and 18–26 (means); MySQL / MariaDB ran into lock-wait timeouts (`retries`). The first C1d draft, which mixed C1's counter-first single writes with row-first deferred writes, deadlocked (14 retries in one 6 s run on MariaDB) — the reason C1d takes the counter last on every path |
+| The PostgreSQL horizon is exact (C1x) | 0 lost on all three engines, late and beyond W |
+| The database clock with W is exact while commits lag less than W (C2) | 0 lost on PostgreSQL × 3 and MongoDB in `late`; **lost on MySQL** in `late` (2 in run 3: a hot record, final version 50, client 45); lost on every target with transactions held open beyond W; MongoDB standalone cannot hold a write open, so it has no late case |
+| **W derived from the server's transaction limit makes C2 exact on MongoDB** | replica set with `transactionLifetimeLimitSeconds: 3`, W = 5 s, transactions held 6–8 s, writes without retry (`MONGO_TXN_NO_RETRY=1`): the server aborted every one of them (83–91 failed commits per run, none committed late), **0 lost in 3 runs** |
+| Why MySQL loses with commits below W | `commit-lag-probe.mjs`: with a 3 s row-lock wait, MySQL / MariaDB `NOW(6)` stamps the statement start (commit − stamp ≈ 3,000 ms), `SYSDATE(6)` and PostgreSQL `clock_timestamp()` the moment after the wait (≈ 2 ms), PostgreSQL `now()` the transaction start |
+| A run terminates with equal keys (progress) | 500 records with one identical key (one backfill statement, one `$$NOW`): every variant on every target delivers all 500 in 21 pages of 25 / 6 pages of 100; C2's next run re-reads the 500 (the window) and terminates too. No non-terminating run in any scenario; the longest run had 17,768 pages (MongoDB standalone C2 at ~35,000 writes/s) |
+| The counter costs write throughput (C1d) | one counter per model serializes its writes for the final statement and the commit: PostgreSQL ~3,100 writes/s against ~8,500 for C0 / C1x, MySQL 1,075 against 3,777, MariaDB 12,332 against 14,961 (12 writers, local containers, one 10 s run). On a disk where a commit waits for its flush, a counter allows about one commit per flush — phase 3 keys the counter per (model, tenant) on tenant-scoped models, and C1x stays the measured alternative for PostgreSQL |
+| A counter on MongoDB is not viable (C1) | standalone loses (above); replica set in a transaction: exact, but 728 writes/s with 7,663 write-conflict retries against C2's 5,328 in the same setup, and 1–7 writes/s under late commits |
+
+**Lost changes, three runs per cell, `late` (writes/s, mean, in brackets):**
+
+| Variant | mongo-standalone | mongo-rs | pg-typeorm | pg-kysely | pg-drizzle | mysql | mariadb |
+|---|---|---|---|---|---|---|---|
+| C0 | 2547 · 2417 · 2222 (190/s) | 1422 · 1641 · 1795 (108/s) | 1553 · 1445 · 1259 (99/s) | — | — | 1665 · 1660 · 1686 (129/s) | 1277 · 1737 · 1154 (100/s) |
+| C1n | — | — | 365 · 296 · 253 (108/s) | — | — | 351 · 377 · 320 (121/s) | 301 · 319 · 338 (92/s) |
+| C1 | 494 · 535 · 568 (181/s) | 0 · 0 · 0 (6/s) | 0 · 0 · 0 (7/s) | — | — | 0 · 0 · 0 (6/s) | 0 · 0 · 0 (6/s) |
+| C1t | — | — | 0 · 0 · 0 (5/s) | — | — | 0 · 0 · 0 (6/s) | 0 · 0 · 0 (6/s) |
+| **C1d** | — | — | **0 · 0 · 0** (108/s) | **0 · 0 · 0** (94/s) | **0 · 0 · 0** (105/s) | **0 · 0 · 0** (100/s) | **0 · 0 · 0** (105/s) |
+| C1x | — | — | 0 · 0 · 0 (119/s) | 0 · 0 · 0 (95/s) | 0 · 0 · 0 (102/s) | — | — |
+| **C2** | **0 · 0 · 0** (no late case) | **0 · 0 · 0** (117/s) | 0 · 0 · 0 (115/s) | 0 · 0 · 0 (113/s) | 0 · 0 · 0 (96/s) | 0 · 0 · 2 (101/s) | 0 · 0 · 0 (104/s) |
+
+**Lost changes, `beyond W` (transactions open 6–8 s, W = 5 s):**
+
+| Variant | mongo-standalone | mongo-rs | pg-typeorm | pg-kysely | pg-drizzle | mysql | mariadb |
+|---|---|---|---|---|---|---|---|
+| C1 | 132 · 140 · 154 (49/s) | 0 · 0 · 0 (2/s) | 0 · 0 · 0 (3/s) | — | — | 0 · 0 · 0 (1/s) | 0 · 0 · 0 (1/s) |
+| C1t | — | — | 0 · 0 · 0 (1/s) | — | — | 0 · 0 · 0 (1/s) | 0 · 0 · 0 (1/s) |
+| **C1d** | — | — | **0 · 0 · 0** (24/s) | **0 · 0 · 0** (21/s) | **0 · 0 · 0** (23/s) | **0 · 0 · 0** (26/s) | **0 · 0 · 0** (18/s) |
+| C1x | — | — | 0 · 0 · 0 (20/s) | 0 · 0 · 0 (17/s) | 0 · 0 · 0 (19/s) | — | — |
+| C2 | 0 · 0 · 0 (no late case) | 94 · 78 · 82 (21/s) | 40 · 78 · 78 (14/s) | 60 · 74 · 72 (16/s) | 76 · 58 · 88 (16/s) | 96 · 64 · 84 (24/s) | 94 · 82 · 88 (21/s) |
+| **C2, server limit 3 s < W** | — | **0 · 0 · 0** (32/s) | — | — | — | — | — |
+
+**Write throughput without late commits** (`parallel`, one 10 s run; lost in that run, writes/s in brackets):
+
+| Variant | mongo-standalone | mongo-rs | pg-typeorm | pg-kysely | pg-drizzle | mysql | mariadb |
+|---|---|---|---|---|---|---|---|
+| C0 | 357,676 (52,228/s) | 37,782 (5,478/s) | 58,756 (8,605/s) | — | — | 26,026 (3,777/s) | 104,309 (14,961/s) |
+| C1n | — | — | 15 (7,785/s) | — | — | 20 (2,347/s) | 27 (5,470/s) |
+| C1 | 77 (22,825/s) | 0 (728/s) | 0 (2,870/s) | — | — | 0 (522/s) | 0 (2,352/s) |
+| C1t | — | — | 0 (2,969/s) | — | — | 0 (1,051/s) | 0 (11,686/s) |
+| **C1d** | — | — | **0** (3,004/s) | **0** (3,126/s) | **0** (3,093/s) | **0** (1,075/s) | **0** (12,332/s) |
+| C1x | — | — | 0 (8,461/s) | 0 (8,544/s) | 0 (8,604/s) | — | — |
+| **C2** | **0** (40,615/s) | **0** (5,328/s) | 0 (6,202/s) | 0 (7,442/s) | 0 (7,703/s) | 0 (4,616/s) | 0 (12,257/s) |
+
+**Pull latency** (`volume`: one client, pages of 500, then 200 changes and one incremental run; full pull of 10k / 100k
+records in ms). C2's incremental run re-reads every record because all of them were written within W before it.
+
+| Target | C1d (SQL) / C1 (MongoDB) | C2 | C2 incremental (records re-read) |
+|---|---|---|---|
+| pg-typeorm | 19 / 175 | 15 / 179 | 142 ms (99,800) |
+| pg-kysely | 23 / 170 | 17 / 172 | 140 ms (99,800) |
+| pg-drizzle | 18 / 172 | 14 / 155 | 135 ms (99,800) |
+| mysql | 44 / 510 | 65 / 604 | 511 ms (99,800) |
+| mariadb | 21 / 276 | 27 / 214 | 231 ms (99,800) |
+| mongo-standalone | 25 / 217 | 29 / 263 | 212 ms (99,800) |
+| mongo-rs | 30 / 290 | 32 / 343 | 320 ms (99,800) |
+
+An incremental C1d run after 200 changes took 1 ms on every SQL target, without a repeated record.
+
+**P2-4** (`partial-unique.mjs`, MongoDB 5.0.31 / 7.0 / 8.2.3, PostgreSQL 18.6, MySQL 8.4.10, MariaDB 11.8.8): every target
+refuses a second live value and a second live `NULL` and accepts tombstones repeating a live value; MySQL / MariaDB
+refuse reviving a tombstone whose value is live again. PostgreSQL without `NULLS NOT DISTINCT` accepts the second live
+`NULL`. MongoDB accepts `partialFilterExpression: { deletedAt: null }` on all three versions; it indexes a document
+whose field is `null` or missing (two documents without the field and the same value collide) and `{ …, deletedAt: null }`
+uses it (IXSCAN) while `$type: 'null'` does not (COLLSCAN) — the reverse of a `$type` index.
+
+**What this does not prove** — left to the phase 3 contract cases: a replica set with several members (failover, clock
+difference between members; W covers a clock step smaller than W); C1d's path for one statement over many rows
+(measured: single-row writes and long transactions); per-tenant counters; `$currentDate` as an alternative to `$$NOW`;
+commit latencies of a real disk and a network instead of local containers.
 
 ## 6. Gates and abort criteria
 
@@ -339,8 +481,10 @@ Phase 2 ~1,500 (prototypes, infra) · Phase 3 ~3,000 · Phase 4 ~3,500 · Phase 
 
 ## 10. Open questions
 
-The protocol's §15 is the list: P2-1 … P2-5 for phase 2. O1 and O2 are decided (§11). Resolved entries move to §11
-with date and reason.
+None from phase 2: P2-1 … P2-5, O1 and O2 are decided (§11, protocol §15). Left to phase 3, as implementation choices
+inside the decision: the margin of W over MongoDB's transaction lifetime (and whether a transaction can still commit
+between its limit and the server's reaper run), and whether PostgreSQL stamps the sequence by trigger or by the
+store's statement (measured equal, §5; the trigger also numbers writes that bypass the store).
 
 ## 11. Decisions
 
@@ -352,6 +496,19 @@ a follow-up in `nuxt-extensions`; the cursor decided by the prototype; no pilot 
 never content; without them it reaches either the whole tenant or nobody. O2 — the uniform `ID_UNAVAILABLE` stays and
 ids stay unique across tenants; ids unique per tenant would change every lookup, reference and route by id. The id
 answer should be as safe as possible; how ObjectId and uuidv7 coexist (P2-3) is weighed with that in mind.
+
+**Owner, 2026-10-29 (DEV-3899, decision comment from the DEV-3898 review):** ids — ObjectId-hex stays the default for
+every model, one format per model and never mixed, uuidv7 a per-model choice for new models only (MongoDB: BSON UUID,
+binary subtype 4; SQL: text); the hardening (rights on every access, uniform `ID_UNAVAILABLE` + rate limit, server ids
+regenerated on collision) holds for either format. P2-3 dropped.
+
+**Phase 2, autopilot (DEV-3899, measured — §5, recorded on the ticket):** P2-1 — the cursor is C3 per database family:
+on SQL a commit-ordered sequence with the counter taken last (C1d), on MongoDB the server clock with a window W derived
+from the transaction lifetime (C2), §3.4. P2-2 — a pull repeats unchanged records on MongoDB (within W), never on SQL.
+P2-4 — the MongoDB live filter is `{ deletedAt: null }` (replaces phase 1's `$type: 'null'`), PostgreSQL keeps
+`NULLS NOT DISTINCT` with the live condition (the compiler drops it for partial unique indexes today — a parity gap for
+existing partial unique indexes too, handed to phase 3, whose E3 rewrites this path), MySQL / MariaDB use the virtual
+live-key column (§3.6). P2-5 — no change feed; hints come from the store's write events on every database (§3.9).
 
 **Phase 1, autopilot (DEV-3898, recorded as assumptions on the ticket):** protocol in `docs/` rather than
 `src/core/modules/sync/` (a directory there is listed as a core module by the FRAMEWORK-API generator before the module
