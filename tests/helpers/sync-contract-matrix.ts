@@ -98,6 +98,23 @@ export const SYNC_CASES: readonly SyncCase[] = [
     id: 'pull-security-check',
     title: 'a record the model hides from the caller never arrives, and the cursor still moves past it',
   },
+  {
+    drivers: ALL,
+    id: 'pull-change-between-reads',
+    title:
+      'a record changed between the position read and the content read keeps the cursor on its old position: ' +
+      'nothing after it is skipped, and its change comes again at its new position',
+  },
+  {
+    drivers: ALL,
+    id: 'pull-across-tenants',
+    title: 'without X-Tenant-Id the memberships are read per tenant and merged — every record once, in change order',
+  },
+  {
+    drivers: SYNC_MONGO_DRIVERS,
+    id: 'pull-window-derived',
+    title: 'the window W follows the server: 30 s on a standalone, the transaction lifetime plus 30 s on a replica set',
+  },
 
   // --- resync (protocol §8) ------------------------------------------------------------------------------------
   {
@@ -160,6 +177,11 @@ export const SYNC_CASES: readonly SyncCase[] = [
   },
   {
     drivers: ALL,
+    id: 'push-without-pull-roles',
+    title: 'a push answers with a record only to a caller who may pull it — never to one without the pull roles',
+  },
+  {
+    drivers: ALL,
     id: 'push-items-independent',
     title: 'items apply in order, each on its own: a failing item does not undo another',
   },
@@ -201,6 +223,11 @@ export const SYNC_CASES: readonly SyncCase[] = [
     id: 'tenant-tombstone-scope',
     title: 'the tombstone of an owner-scoped record reaches its owner, not the rest of the tenant',
   },
+  {
+    drivers: ALL,
+    id: 'push-create-without-tenant',
+    title: 'a create on a tenant-scoped model needs X-Tenant-Id: rejected without it on every database, applied with it',
+  },
 
   // --- concurrent writers --------------------------------------------------------------------------------------
   {
@@ -237,6 +264,11 @@ export const SYNC_EXCLUSIONS: readonly SyncExclusion[] = [
     case: 'pull-window-repeats',
     driver,
     reason: 'IMPOSSIBLE: a SQL store numbers changes in commit order and has no window to repeat',
+  })),
+  ...SYNC_SQL_DRIVERS.map((driver) => ({
+    case: 'pull-window-derived',
+    driver,
+    reason: 'IMPOSSIBLE: a SQL store numbers changes in commit order and derives no window',
   })),
 ];
 

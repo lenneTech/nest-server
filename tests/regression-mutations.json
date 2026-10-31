@@ -5177,6 +5177,68 @@
         "tests/sync-contract.e2e-spec.ts"
       ],
       "driverSpecific": false
+    },
+    {
+      "id": "sync-push-reads-without-pull-roles",
+      "defect": "DEV-3901 (offline sync phase 4) — a push read the existing record without the model's pull roles and answered a create on a taken id, or a stale baseVersion, with that record: the content of a model the caller may not pull (ADMIN only by default) went to any signed-in user who knew an id.",
+      "file": "src/core/modules/sync/core-sync.service.ts",
+      "find": "        includeTombstones: true,\n        roles: [...registration.roles.pull],\n      });\n",
+      "replace": "        includeTombstones: true,\n      });\n",
+      "specs": [
+        "tests/sync-contract.e2e-spec.ts"
+      ],
+      "driverSpecific": false
+    },
+    {
+      "id": "sync-pull-position-after-content",
+      "defect": "DEV-3901 (offline sync phase 4) — a pull took the cursor position from a read made after the content read: a record changed in between lent the page its new position, and the cursor jumped past every record after its old one — lost to the client for good, without a resync.",
+      "file": "src/core/modules/sync/core-sync.service.ts",
+      "find": "      last = this.positionOf(registration, raw);\n",
+      "replace": "      last = this.positionOf(\n        registration,\n        (await this.readSystemFields(registration, [String(raw.id)])).get(String(raw.id)) ?? raw,\n      );\n",
+      "specs": [
+        "tests/sync-contract.e2e-spec.ts"
+      ],
+      "driverSpecific": false
+    },
+    {
+      "id": "sync-tenant-pages-unmerged",
+      "defect": "DEV-3901 (offline sync phase 4) — guard: without X-Tenant-Id a tenant-scoped model is read once per tenant and the pages are merged by position; concatenated instead, the cursor moves past the other tenants' earlier records.",
+      "file": "src/core/modules/sync/core-sync.service.ts",
+      "find": "      .sort((a, b) => this.comparePositions(registration, a, b))\n",
+      "replace": "",
+      "specs": [
+        "tests/sync-contract.e2e-spec.ts"
+      ],
+      "driverSpecific": false
+    },
+    {
+      "id": "sync-window-ignores-transaction-lifetime",
+      "defect": "DEV-3901 (offline sync phase 4) — guard: on a replica set the pull window W must cover the server's transaction lifetime; the margin alone loses every change whose transaction commits later than it, for good.",
+      "file": "src/core/common/persistence/mongo/sync-schema.plugin.ts",
+      "find": "      return Number.isFinite(lifetime) && lifetime > 0 ? lifetime * 1000 + SYNC_WINDOW_MARGIN_MS : transactional;\n",
+      "replace": "      return SYNC_WINDOW_MARGIN_MS;\n",
+      "specs": [
+        "tests/sync-contract.e2e-spec.ts"
+      ],
+      "driverSpecific": true,
+      "drivers": [
+        "mongodb-rs"
+      ]
+    },
+    {
+      "id": "sync-create-without-tenant-stored-tenantless",
+      "defect": "DEV-3901 (offline sync phase 4) — a create without X-Tenant-Id ran with the caller's membership list, from which nothing can stamp a tenant: MongoDB stored the record without one (applied, then invisible to everyone, its creator included) while SQL refused it.",
+      "file": "src/core/modules/sync/core-sync.service.ts",
+      "find": "    if (registration.tenantScoped && resolveTenantScope().kind === 'tenants') {\n",
+      "replace": "    if (false && registration.tenantScoped) {\n",
+      "specs": [
+        "tests/sync-contract.e2e-spec.ts"
+      ],
+      "driverSpecific": true,
+      "drivers": [
+        "mongodb",
+        "mongodb-rs"
+      ]
     }
   ]
 }

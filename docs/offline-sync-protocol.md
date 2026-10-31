@@ -78,8 +78,8 @@ as a BSON UUID (binary subtype 4, MongoDB's recommended UUID representation); th
 converts at its boundary. References to a model use that model's representation. Because a collection holds one
 format, casting, populate and sort never meet two representations side by side.
 
-**A create whose id is already taken** by a record or tombstone the caller may see is answered `conflict` with that record as the
-caller may see it (§6.5) — without comparing the stored values with `data`: an answer that depended on the comparison
+**A create whose id is already taken** by a record or tombstone the caller may see — inside their tenant scope, with the
+model's pull roles, not hidden by `securityCheck` — is answered `conflict` with that record as the caller may see it (§6.5) — without comparing the stored values with `data`: an answer that depended on the comparison
 would let the caller test guesses for fields hidden from them. Taken by a record or tombstone the caller may **not**
 see, the item is refused with `ID_UNAVAILABLE` — the same answer,
 same timing, for every reason an id cannot be used; it carries no tenant, owner, content or deletion state. That an id

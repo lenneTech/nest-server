@@ -435,12 +435,19 @@ MariaDB; executor `tests/sync-contract.e2e-spec.ts`, the reference model `src/se
   strategy } })` plus `@SyncService({ model, createInput, updateInput })` on its CrudService, discovered at bootstrap.
   Per-field strategies through `@SyncField('reject' | 'lww')` (the ticket's name; §3.2's `@UnifiedField({ sync })` was
   not built), applied by `merge`. A model without roles is ADMIN only, with a boot warning.
-- **Pull** reads through the service's `find()` (tombstones included) and runs every record through `securityCheck()`;
-  the system fields come from a second store read by id, because a class-level `@Restricted(ADMIN)` strips every field
-  a model does not declare from the CrudService output. `limit` counts records read, visible or not.
+- **Pull** reads the page's positions and system fields through the store FIRST (tombstones included), then their
+  content through the service's `find()` with the pull roles, and runs every record through `securityCheck()`. The
+  system fields come from the store because a class-level `@Restricted(ADMIN)` strips every field a model does not
+  declare from the CrudService output; they are read first because a position read after the content let the cursor
+  jump past records when one changed in between (review of DEV-3901). Without `X-Tenant-Id` a tenant-scoped model is
+  read once per tenant and merged by position — the change index is led by the tenant, and `tenantId IN (…)` would
+  sort the whole remaining scope on every page. `limit` counts records read, visible or not.
 - **Push** claims the mutation first (`SyncMutation`, key = model, user, record, mutation id), then creates
   (`ServiceOptions.createId` — an id inside the input is dropped by the input class), updates or deletes with
   `expectedVersion`. A conflict is resolved by the strategy, writes on top always conditional on the current version.
+  The record of a conflict is read with the pull roles (system fields first): a caller who may not pull a record never
+  receives it from a push. A create needs `X-Tenant-Id` on a tenant-scoped model — from a membership list nothing could
+  stamp a tenant (MongoDB would store the record tenant-less, SQL refuses it), so it is `FORBIDDEN` on every database.
 - **Infrastructure stores (E7)** are framework models (`SyncMutation`, `SyncState`) on every database through the port;
   expiry is checked by every reader.
 - **Access**: a fingerprint of the caller's access plus epochs per (model, tenant) and (model, tenant, user) in the

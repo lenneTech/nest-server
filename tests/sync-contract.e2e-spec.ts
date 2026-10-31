@@ -683,6 +683,102 @@ describe.each(SYNC_DRIVERS)('sync contract — %s (e2e)', (driver) => {
     expect(aliceItems).not.toContain(bobNote);
   });
 
+  /**
+   * @regression   DEV-3901 — a pull read the content first and the change positions second: a record changed between
+   *   the two reads lent the page its NEW position, so the cursor jumped past every record after its old one — lost to
+   *   the client for good, without a resync.
+   * @seen-failing Take the cursor position from a read made after the content read in CoreSyncService.pull()
+   *   (src/core/modules/sync/core-sync.service.ts) — registered as mutation `sync-pull-position-after-content` in
+   *   tests/regression-mutations.json.
+   */
+  syncIt('pull-change-between-reads', driver, async () => {
+    const alice = await signUp('between');
+    const notes: any[] = [];
+    for (const title of ['a', 'b', 'c', 'd']) {
+      notes.push(await create('SyncNote', { title }, { token: alice.token }));
+    }
+    const service: any = harness.sync;
+    const readContents = service.readContents;
+    let changed = false;
+    // Another device changes b while this pull holds b's position and has not read its content yet
+    service.readContents = async function (this: any, ...args: any[]) {
+      if (!changed && args[1]?.includes(notes[1].id)) {
+        changed = true;
+        expect((await change('SyncNote', notes[1].id, 1, { title: 'b2' }, { token: alice.token })).status).toBe(
+          'applied',
+        );
+      }
+      return readContents.apply(this, args);
+    };
+    try {
+      const run = await pullAll('SyncNote', { limit: 1, token: alice.token });
+      expect(changed).toBe(true);
+      const byId = latest(run.items);
+      for (const note of notes) {
+        expect(byId.has(note.id), note.id).toBe(true);
+      }
+      expect(byId.get(notes[1].id)).toMatchObject({ data: { title: 'b2' }, version: 2 });
+      // A version is never newer than the content it labels
+      for (const item of run.items.filter((entry: any) => entry.id === notes[1].id && entry.version === 2)) {
+        expect(item.data.title).toBe('b2');
+      }
+    } finally {
+      service.readContents = readContents;
+    }
+  });
+
+  /**
+   * @regression   DEV-3901 — without X-Tenant-Id a tenant-scoped model is read once per tenant (an equality the
+   *   tenant-led change index can deliver the order for) and the pages are merged by position; a merge out of order
+   *   moves the cursor past records of the other tenants.
+   * @seen-failing Drop the merge sort from CoreSyncService.readPositions() (src/core/modules/sync/core-sync.service.ts)
+   *   — registered as mutation `sync-tenant-pages-unmerged` in tests/regression-mutations.json.
+   */
+  syncIt('pull-across-tenants', driver, async () => {
+    const alice = await signUp('across');
+    const tenantA = tenant();
+    const tenantB = tenant();
+    await member(tenantA, alice.id);
+    await member(tenantB, alice.id);
+    const created: string[] = [];
+    for (let index = 0; index < 6; index++) {
+      const options = { tenant: index % 2 ? tenantB : tenantA, token: alice.token };
+      const result = await create('SyncTask', { ownerId: alice.id, title: `t${index}` }, options);
+      expect(result.status).toBe('applied');
+      created.push(result.id);
+    }
+    const run = await pullAll('SyncTask', { limit: 2, token: alice.token });
+    const ids = run.items.map((item: any) => item.id).filter((id: string) => created.includes(id));
+    expect(new Set(ids).size).toBe(ids.length);
+    expect([...ids].sort()).toEqual([...created].sort());
+  });
+
+  /**
+   * @regression   DEV-3901 — the window W is derived from the server (transaction lifetime plus a margin on a replica
+   *   set, the margin alone on a standalone); the suite pins `pull.windowSeconds`, so a derived W of the margin alone
+   *   on a replica set — every late commit lost for good — went unnoticed.
+   * @seen-failing Make readChangeWindow() answer the margin alone on a replica set in
+   *   src/core/common/persistence/mongo/sync-schema.plugin.ts — registered as mutation
+   *   `sync-window-ignores-transaction-lifetime` in tests/regression-mutations.json.
+   */
+  syncIt('pull-window-derived', driver, async () => {
+    const store: any = harness.moduleRef.get(getStoreToken('SyncNote'), { strict: false });
+    const { windowMs } = await store.changeClock();
+    if (driver === 'mongodb') {
+      expect(windowMs).toBe(30_000);
+      return;
+    }
+    const connection = await mongoose.createConnection(String(config.mongoose.uri)).asPromise();
+    try {
+      const parameter = await (connection.db as any)
+        .admin()
+        .command({ getParameter: 1, transactionLifetimeLimitSeconds: 1 });
+      expect(windowMs).toBe(Number(parameter.transactionLifetimeLimitSeconds) * 1000 + 30_000);
+    } finally {
+      await connection.close();
+    }
+  });
+
   // --- resync --------------------------------------------------------------------------------------------------
 
   /**
@@ -986,6 +1082,36 @@ describe.each(SYNC_DRIVERS)('sync contract — %s (e2e)', (driver) => {
     });
   });
 
+  /**
+   * @regression   DEV-3901 — a push read the existing record without the model's pull roles and answered a create on
+   *   a taken id (or a stale baseVersion) with that record: content of a model the caller may not pull — ADMIN only by
+   *   default — went to any signed-in user who knew an id.
+   * @seen-failing Drop the pull roles from CoreSyncService.findVisible() in src/core/modules/sync/core-sync.service.ts —
+   *   registered as mutation `sync-push-reads-without-pull-roles` in tests/regression-mutations.json.
+   */
+  syncIt('push-without-pull-roles', driver, async () => {
+    const alice = await signUp('no-pull');
+    const locked = await create('SyncLocked', { title: 'admin only' }, { token: adminToken });
+    expect(locked.status).toBe('applied');
+    await pull('SyncLocked', { statusCode: 403, token: alice.token });
+
+    const asCreate = await create('SyncLocked', { title: 'x' }, { token: alice.token }, locked.id);
+    expect(asCreate).toMatchObject({ code: 'FORBIDDEN', status: 'rejected' });
+    expect(asCreate).not.toHaveProperty('record');
+    for (const baseVersion of [1, 999]) {
+      const asChange = await change('SyncLocked', locked.id, baseVersion, { title: 'x' }, { token: alice.token });
+      expect(asChange).toMatchObject({ status: 'not_found' });
+      expect(asChange).not.toHaveProperty('record');
+    }
+    const asDelete = await remove('SyncLocked', locked.id, 1, { token: alice.token });
+    expect(asDelete).toMatchObject({ status: 'not_found' });
+    expect(JSON.stringify(asCreate)).not.toContain('admin only');
+
+    // The same push by a caller who may pull: the conflict carries the record
+    const asAdmin = await create('SyncLocked', { title: 'y' }, { token: adminToken }, locked.id);
+    expect(asAdmin).toMatchObject({ record: { data: { title: 'admin only' } }, status: 'conflict' });
+  });
+
   syncIt('push-items-independent', driver, async () => {
     const alice = await signUp('independent');
     const first = clientObjectId();
@@ -1174,6 +1300,28 @@ describe.each(SYNC_DRIVERS)('sync contract — %s (e2e)', (driver) => {
     expect((await pullAll('SyncTask', { tenant: tenantId, token: bob.token })).items.map((item: any) => item.id)).not.toContain(
       task.id,
     );
+  });
+
+  /**
+   * @regression   DEV-3901 — a create without X-Tenant-Id ran with the caller's membership list, from which nothing
+   *   can stamp a tenant: MongoDB stored the record without one — applied, then invisible to everyone, its creator
+   *   included — while SQL refused it.
+   * @seen-failing Drop the single-tenant check from CoreSyncService.applyCreate() in
+   *   src/core/modules/sync/core-sync.service.ts — registered as mutation `sync-create-without-tenant-stored-tenantless`
+   *   in tests/regression-mutations.json.
+   */
+  syncIt('push-create-without-tenant', driver, async () => {
+    const alice = await signUp('no-tenant');
+    const tenantA = tenant();
+    await member(tenantA, alice.id);
+    expect(await create('SyncTask', { title: 'nowhere' }, { token: alice.token })).toMatchObject({
+      code: 'FORBIDDEN',
+      status: 'rejected',
+    });
+    const placed = await create('SyncTask', { title: 'in a' }, { tenant: tenantA, token: alice.token });
+    expect(placed.status).toBe('applied');
+    const items = latest((await pullAll('SyncTask', { token: alice.token })).items);
+    expect(items.get(placed.id)).toMatchObject({ data: { title: 'in a' }, deletedAt: null });
   });
 
   // --- concurrent writers --------------------------------------------------------------------------------------

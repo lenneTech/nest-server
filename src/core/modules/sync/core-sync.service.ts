@@ -31,6 +31,7 @@ import { isDuplicateIdError } from '../../common/persistence/mongoose-data-store
 import { getPersistedModelOptions } from '../../common/persistence/persisted-model.decorator.js';
 import { getStoreToken } from '../../common/persistence/persistence.tokens.js';
 import { isSyncId, VersionConflictError } from '../../common/persistence/policies/sync.policy.js';
+import { resolveTenantScope } from '../../common/persistence/policies/tenant.policy.js';
 import { DuplicateKeyError, QueryCastError, UnsupportedQueryError } from '../../common/persistence/sql/sql-errors.js';
 import {
   getSyncAccessListener,
@@ -344,18 +345,23 @@ export class CoreSyncService implements OnApplicationBootstrap, OnModuleDestroy,
     const runStart = state?.runStart ?? clock.now;
     const since = state ? state.since : runStart;
     const position = state?.position ?? initialPosition(registration.order);
-    const records = await this.readChanges(registration, position, limit + 1, currentUser);
+    const rows = await this.readPositions(registration, position, limit + 1);
 
-    const page = records.slice(0, limit);
-    const system = await this.readSystemFields(registration, page.map(recordId));
+    const page = rows.slice(0, limit);
+    const contents = await this.readContents(
+      registration,
+      page.map((row) => String(row.id)),
+      currentUser,
+    );
     const maxBytes = positiveNumber(this.config.pull?.maxBytes, SYNC_DEFAULTS.maxBytes);
     const items: ISyncRecord[] = [];
     let bytes = 2;
     let consumed = 0;
     let last = position;
-    for (const record of page) {
-      const raw = system.get(recordId(record));
-      const item = raw ? this.toSyncRecord(registration, record, raw, currentUser) : undefined;
+    for (const raw of page) {
+      const record = contents.get(String(raw.id));
+      // Not in the content read: hidden from the caller (roles, securityCheck), or removed in between
+      const item = record ? this.toSyncRecord(registration, record, raw, currentUser) : undefined;
       if (item) {
         const size = Buffer.byteLength(JSON.stringify(item)) + 1;
         if (items.length && bytes + size > maxBytes) {
@@ -365,12 +371,9 @@ export class CoreSyncService implements OnApplicationBootstrap, OnModuleDestroy,
         bytes += size;
       }
       consumed++;
-      if (raw) {
-        // A record removed between the two reads has no position; the next page simply does not meet it again
-        last = this.positionOf(registration, raw);
-      }
+      last = this.positionOf(registration, raw);
     }
-    const hasMore = consumed < records.length;
+    const hasMore = consumed < rows.length;
     const next: Omit<SyncCursorState, 'epochs' | 'fingerprint' | 'model' | 'user'> = hasMore
       ? { position: last, runStart, since }
       : // The run ended: the next one starts from here (SQL), or from W below this run's start (clock, plan §3.4)
@@ -437,32 +440,89 @@ export class CoreSyncService implements OnApplicationBootstrap, OnModuleDestroy,
     return { now: clock.now.getTime(), windowMs };
   }
 
-  /** The next records after `position` in change order, tombstones included, through the model's CrudService */
-  protected async readChanges(
+  /**
+   * The next records after `position` in change order, tombstones included — their system fields only (id, version,
+   * deletion, update time, change position, tenant), read through the store: the same tenant policy and row-level
+   * security as every read. This read decides the page and the cursor; the content follows in a second read
+   * (`readContents()`). In that order a version or position is never newer than the content it labels — a record changed
+   * between the two reads is labelled with its older version and comes again at its new position, where reading the
+   * positions second let the cursor jump past the records after it.
+   *
+   * Without `X-Tenant-Id` a tenant-scoped model is read once per tenant of the caller, with the tenant as an equality,
+   * and the pages are merged by position: the change-order index is led by the tenant, and only an equality lets it
+   * deliver the order — a membership list (`tenantId IN (…)`) leaves every page to read and sort the whole remaining
+   * scope on PostgreSQL, MySQL and MariaDB.
+   */
+  protected async readPositions(
     registration: SyncModelRegistration,
     position: SyncCursorPosition,
     count: number,
-    currentUser: any,
   ): Promise<any[]> {
-    let filterQuery: Record<string, unknown>;
+    let where: Record<string, unknown>;
     let sort: Record<string, 1>;
     if ('seq' in position) {
-      filterQuery = { [SYNC_SEQUENCE_FIELD]: { $gt: position.seq } };
+      where = { [SYNC_SEQUENCE_FIELD]: { $gt: position.seq } };
       sort = { [SYNC_SEQUENCE_FIELD]: 1 };
     } else {
       const at = new Date(position.at);
-      filterQuery = position.id
-        ? { $or: [{ [SYNC_CLOCK_FIELD]: { $gt: at } }, { _id: { $gt: position.id }, [SYNC_CLOCK_FIELD]: at }] }
+      where = position.id
+        ? { $or: [{ [SYNC_CLOCK_FIELD]: { $gt: at } }, { id: { $gt: position.id }, [SYNC_CLOCK_FIELD]: at }] }
         : { [SYNC_CLOCK_FIELD]: { $gte: at } };
-      sort = { [SYNC_CLOCK_FIELD]: 1, _id: 1 };
+      sort = { [SYNC_CLOCK_FIELD]: 1, id: 1 };
+    }
+    const options = { includeTombstones: true, limit: count, select: this.systemFields(registration), sort };
+    const scope = registration.tenantScoped ? resolveTenantScope() : undefined;
+    const tenants = scope?.kind === 'tenants' ? [...new Set(scope.tenantIds.map(String))] : [];
+    if (!tenants.length) {
+      return this.storeCall(() => registration.store.find(where, options));
+    }
+    const pages = await Promise.all(
+      tenants.map((tenantId) => this.storeCall(() => registration.store.find({ ...where, tenantId }, options))),
+    );
+    return pages
+      .flat()
+      .sort((a, b) => this.comparePositions(registration, a, b))
+      .slice(0, count);
+  }
+
+  /** The change order of two records' system fields: the sequence, or the server stamp and then the id */
+  protected comparePositions(registration: SyncModelRegistration, a: any, b: any): number {
+    if (registration.order === 'seq') {
+      return Number(a?.[SYNC_SEQUENCE_FIELD]) - Number(b?.[SYNC_SEQUENCE_FIELD]);
+    }
+    const at = new Date(a?.[SYNC_CLOCK_FIELD]).getTime() - new Date(b?.[SYNC_CLOCK_FIELD]).getTime();
+    if (at) {
+      return at;
+    }
+    // ObjectId hex and canonical UUID strings sort like their bytes, as MongoDB sorts `_id`
+    const left = String(a?.id);
+    const right = String(b?.id);
+    return left < right ? -1 : left > right ? 1 : 0;
+  }
+
+  /**
+   * The content of the given records as the caller may see it, through the model's CrudService with the pull roles
+   * (`process()`, field restrictions, tenant policy, RLS); keyed by id. A record the caller may not see is not in it.
+   */
+  protected async readContents(
+    registration: SyncModelRegistration,
+    ids: string[],
+    currentUser: any,
+  ): Promise<Map<string, any>> {
+    const result = new Map<string, any>();
+    if (!ids.length) {
+      return result;
     }
     const records = await this.storeCall(() =>
       registration.service.find(
-        { filterQuery, queryOptions: { limit: count, sort } },
+        { filterQuery: { _id: { $in: ids } } },
         { currentUser, includeTombstones: true, roles: [...registration.roles.pull] },
       ),
     );
-    return Array.isArray(records) ? records : [];
+    for (const record of Array.isArray(records) ? records : []) {
+      result.set(String(recordId(record)), record);
+    }
+    return result;
   }
 
   /**
@@ -476,20 +536,27 @@ export class CoreSyncService implements OnApplicationBootstrap, OnModuleDestroy,
     if (!ids.length) {
       return result;
     }
-    const fields = getModelDescriptor(registration.name)?.fields ?? {};
-    const select = [
-      'deletedAt',
-      'version',
-      registration.order === 'seq' ? SYNC_SEQUENCE_FIELD : SYNC_CLOCK_FIELD,
-      ...['tenantId', 'updatedAt'].filter((field) => field in fields),
-    ];
     const rows = await this.storeCall(() =>
-      registration.store.find({ id: { $in: ids } }, { includeTombstones: true, select }),
+      registration.store.find(
+        { id: { $in: ids } },
+        { includeTombstones: true, select: this.systemFields(registration) },
+      ),
     );
     for (const row of rows) {
       result.set(String(row.id), row);
     }
     return result;
+  }
+
+  /** The system fields a sync record is built from; the id is always returned */
+  protected systemFields(registration: SyncModelRegistration): string[] {
+    const fields = getModelDescriptor(registration.name)?.fields ?? {};
+    return [
+      'deletedAt',
+      'version',
+      registration.order === 'seq' ? SYNC_SEQUENCE_FIELD : SYNC_CLOCK_FIELD,
+      ...['tenantId', 'updatedAt'].filter((field) => field in fields),
+    ];
   }
 
   /** Where a record sits in the change order (from its system fields, which `securityCheck()` cannot clear) */
@@ -750,6 +817,12 @@ export class CoreSyncService implements OnApplicationBootstrap, OnModuleDestroy,
     } catch (error) {
       return this.writeFailure(registration, item, error, currentUser);
     }
+    if (registration.tenantScoped && resolveTenantScope().kind === 'tenants') {
+      // A create needs the one tenant it is created in (`X-Tenant-Id`). With the caller's membership list nothing can
+      // stamp it: MongoDB would store the record without a tenant, invisible to everyone after, and SQL refuses it
+      // (row-level security, the row check) — answered alike on every database
+      return reply(item, 'rejected', { code: 'FORBIDDEN' });
+    }
     try {
       await registration.service.create(input as any, {
         createId: item.id,
@@ -993,20 +1066,35 @@ export class CoreSyncService implements OnApplicationBootstrap, OnModuleDestroy,
   }
 
   /**
-   * The record as the caller may see it now — tombstones included — or `undefined`: missing, in another tenant, or
-   * hidden by `securityCheck()` all look alike
+   * The record as the caller may see it now — tombstones included — or `undefined`: missing, in another tenant, without
+   * the model's pull roles, or hidden by `securityCheck()` all look alike
    */
   protected async findVisible(
     registration: SyncModelRegistration,
     id: string,
     currentUser: any,
   ): Promise<ISyncRecord | undefined> {
+    // The system fields first, the content second, as in a pull: a version is never newer than the content it labels,
+    // so a client resolving a conflict against this record cannot silently overwrite a change it was not shown
+    const [raw] = (await this.readSystemFields(registration, [id])).values();
+    if (!raw) {
+      return undefined;
+    }
     try {
-      const record = await registration.service.get(id, { currentUser, includeTombstones: true });
-      const system = await this.readSystemFields(registration, [recordId(record) || id]);
-      return this.toSyncRecord(registration, record, system.get(recordId(record) || id), currentUser);
+      // With the pull roles: a push answers with a record only to a caller who may pull it (protocol §1.3)
+      const record = await registration.service.get(String(raw.id), {
+        currentUser,
+        includeTombstones: true,
+        roles: [...registration.roles.pull],
+      });
+      return this.toSyncRecord(registration, record, raw, currentUser);
     } catch (error) {
-      if (error instanceof NotFoundException) {
+      // Not there, or not the caller's to see: answered exactly like an unknown id
+      if (
+        error instanceof NotFoundException ||
+        error instanceof ForbiddenException ||
+        error instanceof UnauthorizedException
+      ) {
         return undefined;
       }
       throw error;

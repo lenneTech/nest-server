@@ -71,7 +71,10 @@ The model must be registered with `CorePersistenceModule.forFeature()`.
 | Session expired                 | 401 for the whole request before any item; the client resends the same items, mutation ids recognise them                                                                                                   |
 
 A pull or push without `X-Tenant-Id` spans every tenant the caller belongs to (the tenant guard's membership logic);
-writes to a tenant-scoped model need the header, as everywhere.
+writes to a tenant-scoped model need the header, as everywhere — a create without it is `rejected` / `FORBIDDEN` on
+every database, because nothing could tell which of the caller's tenants the record belongs to. A pull without it reads
+each of the caller's tenants on its own and merges them in change order, so the tenant-led change index serves every
+page.
 
 ## Idempotency and repeats
 
