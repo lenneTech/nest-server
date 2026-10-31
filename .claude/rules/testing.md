@@ -34,7 +34,7 @@ mis-named suite fails the build instead of silently passing. Type-only tests
 
 ## Infrastructure containers (Redis + S3 + PostgreSQL + MySQL + MariaDB + MongoDB replica set)
 
-**Twenty-one** e2e suites talk to a **real** Redis, a **real** S3-compatible store and/or a **real**
+**Twenty-two** e2e suites talk to a **real** Redis, a **real** S3-compatible store and/or a **real**
 PostgreSQL, MySQL, MariaDB or MongoDB replica set rather than a mock, and they **fail loudly** when it is missing — a silently skipped
 infrastructure test is how an untested driver ships:
 
@@ -61,13 +61,14 @@ infrastructure test is how an untested driver ships:
 | `tests/persistence-mysql-schema.e2e-spec.ts` | MySQL + MariaDB |
 | `tests/persistence-mysql-wiring.e2e-spec.ts` | MySQL + MariaDB |
 | `tests/sync-contract.e2e-spec.ts` | PostgreSQL + MySQL + MariaDB + MongoDB replica set (and MongoDB) |
+| `tests/sync-clock-skew.e2e-spec.ts` | PostgreSQL + MySQL + MongoDB replica set (and MongoDB) |
 
-Beyond these twenty-one, the `postgres` vitest project runs the whole e2e suite once more on PostgreSQL (see "Behaviour
+Beyond these twenty-two, the `postgres` vitest project runs the whole e2e suite once more on PostgreSQL (see "Behaviour
 matrices" below), so without the PostgreSQL container that project fails as a whole while `e2e` runs.
 
 `tests/global-setup.ts` starts all six containers automatically, so `pnpm test` works from a clean
 machine with no manual docker command. It is idempotent (a running container is reused) and never
-fatal: without Docker every other suite still runs, and the twenty-one above report their own actionable
+fatal: without Docker every other suite still runs, and the twenty-two above report their own actionable
 error.
 
 ```bash
@@ -328,6 +329,25 @@ each side with its own case; the migration helper is IMPOSSIBLE on the two Mongo
 structural guard is `tests/unit/sync-contract-matrix.spec.ts`; the reference model it runs on is
 `src/server/modules/sync-note/`. Hints across replicas need a second application on one Redis and live in
 `tests/multi-replica.e2e-spec.ts`.
+
+**Offline sync end to end (DEV-3903).** Three suites prove the protocol from the client's side, all on the reference
+server (`tests/helpers/sync-test-app.ts`, which the contract matrix boots too):
+
+| Suite | What | Needs |
+|-------|------|-------|
+| `tests/sync-pwa-client.e2e-spec.ts` | The PWA test client (`tests/clients/pwa/`, IndexedDB, service worker) in Chrome, served by the test server, offline via Playwright | an installed Chrome (`playwright-core` downloads none; GitHub's Ubuntu runners ship one; `SYNC_PWA_CHROME` names another executable) |
+| `tests/sync-node-client.e2e-spec.ts` | The same client on SQLite (`node:sqlite`), bearer session token | nothing extra |
+| `tests/sync-clock-skew.e2e-spec.ts` | Two server PROCESSES with clocks 5 s ahead and behind, parallel writers on both, readers switching instances: no change lost | the containers above |
+
+The two client suites share one protocol implementation (`tests/clients/sync-client.mjs`) and one scenario list
+(`tests/helpers/sync-client-scenarios.ts`); `tests/unit/sync-client-scenarios.spec.ts` fails when a suite misses a
+scenario, and `tests/unit/sync-client.spec.ts` checks the client against an in-memory server, so a client bug does not
+cost an e2e run. Both run on MongoDB (`e2e`) and PostgreSQL (`postgres`) like every suite. The clock-skew suite starts
+its servers through the framework's SWC loader (`tests/helpers/sync-server.process.ts`, relative imports with `.js`)
+with `tests/helpers/skewed-clock.mjs` preloaded, because two Nest applications in one process share the persistence
+registry; it brings its own databases and is excluded from the `postgres` project. The skewed `Date` keeps the name
+`Date` and `prototype.constructor`: Mongoose resolves a schema type by the constructor's name, and `@UnifiedField`
+tells a class from a type factory by `prototype.constructor` — without both the server does not boot.
 
 ### A cell is EXECUTED, IMPOSSIBLE, or DIFFERENT-BY-DESIGN — never merely absent
 
