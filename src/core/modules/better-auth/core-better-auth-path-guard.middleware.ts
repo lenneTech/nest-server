@@ -5,7 +5,8 @@ import { ErrorCode } from '../error-code/error-codes.js';
 
 /**
  * Whether a raw request path contains something URL resolution rewrites: a `.` or `..` segment (also
- * percent-encoded), a backslash (a segment separator for WHATWG URLs), or an encoded slash or backslash.
+ * percent-encoded), a backslash (a segment separator for WHATWG URLs), an encoded slash or backslash, or a `#`
+ * (Express routes the part before it, the forwarding to Better-Auth reads the whole string).
  *
  * Every check in front of Better-Auth (rate limiter, controller routes, password routes) reads the RAW path, while
  * Better-Auth routes the path `new URL()` resolved. A path the two read differently passes those checks as one route
@@ -15,7 +16,7 @@ import { ErrorCode } from '../error-code/error-codes.js';
  * long as Node's header limit allows.
  */
 export function hasNonCanonicalPathSegments(path: string): boolean {
-  if (path.includes('\\')) {
+  if (path.includes('\\') || path.includes('#')) {
     return true;
   }
   for (const segment of path.split('/')) {

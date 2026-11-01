@@ -489,7 +489,9 @@ The same mismatch reached past the open-api routes: the rate limiter skipped `/c
 callback (its skip list matched the raw path) while Better-Auth ran it as a sign-in — no counter on sign-in at all.
 `CoreBetterAuthPathGuardMiddleware` (`core-better-auth-path-guard.middleware.ts`) is therefore the FIRST middleware
 under the base path, registered unconditionally in `CoreBetterAuthModule.configure()`, and refuses with 400
-(`#LTNS_0305`) any path with a `.` / `..` segment (also `%2e`-encoded), a backslash, or an encoded `/` or `\`. No
+(`#LTNS_0305`) any path with a `.` / `..` segment (also `%2e`-encoded), a backslash, an encoded `/` or `\`, or a `#`
+(Express routes the part before it, the forwarding to Better-Auth reads the whole string, so `sign-in/email#x` skipped
+the controller and its e-mail verification check). No
 route under the base path needs any of them. Behind it, the limiter still decides on `canonicalRequestPath()` and
 matches its lists by whole segments (`pathContainsSegments()`), so it stays correct where the guard is not
 registered.
@@ -499,10 +501,13 @@ registered.
 | A new check on the request path under the base path reads it AFTER the guard, never instead of it | the guard is what makes "the path as sent" and "the path Better-Auth routes" the same string |
 | Do not widen the guard into a deny-list of routes | it refuses a SHAPE no route has; a route list is the §9 trap again |
 | Match route lists by whole segments, not `includes()` | `includes('/session')` also matched `/sessions-export` |
+| A middleware under the base path reads `req.originalUrl`, never `req.path` | Nest mounts it on `${basePath}/*path`, and Express moves the whole match into `req.baseUrl`: `req.path` is "/" there. The rate-limit middleware read it until 12.2.x, so every IAM request of a client shared one counter with the full limit and neither the skip list nor the strict sign-in limit applied over HTTP |
+| Lower-case before comparing or keying | Express routes case-insensitively: `/sign-in/EMAIL` is the same sign-in and must share its counter |
 
 Pinned by `tests/unit/better-auth-path-guard.spec.ts` (mutations `iam-path-guard-dot-segments-allowed`,
-`iam-rate-limit-reads-raw-path`) and the raw-request cases in `tests/better-auth-openapi.e2e-spec.ts` (mutation
-`iam-path-guard-not-registered`).
+`iam-rate-limit-reads-raw-path`, `iam-rate-limit-case-sensitive`, `iam-rate-limit-middleware-reads-req-path`) and the
+raw-request cases in `tests/better-auth-openapi.e2e-spec.ts` (mutations `iam-path-guard-not-registered`,
+`iam-http-rate-limit-reads-req-path`), which also check the limit headers over HTTP.
 
 ## 10. Direct `api.*` calls must hand Better-Auth the request — or its CSRF protection does not run
 

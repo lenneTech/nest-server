@@ -150,10 +150,12 @@ export class CoreBetterAuthRateLimiter {
       };
     }
 
-    // Decide on the path Better-Auth will route, not the one as sent: `/callback/../sign-in/email` reaches the
-    // sign-in handler, so it must not be skipped as a callback (CoreBetterAuthPathGuardMiddleware refuses such
-    // paths before they get here; this keeps the limiter correct where that guard is not registered)
-    const path = canonicalRequestPath(requestPath);
+    // Decide on the path the request is served under, not the one as sent: `/callback/../sign-in/email` reaches the
+    // sign-in handler, so it must not be skipped as a callback (CoreBetterAuthPathGuardMiddleware refuses such paths
+    // before they get here; this keeps the limiter correct where that guard is not registered). Lower-cased because
+    // Express routes case-insensitively: `/sign-in/EMAIL` is the same sign-in and must share its counter and its
+    // strict limit
+    const path = canonicalRequestPath(requestPath).toLowerCase();
 
     // Check if this endpoint should skip rate limiting
     if (this.shouldSkip(path)) {
@@ -259,7 +261,7 @@ export class CoreBetterAuthRateLimiter {
    * `/session` but not `/sessions-export`
    */
   private shouldSkip(path: string): boolean {
-    return this.config.skipEndpoints.some((skip) => pathContainsSegments(path, skip));
+    return this.config.skipEndpoints.some((skip) => pathContainsSegments(path, skip.toLowerCase()));
   }
 
   /**
@@ -267,7 +269,7 @@ export class CoreBetterAuthRateLimiter {
    * Strict endpoints get half the normal limit
    */
   private getLimit(path: string): number {
-    const isStrict = this.config.strictEndpoints.some((strict) => pathContainsSegments(path, strict));
+    const isStrict = this.config.strictEndpoints.some((strict) => pathContainsSegments(path, strict.toLowerCase()));
 
     return isStrict ? Math.ceil(this.config.max / 2) : this.config.max;
   }

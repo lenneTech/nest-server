@@ -5427,8 +5427,8 @@
       "id": "iam-rate-limit-reads-raw-path",
       "defect": "12.2.x — CoreBetterAuthRateLimiter matched its skip list against the raw path, so /callback/../sign-in/email was skipped as a callback while Better-Auth ran it as a sign-in: sign-in attempts were not counted where the path guard is not registered.",
       "file": "src/core/modules/better-auth/core-better-auth-rate-limiter.service.ts",
-      "find": "    const path = canonicalRequestPath(requestPath);\n",
-      "replace": "    const path = requestPath;\n",
+      "find": "    const path = canonicalRequestPath(requestPath).toLowerCase();\n",
+      "replace": "    const path = requestPath.toLowerCase();\n",
       "specs": [
         "tests/unit/better-auth-path-guard.spec.ts"
       ],
@@ -5440,6 +5440,39 @@
       "file": "src/core/modules/better-auth/core-better-auth.module.ts",
       "find": "      consumer.apply(CoreBetterAuthPathGuardMiddleware).forRoutes(`${basePath}/*path`);\n",
       "replace": "",
+      "specs": [
+        "tests/better-auth-openapi.e2e-spec.ts"
+      ],
+      "driverSpecific": false
+    },
+    {
+      "id": "iam-rate-limit-case-sensitive",
+      "defect": "12.2.x — CoreBetterAuthRateLimiter compared and keyed on the path as typed while Express routes case-insensitively: every case variant of /sign-in/email reached the same sign-in with its own counter and the full instead of the strict limit.",
+      "file": "src/core/modules/better-auth/core-better-auth-rate-limiter.service.ts",
+      "find": "    const path = canonicalRequestPath(requestPath).toLowerCase();\n",
+      "replace": "    const path = canonicalRequestPath(requestPath);\n",
+      "specs": [
+        "tests/unit/better-auth-path-guard.spec.ts"
+      ],
+      "driverSpecific": false
+    },
+    {
+      "id": "iam-rate-limit-middleware-reads-req-path",
+      "defect": "12.2.x — CoreBetterAuthRateLimitMiddleware read req.path, which is \"/\" for a middleware Nest mounts on ${basePath}/*path (Express moves the match into req.baseUrl): every IAM request of a client shared one counter with the full limit, so neither the skip list nor the strict limit for sign-in ever applied over HTTP.",
+      "file": "src/core/modules/better-auth/core-better-auth-rate-limit.middleware.ts",
+      "find": "    const requestPath = (req.originalUrl || req.url || '').split('?')[0];\n",
+      "replace": "    const requestPath = req.path;\n",
+      "specs": [
+        "tests/unit/better-auth-path-guard.spec.ts"
+      ],
+      "driverSpecific": false
+    },
+    {
+      "id": "iam-http-rate-limit-reads-req-path",
+      "defect": "12.2.x — CoreBetterAuthRateLimitMiddleware read req.path, which is \"/\" for a middleware Nest mounts on ${basePath}/*path (Express moves the match into req.baseUrl): every IAM request of a client shared one counter with the full limit, so neither the skip list nor the strict limit for sign-in ever applied over HTTP.",
+      "file": "src/core/modules/better-auth/core-better-auth-rate-limit.middleware.ts",
+      "find": "    const requestPath = (req.originalUrl || req.url || '').split('?')[0];\n",
+      "replace": "    const requestPath = req.path;\n",
       "specs": [
         "tests/better-auth-openapi.e2e-spec.ts"
       ],

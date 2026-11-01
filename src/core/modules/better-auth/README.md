@@ -2205,9 +2205,9 @@ These endpoints bypass rate limiting entirely:
 - `/session` - Session checks (frequent client-side calls)
 - `/callback` - OAuth callbacks
 
-Entries match whole path segments of the path Better-Auth routes (dot segments resolved): `/sign-in` covers
+Entries match whole path segments of the path the request is served under (dot segments resolved, case-insensitive, as Express routes): `/sign-in` covers
 `/sign-in/email`, `/session` does not cover `/sessions-export`. A request whose path under the base path carries a
-`.` or `..` segment (also `%2e`-encoded), a backslash, or an encoded `/` or `\` is refused with 400
+`.` or `..` segment (also `%2e`-encoded), a backslash, an encoded `/` or `\`, or a `#` is refused with 400
 (`#LTNS_0305: Invalid request path`) before the limiter runs — no route needs such a path, and the limiter and
 Better-Auth would otherwise read it as two different routes.
 

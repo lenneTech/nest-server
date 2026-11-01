@@ -24,12 +24,15 @@ describe('Better-Auth routes in the Swagger document', () => {
   let port: number;
 
   /** A request with its path exactly as given: supertest and fetch remove dot segments before sending. */
-  function raw(path: string, method = 'GET'): Promise<{ body: string; status: number }> {
+  function raw(
+    path: string,
+    method = 'GET',
+  ): Promise<{ body: string; headers: http.IncomingHttpHeaders; status: number }> {
     return new Promise((resolve, reject) => {
       const req = http.request({ host: '127.0.0.1', method, path, port }, (res) => {
         let body = '';
         res.on('data', (chunk) => (body += chunk));
-        res.on('end', () => resolve({ body, status: res.statusCode ?? 0 }));
+        res.on('end', () => resolve({ body, headers: res.headers, status: res.statusCode ?? 0 }));
       });
       req.on('error', reject);
       req.end();
@@ -80,7 +83,7 @@ describe('Better-Auth routes in the Swagger document', () => {
     const response = await raw(path);
     // 404 from the router; a dot-segment spelling is refused before it by the path guard (400). Both layers hold on
     // their own — the guard is not what keeps the plugin off the router
-    expect(path.includes('.') ? [400, 404] : [404]).toContain(response.status);
+    expect(/\.|%2e/i.test(path) ? [400, 404] : [404]).toContain(response.status);
     expect(response.body).not.toContain('openapi');
   });
 
@@ -103,10 +106,27 @@ describe('Better-Auth routes in the Swagger document', () => {
     '/iam/session/%2E%2E/sign-in/email',
     '/iam/./sign-in/email',
     '/iam/callback%2f..%2fsign-in/email',
+    '/iam/sign-in/email#x',
   ])('refuses a non-canonical path under the base path before anything reads it: %s', async (path) => {
     const response = await raw(path, 'POST');
     expect(response.status).toBe(400);
     expect(response.body).toContain('LTNS_0305');
+  });
+
+  /**
+   * @regression   12.2.x — the rate-limit middleware read `req.path`, which is "/" under Nest's `${basePath}/*path`
+   *   mount: every IAM request shared one counter, the strict sign-in limit and the skip list never applied over HTTP.
+   * @seen-failing Read `req.path` again in CoreBetterAuthRateLimitMiddleware.use()
+   *   (src/core/modules/better-auth/core-better-auth-rate-limit.middleware.ts) — registered as mutation
+   *   `iam-http-rate-limit-reads-req-path` in tests/regression-mutations.json.
+   */
+  it('applies the strict limit to sign-in and skips the session route over HTTP', async () => {
+    const other = (await raw('/iam/ok')).headers['x-ratelimit-limit'];
+    expect(Number(other)).toBeGreaterThan(0);
+    expect((await raw('/iam/sign-in/email', 'POST')).headers['x-ratelimit-limit']).toBe(
+      String(Math.ceil(Number(other) / 2)),
+    );
+    expect((await raw('/iam/session')).headers['x-ratelimit-limit']).toBe('Infinity');
   });
 
   it('leaves the canonical sign-in path alone', async () => {

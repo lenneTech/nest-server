@@ -350,7 +350,7 @@ All error codes follow the format: `#PREFIX_XXXX: Description`
 
 **Message:** Invalid request path
 
-**Description:** Answered with HTTP 400 when a request under the Better-Auth base path (`/iam` by default) carries a path segment `.` or `..` (also percent-encoded as `%2e`), a backslash, or an encoded `/` or `\` (`%2f`, `%5c`). No route there uses such a path, and the checks in front of Better-Auth would read it as a different route than Better-Auth itself.
+**Description:** Answered with HTTP 400 when a request under the Better-Auth base path (`/iam` by default) carries a path segment `.` or `..` (also percent-encoded as `%2e`), a backslash, an encoded `/` or `\` (`%2f`, `%5c`), or a `#`. No route there uses such a path, and the checks in front of Better-Auth would read it as a different route than Better-Auth itself.
 
 **Solution:** Send the path in its canonical form. Browsers and HTTP clients do that on their own; the error points at a client that builds paths by hand or sends them unnormalized on purpose.
 
