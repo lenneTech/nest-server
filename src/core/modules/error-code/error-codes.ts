@@ -493,6 +493,15 @@ export const LtnsErrors = {
     },
   },
 
+  INVALID_REQUEST_PATH: {
+    code: 'LTNS_0305',
+    message: 'Invalid request path',
+    translations: {
+      de: 'Der Anfragepfad ist ungültig.',
+      en: 'The request path is invalid.',
+    },
+  },
+
   /**
    * An object arrived where the route declares a string, number or boolean (`@Body('token') token: string`) — the
    * shape a MongoDB operator takes (`{ "$ne": null }`). Answered by `MapAndValidatePipe` (11.44.0 / 12.8.0, DEV-4144).
