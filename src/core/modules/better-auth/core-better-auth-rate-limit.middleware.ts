@@ -50,9 +50,12 @@ export class CoreBetterAuthRateLimitMiddleware implements NestMiddleware {
     // Get client IP
     const ip = this.getClientIp(req);
 
-    // Get the path relative to basePath
+    // The path relative to basePath, read from `originalUrl`: Nest mounts this middleware on `${basePath}/*path`, and
+    // Express moves the whole match into `req.baseUrl`, so `req.path` is "/" for every request here. Reading it made
+    // every IAM request of one client share a single counter with the full limit — no skip list, no strict limit
     const basePath = this.betterAuthService.getBasePath();
-    const path = req.path.startsWith(basePath) ? req.path.substring(basePath.length) : req.path;
+    const requestPath = (req.originalUrl || req.url || '').split('?')[0];
+    const path = requestPath.startsWith(basePath) ? requestPath.substring(basePath.length) : requestPath;
 
     // Check rate limit
     const result = await this.rateLimiter.check(ip, path);

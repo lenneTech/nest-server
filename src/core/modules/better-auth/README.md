@@ -2205,6 +2205,12 @@ These endpoints bypass rate limiting entirely:
 - `/session` - Session checks (frequent client-side calls)
 - `/callback` - OAuth callbacks
 
+Entries match whole path segments of the path the request is served under (dot segments resolved, case-insensitive, as Express routes): `/sign-in` covers
+`/sign-in/email`, `/session` does not cover `/sessions-export`. A request whose path under the base path carries a
+`.` or `..` segment (also `%2e`-encoded), a backslash, an encoded `/` or `\`, or a `#` is refused with 400
+(`#LTNS_0305: Invalid request path`) before the limiter runs — no route needs such a path, and the limiter and
+Better-Auth would otherwise read it as two different routes.
+
 ### Response Headers
 
 When rate limiting is enabled, the following headers are added to responses:

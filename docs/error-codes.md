@@ -346,6 +346,20 @@ All error codes follow the format: `#PREFIX_XXXX: Description`
 - DE: Die gesendeten Daten sind zu groß und wurden nicht verarbeitet.
 - EN: The submitted data is too large and was not processed.
 
+### LTNS_0305: invalidRequestPath
+
+**Message:** Invalid request path
+
+**Description:** Answered with HTTP 400 when a request under the Better-Auth base path (`/iam` by default) carries a path segment `.` or `..` (also percent-encoded as `%2e`), a backslash, an encoded `/` or `\` (`%2f`, `%5c`), or a `#`. No route there uses such a path, and the checks in front of Better-Auth would read it as a different route than Better-Auth itself.
+
+**Solution:** Send the path in its canonical form. Browsers and HTTP clients do that on their own; the error points at a client that builds paths by hand or sends them unnormalized on purpose.
+
+**Parameters:** none
+
+**Translations:**
+- DE: Der Anfragepfad ist ungültig.
+- EN: The request path is invalid.
+
 ---
 
 ## Resource Errors (LTNS_0400-LTNS_0499)
