@@ -119,3 +119,7 @@ permissions.md
 # Throwaway SWC build used by check:swc-tdz (kept only on failure, for inspecting the emit)
 dist-swc-tdz
 .lt-dev/
+
+# Review agents' notes stay on the developer's machine: this repository is public, and the notes
+# record findings and internals that do not belong in it (decided 2026-11-01)
+.claude/agent-memory/
