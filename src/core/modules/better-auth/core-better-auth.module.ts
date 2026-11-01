@@ -39,6 +39,7 @@ import { DefaultBetterAuthResolver } from './better-auth.resolver.js';
 import { CoreBetterAuthApiMiddleware } from './core-better-auth-api.middleware.js';
 import { CoreBetterAuthChallengeService } from './core-better-auth-challenge.service.js';
 import { CoreBetterAuthEmailVerificationService } from './core-better-auth-email-verification.service.js';
+import { CoreBetterAuthPathGuardMiddleware } from './core-better-auth-path-guard.middleware.js';
 import { CoreBetterAuthRateLimitMiddleware } from './core-better-auth-rate-limit.middleware.js';
 import { CoreBetterAuthRateLimiter } from './core-better-auth-rate-limiter.service.js';
 import { revokeApiTokensOfUser } from '../api-token/core-api-token.registry.js';
@@ -431,8 +432,10 @@ export class CoreBetterAuthModule implements NestModule, OnModuleInit {
    * 1. CoreBetterAuthMiddleware - Session validation and user mapping for all routes
    *    Must run FIRST so that req.betterAuthSession is available for downstream middleware.
    *    In JWT mode, this resolves the JWT to a real DB session (via getActiveSessionForUser).
-   * 2. CoreBetterAuthRateLimitMiddleware - Rate limiting for auth endpoints
-   * 3. CoreBetterAuthApiMiddleware - Forwards plugin endpoints (passkey, 2FA, etc.) to Better Auth's native handler
+   * 2. CoreBetterAuthPathGuardMiddleware - Refuses a non-canonical path under the base path (400), before
+   *    anything below reads it
+   * 3. CoreBetterAuthRateLimitMiddleware - Rate limiting for auth endpoints
+   * 4. CoreBetterAuthApiMiddleware - Forwards plugin endpoints (passkey, 2FA, etc.) to Better Auth's native handler
    *    Runs AFTER session middleware so it can use req.betterAuthSession.session.token
    *    to authenticate requests in JWT mode.
    */
@@ -452,6 +455,13 @@ export class CoreBetterAuthModule implements NestModule, OnModuleInit {
       // `(.*)` only worked because Nest's LegacyRouteConverter rewrites it to exactly this.
       consumer.apply(CoreBetterAuthMiddleware).forRoutes('{*path}');
       CoreBetterAuthModule.logger.debug('CoreBetterAuthMiddleware registered for all routes');
+
+      // Refuse a non-canonical path (`.` / `..` segments, also encoded, backslashes, encoded slashes) before anything
+      // under the base path reads it: every check below reads the path as SENT, while Better-Auth routes the one
+      // `new URL()` resolved — `/callback/../sign-in/email` would pass the rate limiter as a callback and run as a
+      // sign-in. Registered unconditionally and FIRST, so it guards the limiter, the controller routes and the
+      // forwarding alike.
+      consumer.apply(CoreBetterAuthPathGuardMiddleware).forRoutes(`${basePath}/*path`);
 
       // Apply rate limiting to Better-Auth endpoints only.
       // Mirrors the "presence implies enabled" contract `CoreBetterAuthRateLimiter.configure()`

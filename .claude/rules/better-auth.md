@@ -478,10 +478,31 @@ exports of `better-auth/plugins` but NOT in its runtime exports, verified on 1.7
 | What the controller handles | `CONTROLLER_HANDLED_PATHS` (same file) | the middleware and the Swagger helper read the same list — an explicit route always wins over a generated one |
 
 Pinned by `tests/better-auth-openapi.e2e-spec.ts` (404 against the assembled `ServerModule` for the
-canonical path AND six dot-segment spellings, sent raw with `http.request` because supertest and fetch
-normalise them away; mutation `openapi-plugin-routable` drops `serverOnlyPlugin()` and turns all seven
-red) and the "framework routes" cases in `tests/unit/swagger-helper.spec.ts`, which run against the
-REAL generator output rather than a fixture.
+canonical path, and 400 or 404 for six dot-segment spellings, sent raw with `http.request` because supertest
+and fetch normalise them away; mutation `openapi-plugin-routable` drops `serverOnlyPlugin()` and turns the
+canonical case red — the spellings are refused by the path guard below either way) and the "framework routes"
+cases in `tests/unit/swagger-helper.spec.ts`, which run against the REAL generator output rather than a fixture.
+
+### The path guard: the general answer to "the check reads a different path" (12.2.x)
+
+The same mismatch reached past the open-api routes: the rate limiter skipped `/callback/../sign-in/email` as a
+callback (its skip list matched the raw path) while Better-Auth ran it as a sign-in — no counter on sign-in at all.
+`CoreBetterAuthPathGuardMiddleware` (`core-better-auth-path-guard.middleware.ts`) is therefore the FIRST middleware
+under the base path, registered unconditionally in `CoreBetterAuthModule.configure()`, and refuses with 400
+(`#LTNS_0305`) any path with a `.` / `..` segment (also `%2e`-encoded), a backslash, or an encoded `/` or `\`. No
+route under the base path needs any of them. Behind it, the limiter still decides on `canonicalRequestPath()` and
+matches its lists by whole segments (`pathContainsSegments()`), so it stays correct where the guard is not
+registered.
+
+| Rule | Why |
+|---|---|
+| A new check on the request path under the base path reads it AFTER the guard, never instead of it | the guard is what makes "the path as sent" and "the path Better-Auth routes" the same string |
+| Do not widen the guard into a deny-list of routes | it refuses a SHAPE no route has; a route list is the §9 trap again |
+| Match route lists by whole segments, not `includes()` | `includes('/session')` also matched `/sessions-export` |
+
+Pinned by `tests/unit/better-auth-path-guard.spec.ts` (mutations `iam-path-guard-dot-segments-allowed`,
+`iam-rate-limit-reads-raw-path`) and the raw-request cases in `tests/better-auth-openapi.e2e-spec.ts` (mutation
+`iam-path-guard-not-registered`).
 
 ## 10. Direct `api.*` calls must hand Better-Auth the request — or its CSRF protection does not run
 
@@ -574,5 +595,6 @@ security rules on every database.
 | Session cookie | Always the opaque session token — never the body JWT (§7) |
 | `account` reads / writes | Reads filter on `providerId` alone, never `issuer`. Writes set `issuer` only on better-auth 1.7.0–1.7.2, via the helper (§8) |
 | `openAPI()` plugin | Registered internally for `setupSwagger()`, kept off the router (`SERVER_ONLY`) unless the project registered it — never by a path check (§9) |
+| Request path under the base path | `CoreBetterAuthPathGuardMiddleware` refuses a non-canonical path first; checks match whole segments of the canonical path (§9) |
 | Direct `api.*` calls | Hand Better-Auth the request (CSRF headers only) + `asResponse: false`, or its login-CSRF check is skipped (§10) |
 | SQL source | Better-Auth follows the users table; the framework reaches its data through `BetterAuthSqlStore`, ids stay strings (§11) |

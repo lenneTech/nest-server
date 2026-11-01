@@ -34,6 +34,7 @@ export * from './core-better-auth-email-verification.service.js';
 export * from './core-better-auth-error-codes.helper.js';
 export * from './core-better-auth-migration-status.model.js';
 export * from './core-better-auth-models.js';
+export * from './core-better-auth-path-guard.middleware.js';
 export * from './core-better-auth-rate-limit.middleware.js';
 export * from './core-better-auth-rate-limiter.service.js';
 export * from './core-better-auth-signup-validator.service.js';

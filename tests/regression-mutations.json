@@ -5411,6 +5411,39 @@
         "tests/unit/sync-module.spec.ts"
       ],
       "driverSpecific": false
+    },
+    {
+      "id": "iam-path-guard-dot-segments-allowed",
+      "defect": "12.2.x — the checks under the Better-Auth base path read the path as sent, while Better-Auth routes it after new URL() resolved dot segments: POST /iam/callback/../sign-in/email passed the rate limiter as a skipped callback and ran as a sign-in.",
+      "file": "src/core/modules/better-auth/core-better-auth-path-guard.middleware.ts",
+      "find": "    if (dots === '.' || dots === '..') {\n",
+      "replace": "    if (dots === '') {\n",
+      "specs": [
+        "tests/unit/better-auth-path-guard.spec.ts"
+      ],
+      "driverSpecific": false
+    },
+    {
+      "id": "iam-rate-limit-reads-raw-path",
+      "defect": "12.2.x — CoreBetterAuthRateLimiter matched its skip list against the raw path, so /callback/../sign-in/email was skipped as a callback while Better-Auth ran it as a sign-in: sign-in attempts were not counted where the path guard is not registered.",
+      "file": "src/core/modules/better-auth/core-better-auth-rate-limiter.service.ts",
+      "find": "    const path = canonicalRequestPath(requestPath);\n",
+      "replace": "    const path = requestPath;\n",
+      "specs": [
+        "tests/unit/better-auth-path-guard.spec.ts"
+      ],
+      "driverSpecific": false
+    },
+    {
+      "id": "iam-path-guard-not-registered",
+      "defect": "12.2.x — without the path guard first under the base path, a non-canonical path such as /iam/callback/../sign-in/email reaches the rate limiter and the forwarding to Better-Auth, which resolve it differently.",
+      "file": "src/core/modules/better-auth/core-better-auth.module.ts",
+      "find": "      consumer.apply(CoreBetterAuthPathGuardMiddleware).forRoutes(`${basePath}/*path`);\n",
+      "replace": "",
+      "specs": [
+        "tests/better-auth-openapi.e2e-spec.ts"
+      ],
+      "driverSpecific": false
     }
   ]
 }

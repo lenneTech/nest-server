@@ -494,6 +494,15 @@ export const LtnsErrors = {
     },
   },
 
+  INVALID_REQUEST_PATH: {
+    code: 'LTNS_0305',
+    message: 'Invalid request path',
+    translations: {
+      de: 'Der Anfragepfad ist ungültig.',
+      en: 'The request path is invalid.',
+    },
+  },
+
   // =====================================================
   // Resource Errors (LTNS_0400-LTNS_0499)
   // =====================================================

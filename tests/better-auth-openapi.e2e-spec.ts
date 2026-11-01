@@ -24,9 +24,9 @@ describe('Better-Auth routes in the Swagger document', () => {
   let port: number;
 
   /** A request with its path exactly as given: supertest and fetch remove dot segments before sending. */
-  function raw(path: string): Promise<{ body: string; status: number }> {
+  function raw(path: string, method = 'GET'): Promise<{ body: string; status: number }> {
     return new Promise((resolve, reject) => {
-      const req = http.request({ host: '127.0.0.1', method: 'GET', path, port }, (res) => {
+      const req = http.request({ host: '127.0.0.1', method, path, port }, (res) => {
         let body = '';
         res.on('data', (chunk) => (body += chunk));
         res.on('end', () => resolve({ body, status: res.statusCode ?? 0 }));
@@ -78,13 +78,40 @@ describe('Better-Auth routes in the Swagger document', () => {
     '/iam/session/%2e%2e/open-api/generate-schema',
   ])("keeps the openAPI() plugin's schema route off the router: %s", async (path) => {
     const response = await raw(path);
-    expect(response.status).toBe(404);
+    // 404 from the router; a dot-segment spelling is refused before it by the path guard (400). Both layers hold on
+    // their own — the guard is not what keeps the plugin off the router
+    expect(path.includes('.') ? [400, 404] : [404]).toContain(response.status);
     expect(response.body).not.toContain('openapi');
   });
 
   it("answers 404 for the openAPI() plugin's reference page", async () => {
     expect((await raw('/iam/reference')).status).toBe(404);
-    expect((await raw('/iam/./reference')).status).toBe(404);
+    expect([400, 404]).toContain((await raw('/iam/./reference')).status);
+  });
+
+  /**
+   * @regression   12.2.x — every check under the base path (rate limiter, controller routes, password routes) read the
+   *   path as SENT, while Better-Auth routes it after `new URL()` resolved dot segments: an anonymous
+   *   `POST /iam/callback/../sign-in/email` passed the rate limiter as a callback (skipped) and ran as a sign-in.
+   * @seen-failing Drop the CoreBetterAuthPathGuardMiddleware registration from CoreBetterAuthModule.configure()
+   *   (src/core/modules/better-auth/core-better-auth.module.ts) — registered as mutation
+   *   `iam-path-guard-not-registered` in tests/regression-mutations.json.
+   */
+  it.each([
+    '/iam/callback/../sign-in/email',
+    '/iam/callback/%2e%2e/sign-in/email',
+    '/iam/session/%2E%2E/sign-in/email',
+    '/iam/./sign-in/email',
+    '/iam/callback%2f..%2fsign-in/email',
+  ])('refuses a non-canonical path under the base path before anything reads it: %s', async (path) => {
+    const response = await raw(path, 'POST');
+    expect(response.status).toBe(400);
+    expect(response.body).toContain('LTNS_0305');
+  });
+
+  it('leaves the canonical sign-in path alone', async () => {
+    const response = await raw('/iam/sign-in/email', 'POST');
+    expect(response.body).not.toContain('LTNS_0305');
   });
 
   it('still forwards every other Better-Auth route', async () => {
