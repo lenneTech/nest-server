@@ -5665,6 +5665,28 @@
         "tests/unit/ai-mcp-oauth-error-redirect.spec.ts"
       ],
       "driverSpecific": false
+    },
+    {
+      "id": "iam-social-sign-up-ignores-disable-sign-up",
+      "defect": "12.3.0 — emailAndPassword.disableSignUp closed /sign-up/email only: each social provider got clientId and clientSecret alone, so a first sign-in through Google, GitHub etc. created an account in a project that had closed registration.",
+      "file": "src/core/modules/better-auth/better-auth.config.ts",
+      "find": "          disableSignUp: typeof provider.disableSignUp === 'boolean' ? provider.disableSignUp : signUpClosed,\n",
+      "replace": "",
+      "specs": [
+        "tests/unit/better-auth-social-sign-up.spec.ts"
+      ],
+      "driverSpecific": false
+    },
+    {
+      "id": "iam-social-sign-up-string-opens",
+      "defect": "12.3.0 — a per-provider disableSignUp passed through as it came hands Better-Auth a non-boolean, and a falsy one (0, an empty string from NEST_SERVER_CONFIG) opens a registration the project closed.",
+      "file": "src/core/modules/better-auth/better-auth.config.ts",
+      "find": "          disableSignUp: typeof provider.disableSignUp === 'boolean' ? provider.disableSignUp : signUpClosed,\n",
+      "replace": "          disableSignUp: provider.disableSignUp ?? signUpClosed,\n",
+      "specs": [
+        "tests/unit/better-auth-social-sign-up.spec.ts"
+      ],
+      "driverSpecific": false
     }
   ]
 }
