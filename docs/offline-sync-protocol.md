@@ -199,7 +199,8 @@ Content-Type: application/json
   record in the same batch are held back: never applied, answered `retry` behind a `retry` (send them again together),
   otherwise `conflict` with the server's record (`not_found` when the caller may not see one). Each of them builds on the
   version the item before it produces (§6.2); applied on its own, its `baseVersion` could match another writer's version
-  and the change would land on data the client never saw. Items of other records are unaffected.
+  and the change would land on data the client never saw. Items of other records are unaffected. The server holds
+  back **within one request only**; across requests the client keeps the order (§11).
 * `upsert` without `baseVersion` on an id that does not exist creates the record with `version: 1`.
 * `upsert` with `baseVersion` is an **atomic conditional change**: it applies only when the stored version still equals
   `baseVersion` (`WHERE id = … AND version = …` or the MongoDB equivalent; never read-then-write), and it increments
@@ -256,9 +257,9 @@ A conflict is a `baseVersion` that no longer matches. What happens is the model'
 | `applied` | The change is stored (also for a recognised repeat). `version` is the new version. | Store `version`; mark the change sent. |
 | `merged` | Stored after a field merge; `record` is the result. | Replace the local record. |
 | `conflict` | Not stored; `record` is the server's current record (a tombstone when it was deleted). | Resolve, then push again with `baseVersion` = `record.version`, or drop the change. |
-| `rejected` | Not stored, for the reason in `code`. Retrying the same change will not help. | Show or log; drop or correct the change. |
-| `not_found` | An update or delete for a record that does not exist **or that the caller may not see** — the same answer for both. | Drop the local record. |
-| `retry` | Not stored for a transient reason (a lock timeout, a store outage, the same `mutationId` still in progress). | Send the same item again later. |
+| `rejected` | Not stored, for the reason in `code`. Retrying the same change will not help. | Show or log; drop or correct the change — and the record's later changes, which built on it. |
+| `not_found` | An update or delete for a record that does not exist **or that the caller may not see** — the same answer for both. | Drop the local record and its queued changes. |
+| `retry` | Not stored for a transient reason (a lock timeout, a store outage, the same `mutationId` still in progress). | Send the same item again later, the record's later changes with it — never before it. |
 
 | `code` (with `rejected`) | Meaning |
 |---|---|
@@ -332,7 +333,9 @@ Error bodies use the framework's error-code format, sync codes in `#LTNS_0700`�
 * Generate ids in the model's format with the random part §3 requires, and mutation ids, locally; persist unsent changes with their mutation ids until a
   terminal status (`applied`, `merged`, `conflict`, `rejected`, `not_found`) arrives.
 * Give every queued change of one record the `baseVersion` the change before it produces (§6.2), or fold them into one
-  item; push them in that order.
+  item; push them in that order. Send a later change only in the same request as the change before it, or after that
+  one came back `applied` or `merged`: the server holds a chain back within one request only (§6.3), and a later
+  change sent on its own could match another writer's version.
 * Store each pulled page and its cursor atomically; compare `version` before overwriting a local record.
 * **On logout delete every local record, the cursors and the unsent changes**, and do the same before another user's
   first pull. The device holds personal data outside the server; the sync module's `SECURITY.md` lists what to delete
