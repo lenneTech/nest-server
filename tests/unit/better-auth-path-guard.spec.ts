@@ -16,7 +16,7 @@ import {
  */
 describe('Better-Auth path guard', () => {
   /**
-   * @regression   12.2.x — a dot segment under the base path made the rate limiter skip a sign-in as a callback
+   * @regression   12.3.0 — a dot segment under the base path made the rate limiter skip a sign-in as a callback
    *   (`/callback/../sign-in/email`), because every check read the raw path while Better-Auth resolved it.
    * @seen-failing Let dot segments through in hasNonCanonicalPathSegments()
    *   (src/core/modules/better-auth/core-better-auth-path-guard.middleware.ts) — registered as mutation
@@ -114,7 +114,7 @@ describe('Better-Auth rate limiter on non-canonical paths', () => {
   };
 
   /**
-   * @regression   12.2.x — the limiter matched its skip list against the raw path: `/callback/../sign-in/email` was
+   * @regression   12.3.0 — the limiter matched its skip list against the raw path: `/callback/../sign-in/email` was
    *   skipped as a callback while Better-Auth ran it as a sign-in, so sign-in attempts were not counted at all.
    * @seen-failing Decide on the raw path again in CoreBetterAuthRateLimiter.check()
    *   (src/core/modules/better-auth/core-better-auth-rate-limiter.service.ts) — registered as mutation
@@ -135,7 +135,7 @@ describe('Better-Auth rate limiter on non-canonical paths', () => {
   );
 
   /**
-   * @regression   12.2.x — the limiter compared and keyed on the path as typed, while Express routes case-insensitively:
+   * @regression   12.3.0 — the limiter compared and keyed on the path as typed, while Express routes case-insensitively:
    *   every case variant of `/sign-in/email` reached the same sign-in with a counter of its own and the full limit.
    * @seen-failing Drop the lower-casing in CoreBetterAuthRateLimiter.check()
    *   (src/core/modules/better-auth/core-better-auth-rate-limiter.service.ts) — registered as mutation
@@ -180,7 +180,7 @@ describe('Better-Auth rate-limit middleware', () => {
   });
 
   /**
-   * @regression   12.2.x — the middleware read `req.path`, which is "/" under Nest's mount: every IAM request of a
+   * @regression   12.3.0 — the middleware read `req.path`, which is "/" under Nest's mount: every IAM request of a
    *   client shared one counter with the full limit, so the strict sign-in limit and the skip list never applied over
    *   HTTP (the limiter's own unit tests call the service directly and could not see it).
    * @seen-failing Read `req.path` again in CoreBetterAuthRateLimitMiddleware.use()

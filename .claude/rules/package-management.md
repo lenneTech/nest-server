@@ -401,9 +401,9 @@ any has moved:
    second version of the same consumer is a path nobody assessed, and comparing by name alone let
    one ride along on the other's declaration, with the winner decided by lockfile order.
 
-**"Pulls an affected package" means an affected VERSION (12.2.x).** Checks 3 and the idle check below
+**"Pulls an affected package" means an affected VERSION (12.3.0).** Checks 3 and the idle check below
 count an edge only when its resolved version lies in one of the advisory's `vulnerable_version_range`s.
-A parent pulling the FIXED release is no consumer of the vulnerability. Until 12.2.x every parent
+A parent pulling the FIXED release is no consumer of the vulnerability. Until 12.3.0 every parent
 counted, so lifting one subtree to the fixed major (glob 14.0.3 pulling minimatch 11.0.3 next to
 consumers still on minimatch 10) failed a correct declaration for good. An edge whose version cannot be
 read (`link:`, `file:`), or any edge of an advisory that lists no range, still counts: "I could not tell

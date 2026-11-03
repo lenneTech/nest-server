@@ -93,7 +93,7 @@ describe('Better-Auth routes in the Swagger document', () => {
   });
 
   /**
-   * @regression   12.2.x — every check under the base path (rate limiter, controller routes, password routes) read the
+   * @regression   12.3.0 — every check under the base path (rate limiter, controller routes, password routes) read the
    *   path as SENT, while Better-Auth routes it after `new URL()` resolved dot segments: an anonymous
    *   `POST /iam/callback/../sign-in/email` passed the rate limiter as a callback (skipped) and ran as a sign-in.
    * @seen-failing Drop the CoreBetterAuthPathGuardMiddleware registration from CoreBetterAuthModule.configure()
@@ -114,7 +114,7 @@ describe('Better-Auth routes in the Swagger document', () => {
   });
 
   /**
-   * @regression   12.2.x — the rate-limit middleware read `req.path`, which is "/" under Nest's `${basePath}/*path`
+   * @regression   12.3.0 — the rate-limit middleware read `req.path`, which is "/" under Nest's `${basePath}/*path`
    *   mount: every IAM request shared one counter, the strict sign-in limit and the skip list never applied over HTTP.
    * @seen-failing Read `req.path` again in CoreBetterAuthRateLimitMiddleware.use()
    *   (src/core/modules/better-auth/core-better-auth-rate-limit.middleware.ts) — registered as mutation

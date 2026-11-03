@@ -136,7 +136,7 @@ A hint tells a connected client that pulling is worthwhile; sync works without t
   the new request passes the guards. A client pulls once after every (re)connect. In the log the planned end after the
   interval is a debug line (`Closing SSE hint stream of user …: re-check interval reached, client reconnects`); an end
   an invalidation brings stays at `log` (`… authorization invalidated, client reconnects`), so a real revocation stands
-  out (12.2.x; before, every planned end read `Closing GraphQL WebSocket …: Session no longer valid`).
+  out (12.3.0; before, every planned end read `Closing GraphQL WebSocket …: Session no longer valid`).
 
 ## Tombstone purge
 
