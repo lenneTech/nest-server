@@ -448,6 +448,9 @@ After integration, verify:
 - [ ] GraphQL `betterAuthSignUp` returns error `LTNS_0026`
 - [ ] `GET /iam/features` reports `signUpEnabled: false`
 - [ ] Sign-in still works for existing users
+- [ ] With a social provider: a first social sign-in of an unknown user creates no account (`error=signup_disabled`),
+      an existing user still signs in through it. A provider meant for self-registration carries
+      `disableSignUp: false` (11.44.1+)
 
 ### Additional checks for Migration scenario:
 
