@@ -1,4 +1,4 @@
-import { Inject, Injectable } from '@nestjs/common';
+import { Inject, Injectable, Logger } from '@nestjs/common';
 import { InjectConnection, InjectModel } from '../../../common/persistence/mongo/mongoose-compat.js';
 import type { Connection, Model } from 'mongoose';
 
@@ -41,6 +41,8 @@ export class CoreAiConversationService extends CrudService<
   CoreAiConversationCreateInput,
   CoreAiConversationInput
 > {
+  protected readonly logger = new Logger(CoreAiConversationService.name);
+
   /** Maximum number of messages retained per conversation (capped on `$push`). */
   protected readonly maxRetainedMessages = 500;
 
@@ -155,12 +157,35 @@ export class CoreAiConversationService extends CrudService<
   }
 
   /**
-   * Append a message to a conversation via `$push` (system-internal; the user
-   * already authorized the prompt that produced it). The array is capped at
-   * {@link maxRetainedMessages} via `$slice` so a long-lived conversation cannot
-   * grow unbounded.
+   * Whether the conversation exists and was created by `userId`. Admins are not owners: they may READ any
+   * conversation (`securityCheck`), but a prompt only ever continues the caller's own one, because its turns
+   * become part of that conversation's next runs.
    */
-  async appendMessage(id: string, message: { content: string; createdAt?: Date; role: string }): Promise<void> {
+  async isOwnedBy(id: string, userId: string | undefined): Promise<boolean> {
+    if (!isWellFormedId(id) || !isWellFormedId(userId)) {
+      return false;
+    }
+    return !!(await this.dataStore.findOne({ createdBy: userId, id }, { select: ['id'] }));
+  }
+
+  /**
+   * Append a message to the conversation of `ownerId` via `$push` (system-internal; the user already authorized
+   * the prompt that produced it). Writes nothing unless `ownerId` created the conversation: a conversation's turns
+   * feed its owner's next runs, in which tools act with the owner's rights, so a write on anybody else's behalf
+   * would plant prompt input into another user's assistant. The check sits here rather than in each caller so that
+   * no caller can leave it out. `createdBy` is never changed after creation, so nothing can happen between the
+   * check and the push that would make the write foreign. The array is capped at {@link maxRetainedMessages} via
+   * `$slice` so a long-lived conversation cannot grow unbounded.
+   */
+  async appendMessage(
+    id: string,
+    message: { content: string; createdAt?: Date; role: string },
+    ownerId: string | undefined,
+  ): Promise<void> {
+    if (!(await this.isOwnedBy(id, ownerId))) {
+      this.logger.warn(`Message not appended: conversation ${id} is not owned by user ${ownerId ?? '(none)'}`);
+      return;
+    }
     await this.dataStore.pushToArray(id, 'messages', [{ ...message, createdAt: message.createdAt ?? new Date() }], {
       slice: -this.maxRetainedMessages,
     });

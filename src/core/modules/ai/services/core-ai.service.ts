@@ -142,7 +142,10 @@ export class CoreAiService {
     hooks?: { onAction?: (action: CoreAiAction) => void },
   ): Promise<CoreAiResponse> {
     const mode = input.mode || ConfigService.get<string>('ai.defaultMode') || 'auto';
-    const resolvedInput = await this.resolvePromptPlaceholders(input, serviceOptions);
+    const resolvedInput = await this.scopeConversation(
+      await this.resolvePromptPlaceholders(input, serviceOptions),
+      serviceOptions,
+    );
     const run = await this.prepareRun(resolvedInput, serviceOptions);
     // No usable connection → AI handling is effectively disabled.
     if (!run) {
@@ -155,6 +158,28 @@ export class CoreAiService {
     // Attach the compact token-budget summary after the run was recorded.
     await this.attachBudgetSummary(response, run);
     return response;
+  }
+
+  /**
+   * Keep `conversationId` only when the caller owns that conversation; otherwise the run has no conversation at all:
+   * no history, no persisted turns, no conversation-scoped tool grants, and no `conversationId` in the response.
+   *
+   * Every conversation use of the run reads the id from the input, so it is decided once, before the run starts. A
+   * foreign id must not reach any of them: its turns would land in another user's history and feed that user's next
+   * runs, where tools act with the owner's rights, and a "remember my decision" grant stored on it would let the
+   * owner's assistant run a mutating tool unconfirmed. Admins included — they may read other users' conversations,
+   * never continue them. An unknown id is answered exactly like a foreign one, so the response tells nobody which
+   * conversation ids exist.
+   */
+  protected async scopeConversation(
+    input: CoreAiPromptInput,
+    serviceOptions: ServiceOptions,
+  ): Promise<CoreAiPromptInput> {
+    if (!input?.conversationId) {
+      return input;
+    }
+    const owned = await this.conversationService?.isOwnedBy(input.conversationId, serviceOptions?.currentUser?.id);
+    return owned ? input : { ...input, conversationId: undefined };
   }
 
   /**
@@ -642,8 +667,17 @@ export class CoreAiService {
     // Persist the turn pair for multi-turn conversations (not while awaiting confirmation
     // or a pending clarifying question — the user hasn't given a real answer yet).
     if (input.conversationId && this.conversationService && !requiresConfirmation && !pendingQuestion) {
-      await this.conversationService.appendMessage(input.conversationId, { content: input.prompt, role: 'user' });
-      await this.conversationService.appendMessage(input.conversationId, { content: finalText, role: 'assistant' });
+      const owner = currentUser?.id;
+      await this.conversationService.appendMessage(
+        input.conversationId,
+        { content: input.prompt, role: 'user' },
+        owner,
+      );
+      await this.conversationService.appendMessage(
+        input.conversationId,
+        { content: finalText, role: 'assistant' },
+        owner,
+      );
     }
 
     await this.audit({
@@ -782,7 +816,7 @@ export class CoreAiService {
     response.text = finalText;
     response.usage = Object.assign(new CoreAiUsage(), usage);
 
-    await this.persistTurn(input, response);
+    await this.persistTurn(input, response, run);
     await this.audit(this.auditRecord(input, run, response, usage));
     return response;
   }
@@ -1051,13 +1085,22 @@ export class CoreAiService {
   }
 
   /**
-   * Append the user + assistant turns to the conversation (skipped while awaiting
+   * Append the user + assistant turns to the conversation of the run's user (skipped while awaiting
    * confirmation or when denied).
    */
-  protected async persistTurn(input: CoreAiPromptInput, response: CoreAiResponse): Promise<void> {
+  protected async persistTurn(input: CoreAiPromptInput, response: CoreAiResponse, run: AiRunContext): Promise<void> {
     if (input.conversationId && this.conversationService && !response.requiresConfirmation && !response.denied) {
-      await this.conversationService.appendMessage(input.conversationId, { content: input.prompt, role: 'user' });
-      await this.conversationService.appendMessage(input.conversationId, { content: response.text, role: 'assistant' });
+      const owner = run?.currentUser?.id;
+      await this.conversationService.appendMessage(
+        input.conversationId,
+        { content: input.prompt, role: 'user' },
+        owner,
+      );
+      await this.conversationService.appendMessage(
+        input.conversationId,
+        { content: response.text, role: 'assistant' },
+        owner,
+      );
     }
   }
 

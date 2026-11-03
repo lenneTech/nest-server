@@ -2098,8 +2098,19 @@
       "id": "unusable-fix-counts-fixed-edges",
       "defect": "The consumer-set check counts every parent of the affected package, whatever version it pulls. A subtree lifted to the fixed release then fails a correct declaration for good, because the lifted parent is counted as a consumer nobody assessed.",
       "file": "scripts/check-overrides.mjs",
-      "find": "        if (!pullsAffectedVersion(edgeVersion(half, line, lines.slice(index + 1)), ranges)) {",
+      "find": "        if (!pullsAffectedVersion(target.version, ranges)) {",
       "replace": "        if (false) {",
+      "specs": [
+        "tests/unit/check-overrides.guard.spec.ts"
+      ],
+      "driverSpecific": false
+    },
+    {
+      "id": "unusable-fix-matches-alias-by-key",
+      "defect": "The consumer-set check matches an edge by its key. pnpm keys an npm alias by the alias, so a parent pulling the affected package through one is invisible and an incomplete declaration passes, while a declared consumer reaching it only through an alias fails for good.",
+      "file": "scripts/check-overrides.mjs",
+      "find": "        if (target.name !== name) {",
+      "replace": "        if (edge[1].replace(/^'|'$/g, '') !== name) {",
       "specs": [
         "tests/unit/check-overrides.guard.spec.ts"
       ],
@@ -5497,6 +5508,28 @@
       "replace": "    const requestPath = req.path;\n",
       "specs": [
         "tests/better-auth-openapi.e2e-spec.ts"
+      ],
+      "driverSpecific": false
+    },
+    {
+      "id": "ai-conversation-append-skips-owner-check",
+      "defect": "appendMessage() pushes into whatever conversation it is given. Any caller that forgets its own check writes one user's turns into another user's history, which feeds that user's next runs.",
+      "file": "src/core/modules/ai/services/core-ai-conversation.service.ts",
+      "find": "    if (!(await this.isOwnedBy(id, ownerId))) {",
+      "replace": "    if (false) {",
+      "specs": [
+        "tests/unit/ai-conversation-ownership.spec.ts"
+      ],
+      "driverSpecific": false
+    },
+    {
+      "id": "ai-prompt-keeps-foreign-conversation",
+      "defect": "prompt() keeps a conversationId the caller does not own for the whole run: the answer echoes it, and the conversation-scoped tool grants of another user's conversation are read and stored.",
+      "file": "src/core/modules/ai/services/core-ai.service.ts",
+      "find": "    return owned ? input : { ...input, conversationId: undefined };",
+      "replace": "    return input;",
+      "specs": [
+        "tests/unit/ai-conversation-ownership.spec.ts"
       ],
       "driverSpecific": false
     }

@@ -883,6 +883,57 @@ describe('check-overrides — suppressed advisories that got a fix', () => {
     expect(r.out).toMatch(/new-parent@1\.0\.0 also pulls/);
   });
 
+  /** LIFTED_LOCK with whole edge lines: `newParent` for new-parent's edge, `devtools` for the declared consumer's. */
+  const EDGE_LOCK = (newParent: string, devtools = 'simple-git: 3.36.0') =>
+    LIFTED_LOCK('PLACEHOLDER')
+      .replace(
+        "  '@nuxt/devtools@3.4.1':\n    dependencies:\n      simple-git: 3.36.0\n",
+        `  '@nuxt/devtools@3.4.1':\n    dependencies:\n      ${devtools}\n`,
+      )
+      .replace('      simple-git: PLACEHOLDER\n', `      ${newParent}\n`);
+
+  /**
+   * @regression   12.2.x — the consumer-set check matched an edge by its KEY. pnpm keys an npm alias by the alias
+   *   (`simple-git-cjs: simple-git@3.36.0`), so a parent pulling the affected package through one stayed
+   *   invisible and an incomplete declaration passed; a declared consumer reaching it only through an alias
+   *   failed with RE-TEST for good instead.
+   * @seen-failing Match the edge by its key again in dependentsOf() (scripts/check-overrides.mjs) — registered as
+   *   mutation `unusable-fix-matches-alias-by-key` in tests/regression-mutations.json.
+   */
+  it('FIRES when another parent pulls the affected package through an npm alias', () => {
+    const r = run({
+      advisoryData: { [GHSA]: FIXED_RANGED },
+      ignoreGhsas: [GHSA],
+      lock: EDGE_LOCK('simple-git-cjs: simple-git@3.36.0'),
+      workspaceYaml: DECLARE('@nuxt/devtools@3.4.1 cannot use 4.0.1'),
+    });
+    expect(r.status, `expected failure, got:\n${r.out}`).toBe(1);
+    expect(r.out).toMatch(/new-parent@1\.0\.0 also pulls/);
+  });
+
+  it('accepts a declared consumer that reaches the affected package only through an alias', () => {
+    const r = run({
+      advisoryData: { [GHSA]: FIXED_RANGED },
+      ignoreGhsas: [GHSA],
+      lock: EDGE_LOCK('simple-git: 4.0.1', 'simple-git-legacy: simple-git@3.36.0'),
+      workspaceYaml: DECLARE('@nuxt/devtools@3.4.1 cannot use 4.0.1'),
+    });
+    expect(r.status, `expected pass, got:\n${r.out}`).toBe(0);
+    expect(r.out).not.toMatch(/RE-TEST/);
+  });
+
+  it('does not count an edge keyed by the package name that pulls another package', () => {
+    // `simple-git: some-fork@1.0.0` is an edge to some-fork; its version says nothing about simple-git.
+    const r = run({
+      advisoryData: { [GHSA]: FIXED_RANGED },
+      ignoreGhsas: [GHSA],
+      lock: EDGE_LOCK('simple-git: some-fork@1.0.0'),
+      workspaceYaml: DECLARE('@nuxt/devtools@3.4.1 cannot use 4.0.1'),
+    });
+    expect(r.status, `expected pass, got:\n${r.out}`).toBe(0);
+    expect(r.out).not.toMatch(/RE-TEST/);
+  });
+
   it('reads the version of a WORKSPACE dependency from its version line', () => {
     // The importer half spells the version on a line of its own, below the package line.
     const lifted = WORKSPACE_LOCK('.')

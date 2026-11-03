@@ -396,6 +396,16 @@ factory.registerBuilder('my-provider', (conn) => new MyProvider(conn));
   `conversationId` to `aiPrompt` to load prior turns and append the new ones.
   Manage via `createAiConversation` / `findAiConversations` / `getAiConversation`
   / `deleteAiConversation`.
+  A prompt only continues the caller's OWN conversation, on REST, the stream and
+  GraphQL alike. An id the caller did not create — another user's, or one that does
+  not exist — counts as no conversation: the run reads no history, writes nothing,
+  uses no conversation-scoped tool grants, and its response carries no
+  `conversationId` (12.2.x; before, the turns were written into the other user's
+  conversation). Admins are no exception here: they may READ every conversation
+  (`getAiConversation`, `findAiConversations` with `all`), never continue one.
+  `CoreAiConversationService.appendMessage(id, message, ownerId)` checks the owner
+  itself and writes nothing for anyone else; a project that calls it directly passes
+  the id of the user the turn belongs to.
 - **Audit** (`ai.audit: true`): every run is persisted to `aiInteractions`
   (admin-readable via `findAiInteractions` / `getAiInteraction`).
 - **Streaming**: `POST /ai/stream` returns Server-Sent Events (`action`, `token`,
