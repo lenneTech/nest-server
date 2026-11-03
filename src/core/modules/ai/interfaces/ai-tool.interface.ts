@@ -12,7 +12,13 @@ export interface AiToolContext {
   /** Authenticated user (shortcut for `serviceOptions.currentUser`). */
   currentUser?: { [key: string]: any; id: string; roles?: string[] };
 
-  /** Accept-Language of the original request. */
+  /**
+   * The decision {@link IAiTool.authorize} returned for THIS call, handed to `execute()` (12.3.0+). Lets a tool reuse
+   * what its check loaded (`data`) instead of loading it twice. Absent for a tool without `authorize()`.
+   */
+  authorization?: AiToolAuthorization;
+
+  /** Accept-Language of the original request. Absent over MCP, which carries no request language. */
   language?: string;
 
   /**
@@ -26,10 +32,19 @@ export interface AiToolContext {
  * Result of a tool's pre-flight authorization check ({@link IAiTool.authorize}).
  */
 export interface AiToolAuthorization {
-  /** Whether the user may run the tool with these arguments. */
+  /** Whether the user may run the tool with these arguments. Only `true` allows; anything else refuses. */
   allowed: boolean;
 
-  /** Optional human-readable reason when not allowed. */
+  /**
+   * Whatever the check loaded and `execute()` may reuse (e.g. the record whose ownership it verified). Reaches
+   * `execute()` as `context.authorization.data`; never sent to the model or the client.
+   */
+  data?: unknown;
+
+  /**
+   * Optional reason when not allowed. It reaches the model (chat) or the MCP client, so it must not name anything
+   * the user may not know.
+   */
   reason?: string;
 }
 
@@ -69,21 +84,15 @@ export interface IAiTool {
 
   /**
    * Whether the tool performs a destructive/irreversible action (delete, bulk
-   * update, payment, …). In the CHAT orchestrator destructive tools always require
-   * confirmation: they are NOT executed until the prompt is re-sent with
-   * `confirm: true`; the first response lists them as `pendingActions` with
-   * `requiresConfirmation: true`.
+   * update, payment, …). Such a tool always needs the user's confirmation:
    *
-   * **No confirmation gate over MCP.** `CoreAiMcpService.mcpCallTool` consults
-   * neither this flag nor {@link IAiTool.mutating}, so a destructive tool invoked
-   * through `/ai/mcp` executes IMMEDIATELY, on the first call. This flag is
-   * therefore a chat-orchestrator contract, not a global execution barrier. The
-   * barriers that DO hold on every path are the registry role filter ({@link
-   * IAiTool.roles}, applied by `forUser()` before `execute()`) and the authorization
-   * inside `execute()` itself — so a destructive tool restricted to a real role stays
-   * unreachable by lesser-privileged MCP clients; MCP only skips the extra confirmation
-   * step for clients that may already see the tool. Expose MCP only to clients you trust
-   * to obtain user consent themselves.
+   * - **Chat:** it is NOT executed until the prompt is re-sent with `confirm: true`;
+   *   the first response lists it as `pendingActions` with `requiresConfirmation: true`.
+   * - **MCP (12.3.0+):** `tools/call` asks the user through MCP elicitation and runs the
+   *   tool only after they accepted. A client that cannot ask (no `elicitation`
+   *   capability) gets a refusal. Whether MCP asks is `ai.mcp.confirmation` (on by
+   *   default), which each user may switch for themselves unless it is enforced;
+   *   `tools/list` marks the tool with `destructiveHint: true`.
    */
   readonly destructive?: boolean;
 
@@ -93,22 +102,25 @@ export interface IAiTool {
    * optionally client-overridable, optionally enforced). `destructive` is the
    * stronger flag and always requires confirmation regardless of policy.
    *
-   * Same MCP caveat as {@link IAiTool.destructive}: the confirmation policy is not
-   * evaluated on the `/ai/mcp` path at all.
+   * Over MCP (12.3.0+) the same policy applies through elicitation, with the
+   * policy's `default` in place of the chat client's `requireConfirmation`.
    */
   readonly mutating?: boolean;
 
   /**
-   * Optional pre-flight authorization check. MUST NOT mutate anything — it only
+   * Optional authorization check for one call. MUST NOT mutate anything — it only
    * decides whether the user may run the tool with these arguments (e.g. load the
    * target record and verify ownership).
    *
-   * **Runs in PLAN MODE ONLY.** Auto mode (the default, `ai.defaultMode`) and the
-   * MCP endpoint call {@link IAiTool.execute} directly, without consulting this
-   * method. A data-level check placed ONLY here therefore does not run for most
-   * callers — put ownership and tenant checks INSIDE `execute()`, routed through
-   * `CrudService` with `context.serviceOptions`, and treat `authorize()` as the
-   * plan-mode pre-flight that lets a whole plan be rejected before any step runs.
+   * **Runs before every execution (12.3.0+)**: in auto mode, in plan mode (once for
+   * the whole plan before any step runs, and again before each step) and over MCP. It
+   * sees the arguments that will be executed, i.e. after the PreToolUse hooks. A refusal,
+   * a thrown error or an `allowed` that is not `true` skips the call. Return `data` to
+   * hand what the check loaded to `execute()` (`context.authorization.data`).
+   *
+   * Still route the data access in `execute()` through `CrudService` with
+   * `context.serviceOptions`: `authorize()` decides whether to try, the service decides
+   * what the user may read and write.
    *
    * When omitted, only the registry role filter applies.
    */

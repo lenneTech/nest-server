@@ -2078,8 +2078,8 @@ export interface IAi {
    * a caller sees and may run is decided server-side by the registry's role filter
    * (`AiToolRegistry.forUser()`), re-checked at execution time, and the
    * confirmation gate reads the `mutating`/`destructive` FLAGS, never the
-   * description text. (`AiTool.authorize()` runs in plan mode only — in auto mode
-   * and over MCP, data-level checks belong inside `execute()`.)
+   * description text. (`AiTool.authorize()` runs before every execution — auto
+   * mode, plan mode and MCP — on the call's arguments, never its description.)
    *
    * Applies to the EMULATED tool protocol, not to a provider as such. In auto mode
    * a connection with native tool calling receives every full description and schema
@@ -2159,11 +2159,32 @@ export interface IAi {
    * answers with a built-in consent page: sign-in through Better-Auth (password + 2FA),
    * then Allow / Deny. Replace it via `CoreModule.forRoot(env, { ai: { mcpOAuthService } })`.
    * Without `oauth`, MCP authenticates via the existing Bearer/session token.
+   *
+   * `tools/call` applies the admin's tool policies and a tool's `authorize()`, and asks the user before a
+   * tool that needs confirmation (`destructive`, or `mutating` under `ai.confirmation.mutating`) — see
+   * `confirmation`.
    * @default false
    */
   mcp?:
     | boolean
     | {
+        /**
+         * Whether MCP asks the user — through MCP elicitation, a yes/no form the client shows — before a
+         * `destructive` tool, or a `mutating` one under `ai.confirmation.mutating` (12.3.0+). The tool runs only
+         * on an explicit yes; a client without the `elicitation` capability gets a refusal. `authorize()` runs
+         * either way, and an admin's `ask` tool policy always asks.
+         *
+         * - `true` / `{}` / unset: MCP asks, unless a user switched it off for themselves
+         *   (`PUT /ai/settings`, `updateAiSettings` — like a "bypass permissions" mode).
+         * - `false`: MCP asks nobody, unless a user switched it on for themselves.
+         * - `{ default, enforced }`: `default` as above; `enforced: true` ignores every user's choice and
+         *   refuses a change with 403.
+         *
+         * Only `false` / `default: false` switch the default off and only `enforced: true` enforces, so a
+         * misspelt value never relaxes the gate.
+         * @default { default: true, enforced: false }
+         */
+        confirmation?: boolean | { default?: boolean; enforced?: boolean };
         enabled?: boolean;
         oauth?: boolean;
         /**
@@ -5023,6 +5044,7 @@ export interface ICoreModuleOverrides {
    * - `slotService` must extend `CoreAiSlotService`
    * - `toolGrantService` must extend `CoreAiToolGrantService`
    * - `toolPolicyService` must extend `CoreAiToolPolicyService`
+   * - `userSettingService` must extend `CoreAiUserSettingService`
    *
    * @example
    * ```typescript
@@ -5056,6 +5078,7 @@ export interface ICoreModuleOverrides {
     slotService?: Type<any>;
     toolGrantService?: Type<any>;
     toolPolicyService?: Type<any>;
+    userSettingService?: Type<any>;
   };
 
   /**

@@ -133,7 +133,7 @@ When `passkey` is enabled, `trustedOrigins` is required (compile-time enforcemen
   - `maxRunMs?`: `number` (default: `0`) — Wall-clock ceiling for ONE prompt run, in milliseconds. Checked before each
   - `maxToolResultChars?`: `number` (default: `12000`) — Maximum characters of a tool-results payload fed back to the model.
   - `promptLearning?`: `{ autoApply?: boolean; enabled?: boolean; minOccurrences?: number; }` — Governed self-improvement loop for the system prompt. The orchestrator records
-  - `mcp?`: `boolean | { enabled?: boolean; oauth?: boolean; oauthBaseUrl?: string; oauthL...` (default: `false`) — Expose the tool registry as an MCP server at `/ai/mcp` (Streamable HTTP) for
+  - `mcp?`: `boolean | { confirmation?: boolean | { default?: boolean; enforced?: boolean;...` (default: `false`) — Expose the tool registry as an MCP server at `/ai/mcp` (Streamable HTTP) for
   - `rateLimit?`: `IAiRateLimit` — Rate limiting for prompts.
   - `systemPrompt?`: `string` — Base system prompt prepended to every conversation.
 

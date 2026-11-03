@@ -10,6 +10,7 @@ import {
 } from '../../../common/services/rate-limit-store.js';
 import { RequestContext } from '../../../common/services/request-context.service.js';
 import { ErrorCode } from '../../error-code/index.js';
+import { authorizeToolCall, toolRequiresConfirmation } from '../helpers/ai-tool-authorization.helper.js';
 import { AiToolAuthorization, AiToolContext, AiToolResult, IAiTool } from '../interfaces/ai-tool.interface.js';
 import { LlmMessage, LlmResponse, LlmToolCall } from '../interfaces/llm-provider.interface.js';
 import { ResolvedAiConnection } from '../interfaces/resolved-ai-connection.interface.js';
@@ -929,9 +930,10 @@ export class CoreAiService {
   }
 
   /**
-   * Pre-flight authorization for a planned/requested tool call. Combines the
-   * registry role filter (tool absent from the user's set → denied) with the
-   * tool's optional `authorize()` data-level check. Never mutates anything.
+   * Authorization for one tool call: the registry role filter (tool absent from the user's set → denied) and the
+   * tool's optional `authorize()` data-level check, fail-closed ({@link authorizeToolCall}). Runs before every
+   * execution (`executeToolCall()`) and, in plan mode, once more for the whole plan before any step runs. Never
+   * mutates anything.
    */
   protected async authorizeCall(
     call: LlmToolCall,
@@ -942,11 +944,7 @@ export class CoreAiService {
     if (!tool) {
       return { allowed: false, reason: `Unknown or not permitted tool: ${call.name}` };
     }
-    if (!tool.authorize) {
-      return { allowed: true };
-    }
-    const result = await tool.authorize(call.arguments ?? {}, context);
-    return typeof result === 'boolean' ? { allowed: result } : result;
+    return authorizeToolCall(tool, call.arguments ?? {}, context);
   }
 
   /**
@@ -955,18 +953,7 @@ export class CoreAiService {
    * client override unless enforced).
    */
   protected confirmationRequiredFor(tool: IAiTool, input: CoreAiPromptInput): boolean {
-    if (tool.destructive) {
-      return true;
-    }
-    if (!tool.mutating) {
-      return false;
-    }
-    const cfg = ConfigService.get<{ enabled?: boolean; default?: boolean; enforced?: boolean }>(
-      'ai.confirmation.mutating',
-    );
-    const enforced = cfg?.enforced === true;
-    const adminDefault = cfg?.default === true;
-    return enforced ? true : (input.requireConfirmation ?? adminDefault);
+    return toolRequiresConfirmation(tool, input.requireConfirmation);
   }
 
   /**
@@ -1238,8 +1225,24 @@ export class CoreAiService {
       }
     }
 
+    // Authorize the arguments that will actually run — after the hooks rewrote them. No learning signal: a refusal
+    // is a decision about this user and these arguments, not a mistake the model should be taught to avoid.
+    const authorization = await this.authorizeCall(call, availableTools, context);
+    if (!authorization.allowed) {
+      action.success = false;
+      action.result = {
+        error: {
+          code: 'TOOL_NOT_AVAILABLE',
+          hint: 'The user may not run this tool with these arguments. Do not retry it; explain this to the user.',
+          message: authorization.reason || `Not permitted: ${call.name}`,
+        },
+      };
+      return action;
+    }
+    const toolContext: AiToolContext = tool.authorize ? { ...context, authorization } : context;
+
     try {
-      const raw = await tool.execute(call.arguments ?? {}, context);
+      const raw = await tool.execute(call.arguments ?? {}, toolContext);
       let success = true;
       let payload: unknown = raw;
       let message: string | undefined;

@@ -428,26 +428,32 @@ export class TransferFundsTool extends AiTool {
   readonly mutating = true; // governed by the confirmation policy
   readonly destructive = true; // always requires confirmation
 
-  // PLAN-MODE pre-flight, without mutating: lets the whole plan be rejected before
-  // any step runs. It does NOT run in auto mode or over MCP — so it must never be
-  // the only place a permission is checked.
+  // Runs before EVERY execution (12.3.0+): auto mode, plan mode (for the whole plan
+  // before any step runs, and again per step) and MCP — on the arguments that will
+  // run, after the PreToolUse hooks. Never mutates. A throw counts as a refusal.
   async authorize(args, context) {
     const account = await this.accountService.get(args.fromId, context.serviceOptions).catch(() => null);
-    return { allowed: !!account, reason: account ? undefined : 'No access to source account' };
+    return account
+      ? { allowed: true, data: account } // reaches execute() as context.authorization.data
+      : { allowed: false, reason: 'No access to source account' };
   }
 
   async execute(args, context) {
-    // The REAL gate, on every path: route through the service with the caller's
-    // serviceOptions so `@Restricted`, `securityCheck()` and tenant scoping apply.
-    // Do not rely on authorize() having run.
-    const account = await this.accountService.getForUser(args.fromId, context.serviceOptions);
+    // Still route the write through the service with the caller's serviceOptions, so
+    // `@Restricted`, `securityCheck()` and tenant scoping apply: authorize() decides
+    // whether to try, the service decides what the user may change.
+    const account =
+      context.authorization?.data ?? (await this.accountService.getForUser(args.fromId, context.serviceOptions));
     return this.accountService.transfer(account, args.toId, args.amount, context.serviceOptions);
   }
 }
 ```
 
-> **Do not put a permission check only in `authorize()`.** It runs in plan mode
-> only — auto mode (the default) and MCP go straight to `execute()`.
+> **`authorize()` runs on every path since 12.3.0.** Until 12.2 it ran in plan mode
+> only — auto mode (the default) and MCP went straight to `execute()`. A refusal skips
+> the call: the model receives `TOOL_NOT_AVAILABLE` with the `reason` (keep it free of
+> anything the user may not know), an MCP client an error result. The refusal is not
+> recorded as a learning signal.
 
 ## Confirmation for changes
 
@@ -457,6 +463,8 @@ export class TransferFundsTool extends AiTool {
   admin set `enforced: true`.
 - When confirmation is needed the response has `requiresConfirmation: true` +
   `pendingActions`; re-send the prompt with `confirm: true` to proceed.
+- Over MCP the same flags apply through MCP elicitation (12.3.0+) — see
+  [Authorization and confirmation over MCP](#authorization-and-confirmation-over-mcp-1230).
 
 ## Client metadata & prompt enrichment
 
@@ -516,8 +524,8 @@ so it can recover within the run.
 > **Security:** learned hints and template overrides only ever **add textual guidance** —
 > they can never relax the permission model. Tool role-filtering,
 > `CrudService`/`@Restricted` and `secretFields` are enforced backend-side regardless of
-> the prompt. (`authorize()` is _not_ part of that unconditional set — it runs in plan
-> mode only; see [Deferred tool schemas](#deferred-tool-schemas-large-registries) below.)
+> the prompt. Since 12.3.0 a tool's `authorize()` belongs to that set too: it runs before
+> every execution, in every mode and over MCP.
 
 ```typescript
 ai: {
@@ -587,10 +595,8 @@ context, set `deferToolSummaryChars` alongside it (roughly 200–400 works well)
 > confirmation gate reads a tool's `mutating`/`destructive` **flags**, never its description
 > — so a truncated "requires confirmation" sentence cannot disable it.
 >
-> Note `AiTool.authorize()` is **not** part of that chain in every mode: it runs in **plan
-> mode only**. In auto mode (the default) and over MCP, tools go straight to `execute()` — so
-> data-level checks (ownership, tenant scope) must live **inside `execute()`**, routed through
-> `CrudService` with `context.serviceOptions`, not in `authorize()` alone.
+> `AiTool.authorize()` is part of that chain on every path since 12.3.0 (auto mode, plan
+> mode, MCP), and it reads the call's arguments, never the description.
 
 ## Token budgets & usage
 
@@ -680,6 +686,53 @@ the server log; the response carries only a stable `#LTNS_0901` code.
   gets `400`: there is nothing to recover, and a 404 would start a reconnect loop.
 - Answering a foreign id `404` rather than `403` is deliberate — a 403 would confirm
   that the id exists, and the id travels in a response header and through client logs.
+
+### Authorization and confirmation over MCP (12.3.0+)
+
+`tools/call` applies the same gates as the chat orchestrator, in this order:
+
+1. **Role filter** — the tool must be in the user's set (`AiToolRegistry.forUser()`).
+2. **Tool policies** — the admin's `aiToolPolicies` rules for this call: `deny` answers an
+   error result, `ask` asks in step 4 whatever else is configured.
+3. **`authorize()`** — the tool's data-level check on the call's arguments. A refusal, a
+   thrown error or an `allowed` that is not `true` answers an error result; nothing runs.
+4. **Confirmation** — a `destructive` tool always, a `mutating` tool when
+   `ai.confirmation.mutating` says so (`enforced`, else `default`; MCP has no per-request
+   `requireConfirmation`), as long as MCP asks this user (below). The server asks through
+   **MCP elicitation** (a yes/no form the client shows) and runs the tool only on an
+   explicit yes. A no, a cancelled dialog, an error or a timeout (5 minutes) means "not
+   run". A client without the `elicitation` capability gets an error result instead of an
+   unconfirmed run.
+5. **`execute()`** — with `context.authorization` from step 3.
+
+**Whether MCP asks** is a server default each user may switch for themselves, like a
+"bypass permissions" mode:
+
+| `ai.mcp.confirmation`                | Asks a user who has not chosen | A user's own switch                          |
+| ------------------------------------ | ------------------------------ | -------------------------------------------- |
+| unset, `true`, `{}`                  | yes                            | may switch it off                            |
+| `false`                              | no                             | may switch it on                             |
+| `{ default: true, enforced: true }`  | yes                            | ignored; a change answers 403 (`#LTNS_0609`) |
+| `{ default: false, enforced: true }` | no                             | ignored; a change answers 403                |
+
+The user's switch is `PUT /ai/settings` with `{ mcpConfirmation: false }` (GraphQL
+`updateAiSettings`), read back with `GET /ai/settings` (`aiSettings`), which answers the
+effective value and `mcpConfirmationEnforced` so a UI can show the switch disabled. It is
+stored per user (`aiUserSettings`, one record per user) and touches nobody else's calls.
+Only `false` switches the default off and only `enforced: true` enforces — a misspelt value
+never relaxes the gate. `authorize()` and the admin's `deny` / `ask` rules apply whatever
+the switch says.
+
+`tools/list` gives a `destructive` tool `annotations: { destructiveHint: true, readOnlyHint: false }`
+and a `mutating` one `{ destructiveHint: false, readOnlyHint: false }` — hints for the client's own
+UI, not a security boundary. A tool with neither flag carries no annotations: it may still write,
+so it is never advertised as read-only, and clients keep the spec's cautious defaults.
+
+The confirmation keeps the model from acting without the user; it cannot stop a hostile
+client, which holds the user's credential and could call the API directly. The boundary
+against that stays the role filter, `authorize()` and the `CrudService` inside `execute()`.
+The question is English (an MCP request carries no language); override
+`CoreAiMcpService.confirmationPrompt()` to localize it.
 
 ### Multi-replica / sticky sessions
 
