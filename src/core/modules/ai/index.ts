@@ -2,7 +2,19 @@
 export * from './core-ai-mcp-oauth.initializer.js';
 export * from './core-ai-mcp.controller.js';
 export * from './helpers/ai-mcp-oauth.helper.js';
-export * from './helpers/ai-mcp-oauth-consent.helper.js';
+// Named on purpose: the page's scripts and security headers stay internal, so a project cannot pin them
+export {
+  MCP_OAUTH_CONSENT_DECISION_FIELD,
+  MCP_OAUTH_CONSENT_TOKEN_FIELD,
+  mcpOAuthConsentLocale,
+  renderMcpOAuthConsentPage,
+} from './helpers/ai-mcp-oauth-consent.helper.js';
+export type {
+  IMcpOAuthConsentPageOptions,
+  IMcpOAuthConsentView,
+  McpOAuthConsentLocale,
+  McpOAuthConsentTexts,
+} from './helpers/ai-mcp-oauth-consent.helper.js';
 export * from './helpers/ai-tool-authorization.helper.js';
 export * from './core-ai.controller.js';
 export * from './core-ai.module.js';
