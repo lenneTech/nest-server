@@ -473,6 +473,16 @@ export class TransferFundsTool extends AiTool {
 - The system prompt is enriched with the user's roles + available tools and optional
   `ai.documentation` (override `CoreAiPromptBuilderService.getDocumentation()` for RAG).
 
+**What bounds the size.** `input.context` and `input.metadata` are capped at 4000 characters
+each for the prompt — that cap protects the context window, not the CPU. The work is bounded
+earlier, by the body parser: a request over `bodyParser.json.limit` (100 kB unless configured)
+is refused with 413 before it is parsed. A project that raises the limit for `dataUrl`
+attachments should raise it only as far as its images need; serializing a client block for the
+cap then costs about half of what parsing the same body already did (measured 2026-11-03:
+2 MB → ~10 ms parse, ~5 ms serialize). The same holds for tool results: `ai.maxToolResultChars`
+keeps them out of the context window, while a tool's own query decides how much data it loads —
+page large result sets in the tool rather than relying on the cap.
+
 ## Self-optimizing prompts (editable templates + governed learning)
 
 The system prompt is assembled from **keyed fragments** by `CoreAiPromptBuilderService`,
