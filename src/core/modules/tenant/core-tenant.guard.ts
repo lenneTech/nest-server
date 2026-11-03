@@ -811,11 +811,27 @@ export class CoreTenantGuard implements CanActivate, OnApplicationBootstrap, OnM
   }
 
   /**
-   * Forget a tenant's cached `isTenantActive` answer locally (no broadcast), and re-check the open
-   * WebSocket connections scoped to it.
+   * Forget everything cached about a tenant locally (no broadcast): its `isTenantActive` answer, the cached
+   * memberships in it and every cached tenant list that contains it. Then re-check the open WebSocket connections
+   * scoped to it.
+   *
+   * The memberships matter for a tenant that is gone rather than switched off: when its memberships were removed
+   * without `invalidateUser()`, a cached membership kept it reachable until `cacheTtlMs` ran out. A tenant switched off
+   * through `isTenantActive` needs only the active flag, which every membership path asks right after.
    */
   protected clearTenant(tenantId: string): void {
     this.tenantActiveCache.delete(tenantId);
+    for (const key of this.membershipCache.keys()) {
+      // Key: `${userId}:${tenantId}` — user ids carry no ':', so the first one separates the two
+      if (key.slice(key.indexOf(':') + 1) === tenantId) {
+        this.membershipCache.delete(key);
+      }
+    }
+    for (const [key, entry] of this.tenantIdsCache.entries()) {
+      if (entry.ids.includes(tenantId)) {
+        this.tenantIdsCache.delete(key);
+      }
+    }
     revalidateWsConnectionsForTenant(tenantId);
   }
 

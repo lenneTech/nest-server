@@ -1,11 +1,21 @@
 import { BadRequestException, Injectable, Logger, NotFoundException, Optional } from '@nestjs/common';
-import { InjectModel } from '../../common/persistence/mongo/mongoose-compat.js';
-import type { Model } from 'mongoose';
+import { InjectConnection, InjectModel } from '../../common/persistence/mongo/mongoose-compat.js';
+import type { Connection, Model } from 'mongoose';
 
 import { looksLikeGlobalOnlyRole, looksLikeSystemRole, SYSTEM_ROLE_PREFIX } from '../../common/enums/role.enum.js';
 import type { DataStore } from '../../common/persistence/data-store.interface.js';
+import { getModelDescriptors } from '../../common/persistence/model-metadata.registry.js';
+import { getModelStore, getStoreForModel } from '../../common/persistence/persistence-runtime.registry.js';
 import { ConfigService } from '../../common/services/config.service.js';
 import { RequestContext } from '../../common/services/request-context.service.js';
+import {
+  AI_BUDGET_LIMIT_MODEL,
+  AI_CONNECTION_MODEL,
+  AI_CONNECTION_PREFERENCE_MODEL,
+  AI_TOOL_GRANT_MODEL,
+  AI_TOOL_POLICY_MODEL,
+} from '../ai/core-ai.constants.js';
+import { API_TOKEN_MODEL_TOKEN } from '../api-token/core-api-token.constants.js';
 import { CoreTenantMemberModel } from './core-tenant-member.model.js';
 import { routedMemberStore } from './core-tenant-member.store.js';
 import { DEFAULT_ROLE_HIERARCHY, TENANT_MEMBER_MODEL_TOKEN, TenantMemberStatus } from './core-tenant.enums.js';
@@ -33,6 +43,14 @@ import { CoreTenantGuard } from './core-tenant.guard.js';
 @Injectable()
 export class CoreTenantService {
   protected readonly logger = new Logger(CoreTenantService.name);
+
+  /**
+   * The MongoDB connection, `null` without MongoDB. `purgeTenantData()` reads the models registered only through
+   * `MongooseModule.forFeature()` from it. Injected as a property, so a subclass constructor needs no change
+   */
+  @Optional()
+  @InjectConnection()
+  protected readonly mongoConnection?: Connection | null;
 
   constructor(
     @InjectModel(TENANT_MEMBER_MODEL_TOKEN) protected readonly memberModel: Model<CoreTenantMemberModel>,
@@ -297,6 +315,254 @@ export class CoreTenantService {
         }
       }
     });
+  }
+
+  /**
+   * Delete every membership of a tenant, whatever its status, and clear what the tenant guard cached for it.
+   *
+   * Meant for removing a tenant: unlike {@link removeMember} it deletes the rows instead of suspending them and skips
+   * the last-owner check, because the tenant itself goes. Every affected user is invalidated in the guard (on every
+   * replica with Redis), the tenant last. Answers how many memberships went.
+   */
+  async deleteAllMembers(tenantId: string): Promise<number> {
+    requireTenantId(tenantId);
+    return RequestContext.runWithBypassTenantGuard(async () => {
+      const where = { tenant: tenantId };
+      const store = this.memberDataStore();
+      const members = store ? await store.find(where) : await this.memberModel.find(where).select('user').lean().exec();
+      const deleted = store ? await store.deleteMany(where) : (await this.memberModel.deleteMany(where)).deletedCount;
+      for (const userId of new Set(members.map((member) => String(member.user)))) {
+        this.tenantGuard?.invalidateUser(userId);
+      }
+      this.tenantGuard?.invalidateTenant(tenantId);
+      return deleted;
+    });
+  }
+
+  /**
+   * Delete everything the framework knows to belong to a tenant. Answers how many records went per model (models with
+   * none are left out); with `dryRun` it only counts.
+   *
+   * First every way in ({@link endTenantAccess}): the memberships ({@link deleteAllMembers}) and the tenant's API
+   * tokens (`tenant`), which need no member — so nobody writes into the tenant while its data goes. Then, through
+   * {@link purgeTenantRecords}:
+   *
+   * - every model registered with `CorePersistenceModule.forFeature()` that has a `tenantId` path, on whatever
+   *   database it is routed to — the project's own models included;
+   * - models with a `tenantId` path registered only through `MongooseModule.forFeature()` (MongoDB);
+   * - the core models that reference a tenant without a `tenantId` path: the AI budget limits, connection preferences,
+   *   tool grants and tool policies (`scope: 'tenant'`, `refId`);
+   * - AI connections: one only this tenant could use is deleted, from a shared one the tenant is removed. Never the
+   *   other way round — an empty `tenantIds` list means "every tenant".
+   *
+   * Left out: models in `multiTenancy.excludeSchemas` (a `tenantId` there is no ownership), every model named in
+   * `exclude`, users (they are global), and files — their bytes can only be assigned to a tenant by the project, which
+   * deletes them through `CoreFileService`. The memberships cannot be excluded. A synchronized model keeps a tombstone
+   * per deleted record until the tombstone purge removes it.
+   */
+  async purgeTenantData(tenantId: string, options: TenantPurgeOptions = {}): Promise<Record<string, number>> {
+    requireTenantId(tenantId);
+    const dryRun = options.dryRun === true;
+    const exclude = new Set([
+      ...(ConfigService.configFastButReadOnly?.multiTenancy?.excludeSchemas ?? []),
+      ...(options.exclude ?? []),
+    ]);
+    exclude.delete(this.memberModel.modelName);
+
+    // Access ends before the data goes
+    const access = await this.endTenantAccess(tenantId, { dryRun, exclude });
+    const records = await this.purgeTenantRecords(tenantId, { dryRun, exclude });
+
+    return Object.fromEntries(Object.entries({ ...access, ...records }).filter(([, count]) => count > 0));
+  }
+
+  /**
+   * End every way into a tenant (or with `dryRun` count it): the memberships, and the references that grant access on
+   * their own — the tenant's API tokens, which need no member. Runs before {@link purgeTenantRecords}, or a member or an
+   * integration with a tenant token writes into the tenant while its data goes
+   */
+  protected async endTenantAccess(
+    tenantId: string,
+    { dryRun, exclude }: { dryRun: boolean; exclude: ReadonlySet<string> },
+  ): Promise<Record<string, number>> {
+    const report: Record<string, number> = {
+      [this.memberModel.modelName]: dryRun ? await this.countMembers(tenantId) : await this.deleteAllMembers(tenantId),
+    };
+    await RequestContext.runWithBypassTenantGuard(() =>
+      this.purgeReferences(tenantId, { access: true, dryRun, exclude }, report),
+    );
+    return report;
+  }
+
+  /**
+   * Delete (or with `dryRun` count) a tenant's records in every model except what {@link endTenantAccess} handles. The
+   * place to add a project's own references: override it, call `super`, add the counts. Runs after the access is gone;
+   * `exclude` already holds `multiTenancy.excludeSchemas`
+   */
+  protected async purgeTenantRecords(
+    tenantId: string,
+    { dryRun, exclude }: { dryRun: boolean; exclude: ReadonlySet<string> },
+  ): Promise<Record<string, number>> {
+    const report: Record<string, number> = {};
+    await RequestContext.runWithBypassTenantGuard(async () => {
+      const handled = new Set<string>([
+        this.memberModel.modelName,
+        AI_CONNECTION_MODEL,
+        ...TENANT_REFERENCES.map((reference) => reference.model),
+      ]);
+
+      // Every routed model with a tenantId path
+      for (const [name, descriptor] of getModelDescriptors()) {
+        const store =
+          descriptor.tenantScoped &&
+          !handled.has(name) &&
+          !exclude.has(name) &&
+          getModelStore(this.mongoConnection, name);
+        if (store) {
+          handled.add(name);
+          const where = { tenantId };
+          report[name] = dryRun ? await store.count(where) : await this.deleteInBatches(store, where);
+        }
+      }
+
+      // MongoDB models no store serves (registered only through MongooseModule.forFeature())
+      for (const [name, model] of Object.entries(this.mongoConnection?.models ?? {})) {
+        if (!handled.has(name) && !exclude.has(name) && model.schema?.path('tenantId')) {
+          const where = { tenantId };
+          report[name] = dryRun ? await model.countDocuments(where) : (await model.deleteMany(where)).deletedCount;
+        }
+      }
+
+      // Core models that name the tenant in another field
+      await this.purgeReferences(tenantId, { access: false, dryRun, exclude }, report);
+
+      if (!exclude.has(AI_CONNECTION_MODEL)) {
+        report[AI_CONNECTION_MODEL] = await this.purgeTenantConnections(tenantId, dryRun);
+      }
+    });
+    return report;
+  }
+
+  /** The core references of {@link TENANT_REFERENCES} that do (`access`) or do not grant access, into `report` */
+  private async purgeReferences(
+    tenantId: string,
+    { access, dryRun, exclude }: { access: boolean; dryRun: boolean; exclude: ReadonlySet<string> },
+    report: Record<string, number>,
+  ): Promise<void> {
+    for (const reference of TENANT_REFERENCES) {
+      const store =
+        !!reference.access === access &&
+        !exclude.has(reference.model) &&
+        getModelStore(this.mongoConnection, reference.model);
+      if (store) {
+        const where = reference.where(tenantId);
+        report[reference.model] = dryRun ? await store.count(where) : await this.deleteInBatches(store, where);
+      }
+    }
+  }
+
+  /**
+   * Take a tenant out of the AI connections: delete a connection only this tenant could use, remove the tenant from
+   * the list of a shared one. Never empty a list — an empty `tenantIds` means "every tenant", so that would hand the
+   * connection, API key included, to all of them. Answers how many connections were touched
+   */
+  protected async purgeTenantConnections(tenantId: string, dryRun: boolean): Promise<number> {
+    const store = getModelStore(this.mongoConnection, AI_CONNECTION_MODEL);
+    if (!store) {
+      return 0;
+    }
+    const connections = await store.find({ tenantIds: { $all: [tenantId] } });
+    if (dryRun) {
+      return connections.length;
+    }
+    for (const connection of connections) {
+      const remaining = (connection.tenantIds ?? []).filter((id: string) => id !== tenantId);
+      if (remaining.length === 0) {
+        await store.deleteById(connection.id);
+      } else {
+        await store.updateById(connection.id, { tenantIds: remaining });
+      }
+    }
+    return connections.length;
+  }
+
+  /**
+   * Delete what `where` matches in batches of {@link TENANT_PURGE_BATCH} ids, as the tombstone purge does. One statement
+   * over all of a tenant's rows of a synchronized SQL model holds the model's change lock until it commits, and every
+   * other tenant's writes to that model wait for it. Answers how many records went
+   */
+  protected async deleteInBatches(store: DataStore<any>, where: Record<string, unknown>): Promise<number> {
+    let deleted = 0;
+    let after: string | undefined;
+    for (;;) {
+      const batch = await store.find(
+        { ...where, ...(after ? { id: { $gt: after } } : {}) },
+        { limit: TENANT_PURGE_BATCH, select: ['id'], sort: { id: 1 } },
+      );
+      if (!batch.length) {
+        return deleted;
+      }
+      deleted += await store.deleteMany({ ...where, id: { $in: batch.map((record) => record.id) } });
+      if (batch.length < TENANT_PURGE_BATCH) {
+        return deleted;
+      }
+      after = batch[batch.length - 1].id;
+    }
+  }
+
+  /**
+   * The store serving the membership model on either database, or `undefined` for a model registered only through
+   * `MongooseModule.forFeature()` — then the Mongoose model is used
+   */
+  protected memberDataStore(): DataStore<any> | undefined {
+    return getStoreForModel(this.memberModel) ?? getModelStore(this.mongoConnection, this.memberModel.modelName);
+  }
+
+  /** How many memberships a tenant has, in any status */
+  protected countMembers(tenantId: string): Promise<number> {
+    const where = { tenant: tenantId };
+    const store = this.memberDataStore();
+    return RequestContext.runWithBypassTenantGuard(() =>
+      store ? store.count(where) : this.memberModel.countDocuments(where).exec(),
+    );
+  }
+}
+
+/** Options of {@link CoreTenantService.purgeTenantData} */
+export interface TenantPurgeOptions {
+  /** Only count what would be deleted */
+  dryRun?: boolean;
+  /** Model names to leave alone, in addition to `multiTenancy.excludeSchemas`. The memberships always go */
+  exclude?: string[];
+}
+
+/** Records `purgeTenantData()` deletes per statement */
+const TENANT_PURGE_BATCH = 1000;
+
+/**
+ * Core models that reference a tenant without a `tenantId` path, and how they name it. `access`: the record lets
+ * somebody into the tenant on its own, so it goes together with the memberships, before the data
+ */
+const TENANT_REFERENCES: ReadonlyArray<{
+  access?: boolean;
+  model: string;
+  where: (tenantId: string) => Record<string, unknown>;
+}> = [
+  // A tenant token needs no membership
+  { access: true, model: API_TOKEN_MODEL_TOKEN, where: (tenantId) => ({ tenant: tenantId }) },
+  { model: AI_BUDGET_LIMIT_MODEL, where: (tenantId) => ({ refId: tenantId, scope: 'tenant' }) },
+  { model: AI_CONNECTION_PREFERENCE_MODEL, where: (tenantId) => ({ refId: tenantId, scope: 'tenant' }) },
+  { model: AI_TOOL_GRANT_MODEL, where: (tenantId) => ({ refId: tenantId, scope: 'tenant' }) },
+  { model: AI_TOOL_POLICY_MODEL, where: (tenantId) => ({ refId: tenantId, scope: 'tenant' }) },
+];
+
+/**
+ * Refuse a tenant id a delete must not run with. `deleteMany({ tenantId: undefined })` matches every document on
+ * MongoDB, and an operator object (`{ $ne: null }`) would match every tenant
+ */
+function requireTenantId(tenantId: unknown): asserts tenantId is string {
+  if (typeof tenantId !== 'string' || !tenantId.trim()) {
+    throw new BadRequestException('tenantId must be a non-empty string');
   }
 }
 
