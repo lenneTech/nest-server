@@ -5532,6 +5532,29 @@
         "tests/unit/ai-conversation-ownership.spec.ts"
       ],
       "driverSpecific": false
+    },
+    {
+      "id": "ws-stream-interval-end-logged",
+      "defect": "The planned end of a connection that ends on every re-check (the SSE hint stream) is logged at log. Every open stream then writes a line per interval, and a real revocation is lost among them.",
+      "file": "src/core/common/helpers/graphql-ws-connection.helper.ts",
+      "find": "      : terminate(connection, 're-check interval reached, client reconnects', 'debug');",
+      "replace": "      : terminate(connection, 're-check interval reached, client reconnects');",
+      "specs": [
+        "tests/unit/graphql-ws-connection.spec.ts",
+        "tests/unit/sync-hint-stream-log.spec.ts"
+      ],
+      "driverSpecific": false
+    },
+    {
+      "id": "sync-hint-stream-ends-as-lost-session",
+      "defect": "The SSE hint stream registers with a re-authentication that always fails, so every planned end logs \"Session no longer valid\" at log although the session is valid.",
+      "file": "src/core/modules/sync/core-sync.service.ts",
+      "find": "      endsOnRecheck: true,",
+      "replace": "      reauthenticate: () => undefined,",
+      "specs": [
+        "tests/unit/sync-hint-stream-log.spec.ts"
+      ],
+      "driverSpecific": false
     }
   ]
 }

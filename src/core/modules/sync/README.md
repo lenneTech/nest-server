@@ -133,7 +133,10 @@ A hint tells a connected client that pulling is worthwhile; sync works without t
 - **Long-lived channels are re-checked:** the GraphQL subscription runs on the WebSocket `CoreModule` re-checks; an SSE
   stream is registered in the same registry and ends at once on an invalidation naming the caller or their tenant, and
   otherwise before the first hint after `graphQl.subscriptionRevalidationMs` — the EventSource reconnects (`retry`) and
-  the new request passes the guards. A client pulls once after every (re)connect.
+  the new request passes the guards. A client pulls once after every (re)connect. In the log the planned end after the
+  interval is a debug line (`Closing SSE hint stream of user …: re-check interval reached, client reconnects`); an end
+  an invalidation brings stays at `log` (`… authorization invalidated, client reconnects`), so a real revocation stands
+  out (12.2.x; before, every planned end read `Closing GraphQL WebSocket …: Session no longer valid`).
 
 ## Tombstone purge
 

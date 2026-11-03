@@ -1,3 +1,4 @@
+import { Logger } from '@nestjs/common';
 import { EventEmitter } from 'events';
 import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
 
@@ -345,6 +346,76 @@ describe('graphql-ws connection revalidation', () => {
       const forged = JSON.parse(JSON.stringify({ connection: 'x', wsConnection: {} }));
       expect(getWsConnection(forged)).toBeUndefined();
       expect(getWsConnection(undefined)).toBeUndefined();
+    });
+  });
+
+  describe('a connection that ends on every re-check (the SSE hint stream)', () => {
+    /** A stream as CoreSyncService registers it: no handshake to repeat, its own name in the log. */
+    const openStream = (user: any = USER) => {
+      const carrier: Record<string, any> = {};
+      const socket = new FakeSocket();
+      sockets.push(socket);
+      registerWsConnection({ carrier, channel: 'SSE hint stream', endsOnRecheck: true, socket, user });
+      const connection = getWsConnection(carrier);
+      if (!connection) {
+        throw new Error('stream was not registered');
+      }
+      return { connection, socket };
+    };
+    let log: ReturnType<typeof vi.spyOn>;
+    let debug: ReturnType<typeof vi.spyOn>;
+
+    beforeEach(() => {
+      log = vi.spyOn(Logger.prototype, 'log').mockImplementation(() => undefined);
+      debug = vi.spyOn(Logger.prototype, 'debug').mockImplementation(() => undefined);
+    });
+
+    afterEach(() => {
+      log.mockRestore();
+      debug.mockRestore();
+    });
+
+    /**
+     * @regression   DEV-3920 — the hint stream registered `reauthenticate: () => undefined`, so its planned end after
+     *   the re-check interval logged "Closing GraphQL WebSocket of user …: Session no longer valid" at `log` — once per
+     *   open stream and interval, burying real revocations in lines that read like mass session loss.
+     * @seen-failing Log the interval end at `log` in revalidate() (src/core/common/helpers/graphql-ws-connection.helper.ts)
+     *   — registered as mutation `ws-stream-interval-end-logged` in tests/regression-mutations.json.
+     */
+    it('ends at the interval with a debug line of its own, and nothing at log', async () => {
+      vi.useFakeTimers();
+      const { connection, socket } = openStream();
+      vi.advanceTimersByTime(1001);
+      expect(await ensureWsConnectionCurrent(connection)).toBe(false);
+      expect(socket.close).toHaveBeenCalledTimes(1);
+      expect(log).not.toHaveBeenCalled();
+      expect(debug).toHaveBeenCalledWith(
+        'Closing SSE hint stream of user user-1: re-check interval reached, client reconnects',
+      );
+    });
+
+    it('stays open inside the interval', async () => {
+      const { connection, socket } = openStream();
+      expect(await ensureWsConnectionCurrent(connection)).toBe(true);
+      expect(socket.close).not.toHaveBeenCalled();
+    });
+
+    it('ends at once on an invalidation, at log and under its own name', async () => {
+      const { socket } = openStream();
+      expect(revalidateWsConnectionsOf({ userId: 'user-1' })).toBe(1);
+      await vi.waitFor(() => expect(socket.close).toHaveBeenCalledTimes(1));
+      expect(log).toHaveBeenCalledWith(
+        'Closing SSE hint stream of user user-1: authorization invalidated, client reconnects',
+      );
+      expect(debug).not.toHaveBeenCalled();
+    });
+
+    it('leaves the log of a GraphQL WebSocket as it was', async () => {
+      const { current, socket } = connect();
+      current.user = null;
+      revalidateWsConnectionsOf({ userId: 'user-1' });
+      await vi.waitFor(() => expect(socket.close).toHaveBeenCalledTimes(1));
+      expect(log).toHaveBeenCalledWith('Closing GraphQL WebSocket of user user-1: Session no longer valid');
     });
   });
 
