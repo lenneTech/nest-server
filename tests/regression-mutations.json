@@ -2095,6 +2095,28 @@
       "driverSpecific": false
     },
     {
+      "id": "unusable-fix-counts-fixed-edges",
+      "defect": "The consumer-set check counts every parent of the affected package, whatever version it pulls. A subtree lifted to the fixed release then fails a correct declaration for good, because the lifted parent is counted as a consumer nobody assessed.",
+      "file": "scripts/check-overrides.mjs",
+      "find": "        if (!pullsAffectedVersion(edgeVersion(half, line, lines.slice(index + 1)), ranges)) {",
+      "replace": "        if (false) {",
+      "specs": [
+        "tests/unit/check-overrides.guard.spec.ts"
+      ],
+      "driverSpecific": false
+    },
+    {
+      "id": "unusable-fix-skips-unreadable-edge",
+      "defect": "An edge whose version cannot be read (link:, file:) is treated as pulling the fixed package, so an unassessed parent stays hidden behind a declaration that claims only its consumers pull the vulnerable version.",
+      "file": "scripts/check-overrides.mjs",
+      "find": "  if (version === null || ranges.length === 0) {",
+      "replace": "  if (version === null) {\n    return false;\n  }\n  if (ranges.length === 0) {",
+      "specs": [
+        "tests/unit/check-overrides.guard.spec.ts"
+      ],
+      "driverSpecific": false
+    },
+    {
       "id": "openapi-plugin-routable",
       "defect": "Better-Auth's openAPI() plugin, registered by nest-server only to feed setupSwagger(), stays on the HTTP router, so its schema route is public. A path check cannot close that: it sees the request as sent, while Better-Auth matches the path after new URL() removed dot segments — an anonymous GET /iam/./open-api/generate-schema returned the full Better-Auth schema on every deployment.",
       "file": "src/core/modules/better-auth/better-auth.config.ts",
