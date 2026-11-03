@@ -468,6 +468,92 @@ describe('AI module (e2e)', () => {
     expect(res.status).toBe(401);
   });
 
+  /**
+   * DEV-3922: a prompt continues only the caller's own conversation. Until then `appendMessage()` wrote the turns of
+   * a prompt into whatever conversation its `conversationId` named — another user's included, across tenants, since
+   * the model carries no `tenantId` — while the history read already refused it. The planted turns then fed the
+   * owner's next runs. All three entry points (REST, the SSE stream, GraphQL) go through `CoreAiService.prompt()`; the
+   * mechanism and its mutations are pinned in tests/unit/ai-conversation-ownership.spec.ts.
+   */
+  it("keeps another user's conversation untouched when a prompt names it — REST, stream and GraphQL, admin included", async () => {
+    providerFactory.registerBuilder('fake-e2e', () => new ScriptedE2eProvider([JSON.stringify({ final: 'answer' })]));
+    const conn = await connectionService.create(
+      { baseUrl: 'http://fake/v1', isDefault: true, model: 'm', name: 'Owner Conn', providerType: 'fake-e2e' } as any,
+      adminOptions,
+    );
+    const intruderEmail = `ai-http-intruder-${Date.now()}-${Math.random().toString(36).slice(2)}@test.com`;
+    const intruderToken = await createHttpUser(intruderEmail, []);
+    const title = `Owned ${Math.random().toString(36).slice(2, 8)}`;
+
+    // The regular user owns the conversation.
+    const created = await request(app.getHttpServer())
+      .post('/ai/conversations')
+      .set('Authorization', `Bearer ${httpRegularToken}`)
+      .send({ title });
+    expect(created.status).toBe(201);
+    const conversationId: string = created.body.id;
+    const messagesOf = async () => ((await ai.conversations.findById(conversationId))?.messages ?? []) as any[];
+
+    // Another user names it on every entry point: answered, but nothing written and no conversation echoed.
+    const rest = await request(app.getHttpServer())
+      .post('/ai/prompt')
+      .set('Authorization', `Bearer ${intruderToken}`)
+      .send({ conversationId, prompt: 'planted via REST' });
+    expect([200, 201]).toContain(rest.status);
+    expect(rest.body.text).toBe('answer');
+    expect(rest.body.conversationId).toBeUndefined();
+
+    const stream = await request(app.getHttpServer())
+      .post('/ai/stream')
+      .set('Authorization', `Bearer ${intruderToken}`)
+      .send({ conversationId, prompt: 'planted via stream' });
+    expect(stream.text).toContain('"type":"final"');
+    expect(stream.text).not.toContain(conversationId);
+
+    const graphQl = await testHelper.graphQl(
+      {
+        arguments: { input: { conversationId, prompt: 'planted via GraphQL' } },
+        fields: ['conversationId', 'text'],
+        name: 'aiPrompt',
+        type: TestGraphQLType.MUTATION,
+      },
+      { token: intruderToken },
+    );
+    expect(graphQl.errors).toBeUndefined();
+    expect(graphQl.text).toBe('answer');
+    expect(graphQl.conversationId).toBeNull();
+
+    // An admin may read other users' conversations, but continuing one is the same planting.
+    const asAdmin = await request(app.getHttpServer())
+      .post('/ai/prompt')
+      .set('Authorization', `Bearer ${httpAdminToken}`)
+      .send({ conversationId, prompt: 'planted by an admin' });
+    expect([200, 201]).toContain(asAdmin.status);
+    expect(asAdmin.body.conversationId).toBeUndefined();
+
+    expect(await messagesOf()).toEqual([]);
+
+    // The owner continues it as before.
+    const own = await request(app.getHttpServer())
+      .post('/ai/prompt')
+      .set('Authorization', `Bearer ${httpRegularToken}`)
+      .send({ conversationId, prompt: 'question of the owner' });
+    expect([200, 201]).toContain(own.status);
+    expect(own.body.conversationId).toBe(conversationId);
+    expect((await messagesOf()).map((message) => message.content)).toEqual(['question of the owner', 'answer']);
+
+    // The admin's documented read access is unchanged.
+    const read = await request(app.getHttpServer())
+      .get(`/ai/conversations/${conversationId}`)
+      .set('Authorization', `Bearer ${httpAdminToken}`);
+    expect(read.status).toBe(200);
+    expect(read.body.messages).toHaveLength(2);
+
+    await ai.system(() => ai.conversations.deleteMany({ title }));
+    await connectionService.delete(conn.id, adminOptions);
+    await iamDb.deleteUsers({ email: intruderEmail });
+  });
+
   it('exposes an MCP endpoint that rejects unauthenticated requests with 401', async () => {
     const res = await request(app.getHttpServer())
       .post('/ai/mcp')

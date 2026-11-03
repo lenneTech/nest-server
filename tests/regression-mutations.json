@@ -5499,6 +5499,28 @@
         "tests/better-auth-openapi.e2e-spec.ts"
       ],
       "driverSpecific": false
+    },
+    {
+      "id": "ai-conversation-append-skips-owner-check",
+      "defect": "appendMessage() pushes into whatever conversation it is given. Any caller that forgets its own check writes one user's turns into another user's history, which feeds that user's next runs.",
+      "file": "src/core/modules/ai/services/core-ai-conversation.service.ts",
+      "find": "    if (!(await this.isOwnedBy(id, ownerId))) {",
+      "replace": "    if (false) {",
+      "specs": [
+        "tests/unit/ai-conversation-ownership.spec.ts"
+      ],
+      "driverSpecific": false
+    },
+    {
+      "id": "ai-prompt-keeps-foreign-conversation",
+      "defect": "prompt() keeps a conversationId the caller does not own for the whole run: the answer echoes it, and the conversation-scoped tool grants of another user's conversation are read and stored.",
+      "file": "src/core/modules/ai/services/core-ai.service.ts",
+      "find": "    return owned ? input : { ...input, conversationId: undefined };",
+      "replace": "    return input;",
+      "specs": [
+        "tests/unit/ai-conversation-ownership.spec.ts"
+      ],
+      "driverSpecific": false
     }
   ]
 }
