@@ -146,9 +146,10 @@ ai: {
 }
 ```
 
-- **Plan mode / pre-flight permissions:** give data-mutating tools an `authorize()` that
-  checks permission WITHOUT mutating (e.g. load the record + verify ownership). Plan mode
-  runs it for every step before executing anything.
+- **Data-level permissions:** give data-mutating tools an `authorize()` that checks
+  permission WITHOUT mutating (e.g. load the record + verify ownership). It runs before every
+  execution — auto mode, plan mode (for every step before anything runs) and MCP (12.3.0+);
+  return `data` to hand the loaded record to `execute()` (`context.authorization.data`).
 - **Confirmation:** mark create/update/delete tools `mutating: true` and irreversible ones
   `destructive: true`.
 - **Self-optimizing prompts:** the system prompt is built from editable, keyed slots —
@@ -183,10 +184,11 @@ ai: {
   stays with the registry's role filter, the execution-time re-check, and the
   `mutating`/`destructive` flags behind the confirmation gate, none of which read the
   description.
-- **Where data-level checks belong:** `authorize()` runs in **plan mode only**. In auto mode
-  (the default) and over MCP, the orchestrator calls `execute()` directly. Put ownership and
-  tenant checks INSIDE `execute()` (via `CrudService` + `context.serviceOptions`) — a check
-  that lives only in `authorize()` will not run for most callers.
+- **Where data-level checks belong:** `authorize()` decides whether a call may be tried;
+  `execute()` still routes every read and write through `CrudService` +
+  `context.serviceOptions`, so `@Restricted`, `securityCheck()` and tenant scoping apply.
+  Until 12.2 `authorize()` ran in plan mode only — a project that moved its checks into
+  `execute()` for that reason keeps working unchanged.
 
 ### MCP server (only when `ai.mcp.enabled` or `ai.mcp` is truthy)
 
@@ -200,10 +202,14 @@ A **503 Service Unavailable** from `/ai/mcp` therefore means the module could no
 _resolved_, not that it is missing — check the server log for the underlying error.
 The response body carries the stable `#LTNS_0901` code, never the raw error.
 
-> **No confirmation gate over MCP.** `mcpCallTool` does not consult the
-> `mutating`/`destructive` flags, and `authorize()` does not run there either. A
-> destructive tool invoked through `/ai/mcp` executes immediately. Only expose MCP to
-> clients you trust, and put every permission check inside `execute()`.
+> **Confirmation over MCP (12.3.0+).** `tools/call` applies the admin's tool policies and
+> `authorize()`, and asks the user through MCP elicitation before a `destructive` tool (or a
+> `mutating` one under `ai.confirmation.mutating`) runs. A client without elicitation gets an
+> error result. Each user may switch the question off (and on) for themselves via
+> `PUT /ai/settings` / `updateAiSettings`; `ai.mcp.confirmation` sets the default
+> (`false` = off) and `{ enforced: true }` takes the switch away. **Check your MCP clients**
+> and offer users the switch in your UI (`GET /ai/settings` says whether it is enforced).
+> See the module README, "Authorization and confirmation over MCP".
 
 ### MCP OAuth 2.1 (only when `ai.mcp.oauth` is enabled)
 

@@ -722,6 +722,15 @@ export const LtnsErrors = {
     },
   },
 
+  AI_SETTING_ENFORCED: {
+    code: 'LTNS_0609',
+    message: 'This AI setting is fixed by the server',
+    translations: {
+      de: 'Diese KI-Einstellung ist vom Server festgelegt und kann nicht geändert werden.',
+      en: 'This AI setting is fixed by the server and cannot be changed.',
+    },
+  },
+
   // =====================================================
   // Offline Sync Errors (LTNS_0700-LTNS_0799)
   // =====================================================

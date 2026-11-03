@@ -51,7 +51,7 @@ export class CoreAiToolPolicyRule {
  * `user`. A more specific scope wins over a more generic one. Hints only ever
  * tighten or relax the confirmation gate; the underlying permission model
  * (`@Restricted`, `@Roles`, `securityCheck()`) is enforced regardless;
- * `authorize()` adds to that in plan mode only.
+ * `authorize()` adds to that before every execution. Rules apply in the chat and over MCP (12.3.0+).
  */
 @MongooseSchema({ collection: 'aiToolPolicies', timestamps: true })
 @ObjectType({ description: 'Admin-editable scoped policy for a tool call' })

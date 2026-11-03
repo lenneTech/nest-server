@@ -29,6 +29,7 @@ import { CoreAiPrompt } from '../../src/core/modules/ai/models/core-ai-prompt.mo
 import { CoreAiSlot } from '../../src/core/modules/ai/models/core-ai-slot.model';
 import { CoreAiToolGrant } from '../../src/core/modules/ai/models/core-ai-tool-grant.model';
 import { CoreAiToolPolicy } from '../../src/core/modules/ai/models/core-ai-tool-policy.model';
+import { CoreAiUserSetting } from '../../src/core/modules/ai/models/core-ai-user-setting.model';
 import { CoreApiTokenModel } from '../../src/core/modules/api-token/core-api-token.model';
 import { CoreTenantMemberModel } from '../../src/core/modules/tenant/core-tenant-member.model';
 import { FILE_METADATA_MODELS } from '../../src/core/modules/file/file-metadata.models';
@@ -125,6 +126,7 @@ const SHIPPED_MODELS = [
   CoreAiSlot,
   CoreAiToolGrant,
   CoreAiToolPolicy,
+  CoreAiUserSetting,
   CoreApiTokenModel,
   CoreTenantMemberModel,
   FileInfo,

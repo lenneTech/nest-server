@@ -571,6 +571,8 @@ describe('AI module (e2e)', () => {
 
   const mcpUserTool = 'e2e_mcp_user_tool';
   const mcpAdminTool = 'e2e_mcp_admin_tool';
+  const mcpDestructiveTool = 'e2e_mcp_destructive_tool';
+  let mcpDestructiveRuns = 0;
 
   let mcpToolsRegistered = false;
   function registerMcpTools(): void {
@@ -594,6 +596,17 @@ describe('AI module (e2e)', () => {
       name: mcpAdminTool,
       parameters: { properties: {}, type: 'object' },
       roles: [RoleEnum.ADMIN],
+    });
+    registry.register({
+      description: 'MCP e2e: destructive, open to every signed-in user',
+      destructive: true,
+      execute: async () => {
+        mcpDestructiveRuns++;
+        return { data: { deleted: true }, success: true };
+      },
+      name: mcpDestructiveTool,
+      parameters: { properties: {}, type: 'object' },
+      roles: [RoleEnum.S_USER],
     });
   }
 
@@ -677,6 +690,68 @@ describe('AI module (e2e)', () => {
       { id: 3, method: 'tools/list' },
       { sessionId: session.sessionId, statusCode: 404, token: httpRegularToken },
     );
+  });
+
+  /**
+   * The MCP confirmation gate over the assembled stack (12.3.0): on by default, and each user's own switch, stored
+   * through REST and read back through GraphQL, on whatever database the run routes the AI models to.
+   */
+  it('MCP: asks before a destructive tool; a user switches that off and on for themselves only', async () => {
+    registerMcpTools();
+    const settingsFields = ['mcpConfirmation', 'mcpConfirmationEnforced'];
+    const session = await testHelper.mcpSession({ token: httpRegularToken });
+
+    // TestHelper's MCP client declares no elicitation capability, so it cannot ask: the default refuses
+    expect(await testHelper.rest('/ai/settings', { token: httpRegularToken })).toEqual({
+      mcpConfirmation: true,
+      mcpConfirmationEnforced: false,
+    });
+    const refused = await session.callTool(mcpDestructiveTool);
+    expect(refused.isError).toBe(true);
+    expect(refused.content[0].text).toContain('confirmation');
+    expect(mcpDestructiveRuns).toBe(0);
+
+    try {
+      expect(
+        await testHelper.rest('/ai/settings', {
+          method: 'PUT',
+          payload: { mcpConfirmation: false },
+          token: httpRegularToken,
+        }),
+      ).toEqual({ mcpConfirmation: false, mcpConfirmationEnforced: false });
+      // Stored, not only answered
+      expect(
+        await testHelper.graphQl(
+          { fields: settingsFields, name: 'aiSettings', type: TestGraphQLType.QUERY },
+          { token: httpRegularToken },
+        ),
+      ).toEqual({ mcpConfirmation: false, mcpConfirmationEnforced: false });
+
+      expect((await session.callTool(mcpDestructiveTool)).isError).toBeFalsy();
+      expect(mcpDestructiveRuns).toBe(1);
+
+      // Another user keeps the server default
+      const adminSession = await testHelper.mcpSession({ token: httpAdminToken });
+      expect((await adminSession.callTool(mcpDestructiveTool)).isError).toBe(true);
+      expect(mcpDestructiveRuns).toBe(1);
+    } finally {
+      await testHelper.graphQl(
+        {
+          arguments: { input: { mcpConfirmation: true } },
+          fields: settingsFields,
+          name: 'updateAiSettings',
+          type: TestGraphQLType.MUTATION,
+        },
+        { token: httpRegularToken },
+      );
+    }
+
+    expect((await session.callTool(mcpDestructiveTool)).isError).toBe(true);
+    expect(mcpDestructiveRuns).toBe(1);
+  });
+
+  it('AI settings: an anonymous caller gets 401', async () => {
+    await testHelper.rest('/ai/settings', { statusCode: 401 });
   });
 
   it('enforces a per-user token limit and reports usage in the response + aiUsage', async () => {

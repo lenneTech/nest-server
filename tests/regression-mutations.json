@@ -5687,6 +5687,116 @@
         "tests/unit/better-auth-social-sign-up.spec.ts"
       ],
       "driverSpecific": false
+    },
+    {
+      "id": "ai-auto-mode-skips-authorize",
+      "defect": "12.3.0 — auto mode, the default, called a tool's execute() without its authorize(), so a data-level check placed there (ownership, tenant) ran in plan mode only.",
+      "file": "src/core/modules/ai/services/core-ai.service.ts",
+      "find": "    const authorization = await this.authorizeCall(call, availableTools, context);\n",
+      "replace": "    const authorization: AiToolAuthorization = { allowed: true };\n",
+      "specs": [
+        "tests/unit/ai-tool-authorize-everywhere.spec.ts"
+      ],
+      "driverSpecific": false
+    },
+    {
+      "id": "ai-authorize-throw-allows",
+      "defect": "12.3.0 — an authorize() that throws must refuse the call; read as allowed, a failing ownership lookup would run the tool for anyone who may see it.",
+      "file": "src/core/modules/ai/helpers/ai-tool-authorization.helper.ts",
+      "find": "    return { allowed: false, reason: 'The authorization check for this action failed.' };\n",
+      "replace": "    return { allowed: true };\n",
+      "specs": [
+        "tests/unit/ai-tool-authorize-everywhere.spec.ts"
+      ],
+      "driverSpecific": false
+    },
+    {
+      "id": "ai-mcp-skips-authorize",
+      "defect": "12.3.0 — mcpCallTool() called execute() without authorize(), so an MCP client ran a tool on records the check would have refused.",
+      "file": "src/core/modules/ai/services/core-ai-mcp.service.ts",
+      "find": "    const authorization = await authorizeToolCall(tool, callArgs, context);\n",
+      "replace": "    const authorization = { allowed: true };\n",
+      "specs": [
+        "tests/unit/ai-tool-authorize-everywhere.spec.ts"
+      ],
+      "driverSpecific": false
+    },
+    {
+      "id": "ai-mcp-skips-confirmation",
+      "defect": "12.3.0 — destructive and mutating were read by the chat orchestrator only: a destructive tool ran over MCP on the first call, without the user being asked.",
+      "file": "src/core/modules/ai/services/core-ai-mcp.service.ts",
+      "find": "    if (policy?.decision === 'ask' || (await this.confirmationRequired(tool, user))) {\n",
+      "replace": "    if (false) {\n",
+      "specs": [
+        "tests/unit/ai-tool-authorize-everywhere.spec.ts"
+      ],
+      "driverSpecific": false
+    },
+    {
+      "id": "ai-mcp-elicit-decline-runs",
+      "defect": "12.3.0 — only an accepted elicitation with confirm: true may run a tool that needs confirmation; reading any answer as yes runs it although the user declined.",
+      "file": "src/core/modules/ai/services/core-ai-mcp.service.ts",
+      "find": "    return result?.action === 'accept' && result.content?.confirm === true;\n",
+      "replace": "    return true;\n",
+      "specs": [
+        "tests/unit/ai-tool-authorize-everywhere.spec.ts"
+      ],
+      "driverSpecific": false
+    },
+    {
+      "id": "ai-mcp-user-bypass-ignores-enforced",
+      "defect": "12.3.0 — a user's own \"do not ask me\" switch must give way to ai.mcp.confirmation.enforced; honoured anyway, an enforced confirmation is switched off by every user for themselves.",
+      "file": "src/core/modules/ai/helpers/ai-tool-authorization.helper.ts",
+      "find": "  if (policy.enforced || typeof userChoice !== 'boolean') {\n",
+      "replace": "  if (typeof userChoice !== 'boolean') {\n",
+      "specs": [
+        "tests/unit/ai-tool-authorize-everywhere.spec.ts"
+      ],
+      "driverSpecific": false
+    },
+    {
+      "id": "ai-settings-enforced-stored",
+      "defect": "12.3.0 — a change of a setting the server enforces must answer 403; stored and ignored instead, the user believes confirmation is off while it is not, or the stored choice takes effect the day the enforcement is lifted.",
+      "file": "src/core/modules/ai/services/core-ai-user-setting.service.ts",
+      "find": "      if (mcpConfirmationPolicy().enforced) {\n",
+      "replace": "      if (false) {\n",
+      "specs": [
+        "tests/unit/ai-tool-authorize-everywhere.spec.ts"
+      ],
+      "driverSpecific": false
+    },
+    {
+      "id": "ai-mcp-skips-tool-policy",
+      "defect": "12.3.0 — the admin's tool policies were evaluated by the chat orchestrator only: a deny rule did not stop the same call over MCP, and an ask rule did not ask.",
+      "file": "src/core/modules/ai/services/core-ai-mcp.service.ts",
+      "find": "    const policy = await this.evaluateToolPolicy(tool, callArgs, user);\n",
+      "replace": "    const policy: { decision?: string; reason?: string } | undefined = undefined;\n",
+      "specs": [
+        "tests/unit/ai-tool-authorize-everywhere.spec.ts"
+      ],
+      "driverSpecific": false
+    },
+    {
+      "id": "ai-mcp-unflagged-tool-read-only",
+      "defect": "12.3.0 — tools/list advertised readOnlyHint: true for every tool without mutating / destructive, although such a tool may write; a client that runs read-only tools without asking then ran it unasked.",
+      "file": "src/core/modules/ai/services/core-ai-mcp.service.ts",
+      "find": "      ...(tool.destructive || tool.mutating\n",
+      "replace": "      ...(true\n",
+      "specs": [
+        "tests/unit/ai-tool-authorize-everywhere.spec.ts"
+      ],
+      "driverSpecific": false
+    },
+    {
+      "id": "ai-mcp-confirmation-hides-arguments",
+      "defect": "12.3.0 — the confirmation question cut the whole argument text at a fixed length; the model controls the order, so a long first value pushed the target id out of what the user approved.",
+      "file": "src/core/modules/ai/services/core-ai-mcp.service.ts",
+      "find": "    const argumentsText = lines.length ? `\\nArguments:\\n${lines.join('\\n')}` : '';\n",
+      "replace": "    const argumentsText = lines.length ? `\\nArguments: ${JSON.stringify(args).slice(0, 500)}` : '';\n",
+      "specs": [
+        "tests/unit/ai-tool-authorize-everywhere.spec.ts"
+      ],
+      "driverSpecific": false
     }
   ]
 }

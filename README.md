@@ -383,9 +383,9 @@ Details: [src/core/modules/sync/README.md](src/core/modules/sync/README.md), cli
 An optional AI module (`ai` configuration) for any OpenAI-compatible model endpoint:
 
 - **Tool registry** — the assistant reaches exactly the domain operations a project registers as tools, filtered by the user's roles; a tool must route through a `CrudService` with the caller's service options, so that `@Restricted` and `securityCheck()` apply
-- **Plan mode and confirmations** — a full plan is authorized step by step before anything runs; in chat, destructive tools always ask for confirmation, mutating tools only under `ai.confirmation.mutating` (off by default, can be enforced)
+- **Authorization and confirmations** — a tool's `authorize()` checks every call before it runs (auto mode, plan mode, MCP), and plan mode authorizes the whole plan before anything runs; destructive tools ask for confirmation, mutating tools only under `ai.confirmation.mutating` (off by default, can be enforced)
 - **Token budgets** per user and per tenant, conversations, audit log, SSE streaming, admin-editable prompt fragments
-- **MCP server** at `/ai/mcp` (Streamable HTTP) with optional OAuth 2.1 (PKCE, dynamic client registration, consent page), so MCP clients use the same tools with the same rights; there is no confirmation gate over MCP, the client's own approval applies
+- **MCP server** at `/ai/mcp` (Streamable HTTP) with optional OAuth 2.1 (PKCE, dynamic client registration, consent page), so MCP clients use the same tools with the same rights; `tools/call` applies the admin's tool policies and `authorize()`, and asks the user through MCP elicitation before a destructive tool (`ai.mcp.confirmation`, on by default; each user may switch it off for themselves via `PUT /ai/settings` unless the server enforces it)
 
 Integration: [src/core/modules/ai/INTEGRATION-CHECKLIST.md](src/core/modules/ai/INTEGRATION-CHECKLIST.md).
 
