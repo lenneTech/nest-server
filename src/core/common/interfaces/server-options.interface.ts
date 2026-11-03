@@ -2224,7 +2224,9 @@ export interface IAi {
          * authenticated user and ends with the response, no `mcp-session-id` is issued, and GET /
          * DELETE answer 405. Any replica can answer any request, so no sticky sessions are needed
          * behind a load balancer. The price is what a session carries: server-initiated messages
-         * (notifications, SSE streams) are unavailable, which a tools-only server does not use.
+         * (notifications, SSE streams) and server-initiated requests — MCP elicitation among them, so a
+         * tool that needs confirmation (`confirmation`) is refused unless the user or `confirmation`
+         * switched the question off. A server that only offers read tools uses none of it (12.3.0+).
          * @default false
          */
         stateless?: boolean;
