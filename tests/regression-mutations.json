@@ -5643,6 +5643,28 @@
         "tests/unit/sync-client.spec.ts"
       ],
       "driverSpecific": false
+    },
+    {
+      "id": "mcp-oauth-error-redirect-unguarded",
+      "defect": "12.3.0 — the SDK sent an /authorize error after the client check (a missing code_challenge) to the self-registered client's redirect URI: an open redirect on the API domain with one crafted link.",
+      "file": "src/core/modules/ai/helpers/ai-mcp-oauth.helper.ts",
+      "find": "  use(guardErrorRedirects(router as (req: any, res: any, next: (error?: unknown) => void) => void));\n",
+      "replace": "  use(router);\n",
+      "specs": [
+        "tests/unit/ai-mcp-oauth-error-redirect.spec.ts"
+      ],
+      "driverSpecific": false
+    },
+    {
+      "id": "mcp-oauth-deny-without-consent-token",
+      "defect": "12.3.0 — Deny on the MCP OAuth consent page was honoured without the CSRF token: a cross-site POST sent a signed-in user (SameSite=None session cookie) to the client's registered redirect URI.",
+      "file": "src/core/modules/ai/services/core-ai-mcp-oauth.service.ts",
+      "find": "      if (verdict === 'valid' && decision === 'deny') {\n",
+      "replace": "      if (decision === 'deny') {\n",
+      "specs": [
+        "tests/unit/ai-mcp-oauth-error-redirect.spec.ts"
+      ],
+      "driverSpecific": false
     }
   ]
 }

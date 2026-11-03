@@ -122,6 +122,7 @@ async function mountRouter(
   const { getOAuthProtectedResourceMetadataUrl, mcpAuthRouter } =
     await import('@modelcontextprotocol/sdk/server/auth/router.js');
   const provider = oauthService.buildOAuthProvider() as any;
+  markAuthorizeReached(provider);
 
   let router: unknown;
   try {
@@ -136,7 +137,7 @@ async function mountRouter(
     });
   }
 
-  use(router);
+  use(guardErrorRedirects(router as (req: any, res: any, next: (error?: unknown) => void) => void));
   const mounted: IMountedMcpOAuth = {
     authBasePath: options.authBasePath,
     baseUrl: baseUrl.replace(/\/$/, ''),
@@ -151,6 +152,72 @@ async function mountRouter(
   setMountedMcpOAuth(mounted);
   logger.log(`MCP OAuth issuer: ${issuerUrl.href} (from ${source}), resource: ${resourceServerUrl.href}`);
   return mounted;
+}
+
+/** `res.locals` key: the SDK's authorize handler handed this request to the provider */
+const AUTHORIZE_REACHED = Symbol('ltMcpOAuthAuthorizeReached');
+
+/** Marks every request the provider's `authorize` receives, so {@link refuseUnvouchedErrorRedirects} lets its redirects pass */
+function markAuthorizeReached(provider: { authorize?: (...args: any[]) => Promise<void> }): void {
+  const authorize = provider.authorize;
+  if (typeof authorize !== 'function') {
+    return;
+  }
+  provider.authorize = (client: unknown, params: unknown, res: any) => {
+    if (res) {
+      res.locals = res.locals ?? {};
+      res.locals[AUTHORIZE_REACHED] = true;
+    }
+    return authorize.call(provider, client, params, res);
+  };
+}
+
+/**
+ * The SDK router behind a guard on `/authorize`: an error the SDK finds after the client check (a missing
+ * `code_challenge`, a wrong `response_type`) is answered here, never sent to the client's redirect URI. Dynamic client
+ * registration takes any redirect URI — it must, for claude.ai, ChatGPT, Cursor and Claude Code — so that 302 made
+ * `/authorize` an open redirect on this domain for whoever registered a client (RFC 9700 §4.11.2). The answer has the
+ * shape of the SDK's own errors before the client check. What the provider does keeps its redirects: the signed-in
+ * user's Allow or Deny, which carry the consent form's token, and the provider's own refusals. One handler, so the
+ * router is still mounted with a single `use()`.
+ */
+function guardErrorRedirects(
+  router: (req: any, res: any, next: (error?: unknown) => void) => void,
+): (req: any, res: any, next: (error?: unknown) => void) => void {
+  return (req, res, next) => {
+    if (
+      String(req.path ?? '')
+        .toLowerCase()
+        .replace(/\/+$/, '') === '/authorize'
+    ) {
+      refuseUnvouchedErrorRedirects(res);
+    }
+    router(req, res, next);
+  };
+}
+
+/** Answers an error redirect of the SDK directly unless the request reached the provider's `authorize` */
+function refuseUnvouchedErrorRedirects(res: any): void {
+  const redirect = res.redirect.bind(res);
+  res.redirect = (...args: unknown[]) => {
+    const target = typeof args[0] === 'number' ? args[1] : args[0];
+    let error: null | string = null;
+    let description: null | string = null;
+    try {
+      const url = new URL(String(target));
+      error = url.searchParams.get('error');
+      description = url.searchParams.get('error_description');
+    } catch {
+      // Not an absolute URL: nothing the SDK's error redirect would produce
+    }
+    if (error && !res.locals?.[AUTHORIZE_REACHED]) {
+      res
+        .status(error === 'server_error' ? 500 : 400)
+        .json({ error, ...(description ? { error_description: description } : {}) });
+      return;
+    }
+    return redirect(...args);
+  };
 }
 
 /** The Express instance behind a Nest application, or the object itself for any other shape. */
