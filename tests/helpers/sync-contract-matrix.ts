@@ -187,6 +187,11 @@ export const SYNC_CASES: readonly SyncCase[] = [
   },
   {
     drivers: ALL,
+    id: 'push-after-refused-item',
+    title: 'a later item of a record whose item was not stored is held back as conflict — never applied on their version',
+  },
+  {
+    drivers: ALL,
     id: 'push-body-invalid',
     title: 'a malformed body, an unknown op or too many items answer 400 before any item applies',
   },

@@ -104,6 +104,12 @@ hashed, unique), records the outcome afterwards and answers a repeat with that o
 A repeat that finds a claim still being written answers `retry` — that is how two tabs sending the same push end in one
 write and no false conflict. A claim older than 30 s belongs to a request that died and is taken over.
 
+Once an item of a record is not stored (`conflict`, `rejected`, `not_found`, `retry`), the later items of that record
+in the same push are **held back** (12.3.0+): each builds on the version the one before it produces (protocol §6.2), and
+applied on its own its base version could match what another writer left. A held-back item is never applied or
+claimed; it is answered `retry` behind a `retry`, otherwise `conflict` with the record as the caller may see it
+(`not_found` without one). Items of other records are unaffected.
+
 ## Change order and windows
 
 The store decides how changes are ordered (`capabilities.changeOrder`): on SQL a commit-ordered sequence (`syncSeq`) —
