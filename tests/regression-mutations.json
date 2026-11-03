@@ -5830,6 +5830,17 @@
         "tests/unit/ai-native-tool-catalog.spec.ts"
       ],
       "driverSpecific": false
+    },
+    {
+      "id": "ai-run-ignores-native-tool-tokens",
+      "defect": "12.3.0 — runAuto() must hand the native tool payload to the context budget; without it a native connection undercounts by the whole payload once the catalog lists names only.",
+      "file": "src/core/modules/ai/services/core-ai.service.ts",
+      "find": "    const toolTokens = provider.capabilities.nativeTools ? this.estimateTokens(JSON.stringify(toolSchemas)) : 0;\n",
+      "replace": "    const toolTokens = 0;\n",
+      "specs": [
+        "tests/unit/ai-native-tool-catalog.spec.ts"
+      ],
+      "driverSpecific": false
     }
   ]
 }

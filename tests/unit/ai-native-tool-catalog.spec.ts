@@ -162,6 +162,27 @@ describe('context budget and a crowded context window', () => {
   });
 
   /**
+   * @regression   12.3.0 — the native tool payload was not counted against the budget of a real run; with the
+   *   descriptions gone from the catalog, a native connection would undercount by the whole payload.
+   * @seen-failing Pass no tool tokens from runAuto()
+   *   (src/core/modules/ai/services/core-ai.service.ts) — registered as mutation
+   *   `ai-run-ignores-native-tool-tokens` in tests/regression-mutations.json.
+   */
+  it('reserves the native tool payload in a real run, so the messages are fitted to what remains', async () => {
+    const registry = new AiToolRegistry();
+    for (let i = 0; i < 80; i++) {
+      registry.register(tool(`tool_${i}`));
+    }
+    const provider = new FinalAnswerProvider(true);
+    const service = buildService(provider, registry);
+    vi.spyOn((service as any).logger, 'warn').mockImplementation(() => undefined);
+
+    await service.prompt({ prompt: 'x'.repeat(12000) } as any, { currentUser: user });
+
+    expect(provider.received[0].messages.at(-1).content).toContain('[truncated to fit the context window]');
+  });
+
+  /**
    * @regression   12.3.0 — a system prompt that left the conversation no room truncated the user's message and was
    *   logged on debug only; nobody saw why the assistant answered generically.
    * @seen-failing Skip the crowded-context check in runAuto()
