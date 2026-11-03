@@ -818,9 +818,9 @@ production secret check runs again before the endpoints are mounted (without a s
 environment outside `local` / `ci` / `e2e` refuses to boot and to sign tokens at all — deployed `develop` and `test`
 stages included).
 
-Known property of the SDK: `/authorize` redirects its error answers to the client's registered
-redirect URI, and any client may register any https URI — an open redirect in the sense of RFC 9700
-§4.11.2, carrying only an OAuth error code.
+Until 12.3.0 the SDK's error redirect made `/authorize` an open redirect in the sense of RFC 9700
+§4.11.2, since any client may register any https URI; the framework now answers those errors itself
+(see "A malformed request" under the consent page above).
 
 **Refusals are OAuth errors (11.43.0).** The SDK's handlers answer an error with its OAuth code only
 when it is one of the SDK's own `OAuthError` classes; anything else becomes `500 server_error`. The
