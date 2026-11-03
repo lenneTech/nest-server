@@ -979,6 +979,17 @@ export interface IBetterAuthSocialProvider {
   clientSecret: string;
 
   /**
+   * Whether a first sign-in through this provider may create an account.
+   *
+   * Unset, the provider follows `betterAuth.emailAndPassword.disableSignUp`: with that set to `true` (since 12.3.0)
+   * nobody gets a new account through any provider, while existing users keep signing in. `false` opens sign-up
+   * through this provider although `disableSignUp` closes it otherwise; `true` closes it for this provider alone.
+   * Only a boolean counts: any other value follows `emailAndPassword.disableSignUp`.
+   * @default emailAndPassword.disableSignUp
+   */
+  disableSignUp?: boolean;
+
+  /**
    * Whether this provider is enabled.
    * Defaults to true when clientId and clientSecret are provided.
    * Set to false to explicitly disable this provider.
@@ -4198,6 +4209,10 @@ interface IBetterAuthBase {
      * Disable user registration (sign-up) via BetterAuth.
      * Passed through to better-auth's native emailAndPassword.disableSignUp.
      * Custom endpoints (GraphQL + REST) also check this flag early.
+     * Since 11.44.1 (12.3.0 on 12.x) it closes social sign-up too: every configured social provider receives it as its own
+     * `disableSignUp`, so a first sign-in through Google, GitHub etc. creates no account, while existing users keep
+     * signing in. `socialProviders.<name>.disableSignUp: false` opens one provider deliberately. Plugins a project
+     * registers itself through `options.plugins` are not covered.
      * The Swagger document built by `setupSwagger()` then leaves out `POST /iam/sign-up/email`,
      * which would answer `SIGNUP_DISABLED` to every caller.
      * @default false

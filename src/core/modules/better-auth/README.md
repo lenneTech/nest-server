@@ -622,12 +622,30 @@ When disabled:
 - REST `POST /iam/sign-up/email` returns `400 Bad Request` with error `LTNS_0026`
 - GraphQL `betterAuthSignUp` mutation returns error `LTNS_0026`
 - `betterAuthFeatures` reports `signUpEnabled: false`
-- Sign-in continues to work for existing users
+- A first sign-in through a social provider creates no account (since 11.44.1, 12.3.0 on 12.x): the OAuth callback redirects with
+  `error=signup_disabled`, `/sign-in/social` with an `idToken` answers 401 `signup disabled`
+- Sign-in continues to work for existing users, through e-mail and every social provider
 
 **Defense in Depth:** The flag is enforced at two layers:
 
 1. **Custom check** (`CoreBetterAuthService.ensureSignUpEnabled()`) runs in Controller/Resolver _before_ any BetterAuth API call and returns a structured `LTNS_0026` error.
 2. **Native BetterAuth** `emailAndPassword.disableSignUp` acts as a safety net for any direct API access that bypasses the custom check.
+
+**Social providers:** Better-Auth reads `emailAndPassword.disableSignUp` for `/sign-up/email` only and decides a social
+sign-up per provider, so `buildSocialProviders()` hands every provider the flag as its own `disableSignUp`. One provider
+can deviate on purpose:
+
+```typescript
+socialProviders: {
+  google: { clientId: '...', clientSecret: '...', disableSignUp: false }, // new users through Google despite the global flag
+  github: { clientId: '...', clientSecret: '...', disableSignUp: true },  // closed for GitHub even while sign-up is open
+},
+```
+
+Only a boolean counts on the provider; any other value follows `emailAndPassword.disableSignUp`, so a string from
+`NEST_SERVER_CONFIG` cannot open a closed registration. Plugins a project adds itself through `betterAuth.options.plugins`
+(Generic OAuth, Magic Link, …) are not covered and need their own sign-up options. Before 11.44.1 every provider created
+accounts whatever `disableSignUp` said.
 
 **Default:** `false` (sign-up enabled) - fully backward compatible.
 
