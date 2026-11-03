@@ -396,6 +396,16 @@ factory.registerBuilder('my-provider', (conn) => new MyProvider(conn));
   `conversationId` to `aiPrompt` to load prior turns and append the new ones.
   Manage via `createAiConversation` / `findAiConversations` / `getAiConversation`
   / `deleteAiConversation`.
+  A prompt only continues the caller's OWN conversation, on REST, the stream and
+  GraphQL alike. An id the caller did not create — another user's, or one that does
+  not exist — counts as no conversation: the run reads no history, writes nothing,
+  uses no conversation-scoped tool grants, and its response carries no
+  `conversationId` (12.3.0; before, the turns were written into the other user's
+  conversation). Admins are no exception here: they may READ every conversation
+  (`getAiConversation`, `findAiConversations` with `all`), never continue one.
+  `CoreAiConversationService.appendMessage(id, message, ownerId)` checks the owner
+  itself and writes nothing for anyone else; a project that calls it directly passes
+  the id of the user the turn belongs to.
 - **Audit** (`ai.audit: true`): every run is persisted to `aiInteractions`
   (admin-readable via `findAiInteractions` / `getAiInteraction`).
 - **Streaming**: `POST /ai/stream` returns Server-Sent Events (`action`, `token`,
@@ -418,26 +428,32 @@ export class TransferFundsTool extends AiTool {
   readonly mutating = true; // governed by the confirmation policy
   readonly destructive = true; // always requires confirmation
 
-  // PLAN-MODE pre-flight, without mutating: lets the whole plan be rejected before
-  // any step runs. It does NOT run in auto mode or over MCP — so it must never be
-  // the only place a permission is checked.
+  // Runs before EVERY execution (12.3.0+): auto mode, plan mode (for the whole plan
+  // before any step runs, and again per step) and MCP — on the arguments that will
+  // run, after the PreToolUse hooks. Never mutates. A throw counts as a refusal.
   async authorize(args, context) {
     const account = await this.accountService.get(args.fromId, context.serviceOptions).catch(() => null);
-    return { allowed: !!account, reason: account ? undefined : 'No access to source account' };
+    return account
+      ? { allowed: true, data: account } // reaches execute() as context.authorization.data
+      : { allowed: false, reason: 'No access to source account' };
   }
 
   async execute(args, context) {
-    // The REAL gate, on every path: route through the service with the caller's
-    // serviceOptions so `@Restricted`, `securityCheck()` and tenant scoping apply.
-    // Do not rely on authorize() having run.
-    const account = await this.accountService.getForUser(args.fromId, context.serviceOptions);
+    // Still route the write through the service with the caller's serviceOptions, so
+    // `@Restricted`, `securityCheck()` and tenant scoping apply: authorize() decides
+    // whether to try, the service decides what the user may change.
+    const account =
+      context.authorization?.data ?? (await this.accountService.getForUser(args.fromId, context.serviceOptions));
     return this.accountService.transfer(account, args.toId, args.amount, context.serviceOptions);
   }
 }
 ```
 
-> **Do not put a permission check only in `authorize()`.** It runs in plan mode
-> only — auto mode (the default) and MCP go straight to `execute()`.
+> **`authorize()` runs on every path since 12.3.0.** Until 12.2 it ran in plan mode
+> only — auto mode (the default) and MCP went straight to `execute()`. A refusal skips
+> the call: the model receives `TOOL_NOT_AVAILABLE` with the `reason` (keep it free of
+> anything the user may not know), an MCP client an error result. The refusal is not
+> recorded as a learning signal.
 
 ## Confirmation for changes
 
@@ -447,6 +463,8 @@ export class TransferFundsTool extends AiTool {
   admin set `enforced: true`.
 - When confirmation is needed the response has `requiresConfirmation: true` +
   `pendingActions`; re-send the prompt with `confirm: true` to proceed.
+- Over MCP the same flags apply through MCP elicitation (12.3.0+) — see
+  [Authorization and confirmation over MCP](#authorization-and-confirmation-over-mcp-1230).
 
 ## Client metadata & prompt enrichment
 
@@ -454,6 +472,16 @@ export class TransferFundsTool extends AiTool {
   clearly-delimited, size-capped, **untrusted** context block.
 - The system prompt is enriched with the user's roles + available tools and optional
   `ai.documentation` (override `CoreAiPromptBuilderService.getDocumentation()` for RAG).
+
+**What bounds the size.** `input.context` and `input.metadata` are capped at 4000 characters
+each for the prompt — that cap protects the context window, not the CPU. The work is bounded
+earlier, by the body parser: a request over `bodyParser.json.limit` (100 kB unless configured)
+is refused with 413 before it is parsed. A project that raises the limit for `dataUrl`
+attachments should raise it only as far as its images need; serializing a client block for the
+cap then costs about half of what parsing the same body already did (measured 2026-11-03:
+2 MB → ~10 ms parse, ~5 ms serialize). The same holds for tool results: `ai.maxToolResultChars`
+keeps them out of the context window, while a tool's own query decides how much data it loads —
+page large result sets in the tool rather than relying on the cap.
 
 ## Self-optimizing prompts (editable templates + governed learning)
 
@@ -506,8 +534,8 @@ so it can recover within the run.
 > **Security:** learned hints and template overrides only ever **add textual guidance** —
 > they can never relax the permission model. Tool role-filtering,
 > `CrudService`/`@Restricted` and `secretFields` are enforced backend-side regardless of
-> the prompt. (`authorize()` is _not_ part of that unconditional set — it runs in plan
-> mode only; see [Deferred tool schemas](#deferred-tool-schemas-large-registries) below.)
+> the prompt. Since 12.3.0 a tool's `authorize()` belongs to that set too: it runs before
+> every execution, in every mode and over MCP.
 
 ```typescript
 ai: {
@@ -532,6 +560,37 @@ When a user's session history would overflow, the **oldest non-system turns are 
 (the latest turn is truncated if still too large) and oversized tool-results are capped to
 `ai.maxToolResultChars` (default `12000`) — so long-running conversations never exceed the
 model's limit.
+
+**Native tool definitions count against the budget** (12.3.0+): a connection with
+`supportsNativeTools: true` carries every description and schema in the `tools` payload, beside
+the messages, and that payload occupies the same window. **A crowded window is reported**: when
+the system prompt and the tool definitions take more than half of the input budget, the
+framework warns once per connection and process, naming the connection, the numbers and whether
+the window is the connection's own or the `ai.contextWindow` fallback. Before, the only trace was
+a debug line, and the visible symptom was an assistant that answered generically because the
+user's message had been cut.
+
+**Guarding the prompt size in a project test:** measure against `ai.contextWindow` (the
+fallback) and say so in the test — it guards the connections without a window of their own,
+the worst case, not the window a pinned or detected connection has. Raising its limit removes
+that guard; shrink the catalog instead (`deferToolSchemas`, `deferToolSummaryChars`, fewer
+tools per role).
+
+## Tool catalog for native connections (12.3.0+)
+
+A connection with native tool calling receives every tool's description and parameter schema
+in the `tools` payload. Its system-prompt catalog therefore lists **names only** — repeating
+the descriptions (and, without `deferToolSchemas`, the schemas) paid for every tool twice.
+Emulated connections and plan mode keep the full catalog: there it is the model's only source.
+
+```typescript
+ai: {
+  nativeToolCatalog: 'full', // restores descriptions (and schemas) in the native catalog; default 'names'
+}
+```
+
+Use `'full'` only for a model that demonstrably picks tools better with the descriptions in the
+prompt; the cost is the duplicated text on every call.
 
 ## Deferred tool schemas (large registries)
 
@@ -558,9 +617,10 @@ context, set `deferToolSummaryChars` alongside it (roughly 200–400 works well)
 
 > **Scoped to the emulated tool protocol, not to the provider.** In auto mode a connection
 > with `supportsNativeTools: true` receives every full description and JSON schema through
-> the native `tools` payload anyway, so truncation is skipped there and no `search_tools`
-> banner is emitted — telling the model a description was cut while handing it the full text
-> in the same request would only buy a wasted round-trip against `maxIterations`.
+> the native `tools` payload anyway, and its catalog lists names only (see above), so
+> `deferToolSummaryChars` has no effect there and no `search_tools` banner is emitted —
+> telling the model a description was cut while handing it the full text in the same request
+> would only buy a wasted round-trip against `maxIterations`.
 >
 > **Plan mode always uses the emulated protocol**, so a native connection IS truncated there.
 > Because plan mode returns a complete plan in one call without executing anything, the model
@@ -577,10 +637,8 @@ context, set `deferToolSummaryChars` alongside it (roughly 200–400 works well)
 > confirmation gate reads a tool's `mutating`/`destructive` **flags**, never its description
 > — so a truncated "requires confirmation" sentence cannot disable it.
 >
-> Note `AiTool.authorize()` is **not** part of that chain in every mode: it runs in **plan
-> mode only**. In auto mode (the default) and over MCP, tools go straight to `execute()` — so
-> data-level checks (ownership, tenant scope) must live **inside `execute()`**, routed through
-> `CrudService` with `context.serviceOptions`, not in `authorize()` alone.
+> `AiTool.authorize()` is part of that chain on every path since 12.3.0 (auto mode, plan
+> mode, MCP), and it reads the call's arguments, never the description.
 
 ## Token budgets & usage
 
@@ -671,6 +729,53 @@ the server log; the response carries only a stable `#LTNS_0901` code.
 - Answering a foreign id `404` rather than `403` is deliberate — a 403 would confirm
   that the id exists, and the id travels in a response header and through client logs.
 
+### Authorization and confirmation over MCP (12.3.0+)
+
+`tools/call` applies the same gates as the chat orchestrator, in this order:
+
+1. **Role filter** — the tool must be in the user's set (`AiToolRegistry.forUser()`).
+2. **Tool policies** — the admin's `aiToolPolicies` rules for this call: `deny` answers an
+   error result, `ask` asks in step 4 whatever else is configured.
+3. **`authorize()`** — the tool's data-level check on the call's arguments. A refusal, a
+   thrown error or an `allowed` that is not `true` answers an error result; nothing runs.
+4. **Confirmation** — a `destructive` tool always, a `mutating` tool when
+   `ai.confirmation.mutating` says so (`enforced`, else `default`; MCP has no per-request
+   `requireConfirmation`), as long as MCP asks this user (below). The server asks through
+   **MCP elicitation** (a yes/no form the client shows) and runs the tool only on an
+   explicit yes. A no, a cancelled dialog, an error or a timeout (5 minutes) means "not
+   run". A client without the `elicitation` capability gets an error result instead of an
+   unconfirmed run.
+5. **`execute()`** — with `context.authorization` from step 3.
+
+**Whether MCP asks** is a server default each user may switch for themselves, like a
+"bypass permissions" mode:
+
+| `ai.mcp.confirmation`                | Asks a user who has not chosen | A user's own switch                          |
+| ------------------------------------ | ------------------------------ | -------------------------------------------- |
+| unset, `true`, `{}`                  | yes                            | may switch it off                            |
+| `false`                              | no                             | may switch it on                             |
+| `{ default: true, enforced: true }`  | yes                            | ignored; a change answers 403 (`#LTNS_0609`) |
+| `{ default: false, enforced: true }` | no                             | ignored; a change answers 403                |
+
+The user's switch is `PUT /ai/settings` with `{ mcpConfirmation: false }` (GraphQL
+`updateAiSettings`), read back with `GET /ai/settings` (`aiSettings`), which answers the
+effective value and `mcpConfirmationEnforced` so a UI can show the switch disabled. It is
+stored per user (`aiUserSettings`, one record per user) and touches nobody else's calls.
+Only `false` switches the default off and only `enforced: true` enforces — a misspelt value
+never relaxes the gate. `authorize()` and the admin's `deny` / `ask` rules apply whatever
+the switch says.
+
+`tools/list` gives a `destructive` tool `annotations: { destructiveHint: true, readOnlyHint: false }`
+and a `mutating` one `{ destructiveHint: false, readOnlyHint: false }` — hints for the client's own
+UI, not a security boundary. A tool with neither flag carries no annotations: it may still write,
+so it is never advertised as read-only, and clients keep the spec's cautious defaults.
+
+The confirmation keeps the model from acting without the user; it cannot stop a hostile
+client, which holds the user's credential and could call the API directly. The boundary
+against that stays the role filter, `authorize()` and the `CrudService` inside `execute()`.
+The question is English (an MCP request carries no language); override
+`CoreAiMcpService.confirmationPrompt()` to localize it.
+
 ### Multi-replica / sticky sessions
 
 An MCP session owns a **live Streamable-HTTP transport** — an open response stream
@@ -695,6 +800,16 @@ instead of a `404 Unknown or expired MCP session`, which reads like an expiry bu
 and sends operators looking in the wrong place.
 
 Without Redis nothing changes: unknown ids answer `404` exactly as before.
+
+**No sticky sessions available?** Set `ai.mcp.stateless: true` (12.3.0+). Every POST then builds its own
+server and transport for the authenticated user (the SDK's stateless mode, `sessionIdGenerator: undefined`),
+no `mcp-session-id` is issued, a session id a client still sends is ignored, and GET / DELETE answer `405`
+with `Allow: POST`. Any replica can answer any request, and the user's rights and tenant are read per request
+by construction. What is lost is what a session carries: server-initiated messages, the SSE stream, and
+server-initiated requests — **MCP elicitation among them**. A tool that needs confirmation (above) is
+therefore refused in this mode unless the user switched the question off (`PUT /ai/settings`) or
+`ai.mcp.confirmation` is `false`. A server that only offers read tools is not affected.
+`testHelper.mcpSession()` follows the setting (no session id expected or sent; `sessionId` is `''`).
 
 ### OAuth 2.1 (`ai.mcp.oauth: true`)
 
@@ -767,7 +882,13 @@ user decides whether an MCP client may act for them:
 - **Allow** issues the code only with the page's CSRF token, signed with the OAuth secret and bound to
   the user, the client, the redirect URI and the PKCE challenge (10 minutes); a stale token shows the
   form again, a forged or tampered one too, and nothing is issued. **Deny** sends the client back with
-  `access_denied`.
+  `access_denied` — with the same token since 12.3.0; without it the form is shown again.
+- **A malformed request** (a missing `code_challenge`, a wrong `response_type`, …) is answered with `400`
+  and `{ error, error_description }`, never redirected to the client (12.3.0). The redirect URI is whatever
+  the client's registrant wrote, so the SDK's error redirect made `/authorize` an open redirect on this
+  domain (RFC 9700 §4.11.2). Registration itself stays open — claude.ai, ChatGPT, Cursor and Claude Code
+  register their own URIs. Only what happens once the request reached the provider (the user's Allow or
+  Deny, and refusals raised in `authorizeConsent()`) still redirects.
 
 The page carries its own `Content-Security-Policy` (script and style by nonce, `frame-ancestors 'none'`,
 no `form-action`, which browsers would apply to the redirect to the client), `X-Frame-Options: DENY`,
@@ -792,8 +913,25 @@ the page offers no sign-in. Its sign-in goes through the IAM sign-in controller,
 hands Better-Auth the request so Better-Auth's own login-CSRF protection runs — otherwise a hostile page
 could sign the visitor in to the attacker's account before they approve a client.
 
-**Your own page.** Override `renderConsentPage(view)` in a subclass to restyle it (keep every value
-escaped), or `authorizeConsent(client, params, res)` for a consent UI of your own — same shape: no session
+**Your own wording and look (12.3.0+).** Override `renderConsentPage(view)` and call
+`renderMcpOAuthConsentPage(view, { texts, styles })`: `texts` replaces single texts per locale (merged over
+the built-in ones, still escaped), `styles` is CSS appended inside the page's nonce'd `<style>` element. The
+markup, the scripts and the security headers stay the framework's, so the page keeps receiving their fixes.
+Fill both from code or configuration only, never from user or tenant input: a `<` in `styles` is neutralized
+so it cannot end the `<style>` element, and the page's CSP blocks what CSS could load from elsewhere, but CSS
+still decides what the page shows.
+
+```typescript
+protected override renderConsentPage(view: IMcpOAuthConsentView): string {
+  return renderMcpOAuthConsentPage(view, {
+    styles: ':root{--accent:#0b5}',
+    texts: { de: { intro: '{client} möchte in Ihrem Namen auf {app} zugreifen.' } },
+  });
+}
+```
+
+**Your own page.** Override `renderConsentPage(view)` in a subclass to restyle it beyond that (keep every
+value escaped), or `authorizeConsent(client, params, res)` for a consent UI of your own — same shape: no session
 → sign in, GET → show which client, POST with a CSRF token → `saveAuthorizationCode()` and redirect;
 refuse with `AccessDeniedError` from `this.loadOAuthErrors()`. Register the subclass via
 `CoreModule.forRoot(env, { ai: { mcpOAuthService } })`, so the MCP controller and the endpoints share it.
@@ -802,9 +940,9 @@ production secret check runs again before the endpoints are mounted (without a s
 environment outside `local` / `ci` / `e2e` refuses to boot and to sign tokens at all — deployed `develop` and `test`
 stages included).
 
-Known property of the SDK: `/authorize` redirects its error answers to the client's registered
-redirect URI, and any client may register any https URI — an open redirect in the sense of RFC 9700
-§4.11.2, carrying only an OAuth error code.
+Until 12.3.0 the SDK's error redirect made `/authorize` an open redirect in the sense of RFC 9700
+§4.11.2, since any client may register any https URI; the framework now answers those errors itself
+(see "A malformed request" under the consent page above).
 
 **Refusals are OAuth errors (11.43.0).** The SDK's handlers answer an error with its OAuth code only
 when it is one of the SDK's own `OAuthError` classes; anything else becomes `500 server_error`. The

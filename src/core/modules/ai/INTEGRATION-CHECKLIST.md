@@ -146,9 +146,10 @@ ai: {
 }
 ```
 
-- **Plan mode / pre-flight permissions:** give data-mutating tools an `authorize()` that
-  checks permission WITHOUT mutating (e.g. load the record + verify ownership). Plan mode
-  runs it for every step before executing anything.
+- **Data-level permissions:** give data-mutating tools an `authorize()` that checks
+  permission WITHOUT mutating (e.g. load the record + verify ownership). It runs before every
+  execution — auto mode, plan mode (for every step before anything runs) and MCP (12.3.0+);
+  return `data` to hand the loaded record to `execute()` (`context.authorization.data`).
 - **Confirmation:** mark create/update/delete tools `mutating: true` and irreversible ones
   `destructive: true`.
 - **Self-optimizing prompts:** the system prompt is built from editable, keyed slots —
@@ -174,8 +175,9 @@ ai: {
   `deferToolSummaryChars` (~200–400) ALONGSIDE it — otherwise the descriptions alone
   re-inflate the prompt you just shrank. Both are scoped to the **emulated tool protocol**:
   in auto mode a connection with `supportsNativeTools: true` gets every full description and
-  schema in the native `tools` payload regardless, so truncation and the banner are skipped
-  there. **Plan mode always uses the emulated protocol**, so a native connection IS truncated
+  schema in the native `tools` payload regardless, and its prompt catalog lists names only
+  (12.3.0+, `ai.nativeToolCatalog: 'full'` restores it), so truncation and the banner are
+  skipped there. **Plan mode always uses the emulated protocol**, so a native connection IS truncated
   there — and since plan mode plans in one call without executing, it cannot follow the
   `search_tools` hint. Keep the cap generous if you use plan mode.
   The truncated tail is typically where a tool's preconditions and role limits are written;
@@ -183,10 +185,16 @@ ai: {
   stays with the registry's role filter, the execution-time re-check, and the
   `mutating`/`destructive` flags behind the confirmation gate, none of which read the
   description.
-- **Where data-level checks belong:** `authorize()` runs in **plan mode only**. In auto mode
-  (the default) and over MCP, the orchestrator calls `execute()` directly. Put ownership and
-  tenant checks INSIDE `execute()` (via `CrudService` + `context.serviceOptions`) — a check
-  that lives only in `authorize()` will not run for most callers.
+- **Guarding the prompt size in a test?** Measure against `ai.contextWindow`, the fallback for
+  connections without a window of their own, and name the test that way: it guards the worst
+  case, not the window a pinned or detected connection has. Raising its limit removes the guard;
+  shrink the catalog instead. At runtime the framework warns once per connection when the system
+  prompt and tool definitions take more than half of the real input budget.
+- **Where data-level checks belong:** `authorize()` decides whether a call may be tried;
+  `execute()` still routes every read and write through `CrudService` +
+  `context.serviceOptions`, so `@Restricted`, `securityCheck()` and tenant scoping apply.
+  Until 12.2 `authorize()` ran in plan mode only — a project that moved its checks into
+  `execute()` for that reason keeps working unchanged.
 
 ### MCP server (only when `ai.mcp.enabled` or `ai.mcp` is truthy)
 
@@ -200,10 +208,14 @@ A **503 Service Unavailable** from `/ai/mcp` therefore means the module could no
 _resolved_, not that it is missing — check the server log for the underlying error.
 The response body carries the stable `#LTNS_0901` code, never the raw error.
 
-> **No confirmation gate over MCP.** `mcpCallTool` does not consult the
-> `mutating`/`destructive` flags, and `authorize()` does not run there either. A
-> destructive tool invoked through `/ai/mcp` executes immediately. Only expose MCP to
-> clients you trust, and put every permission check inside `execute()`.
+> **Confirmation over MCP (12.3.0+).** `tools/call` applies the admin's tool policies and
+> `authorize()`, and asks the user through MCP elicitation before a `destructive` tool (or a
+> `mutating` one under `ai.confirmation.mutating`) runs. A client without elicitation gets an
+> error result. Each user may switch the question off (and on) for themselves via
+> `PUT /ai/settings` / `updateAiSettings`; `ai.mcp.confirmation` sets the default
+> (`false` = off) and `{ enforced: true }` takes the switch away. **Check your MCP clients**
+> and offer users the switch in your UI (`GET /ai/settings` says whether it is enforced).
+> See the module README, "Authorization and confirmation over MCP".
 
 ### MCP OAuth 2.1 (only when `ai.mcp.oauth` is enabled)
 
@@ -229,8 +241,14 @@ Put `{returnTo}` into it only if that login page can send the user back to the A
 (the nuxt-base-starter login accepts same-origin targets only, so leave it out there).
 
 **Optional — your own consent UI:** a subclass of `CoreAiMcpOAuthService` overriding
-`renderConsentPage(view)` (restyle) or `authorizeConsent(client, params, res)` (replace), registered via
+`renderConsentPage(view)` (restyle — `renderMcpOAuthConsentPage(view, { texts, styles })` changes wording and
+CSS without copying markup, scripts or headers; fill both from code or configuration only) or
+`authorizeConsent(client, params, res)` (replace), registered via
 `CoreModule.forRoot(envConfig, { ai: { mcpOAuthService: McpOAuthService } })`.
+
+**Optional — no sticky sessions:** `ai: { mcp: { stateless: true } }` serves `/ai/mcp` without sessions, so any
+replica answers any request. Without a session the server cannot ask the user (no MCP elicitation): tools that
+need confirmation are refused there unless the user or `ai.mcp.confirmation` switched the question off.
 
 **WHY a POST, never "signed in, so issue":** anybody can register a client with their own redirect
 URI and start the flow — PKCE is then theirs too. A GET to `/authorize` is what any link produces,
@@ -242,7 +260,10 @@ with a CSRF token.
 **WHY refuse with `this.loadOAuthErrors()`:** the SDK maps an error to its OAuth code only when it
 is one of its own `OAuthError` classes, and turns anything else into `server_error`. A user who
 declines consent should send the client back with `access_denied` (`AccessDeniedError`), not with
-a server error.
+a server error. Check the CSRF token on Deny as on Allow (12.3.0): the refusal redirects the browser to
+the client's registered URI, so an unprotected Deny lets a cross-site POST send a signed-in user there.
+An error before your method runs (a malformed request) is answered with 400 by the framework and never
+redirected.
 
 ## Verification Checklist
 

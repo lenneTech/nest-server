@@ -2,6 +2,7 @@ import { Injectable, Logger, Optional } from '@nestjs/common';
 
 import { IBetterAuthRateLimit } from '../../common/interfaces/server-options.interface.js';
 import { CoreRedisService } from '../../common/services/core-redis.service.js';
+import { canonicalRequestPath, pathContainsSegments } from './core-better-auth-path-guard.middleware.js';
 import {
   InMemoryRateLimitStore,
   rateLimitKey,
@@ -134,10 +135,10 @@ export class CoreBetterAuthRateLimiter {
    * Check if a request is allowed under the rate limit
    *
    * @param ip - Client IP address
-   * @param path - Request path (relative to basePath)
+   * @param requestPath - Request path (relative to basePath), as sent; dot segments are resolved here
    * @returns Rate limit check result
    */
-  async check(ip: string, path: string): Promise<RateLimitResult> {
+  async check(ip: string, requestPath: string): Promise<RateLimitResult> {
     // If rate limiting is disabled, always allow
     if (!this.config.enabled) {
       return {
@@ -148,6 +149,13 @@ export class CoreBetterAuthRateLimiter {
         resetIn: 0,
       };
     }
+
+    // Decide on the path the request is served under, not the one as sent: `/callback/../sign-in/email` reaches the
+    // sign-in handler, so it must not be skipped as a callback (CoreBetterAuthPathGuardMiddleware refuses such paths
+    // before they get here; this keeps the limiter correct where that guard is not registered). Lower-cased because
+    // Express routes case-insensitively: `/sign-in/EMAIL` is the same sign-in and must share its counter and its
+    // strict limit
+    const path = canonicalRequestPath(requestPath).toLowerCase();
 
     // Check if this endpoint should skip rate limiting
     if (this.shouldSkip(path)) {
@@ -249,10 +257,11 @@ export class CoreBetterAuthRateLimiter {
   }
 
   /**
-   * Determine if an endpoint should skip rate limiting
+   * Determine if an endpoint should skip rate limiting: an entry matches whole path segments, so `/session` skips
+   * `/session` but not `/sessions-export`
    */
   private shouldSkip(path: string): boolean {
-    return this.config.skipEndpoints.some((skip) => path === skip || path.endsWith(skip) || path.includes(skip));
+    return this.config.skipEndpoints.some((skip) => pathContainsSegments(path, skip.toLowerCase()));
   }
 
   /**
@@ -260,9 +269,7 @@ export class CoreBetterAuthRateLimiter {
    * Strict endpoints get half the normal limit
    */
   private getLimit(path: string): number {
-    const isStrict = this.config.strictEndpoints.some(
-      (strict) => path === strict || path.endsWith(strict) || path.includes(strict),
-    );
+    const isStrict = this.config.strictEndpoints.some((strict) => pathContainsSegments(path, strict.toLowerCase()));
 
     return isStrict ? Math.ceil(this.config.max / 2) : this.config.max;
   }

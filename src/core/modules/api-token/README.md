@@ -199,8 +199,10 @@ it has no signed assertions.
   `betterAuth.emailAndPassword.revokeSessionsOnPasswordReset` is on. With it off — and on a password
   CHANGE — user tokens survive, like personal access tokens elsewhere; after a suspected compromise
   call `revokeAllForUser(userId)`. Tenant tokens are never touched by a user's reset.
-- **Deleting a tenant.** Call `deleteAllForTenant(tenantId)` — nothing does it for you, and until you
-  do, the tenant's tokens keep authenticating (the core has no tenant model to notice the deletion).
+- **Deleting a tenant.** Call `CoreTenantService.purgeTenantData(tenantId)`, which deletes the tokens
+  with the rest of the tenant's data, or `deleteAllForTenant(tenantId)` for the tokens alone — nothing
+  does it for you, and until you do, the tenant's tokens keep authenticating (the core has no tenant
+  model to notice the deletion).
 - **Banned users.** If you add Better-Auth's admin plugin, override `loadTokenUser()` so a banned
   user's tokens are refused as well — the framework does not know that flag.
 - **Brute force.** Failed attempts are not limited per IP (guessing 256 bits is not the risk); add an

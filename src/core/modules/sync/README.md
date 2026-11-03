@@ -104,6 +104,13 @@ hashed, unique), records the outcome afterwards and answers a repeat with that o
 A repeat that finds a claim still being written answers `retry` — that is how two tabs sending the same push end in one
 write and no false conflict. A claim older than 30 s belongs to a request that died and is taken over.
 
+Once an item of a record is not stored (`conflict`, `rejected`, `not_found`, `retry`), the later items of that record
+in the same push are **held back** (12.3.0+): each builds on the version the one before it produces (protocol §6.2), and
+applied on its own its base version could match what another writer left. A held-back item is never applied or
+claimed; it is answered `retry` behind a `retry`, otherwise `conflict` with the record as the caller may see it
+(`not_found` without one). Items of other records are unaffected. This holds within one push; across pushes the
+client keeps the order (protocol §11).
+
 ## Change order and windows
 
 The store decides how changes are ordered (`capabilities.changeOrder`): on SQL a commit-ordered sequence (`syncSeq`) —
@@ -133,7 +140,10 @@ A hint tells a connected client that pulling is worthwhile; sync works without t
 - **Long-lived channels are re-checked:** the GraphQL subscription runs on the WebSocket `CoreModule` re-checks; an SSE
   stream is registered in the same registry and ends at once on an invalidation naming the caller or their tenant, and
   otherwise before the first hint after `graphQl.subscriptionRevalidationMs` — the EventSource reconnects (`retry`) and
-  the new request passes the guards. A client pulls once after every (re)connect.
+  the new request passes the guards. A client pulls once after every (re)connect. In the log the planned end after the
+  interval is a debug line (`Closing SSE hint stream of user …: re-check interval reached, client reconnects`); an end
+  an invalidation brings stays at `log` (`… authorization invalidated, client reconnects`), so a real revocation stands
+  out (12.3.0; before, every planned end read `Closing GraphQL WebSocket …: Session no longer valid`).
 
 ## Tombstone purge
 

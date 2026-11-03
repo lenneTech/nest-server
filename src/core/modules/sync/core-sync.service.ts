@@ -157,7 +157,7 @@ const SYSTEM_RECORD_FIELDS = new Set([
 ]);
 
 /**
- * Offline sync (protocol `docs/offline-sync-protocol.md`, plan `.claude/plans/offline-sync/PLAN.md`): pull in pages
+ * Offline sync (protocol `docs/offline-sync-protocol.md`, offline-sync plan): pull in pages
  * along the store's change order, push item by item with idempotency, conflict strategies and client ids, resync when a
  * cursor cannot be continued consistently.
  *
@@ -686,15 +686,59 @@ export class CoreSyncService implements OnApplicationBootstrap, OnModuleDestroy,
   /**
    * Apply the pushed items in the order sent, each on its own (protocol §6.3) — one result per item. A malformed body
    * is refused as a whole before any item is applied.
+   *
+   * A later item of a record carries the version the item before it produces (§6.2). Once an item of a record was not
+   * stored, the later items of that record are held back: applied on their own, their base version could match what
+   * another writer left, and the change would land on data the client never saw.
    */
   async push(model: string, body: unknown, currentUser: any): Promise<{ results: ISyncPushResult[] }> {
     const registration = this.registration(model);
     const items = this.pushItems(body);
     const results: ISyncPushResult[] = [];
+    const heldBack = new Map<string, 'refused' | 'retry'>();
     for (const item of items) {
-      results.push(await this.pushItem(registration, item, currentUser));
+      const held = heldBack.get(item.id);
+      if (held) {
+        results.push(await this.heldBackItem(registration, item, held, currentUser));
+        continue;
+      }
+      const result = await this.pushItem(registration, item, currentUser);
+      if (result.status === 'retry') {
+        heldBack.set(item.id, 'retry');
+      } else if (result.status !== 'applied' && result.status !== 'merged') {
+        heldBack.set(item.id, 'refused');
+      }
+      results.push(result);
     }
     return { results };
+  }
+
+  /**
+   * An item held back behind an earlier item of its record that was not stored. It is never applied and never claimed,
+   * so a repeat of the batch is answered the same way (the earlier item repeats its recorded outcome). Behind a
+   * `retry` it is `retry` too, and the client sends both again; behind a refusal it is the conflict the `reject`
+   * strategy answers — the record as the caller may see it, `not_found` without one.
+   */
+  protected async heldBackItem(
+    registration: SyncModelRegistration,
+    item: ISyncPushItem,
+    reason: 'refused' | 'retry',
+    currentUser: any,
+  ): Promise<ISyncPushResult> {
+    if (!isSyncId(item.id, registration.idFormat)) {
+      return reply(item, 'rejected', { code: 'INVALID_ID' });
+    }
+    if (reason === 'retry') {
+      return reply(item, 'retry');
+    }
+    try {
+      return await this.currentConflict(registration, item, currentUser);
+    } catch (error) {
+      this.logger.warn(
+        `Sync: ${registration.name} ${item.id} held back, record unreadable, client retries (${(error as Error)?.message ?? error})`,
+      );
+      return reply(item, 'retry');
+    }
   }
 
   /** The items of a push body, checked for shape; anything malformed answers 400 for the whole request */
@@ -1412,8 +1456,9 @@ export class CoreSyncService implements OnApplicationBootstrap, OnModuleDestroy,
     response.once?.('close', end);
     registerWsConnection({
       carrier,
+      channel: 'SSE hint stream',
       // No credential to check again: every re-check ends the stream, and the reconnect is checked by the guards
-      reauthenticate: () => undefined,
+      endsOnRecheck: true,
       socket: {
         close: () => end(),
         once: (event, listener) => {

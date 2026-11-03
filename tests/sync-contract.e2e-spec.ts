@@ -1162,6 +1162,38 @@ describe.each(SYNC_DRIVERS)('sync contract — %s (e2e)', (driver) => {
     expect(ids).toEqual(expect.arrayContaining([first, second]));
   });
 
+  /**
+   * @regression   12.3.0 — every item was applied on its own: the client's [base 1, base 2] chain met another
+   *   writer's version 2, the first item conflicted, and the second — base 2 — was applied on the other writer's data.
+   * @seen-failing Stop holding later items back in push() (src/core/modules/sync/core-sync.service.ts) — registered
+   *   as mutation `sync-push-applies-after-refused-item` in tests/regression-mutations.json.
+   */
+  syncIt('push-after-refused-item', driver, async () => {
+    const alice = await signUp('held-back');
+    const tenantId = tenant();
+    await member(tenantId, alice.id);
+    const asAlice = { tenant: tenantId, token: alice.token };
+    const task = await create('SyncTask', { title: 'v1' }, asAlice);
+    const other = await create('SyncTask', { title: 'other' }, asAlice);
+    // Another device moves the record to version 2 while this one works offline on version 1 (the update roles are
+    // the creator's, so the other writer is the same user — what matters is a write the batch never saw)
+    expect((await change('SyncTask', task.id, 1, { title: 'theirs' }, asAlice)).status).toBe('applied');
+    const { results } = await push(
+      'SyncTask',
+      [
+        { baseVersion: 1, data: { title: 'mine' }, id: task.id, mutationId: mutationId(), op: 'upsert' },
+        { baseVersion: 2, data: { title: 'based on mine' }, id: task.id, mutationId: mutationId(), op: 'upsert' },
+        { baseVersion: 1, data: { title: 'other changed' }, id: other.id, mutationId: mutationId(), op: 'upsert' },
+      ],
+      asAlice,
+    );
+    expect(results.map((result: any) => result.status)).toEqual(['conflict', 'conflict', 'applied']);
+    expect(results[1]).toMatchObject({ record: { data: { title: 'theirs' }, version: 2 }, version: 2 });
+    const pulled = latest((await pullAll('SyncTask', asAlice)).items);
+    expect(pulled.get(task.id)).toMatchObject({ data: { title: 'theirs' }, version: 2 });
+    expect(pulled.get(other.id)).toMatchObject({ data: { title: 'other changed' }, version: 2 });
+  });
+
   syncIt('push-body-invalid', driver, async () => {
     const alice = await signUp('body');
     const valid = { data: { title: 'never' }, id: clientObjectId(), mutationId: mutationId(), op: 'upsert' };

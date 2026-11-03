@@ -510,8 +510,14 @@ export type IBetterAuth = IBetterAuthWithoutPasskey | IBetterAuthWithPasskey;
  */
 export interface IBetterAuthEmailVerificationConfig {
   /**
-   * Whether to automatically sign in the user after email verification.
-   * @default true
+   * Whether `GET /iam/verify-email` signs in the browser that opens the verification link.
+   *
+   * Off by default, as in Better-Auth (12.3.0+; before, the framework defaulted to `true`). Switching it on signs in
+   * WHOEVER opens the link, to the account the link belongs to: someone who signs up with their own address and
+   * forwards the unopened link has the recipient's browser signed in to their account, and what the recipient then
+   * enters lands there (login CSRF). Only switch it on where verification links reach nobody but their owner.
+   *
+   * @default false
    */
   autoSignInAfterVerification?: boolean;
 
@@ -974,6 +980,17 @@ export interface IBetterAuthSocialProvider {
    * OAuth client secret
    */
   clientSecret: string;
+
+  /**
+   * Whether a first sign-in through this provider may create an account.
+   *
+   * Unset, the provider follows `betterAuth.emailAndPassword.disableSignUp`: with that set to `true` (since 12.3.0)
+   * nobody gets a new account through any provider, while existing users keep signing in. `false` opens sign-up
+   * through this provider although `disableSignUp` closes it otherwise; `true` closes it for this provider alone.
+   * Only a boolean counts: any other value follows `emailAndPassword.disableSignUp`.
+   * @default emailAndPassword.disableSignUp
+   */
+  disableSignUp?: boolean;
 
   /**
    * Whether this provider is enabled.
@@ -2004,7 +2021,13 @@ export interface IAi {
    * Fallback total context window (input + output tokens) used to budget the
    * assembled session messages when a connection has no `contextWindow` set. When the
    * conversation (per user/session) would overflow, the oldest history turns are
-   * dropped and oversized payloads truncated before the LLM call.
+   * dropped and oversized payloads truncated before the LLM call. Native tool
+   * definitions count against that budget too (12.3.0+), and when the system prompt and
+   * tools take more than half of it, a warning names the connection once per process.
+   *
+   * A test that guards the prompt size against this value guards the connections WITHOUT
+   * a window of their own — the worst case — not the window a pinned or detected
+   * connection actually has. Name it that way; raising its limit removes that guard.
    * @default 8192
    */
   contextWindow?: number;
@@ -2061,14 +2084,14 @@ export interface IAi {
    * a caller sees and may run is decided server-side by the registry's role filter
    * (`AiToolRegistry.forUser()`), re-checked at execution time, and the
    * confirmation gate reads the `mutating`/`destructive` FLAGS, never the
-   * description text. (`AiTool.authorize()` runs in plan mode only — in auto mode
-   * and over MCP, data-level checks belong inside `execute()`.)
+   * description text. (`AiTool.authorize()` runs before every execution — auto
+   * mode, plan mode and MCP — on the call's arguments, never its description.)
    *
    * Applies to the EMULATED tool protocol, not to a provider as such. In auto mode
    * a connection with native tool calling receives every full description and schema
-   * through `buildToolSchemas()` regardless, so no truncation is applied there and no
-   * `search_tools` banner is emitted — capping would otherwise assert a truncation
-   * that the tool payload right next to it contradicts.
+   * through `buildToolSchemas()` regardless, and its catalog lists names only since
+   * 12.3.0 (`nativeToolCatalog`), so this cap has no effect there and no `search_tools`
+   * banner is emitted.
    *
    * **Plan mode always uses the emulated protocol** (it sends no native schemas), so a
    * native connection IS truncated there. Because plan mode returns a complete plan in
@@ -2090,6 +2113,17 @@ export interface IAi {
    * @default 0
    */
   deferToolSummaryChars?: number;
+
+  /**
+   * What the system prompt's tool catalog holds for a connection with NATIVE tool calling in auto mode (12.3.0+).
+   * Such a connection receives every description and parameter schema in the tool payload, so by default the catalog
+   * lists names only — repeating the descriptions (and, without `deferToolSchemas`, the schemas) paid for every tool
+   * twice. `'full'` restores the full catalog, for a model that picks tools better with the descriptions in the prompt.
+   *
+   * Emulated connections and plan mode always get the full catalog: there it is the model's only source.
+   * @default 'names'
+   */
+  nativeToolCatalog?: 'full' | 'names';
 
   /** Maximum number of agent-loop iterations (tool round-trips). @default 5 */
   maxIterations?: number;
@@ -2142,11 +2176,32 @@ export interface IAi {
    * answers with a built-in consent page: sign-in through Better-Auth (password + 2FA),
    * then Allow / Deny. Replace it via `CoreModule.forRoot(env, { ai: { mcpOAuthService } })`.
    * Without `oauth`, MCP authenticates via the existing Bearer/session token.
+   *
+   * `tools/call` applies the admin's tool policies and a tool's `authorize()`, and asks the user before a
+   * tool that needs confirmation (`destructive`, or `mutating` under `ai.confirmation.mutating`) — see
+   * `confirmation`.
    * @default false
    */
   mcp?:
     | boolean
     | {
+        /**
+         * Whether MCP asks the user — through MCP elicitation, a yes/no form the client shows — before a
+         * `destructive` tool, or a `mutating` one under `ai.confirmation.mutating` (12.3.0+). The tool runs only
+         * on an explicit yes; a client without the `elicitation` capability gets a refusal. `authorize()` runs
+         * either way, and an admin's `ask` tool policy always asks.
+         *
+         * - `true` / `{}` / unset: MCP asks, unless a user switched it off for themselves
+         *   (`PUT /ai/settings`, `updateAiSettings` — like a "bypass permissions" mode).
+         * - `false`: MCP asks nobody, unless a user switched it on for themselves.
+         * - `{ default, enforced }`: `default` as above; `enforced: true` ignores every user's choice and
+         *   refuses a change with 403.
+         *
+         * Only `false` / `default: false` switch the default off and only `enforced: true` enforces, so a
+         * misspelt value never relaxes the gate.
+         * @default { default: true, enforced: false }
+         */
+        confirmation?: boolean | { default?: boolean; enforced?: boolean };
         enabled?: boolean;
         oauth?: boolean;
         /**
@@ -2164,6 +2219,17 @@ export interface IAi {
          */
         oauthLoginUrl?: string;
         oauthSecret?: string;
+        /**
+         * Serve `/ai/mcp` without sessions: every POST builds its own server and transport for the
+         * authenticated user and ends with the response, no `mcp-session-id` is issued, and GET /
+         * DELETE answer 405. Any replica can answer any request, so no sticky sessions are needed
+         * behind a load balancer. The price is what a session carries: server-initiated messages
+         * (notifications, SSE streams) and server-initiated requests — MCP elicitation among them, so a
+         * tool that needs confirmation (`confirmation`) is refused unless the user or `confirmation`
+         * switched the question off. A server that only offers read tools uses none of it (12.3.0+).
+         * @default false
+         */
+        stateless?: boolean;
       };
 
   /** Rate limiting for prompts. */
@@ -4387,6 +4453,10 @@ interface IBetterAuthBase {
      * Disable user registration (sign-up) via BetterAuth.
      * Passed through to better-auth's native emailAndPassword.disableSignUp.
      * Custom endpoints (GraphQL + REST) also check this flag early.
+     * Since 12.3.0 it closes social sign-up too: every configured social provider receives it as its own
+     * `disableSignUp`, so a first sign-in through Google, GitHub etc. creates no account, while existing users keep
+     * signing in. `socialProviders.<name>.disableSignUp: false` opens one provider deliberately. Plugins a project
+     * registers itself through `options.plugins` are not covered.
      * The Swagger document built by `setupSwagger()` then leaves out `POST /iam/sign-up/email`,
      * which would answer `SIGNUP_DISABLED` to every caller.
      * @default false
@@ -5002,6 +5072,7 @@ export interface ICoreModuleOverrides {
    * - `slotService` must extend `CoreAiSlotService`
    * - `toolGrantService` must extend `CoreAiToolGrantService`
    * - `toolPolicyService` must extend `CoreAiToolPolicyService`
+   * - `userSettingService` must extend `CoreAiUserSettingService`
    *
    * @example
    * ```typescript
@@ -5035,6 +5106,7 @@ export interface ICoreModuleOverrides {
     slotService?: Type<any>;
     toolGrantService?: Type<any>;
     toolPolicyService?: Type<any>;
+    userSettingService?: Type<any>;
   };
 
   /**

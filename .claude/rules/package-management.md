@@ -370,7 +370,7 @@ removed an export its consumer imports, or the consumer pins the vulnerable rang
 `FIX AVAILABLE` is not advice but a dead end, and the only ways out used to be a permanently red
 build or a guard switched off for that entry.
 
-Measured case (lt-crm, 2026-10-06): three `simple-git` advisories, one CRITICAL requiring `>=4.0.1`,
+Measured case (a consuming Nuxt project, 2026-10-06): three `simple-git` advisories, one CRITICAL requiring `>=4.0.1`,
 reachable only via `nuxt > @nuxt/devtools > simple-git`. simple-git 4 dropped the default export
 devtools imports, so the override made `nuxt prepare` fail outright. The newest devtools in the 3.x
 line still imports it that way, and devtools is a hard `dependencies` entry of `nuxt` — so it can be
@@ -400,6 +400,18 @@ any has moved:
    consumer" no longer holds. The comparison is deliberately strict and includes the **version**: a
    second version of the same consumer is a path nobody assessed, and comparing by name alone let
    one ride along on the other's declaration, with the winner decided by lockfile order.
+
+**"Pulls an affected package" means an affected VERSION (12.3.0).** Checks 3 and the idle check below
+count an edge only when its resolved version lies in one of the advisory's `vulnerable_version_range`s.
+A parent pulling the FIXED release is no consumer of the vulnerability. Until 12.3.0 every parent
+counted, so lifting one subtree to the fixed major (glob 14.0.3 pulling minimatch 11.0.3 next to
+consumers still on minimatch 10) failed a correct declaration for good. An edge whose version cannot be
+read (`link:`, `file:`), or any edge of an advisory that lists no range, still counts: "I could not tell
+which version it pulls" must not read as "it pulls the fixed one" (mutations
+`unusable-fix-counts-fixed-edges`, `unusable-fix-skips-unreadable-edge`). An edge is matched by the package it
+PULLS, not by its key: pnpm keys an npm alias by the alias (`mm-cjs: minimatch@5.1.9`, an importer's
+`version: minimatch@5.1.9`), so a key match missed every consumer behind an alias and read an edge keyed
+`minimatch` that pulls a fork as a minimatch edge (mutation `unusable-fix-matches-alias-by-key`).
 
 **Several consumers (12.1.1+)** are joined with ` + `, each at its assessed version —
 `'@nestjs/cli@12.0.11 + nodemon@3.1.14 cannot use 11.0.1'`. One vulnerable package often sits under

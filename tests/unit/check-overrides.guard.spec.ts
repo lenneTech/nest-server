@@ -801,6 +801,184 @@ describe('check-overrides — suppressed advisories that got a fix', () => {
     expect(r.out).toMatch(/other-tool@2\.0\.0 pulls no affected package/);
   });
 
+  /**
+   * The advisory as GitHub returns it, WITH its vulnerable range: the guard can then tell an edge to the
+   * vulnerable simple-git from an edge to the fixed one. `FIXED` above carries no range, which keeps the
+   * cases before this one on the fail-closed path (every edge counts).
+   */
+  const FIXED_RANGED = {
+    ...FIXED,
+    vulnerabilities: [
+      {
+        first_patched_version: '4.0.1',
+        package: { ecosystem: 'npm', name: 'simple-git' },
+        vulnerable_version_range: '< 4.0.1',
+      },
+    ],
+  };
+  /** devtools on the vulnerable simple-git, a second parent on `secondEdge` (a version, an alias or a link). */
+  const LIFTED_LOCK = (secondEdge: string) =>
+    `${DEVTOOLS_LOCK('3.4.1').replace(
+      '  simple-git@3.36.0:\n    resolution: {integrity: sha512-x}\n',
+      '  simple-git@3.36.0:\n    resolution: {integrity: sha512-x}\n  simple-git@4.0.1:\n    resolution: {integrity: sha512-x}\n  new-parent@1.0.0:\n    resolution: {integrity: sha512-x}\n',
+    )}\n  new-parent@1.0.0:\n    dependencies:\n      simple-git: ${secondEdge}\n`;
+
+  /**
+   * @regression   12.3.0 — the consumer-set check counted every parent of the affected package, whatever
+   *   version it pulled. Lifting one subtree to the FIXED release (glob 14.0.3 pulling minimatch 11.0.3 next to
+   *   the declared consumers still on minimatch 10) therefore failed a correct declaration for good: it could
+   *   only become true again once every consumer had moved, which is exactly the state it exists to cover.
+   * @seen-failing Count every edge again in dependentsOf() (scripts/check-overrides.mjs) — registered as
+   *   mutation `unusable-fix-counts-fixed-edges` in tests/regression-mutations.json.
+   */
+  it('accepts the declaration when another parent pulls only the FIXED version', () => {
+    const r = run({
+      advisoryData: { [GHSA]: FIXED_RANGED },
+      ignoreGhsas: [GHSA],
+      lock: LIFTED_LOCK('4.0.1'),
+      workspaceYaml: DECLARE('@nuxt/devtools@3.4.1 cannot use 4.0.1'),
+    });
+    expect(r.status, `expected pass, got:\n${r.out}`).toBe(0);
+    expect(r.out).not.toMatch(/RE-TEST/);
+    expect(r.out).toMatch(/residual/i);
+  });
+
+  it('accepts it when the edge to the fixed version is an alias with a peer suffix', () => {
+    const r = run({
+      advisoryData: { [GHSA]: FIXED_RANGED },
+      ignoreGhsas: [GHSA],
+      lock: LIFTED_LOCK('simple-git@4.0.1(supports-color@9.4.0)'),
+      workspaceYaml: DECLARE('@nuxt/devtools@3.4.1 cannot use 4.0.1'),
+    });
+    expect(r.status, `expected pass, got:\n${r.out}`).toBe(0);
+    expect(r.out).not.toMatch(/RE-TEST/);
+  });
+
+  it('still FIRES when the other parent pulls a vulnerable version inside the range', () => {
+    // The refusal half of the pair above: the range must narrow the count to fixed edges, not switch it off.
+    const r = run({
+      advisoryData: { [GHSA]: FIXED_RANGED },
+      ignoreGhsas: [GHSA],
+      lock: LIFTED_LOCK('3.36.0'),
+      workspaceYaml: DECLARE('@nuxt/devtools@3.4.1 cannot use 4.0.1'),
+    });
+    expect(r.status, `expected failure, got:\n${r.out}`).toBe(1);
+    expect(r.out).toMatch(/new-parent@1\.0\.0 also pulls/);
+  });
+
+  /**
+   * @regression   12.3.0 — an edge whose version cannot be read (a `link:`, a `file:` path) must count like a
+   *   vulnerable one: "I could not tell which version it pulls" is not "it pulls the fixed one".
+   * @seen-failing Treat an unreadable version as unaffected in pullsAffectedVersion() (scripts/check-overrides.mjs) —
+   *   registered as mutation `unusable-fix-skips-unreadable-edge` in tests/regression-mutations.json.
+   */
+  it('FIRES when the other parent pulls a version it cannot read', () => {
+    const r = run({
+      advisoryData: { [GHSA]: FIXED_RANGED },
+      ignoreGhsas: [GHSA],
+      lock: LIFTED_LOCK('link:../vendored-git'),
+      workspaceYaml: DECLARE('@nuxt/devtools@3.4.1 cannot use 4.0.1'),
+    });
+    expect(r.status, `expected failure, got:\n${r.out}`).toBe(1);
+    expect(r.out).toMatch(/new-parent@1\.0\.0 also pulls/);
+  });
+
+  /** LIFTED_LOCK with whole edge lines: `newParent` for new-parent's edge, `devtools` for the declared consumer's. */
+  const EDGE_LOCK = (newParent: string, devtools = 'simple-git: 3.36.0') =>
+    LIFTED_LOCK('PLACEHOLDER')
+      .replace(
+        "  '@nuxt/devtools@3.4.1':\n    dependencies:\n      simple-git: 3.36.0\n",
+        `  '@nuxt/devtools@3.4.1':\n    dependencies:\n      ${devtools}\n`,
+      )
+      .replace('      simple-git: PLACEHOLDER\n', `      ${newParent}\n`);
+
+  /**
+   * @regression   12.3.0 — the consumer-set check matched an edge by its KEY. pnpm keys an npm alias by the alias
+   *   (`simple-git-cjs: simple-git@3.36.0`), so a parent pulling the affected package through one stayed
+   *   invisible and an incomplete declaration passed; a declared consumer reaching it only through an alias
+   *   failed with RE-TEST for good instead.
+   * @seen-failing Match the edge by its key again in dependentsOf() (scripts/check-overrides.mjs) — registered as
+   *   mutation `unusable-fix-matches-alias-by-key` in tests/regression-mutations.json.
+   */
+  it('FIRES when another parent pulls the affected package through an npm alias', () => {
+    const r = run({
+      advisoryData: { [GHSA]: FIXED_RANGED },
+      ignoreGhsas: [GHSA],
+      lock: EDGE_LOCK('simple-git-cjs: simple-git@3.36.0'),
+      workspaceYaml: DECLARE('@nuxt/devtools@3.4.1 cannot use 4.0.1'),
+    });
+    expect(r.status, `expected failure, got:\n${r.out}`).toBe(1);
+    expect(r.out).toMatch(/new-parent@1\.0\.0 also pulls/);
+  });
+
+  it('accepts a declared consumer that reaches the affected package only through an alias', () => {
+    const r = run({
+      advisoryData: { [GHSA]: FIXED_RANGED },
+      ignoreGhsas: [GHSA],
+      lock: EDGE_LOCK('simple-git: 4.0.1', 'simple-git-legacy: simple-git@3.36.0'),
+      workspaceYaml: DECLARE('@nuxt/devtools@3.4.1 cannot use 4.0.1'),
+    });
+    expect(r.status, `expected pass, got:\n${r.out}`).toBe(0);
+    expect(r.out).not.toMatch(/RE-TEST/);
+  });
+
+  it('does not count an edge keyed by the package name that pulls another package', () => {
+    // `simple-git: some-fork@1.0.0` is an edge to some-fork; its version says nothing about simple-git.
+    const r = run({
+      advisoryData: { [GHSA]: FIXED_RANGED },
+      ignoreGhsas: [GHSA],
+      lock: EDGE_LOCK('simple-git: some-fork@1.0.0'),
+      workspaceYaml: DECLARE('@nuxt/devtools@3.4.1 cannot use 4.0.1'),
+    });
+    expect(r.status, `expected pass, got:\n${r.out}`).toBe(0);
+    expect(r.out).not.toMatch(/RE-TEST/);
+  });
+
+  it('reads the version of a WORKSPACE dependency from its version line', () => {
+    // The importer half spells the version on a line of its own, below the package line.
+    const lifted = WORKSPACE_LOCK('.')
+      .replace(
+        '        specifier: 3.36.0\n        version: 3.36.0\n',
+        '        specifier: 4.0.1\n        version: 4.0.1\n',
+      )
+      .replace(
+        '  simple-git@3.36.0:\n    resolution: {integrity: sha512-x}\n',
+        '  simple-git@3.36.0:\n    resolution: {integrity: sha512-x}\n  simple-git@4.0.1:\n    resolution: {integrity: sha512-x}\n',
+      );
+    const accepted = run({
+      advisoryData: { [GHSA]: FIXED_RANGED },
+      ignoreGhsas: [GHSA],
+      lock: lifted,
+      workspaceYaml: DECLARE('@nuxt/devtools@3.4.1 cannot use 4.0.1'),
+    });
+    expect(accepted.status, `expected pass, got:\n${accepted.out}`).toBe(0);
+
+    const refused = run({
+      advisoryData: { [GHSA]: FIXED_RANGED },
+      ignoreGhsas: [GHSA],
+      lock: WORKSPACE_LOCK('.'),
+      workspaceYaml: DECLARE('@nuxt/devtools@3.4.1 cannot use 4.0.1'),
+    });
+    expect(refused.status, `expected failure, got:\n${refused.out}`).toBe(1);
+    expect(refused.out).toMatch(/workspace package '\.'/);
+  });
+
+  it('FIRES when a declared consumer moved to the fixed version', () => {
+    // other-tool now pulls simple-git 4.0.1: it is no consumer of the vulnerability any more, and the
+    // declaration must drop it rather than keep covering a path that is gone.
+    const r = run({
+      advisoryData: { [GHSA]: FIXED_RANGED },
+      ignoreGhsas: [GHSA],
+      lock: TWO_CONSUMERS_LOCK('3.4.1').replace(
+        '  other-tool@2.0.0:\n    dependencies:\n      simple-git: 3.36.0\n',
+        '  other-tool@2.0.0:\n    dependencies:\n      simple-git: 4.0.1\n',
+      ),
+      workspaceYaml: DECLARE(TWO_DECLARED),
+    });
+    expect(r.status, `expected failure, got:\n${r.out}`).toBe(1);
+    expect(r.out).toMatch(/other-tool@2\.0\.0 pulls no affected package/);
+  });
+
   it('still FIRES for a fixed advisory with no declaration at all', () => {
     // The gate must not have widened: the declaration is the only way in, and
     // forgetting it is indistinguishable from not having considered the fix.

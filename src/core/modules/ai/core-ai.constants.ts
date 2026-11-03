@@ -91,6 +91,12 @@ export const AI_TOOL_POLICY_CLASS = 'AI_TOOL_POLICY_CLASS';
 /** Mongoose injection token. */
 export const AI_TOOL_POLICY_MODEL = 'AiToolPolicy';
 
+// ---- user-setting ----
+/** DI token for the model constructor (used by CrudService mapping). */
+export const AI_USER_SETTING_CLASS = 'AI_USER_SETTING_CLASS';
+/** Mongoose injection token. */
+export const AI_USER_SETTING_MODEL = 'AiUserSetting';
+
 // ---- MCP OAuth (stored natively on MongoDB; these models give them their tables on a SQL source) ----
 /** Mongoose model name of the registered OAuth clients (`aiMcpOAuthClients`). */
 export const AI_MCP_OAUTH_CLIENT_MODEL = 'AiMcpOAuthClient';

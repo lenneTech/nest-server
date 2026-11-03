@@ -1,7 +1,7 @@
 # Persistence Rules (MongoDB, PostgreSQL, MySQL and MariaDB)
 
 These rules apply to every model, service and query — in `src/core/` and in projects. The design and its
-reasoning are in `.claude/plans/db-agnostic/PLAN.md` (framework repository); which database a project uses is decided by
+reasoning are in the db-agnostic design plan (internal, not part of this repository); which database a project uses is decided by
 `docs/choosing-a-database.md`; the configuration reference is the "Data Sources" row of
 `.claude/rules/configurable-features.md`.
 
@@ -94,7 +94,7 @@ whole process. Never build an update path from request data without validating i
 ## Synchronized models (offline sync, 12.x)
 
 `@PersistedModel({ sync: true | { idFormat, scope } })` makes a model synchronizable (`common/persistence/sync-model.ts`,
-plan `.claude/plans/offline-sync/PLAN.md` §3.3). Only a model registered with `CorePersistenceModule.forFeature()`; a
+offline-sync plan §3.3). Only a model registered with `CorePersistenceModule.forFeature()`; a
 model without `sync` keeps every behaviour bit for bit.
 
 | Rule | Why |

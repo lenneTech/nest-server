@@ -1,6 +1,6 @@
 # @lenne.tech/nest-server — Framework API Reference
 
-> Auto-generated from source code as of 2026-11-01 (v12.2.0)
+> Auto-generated from source code as of 2026-11-03 (v12.3.0)
 > File: `FRAMEWORK-API.md` — compact, machine-readable API surface for Claude Code
 
 ## CoreModule.forRoot()
@@ -129,11 +129,12 @@ When `passkey` is enabled, `trustedOrigins` is required (compile-time enforcemen
   - `compaction?`: `boolean` (default: `true`) — LLM-driven context compaction: when a session would overflow the connection's
   - `deferToolSchemas?`: `boolean` (default: `false`) — Defer the parameter schemas of tools out of the system prompt. With many tools
   - `deferToolSummaryChars?`: `number` (default: `0`) — Maximum characters per tool description in the DEFERRED catalog
+  - `nativeToolCatalog?`: `"full" | "names"` (default: `'names'`) — What the system prompt's tool catalog holds for a connection with NATIVE tool calling in auto mode (12.3.0+).
   - `maxIterations?`: `number` (default: `5`) — Maximum number of agent-loop iterations (tool round-trips).
   - `maxRunMs?`: `number` (default: `0`) — Wall-clock ceiling for ONE prompt run, in milliseconds. Checked before each
   - `maxToolResultChars?`: `number` (default: `12000`) — Maximum characters of a tool-results payload fed back to the model.
   - `promptLearning?`: `{ autoApply?: boolean; enabled?: boolean; minOccurrences?: number; }` — Governed self-improvement loop for the system prompt. The orchestrator records
-  - `mcp?`: `boolean | { enabled?: boolean; oauth?: boolean; oauthBaseUrl?: string; oauthL...` (default: `false`) — Expose the tool registry as an MCP server at `/ai/mcp` (Streamable HTTP) for
+  - `mcp?`: `boolean | { confirmation?: boolean | { default?: boolean; enforced?: boolean;...` (default: `false`) — Expose the tool registry as an MCP server at `/ai/mcp` (Streamable HTTP) for
   - `rateLimit?`: `IAiRateLimit` — Rate limiting for prompts.
   - `systemPrompt?`: `string` — Base system prompt prepended to every conversation.
 
@@ -247,7 +248,7 @@ When `passkey` is enabled, `trustedOrigins` is required (compile-time enforcemen
 
 ### IBetterAuthEmailVerificationConfig
 
-  - `autoSignInAfterVerification?`: `boolean` (default: `true`) — Whether to automatically sign in the user after email verification.
+  - `autoSignInAfterVerification?`: `boolean` (default: `false`) — Whether `GET /iam/verify-email` signs in the browser that opens the verification link.
   - `brevoTemplateId?`: `number` (default: `undefined (uses SMTP/EJS templates)`) — Brevo template ID for verification emails.
   - `callbackURL?`: `string` (default: `undefined (backend-handled verification)`) — Frontend callback URL for email verification.
   - `enabled?`: `boolean` (default: `true (enabled by default when BetterAuth is active)`) — Whether email verification is enabled.

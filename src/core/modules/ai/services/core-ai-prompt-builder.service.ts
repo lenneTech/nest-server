@@ -221,12 +221,19 @@ export class CoreAiPromptBuilderService {
             : '\n\n[Schemas deferred. Call `search_tools` with the tool name to fetch its parameter schema BEFORE you call it.]';
       }
     }
-    const toolCatalog = defer
-      ? (tools.map((t) => `- ${t.name}: ${this.summarizeToolDescription(t.description, summaryChars)}`).join('\n') ||
-          '(none)') + deferNote
-      : tools
-          .map((t) => `- ${t.name}: ${t.description}\n  parameters (JSON schema): ${JSON.stringify(t.parameters)}`)
-          .join('\n') || '(none)';
+    // A native connection receives every description and schema in the tool payload (`buildToolSchemas()`), so its
+    // catalog lists names only (12.3.0) — repeating them here paid for each tool twice. Emulated connections and plan
+    // mode have no tool payload; their catalog is the model's only source. `ai.nativeToolCatalog: 'full'` restores
+    // the full catalog for a model that picks tools better with it.
+    const namesOnly = supportsNativeTools && !planMode && ConfigService.get<string>('ai.nativeToolCatalog') !== 'full';
+    const toolCatalog = namesOnly
+      ? tools.map((t) => `- ${t.name}`).join('\n') || '(none)'
+      : defer
+        ? (tools.map((t) => `- ${t.name}: ${this.summarizeToolDescription(t.description, summaryChars)}`).join('\n') ||
+            '(none)') + deferNote
+        : tools
+            .map((t) => `- ${t.name}: ${t.description}\n  parameters (JSON schema): ${JSON.stringify(t.parameters)}`)
+            .join('\n') || '(none)';
 
     if (this.placeholderRegistry) {
       return this.placeholderRegistry.resolveAll({ toolCatalog, tools, user });

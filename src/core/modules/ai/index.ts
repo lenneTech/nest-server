@@ -2,6 +2,20 @@
 export * from './core-ai-mcp-oauth.initializer.js';
 export * from './core-ai-mcp.controller.js';
 export * from './helpers/ai-mcp-oauth.helper.js';
+// Named on purpose: the page's scripts and security headers stay internal, so a project cannot pin them
+export {
+  MCP_OAUTH_CONSENT_DECISION_FIELD,
+  MCP_OAUTH_CONSENT_TOKEN_FIELD,
+  mcpOAuthConsentLocale,
+  renderMcpOAuthConsentPage,
+} from './helpers/ai-mcp-oauth-consent.helper.js';
+export type {
+  IMcpOAuthConsentPageOptions,
+  IMcpOAuthConsentView,
+  McpOAuthConsentLocale,
+  McpOAuthConsentTexts,
+} from './helpers/ai-mcp-oauth-consent.helper.js';
+export * from './helpers/ai-tool-authorization.helper.js';
 export * from './core-ai.controller.js';
 export * from './core-ai.module.js';
 export * from './core-ai.resolver.js';
@@ -19,6 +33,7 @@ export * from './inputs/core-ai-prompt-update.input.js';
 export * from './inputs/core-ai-slot-create.input.js';
 export * from './inputs/core-ai-slot-update.input.js';
 export * from './inputs/core-ai-prompt.input.js';
+export * from './inputs/core-ai-settings.input.js';
 export * from './hooks/ai-hook.base.js';
 export * from './hooks/ai-hook.registry.js';
 export * from './interfaces/ai-interaction-record.interface.js';
@@ -41,6 +56,8 @@ export * from './models/core-ai-slot.model.js';
 export * from './models/core-ai-tool-grant.model.js';
 export * from './models/core-ai-mode.model.js';
 export * from './models/core-ai-tool-policy.model.js';
+export * from './models/core-ai-settings.model.js';
+export * from './models/core-ai-user-setting.model.js';
 export * from './models/core-ai-response.model.js';
 export * from './models/core-ai-usage-info.model.js';
 export * from './models/core-ai-usage.model.js';
@@ -65,6 +82,7 @@ export * from './services/core-ai-tool-grant.service.js';
 export * from './services/core-ai-mcp-client.service.js';
 export * from './services/core-ai-mode.service.js';
 export * from './services/core-ai-tool-policy.service.js';
+export * from './services/core-ai-user-setting.service.js';
 export * from './services/core-ai.service.js';
 export * from './tools/ai-tool.base.js';
 export * from './tools/ai-tool.registry.js';

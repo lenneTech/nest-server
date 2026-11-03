@@ -125,9 +125,31 @@ export function mcpOAuthConsentHeaders(nonce: string): Record<string, string> {
   };
 }
 
+/** Every text of the page in one locale. */
+export type McpOAuthConsentTexts = (typeof TEXTS)[McpOAuthConsentLocale];
+
+/**
+ * Project adjustments for {@link renderMcpOAuthConsentPage}: replacement texts per locale (merged over
+ * the built-in ones, so a project changes only what it needs, e.g. its form of address) and CSS
+ * appended after the built-in styles (its colours and font). Neither touches the markup, the scripts or
+ * the security headers — what makes the page safe stays the framework's.
+ *
+ * Fill both from code or configuration, never from user or tenant input. Texts are escaped like the
+ * built-in ones; styles cannot leave their `<style>` element (every `<` becomes the CSS escape `\3c `), and
+ * the page's CSP blocks what CSS could load from elsewhere (`img-src 'self' data:`, no font source, no
+ * `@import` without the nonce) — but CSS still decides what the page shows.
+ */
+export interface IMcpOAuthConsentPageOptions {
+  styles?: string;
+  texts?: Partial<Record<McpOAuthConsentLocale, Partial<McpOAuthConsentTexts>>>;
+}
+
 /** Renders the page. Every dynamic value goes through {@link escapeHtml}. */
-export function renderMcpOAuthConsentPage(view: IMcpOAuthConsentView): string {
-  const t = TEXTS[view.locale];
+export function renderMcpOAuthConsentPage(
+  view: IMcpOAuthConsentView,
+  options: IMcpOAuthConsentPageOptions = {},
+): string {
+  const t: Texts = { ...TEXTS[view.locale], ...options.texts?.[view.locale] };
   const clientName = view.client.name?.trim() || t.unnamedClient;
   // One pass: a client name is chosen by whoever registered the client, so a name containing
   // `{app}` must not be expanded by a second replace.
@@ -146,7 +168,7 @@ export function renderMcpOAuthConsentPage(view: IMcpOAuthConsentView): string {
 <meta name="robots" content="noindex">
 <link rel="icon" href="data:,">
 <title>${escapeHtml(t.title)} – ${escapeHtml(view.appHost)}</title>
-<style nonce="${escapeHtml(view.nonce)}">${STYLES}</style>
+<style nonce="${escapeHtml(view.nonce)}">${STYLES}${confinedStyles(options.styles)}</style>
 </head>
 <body>
 <main class="card">
@@ -158,7 +180,16 @@ ${pageScript(view)}
 `;
 }
 
-type Texts = (typeof TEXTS)[McpOAuthConsentLocale];
+type Texts = McpOAuthConsentTexts;
+
+/**
+ * Project CSS that cannot end the `<style>` element: a `</style>` in it would continue as markup — an injected
+ * form, for one, since the page sets no `form-action`. `<` has no meaning in CSS outside strings and comments, and
+ * the CSS escape `\3c ` keeps it where it does.
+ */
+function confinedStyles(styles: string | undefined): string {
+  return typeof styles === 'string' ? styles.replace(/</g, '\\3c ') : '';
+}
 
 function consentView(view: IMcpOAuthConsentView, t: Texts, fill: (text: string) => string): string {
   const target = view.redirect.loopback

@@ -175,6 +175,16 @@ See [Tenant README — BetterAuth Integration](./README.md#betterauth-iam-integr
 
 See the module README: "Deactivated Tenants" and "Service-Level Role Checks".
 
+### 12. Removing a Tenant (since 12.3.0)
+
+- **Can a tenant be deleted in your project?** Call `tenantService.purgeTenantData(tenantId)` where the project deletes
+  its tenant record, after deleting the tenant's files through `CoreFileService`. WHY: the core has no tenant model and
+  cannot notice the deletion; until the purge runs, the tenant's API tokens keep authenticating and its records stay.
+- **Does a model reference the tenant in a field other than `tenantId`?** Override `purgeTenantRecords()` and call
+  `super`. WHY: the purge finds `tenantId` paths and the core's own references only.
+
+See the module README: "Removing a Tenant".
+
 ## Verification Checklist
 
 - [ ] `pnpm run build` succeeds
@@ -207,3 +217,4 @@ See the module README: "Deactivated Tenants" and "Service-Level Role Checks".
 | Passing user-supplied tenantId to create()       | Cross-tenant write possible        | Let plugin auto-set tenantId from context                                  |
 | Custom hierarchy doesn't match config            | Roles fail unexpectedly            | Ensure `createHierarchyRoles()` input matches `multiTenancy.roleHierarchy` |
 | `@SkipTenantCheck()` on BetterAuth handler       | Redundant since v11.21.2           | Remove — auto-skip handles this via `betterAuth.skipTenantCheck` (default) |
+| Deleting only the tenant record                  | Tenant tokens and records survive  | Call `purgeTenantData(tenantId)` when the tenant is deleted                |

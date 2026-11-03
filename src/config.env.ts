@@ -59,7 +59,9 @@ const config: { [env: string]: IServerOptions } = {
         rpId: 'localhost',
         rpName: 'Nest Server Local',
       },
-      rateLimit: { enabled: true, max: 100, windowSeconds: 60 },
+      // 200: sign-in and sign-up get the strict half (100), the headroom the suites had while the limiter
+      // counted every IAM request of a client on one shared counter of 100
+      rateLimit: { enabled: true, max: 200, windowSeconds: 60 },
       secret: process.env.BETTER_AUTH_SECRET || 'BETTER_AUTH_SECRET_LOCAL_32_CHARS_M',
       // Social providers disabled in local environment (no credentials)
       socialProviders: {
@@ -367,7 +369,9 @@ const config: { [env: string]: IServerOptions } = {
         rpId: 'localhost',
         rpName: 'Nest Server Local',
       },
-      rateLimit: { enabled: true, max: 100, windowSeconds: 60 },
+      // 200: sign-in and sign-up get the strict half (100), the headroom the suites had while the limiter
+      // counted every IAM request of a client on one shared counter of 100
+      rateLimit: { enabled: true, max: 200, windowSeconds: 60 },
       secret: process.env.BETTER_AUTH_SECRET || 'BETTER_AUTH_SECRET_LOCAL_32_CHARS_M',
       // Social providers disabled in local environment (no credentials)
       socialProviders: {

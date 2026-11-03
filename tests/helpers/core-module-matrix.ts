@@ -86,7 +86,8 @@ export const CORE_MODULE_CASES: readonly CoreModuleCase[] = [
   {
     drivers: ALL,
     id: 'iam-sign-up-and-sign-in',
-    title: 'an IAM sign-up creates the one user the user model reads, and sign-in answers a session for the right password only',
+    title:
+      'an IAM sign-up creates the one user the user model reads, and sign-in answers a session for the right password only',
   },
   {
     drivers: ALL,
@@ -130,6 +131,11 @@ export const CORE_MODULE_CASES: readonly CoreModuleCase[] = [
     drivers: ALL,
     id: 'tenant-inactive',
     title: 'a tenant switched off through isTenantActive (a data-store lookup) refuses its members',
+  },
+  {
+    drivers: ALL,
+    id: 'tenant-purge',
+    title: 'removing a tenant deletes its members, its tenantId records and its tokens, and nothing of another tenant',
   },
 
   // --- API tokens ----------------------------------------------------------------------------------------------

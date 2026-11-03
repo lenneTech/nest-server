@@ -444,6 +444,7 @@ interface PasskeyNormalizationResult {
 interface SocialProviderConfig {
   clientId: string;
   clientSecret: string;
+  disableSignUp: boolean;
 }
 
 /**
@@ -955,7 +956,9 @@ function buildEmailVerificationConfig(
   // Get configuration values (with defaults)
   const configObj = typeof emailVerificationConfig === 'object' ? emailVerificationConfig : {};
   const expiresIn = configObj.expiresIn ?? 86400; // 24 hours
-  const autoSignInAfterVerification = configObj.autoSignInAfterVerification ?? true;
+  // Off unless switched on, as Better-Auth has it: on verification Better-Auth signs in the browser that opens the
+  // link, to the account the link belongs to — a forwarded link signs its recipient in to the sender's account
+  const autoSignInAfterVerification = configObj.autoSignInAfterVerification === true;
 
   const result: Record<string, unknown> = {
     autoSignInAfterVerification,
@@ -1118,9 +1121,16 @@ function serverOnlyPlugin<T extends BetterAuthPlugin>(plugin: T): T {
  * Builds the social providers configuration object dynamically.
  * Iterates over all configured providers and includes those that are enabled
  * with valid clientId and clientSecret.
+ *
+ * `emailAndPassword.disableSignUp: true` closes every way to a new account (12.3.0). Better-Auth reads that flag for
+ * `/sign-up/email` only and decides a social sign-up per provider (`provider.options.disableSignUp`, in the OAuth
+ * callback and in `/sign-in/social` with an `idToken`), so each provider receives it explicitly. A boolean
+ * `disableSignUp` on the provider is the deliberate exception for that provider; any other value follows the global
+ * flag, so a string arriving through `NEST_SERVER_CONFIG` cannot open a closed registration.
  */
 function buildSocialProviders(config: IBetterAuth): Record<string, SocialProviderConfig> {
   const socialProvidersConfig: Record<string, SocialProviderConfig> = {};
+  const signUpClosed = config.emailAndPassword?.disableSignUp === true;
 
   // Iterate over all configured social providers dynamically
   // A provider is enabled by default if it has credentials configured
@@ -1131,6 +1141,7 @@ function buildSocialProviders(config: IBetterAuth): Record<string, SocialProvide
         socialProvidersConfig[name] = {
           clientId: provider.clientId,
           clientSecret: provider.clientSecret,
+          disableSignUp: typeof provider.disableSignUp === 'boolean' ? provider.disableSignUp : signUpClosed,
         };
       }
     }

@@ -550,6 +550,13 @@ const config = {
 
 **Brevo Integration:** When `brevoTemplateId` is set and Brevo is configured (`config.brevo`), verification emails are sent via Brevo's transactional API instead of SMTP/EJS templates. The same template variables (`name`, `link`, `appName`, `expiresIn`) are passed to the Brevo template.
 
+**Auto sign-in after verification (`autoSignInAfterVerification`, default `false` since 12.3.0):** with it on,
+`GET /iam/verify-email` signs in the browser that opens the link — to the account the link belongs to, whoever opens
+it. Someone who signs up with their own address and forwards the unopened link then has the recipient's browser signed
+in to their account, and what the recipient enters there lands with them (login CSRF). Off, the user verifies and then
+signs in once, as in Better-Auth's own default. Switch it on (`emailVerification: { autoSignInAfterVerification: true }`)
+only where a verification link reaches nobody but its owner.
+
 ### Sign-Up Checks (v11.13.0+)
 
 Sign-up validation is **enabled by default** requiring `termsAndPrivacyAccepted: true`.
@@ -622,12 +629,30 @@ When disabled:
 - REST `POST /iam/sign-up/email` returns `400 Bad Request` with error `LTNS_0026`
 - GraphQL `betterAuthSignUp` mutation returns error `LTNS_0026`
 - `betterAuthFeatures` reports `signUpEnabled: false`
-- Sign-in continues to work for existing users
+- A first sign-in through a social provider creates no account (since 12.3.0): the OAuth callback redirects with
+  `error=signup_disabled`, `/sign-in/social` with an `idToken` answers 401 `signup disabled`
+- Sign-in continues to work for existing users, through e-mail and every social provider
 
 **Defense in Depth:** The flag is enforced at two layers:
 
 1. **Custom check** (`CoreBetterAuthService.ensureSignUpEnabled()`) runs in Controller/Resolver _before_ any BetterAuth API call and returns a structured `LTNS_0026` error.
 2. **Native BetterAuth** `emailAndPassword.disableSignUp` acts as a safety net for any direct API access that bypasses the custom check.
+
+**Social providers:** Better-Auth reads `emailAndPassword.disableSignUp` for `/sign-up/email` only and decides a social
+sign-up per provider, so `buildSocialProviders()` hands every provider the flag as its own `disableSignUp`. One provider
+can deviate on purpose:
+
+```typescript
+socialProviders: {
+  google: { clientId: '...', clientSecret: '...', disableSignUp: false }, // new users through Google despite the global flag
+  github: { clientId: '...', clientSecret: '...', disableSignUp: true },  // closed for GitHub even while sign-up is open
+},
+```
+
+Only a boolean counts on the provider; any other value follows `emailAndPassword.disableSignUp`, so a string from
+`NEST_SERVER_CONFIG` cannot open a closed registration. Plugins a project adds itself through `betterAuth.options.plugins`
+(Generic OAuth, Magic Link, …) are not covered and need their own sign-up options. Before 12.3.0 every provider created
+accounts whatever `disableSignUp` said.
 
 **Default:** `false` (sign-up enabled) - fully backward compatible.
 
@@ -2204,6 +2229,12 @@ These endpoints bypass rate limiting entirely:
 
 - `/session` - Session checks (frequent client-side calls)
 - `/callback` - OAuth callbacks
+
+Entries match whole path segments of the path the request is served under (dot segments resolved, case-insensitive, as Express routes): `/sign-in` covers
+`/sign-in/email`, `/session` does not cover `/sessions-export`. A request whose path under the base path carries a
+`.` or `..` segment (also `%2e`-encoded), a backslash, an encoded `/` or `\`, or a `#` is refused with 400
+(`#LTNS_0305: Invalid request path`) before the limiter runs — no route needs such a path, and the limiter and
+Better-Auth would otherwise read it as two different routes.
 
 ### Response Headers
 

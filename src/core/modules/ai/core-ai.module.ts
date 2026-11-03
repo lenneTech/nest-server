@@ -11,6 +11,8 @@ import {
   AI_MCP_OAUTH_CLIENT_MODEL,
   AI_MCP_OAUTH_CODE_MODEL,
   AI_MCP_OAUTH_REFRESH_TOKEN_MODEL,
+  AI_USER_SETTING_CLASS,
+  AI_USER_SETTING_MODEL,
 } from './core-ai.constants.js';
 import { AiBudgetLimitSchema, CoreAiBudgetLimit } from './models/core-ai-budget-limit.model.js';
 import {
@@ -31,6 +33,7 @@ import { AiSlotSchema, CoreAiSlot } from './models/core-ai-slot.model.js';
 import { AiModeSchema, CoreAiMode } from './models/core-ai-mode.model.js';
 import { AiToolGrantSchema, CoreAiToolGrant } from './models/core-ai-tool-grant.model.js';
 import { AiToolPolicySchema, CoreAiToolPolicy } from './models/core-ai-tool-policy.model.js';
+import { AiUserSettingSchema, CoreAiUserSetting } from './models/core-ai-user-setting.model.js';
 import { LlmProviderFactory } from './providers/llm-provider.factory.js';
 import { AiCryptoService } from './services/ai-crypto.service.js';
 import {
@@ -79,6 +82,7 @@ import {
   CoreAiToolPolicyService,
 } from './services/core-ai-tool-policy.service.js';
 import { AI_MODE_CLASS, AI_MODE_MODEL, CoreAiModeService } from './services/core-ai-mode.service.js';
+import { CoreAiUserSettingService } from './services/core-ai-user-setting.service.js';
 import { CoreAiMcpClientService } from './services/core-ai-mcp-client.service.js';
 import { CoreAiService } from './services/core-ai.service.js';
 import { AiHookRegistry } from './hooks/ai-hook.registry.js';
@@ -149,6 +153,9 @@ export interface CoreAiModuleOptions {
   /** Custom scoped tool-policy store (extends CoreAiToolPolicyService). */
   toolPolicyService?: Type<CoreAiToolPolicyService>;
 
+  /** Custom personal-settings store (extends CoreAiUserSettingService). */
+  userSettingService?: Type<CoreAiUserSettingService>;
+
   /** Custom named-mode store (extends CoreAiModeService). */
   modeService?: Type<CoreAiModeService>;
 
@@ -208,6 +215,7 @@ export class CoreAiModule {
       { model: CoreAiToolGrant, name: AI_TOOL_GRANT_MODEL, schema: AiToolGrantSchema },
       { model: CoreAiToolPolicy, name: AI_TOOL_POLICY_MODEL, schema: AiToolPolicySchema },
       { model: CoreAiMode, name: AI_MODE_MODEL, schema: AiModeSchema },
+      { model: CoreAiUserSetting, name: AI_USER_SETTING_MODEL, schema: AiUserSettingSchema },
       // Stored natively on MongoDB; the models give them their tables on a SQL source
       { name: AI_MCP_OAUTH_CLIENT_MODEL, schema: AiMcpOAuthClientSchema },
       { name: AI_MCP_OAUTH_CODE_MODEL, schema: AiMcpOAuthCodeSchema },
@@ -215,6 +223,7 @@ export class CoreAiModule {
     ]);
     const ToolGrantServiceClass = options.toolGrantService || CoreAiToolGrantService;
     const ToolPolicyServiceClass = options.toolPolicyService || CoreAiToolPolicyService;
+    const UserSettingServiceClass = options.userSettingService || CoreAiUserSettingService;
     const ModeServiceClass = options.modeService || CoreAiModeService;
     const McpClientServiceClass = options.mcpClientService || CoreAiMcpClientService;
     const McpOAuthServiceClass = options.mcpOAuthService || CoreAiMcpOAuthService;
@@ -250,6 +259,7 @@ export class CoreAiModule {
         CoreAiService,
         CoreAiToolGrantService,
         CoreAiToolPolicyService,
+        CoreAiUserSettingService,
         CoreAiModeService,
         CoreAiMcpClientService,
         LlmProviderFactory,
@@ -275,6 +285,7 @@ export class CoreAiModule {
         { provide: AI_TOOL_GRANT_CLASS, useValue: CoreAiToolGrant },
         { provide: AI_TOOL_POLICY_CLASS, useValue: CoreAiToolPolicy },
         { provide: AI_MODE_CLASS, useValue: CoreAiMode },
+        { provide: AI_USER_SETTING_CLASS, useValue: CoreAiUserSetting },
         { provide: CoreAiBudgetService, useClass: BudgetServiceClass },
         { provide: CoreAiConversationService, useClass: ConversationServiceClass },
         { provide: CoreAiInteractionService, useClass: InteractionServiceClass },
@@ -293,6 +304,7 @@ export class CoreAiModule {
         { provide: CoreAiService, useClass: ServiceClass },
         { provide: CoreAiToolGrantService, useClass: ToolGrantServiceClass },
         { provide: CoreAiToolPolicyService, useClass: ToolPolicyServiceClass },
+        { provide: CoreAiUserSettingService, useClass: UserSettingServiceClass },
         { provide: CoreAiModeService, useClass: ModeServiceClass },
         { provide: CoreAiMcpClientService, useClass: McpClientServiceClass },
         { provide: CoreAiMcpOAuthService, useClass: McpOAuthServiceClass },

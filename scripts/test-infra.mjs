@@ -55,7 +55,7 @@ const s3Url = parseEndpoint(S3_ENDPOINT);
 
 /**
  * PostgreSQL for the SQL data store suites — with the SAME role separation every environment uses
- * (`.claude/plans/db-agnostic/PLAN.md` §3.9): the owner role owns the schema, the application role owns
+ * (db-agnostic plan §3.9): the owner role owns the schema, the application role owns
  * nothing and has neither BYPASSRLS nor superuser, so row-level security holds against it. 5440 keeps clear of
  * a developer's own Postgres on 5432.
  */
@@ -130,7 +130,7 @@ function mysqlReady(client) {
 /**
  * A one-node MongoDB replica set for the offline-sync contract suite (DEV-3901). On a replica set a project's
  * transaction can commit a synchronized write long after its stamp — what the pull window W must cover
- * (`.claude/plans/offline-sync/PLAN.md` §3.4) — and a standalone shows nothing of that. 27019 keeps clear of a
+ * (offline-sync plan §3.4) — and a standalone shows nothing of that. 27019 keeps clear of a
  * developer's own MongoDB on 27017. The suites connect with `directConnection=true`, so the member's host name never
  * has to resolve outside the container.
  */

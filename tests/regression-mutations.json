@@ -2095,6 +2095,39 @@
       "driverSpecific": false
     },
     {
+      "id": "unusable-fix-counts-fixed-edges",
+      "defect": "The consumer-set check counts every parent of the affected package, whatever version it pulls. A subtree lifted to the fixed release then fails a correct declaration for good, because the lifted parent is counted as a consumer nobody assessed.",
+      "file": "scripts/check-overrides.mjs",
+      "find": "        if (!pullsAffectedVersion(target.version, ranges)) {",
+      "replace": "        if (false) {",
+      "specs": [
+        "tests/unit/check-overrides.guard.spec.ts"
+      ],
+      "driverSpecific": false
+    },
+    {
+      "id": "unusable-fix-matches-alias-by-key",
+      "defect": "The consumer-set check matches an edge by its key. pnpm keys an npm alias by the alias, so a parent pulling the affected package through one is invisible and an incomplete declaration passes, while a declared consumer reaching it only through an alias fails for good.",
+      "file": "scripts/check-overrides.mjs",
+      "find": "        if (target.name !== name) {",
+      "replace": "        if (edge[1].replace(/^'|'$/g, '') !== name) {",
+      "specs": [
+        "tests/unit/check-overrides.guard.spec.ts"
+      ],
+      "driverSpecific": false
+    },
+    {
+      "id": "unusable-fix-skips-unreadable-edge",
+      "defect": "An edge whose version cannot be read (link:, file:) is treated as pulling the fixed package, so an unassessed parent stays hidden behind a declaration that claims only its consumers pull the vulnerable version.",
+      "file": "scripts/check-overrides.mjs",
+      "find": "  if (version === null || ranges.length === 0) {",
+      "replace": "  if (version === null) {\n    return false;\n  }\n  if (ranges.length === 0) {",
+      "specs": [
+        "tests/unit/check-overrides.guard.spec.ts"
+      ],
+      "driverSpecific": false
+    },
+    {
       "id": "openapi-plugin-routable",
       "defect": "Better-Auth's openAPI() plugin, registered by nest-server only to feed setupSwagger(), stays on the HTTP router, so its schema route is public. A path check cannot close that: it sees the request as sent, while Better-Auth matches the path after new URL() removed dot segments — an anonymous GET /iam/./open-api/generate-schema returned the full Better-Auth schema on every deployment.",
       "file": "src/core/modules/better-auth/better-auth.config.ts",
@@ -5409,6 +5442,568 @@
       "replace": "",
       "specs": [
         "tests/unit/sync-module.spec.ts"
+      ],
+      "driverSpecific": false
+    },
+    {
+      "id": "iam-path-guard-dot-segments-allowed",
+      "defect": "12.3.0 — the checks under the Better-Auth base path read the path as sent, while Better-Auth routes it after new URL() resolved dot segments: POST /iam/callback/../sign-in/email passed the rate limiter as a skipped callback and ran as a sign-in.",
+      "file": "src/core/modules/better-auth/core-better-auth-path-guard.middleware.ts",
+      "find": "    if (dots === '.' || dots === '..') {\n",
+      "replace": "    if (dots === '') {\n",
+      "specs": [
+        "tests/unit/better-auth-path-guard.spec.ts"
+      ],
+      "driverSpecific": false
+    },
+    {
+      "id": "iam-rate-limit-reads-raw-path",
+      "defect": "12.3.0 — CoreBetterAuthRateLimiter matched its skip list against the raw path, so /callback/../sign-in/email was skipped as a callback while Better-Auth ran it as a sign-in: sign-in attempts were not counted where the path guard is not registered.",
+      "file": "src/core/modules/better-auth/core-better-auth-rate-limiter.service.ts",
+      "find": "    const path = canonicalRequestPath(requestPath).toLowerCase();\n",
+      "replace": "    const path = requestPath.toLowerCase();\n",
+      "specs": [
+        "tests/unit/better-auth-path-guard.spec.ts"
+      ],
+      "driverSpecific": false
+    },
+    {
+      "id": "iam-path-guard-not-registered",
+      "defect": "12.3.0 — without the path guard first under the base path, a non-canonical path such as /iam/callback/../sign-in/email reaches the rate limiter and the forwarding to Better-Auth, which resolve it differently.",
+      "file": "src/core/modules/better-auth/core-better-auth.module.ts",
+      "find": "      consumer.apply(CoreBetterAuthPathGuardMiddleware).forRoutes(`${basePath}/*path`);\n",
+      "replace": "",
+      "specs": [
+        "tests/better-auth-openapi.e2e-spec.ts"
+      ],
+      "driverSpecific": false
+    },
+    {
+      "id": "iam-rate-limit-case-sensitive",
+      "defect": "12.3.0 — CoreBetterAuthRateLimiter compared and keyed on the path as typed while Express routes case-insensitively: every case variant of /sign-in/email reached the same sign-in with its own counter and the full instead of the strict limit.",
+      "file": "src/core/modules/better-auth/core-better-auth-rate-limiter.service.ts",
+      "find": "    const path = canonicalRequestPath(requestPath).toLowerCase();\n",
+      "replace": "    const path = canonicalRequestPath(requestPath);\n",
+      "specs": [
+        "tests/unit/better-auth-path-guard.spec.ts"
+      ],
+      "driverSpecific": false
+    },
+    {
+      "id": "iam-rate-limit-middleware-reads-req-path",
+      "defect": "12.3.0 — CoreBetterAuthRateLimitMiddleware read req.path, which is \"/\" for a middleware Nest mounts on ${basePath}/*path (Express moves the match into req.baseUrl): every IAM request of a client shared one counter with the full limit, so neither the skip list nor the strict limit for sign-in ever applied over HTTP.",
+      "file": "src/core/modules/better-auth/core-better-auth-rate-limit.middleware.ts",
+      "find": "    const requestPath = (req.originalUrl || req.url || '').split('?')[0];\n",
+      "replace": "    const requestPath = req.path;\n",
+      "specs": [
+        "tests/unit/better-auth-path-guard.spec.ts"
+      ],
+      "driverSpecific": false
+    },
+    {
+      "id": "iam-http-rate-limit-reads-req-path",
+      "defect": "12.3.0 — CoreBetterAuthRateLimitMiddleware read req.path, which is \"/\" for a middleware Nest mounts on ${basePath}/*path (Express moves the match into req.baseUrl): every IAM request of a client shared one counter with the full limit, so neither the skip list nor the strict limit for sign-in ever applied over HTTP.",
+      "file": "src/core/modules/better-auth/core-better-auth-rate-limit.middleware.ts",
+      "find": "    const requestPath = (req.originalUrl || req.url || '').split('?')[0];\n",
+      "replace": "    const requestPath = req.path;\n",
+      "specs": [
+        "tests/better-auth-openapi.e2e-spec.ts"
+      ],
+      "driverSpecific": false
+    },
+    {
+      "id": "ai-conversation-append-skips-owner-check",
+      "defect": "appendMessage() pushes into whatever conversation it is given. Any caller that forgets its own check writes one user's turns into another user's history, which feeds that user's next runs.",
+      "file": "src/core/modules/ai/services/core-ai-conversation.service.ts",
+      "find": "    if (!(await this.isOwnedBy(id, ownerId))) {",
+      "replace": "    if (false) {",
+      "specs": [
+        "tests/unit/ai-conversation-ownership.spec.ts"
+      ],
+      "driverSpecific": false
+    },
+    {
+      "id": "ai-prompt-keeps-foreign-conversation",
+      "defect": "prompt() keeps a conversationId the caller does not own for the whole run: the answer echoes it, and the conversation-scoped tool grants of another user's conversation are read and stored.",
+      "file": "src/core/modules/ai/services/core-ai.service.ts",
+      "find": "    return owned ? input : { ...input, conversationId: undefined };",
+      "replace": "    return input;",
+      "specs": [
+        "tests/unit/ai-conversation-ownership.spec.ts"
+      ],
+      "driverSpecific": false
+    },
+    {
+      "id": "ws-stream-interval-end-logged",
+      "defect": "The planned end of a connection that ends on every re-check (the SSE hint stream) is logged at log. Every open stream then writes a line per interval, and a real revocation is lost among them.",
+      "file": "src/core/common/helpers/graphql-ws-connection.helper.ts",
+      "find": "      : terminate(connection, 're-check interval reached, client reconnects', 'debug');",
+      "replace": "      : terminate(connection, 're-check interval reached, client reconnects');",
+      "specs": [
+        "tests/unit/graphql-ws-connection.spec.ts",
+        "tests/unit/sync-hint-stream-log.spec.ts"
+      ],
+      "driverSpecific": false
+    },
+    {
+      "id": "sync-hint-stream-ends-as-lost-session",
+      "defect": "The SSE hint stream registers with a re-authentication that always fails, so every planned end logs \"Session no longer valid\" at log although the session is valid.",
+      "file": "src/core/modules/sync/core-sync.service.ts",
+      "find": "      endsOnRecheck: true,",
+      "replace": "      reauthenticate: () => undefined,",
+      "specs": [
+        "tests/unit/sync-hint-stream-log.spec.ts"
+      ],
+      "driverSpecific": false
+    },
+    {
+      "id": "iam-auto-sign-in-after-verification-default-on",
+      "defect": "12.3.0 — autoSignInAfterVerification defaulted to true (Better-Auth: false), so GET /iam/verify-email signed in whoever opened a forwarded verification link, to the account of the link owner.",
+      "file": "src/core/modules/better-auth/better-auth.config.ts",
+      "find": "  const autoSignInAfterVerification = configObj.autoSignInAfterVerification === true;\n",
+      "replace": "  const autoSignInAfterVerification = configObj.autoSignInAfterVerification ?? true;\n",
+      "specs": [
+        "tests/unit/better-auth-auto-sign-in.spec.ts"
+      ],
+      "driverSpecific": false
+    },
+    {
+      "id": "iam-auto-sign-in-service-default-on",
+      "defect": "12.3.0 — the e-mail verification service reported the old default (auto sign-in on) as well.",
+      "file": "src/core/modules/better-auth/core-better-auth-email-verification.service.ts",
+      "find": "  autoSignInAfterVerification: false,\n",
+      "replace": "  autoSignInAfterVerification: true,\n",
+      "specs": [
+        "tests/unit/better-auth-auto-sign-in.spec.ts"
+      ],
+      "driverSpecific": false
+    },
+    {
+      "id": "iam-auto-sign-in-service-truthy",
+      "defect": "12.3.0 — shouldAutoSignIn() returned the merged value as it came, so a string in NEST_SERVER_CONFIG reported a sign-in Better-Auth never performs.",
+      "file": "src/core/modules/better-auth/core-better-auth-email-verification.service.ts",
+      "find": "    return this.config.autoSignInAfterVerification === true;\n",
+      "replace": "    return !!this.config.autoSignInAfterVerification;\n",
+      "specs": [
+        "tests/unit/better-auth-auto-sign-in.spec.ts"
+      ],
+      "driverSpecific": false
+    },
+    {
+      "id": "sync-push-applies-after-refused-item",
+      "defect": "12.3.0 — CoreSyncService.push() applied every item on its own: a change chained to a refused one (protocol §6.2) was applied on the version another writer left, while the client dropped it locally.",
+      "file": "src/core/modules/sync/core-sync.service.ts",
+      "find": "      const held = heldBack.get(item.id);\n",
+      "replace": "      const held = undefined as 'refused' | 'retry' | undefined;\n",
+      "specs": [
+        "tests/sync-contract.e2e-spec.ts"
+      ],
+      "driverSpecific": false
+    },
+    {
+      "id": "sync-push-loop-ignores-refused-item",
+      "defect": "12.3.0 — CoreSyncService.push() applied every item on its own: a change chained to a refused one (protocol §6.2) was applied on the version another writer left, while the client dropped it locally.",
+      "file": "src/core/modules/sync/core-sync.service.ts",
+      "find": "      const held = heldBack.get(item.id);\n",
+      "replace": "      const held = undefined as 'refused' | 'retry' | undefined;\n",
+      "specs": [
+        "tests/unit/sync-push-held-back.spec.ts"
+      ],
+      "driverSpecific": false
+    },
+    {
+      "id": "sync-push-retry-held-back-as-conflict",
+      "defect": "12.3.0 — a later item behind an item answered retry was answered conflict: a server-wins client drops a change nobody decided against, instead of sending both again.",
+      "file": "src/core/modules/sync/core-sync.service.ts",
+      "find": "    if (reason === 'retry') {\n      return reply(item, 'retry');\n",
+      "replace": "    if (reason === ('none' as string)) {\n      return reply(item, 'retry');\n",
+      "specs": [
+        "tests/unit/sync-push-held-back.spec.ts"
+      ],
+      "driverSpecific": false
+    },
+    {
+      "id": "sync-client-sends-behind-retry",
+      "defect": "12.3.0 — the reference client sent a record's later change in the next request of a push although the change before it came back retry: alone, its base version matched another writer's version (the server holds a chain back within one request only).",
+      "file": "tests/clients/sync-client.mjs",
+      "find": "          .filter((item) => !carried.has(item.mutationId) && !waiting.has(item.id))\n",
+      "replace": "          .filter((item) => !carried.has(item.mutationId))\n",
+      "specs": [
+        "tests/unit/sync-client.spec.ts"
+      ],
+      "driverSpecific": false
+    },
+    {
+      "id": "sync-client-keeps-changes-behind-rejected",
+      "defect": "12.3.0 — the reference client dropped a rejected change alone: the later changes of the record stayed queued, and one sent in a later request matched another writer's version.",
+      "file": "tests/clients/sync-client.mjs",
+      "find": "    result.rejected.push(outcome);\n    await this.dropLater(tx, item.id);\n",
+      "replace": "    result.rejected.push(outcome);\n",
+      "specs": [
+        "tests/unit/sync-client.spec.ts"
+      ],
+      "driverSpecific": false
+    },
+    {
+      "id": "mcp-oauth-error-redirect-unguarded",
+      "defect": "12.3.0 — the SDK sent an /authorize error after the client check (a missing code_challenge) to the self-registered client's redirect URI: an open redirect on the API domain with one crafted link.",
+      "file": "src/core/modules/ai/helpers/ai-mcp-oauth.helper.ts",
+      "find": "  use(guardErrorRedirects(router as (req: any, res: any, next: (error?: unknown) => void) => void));\n",
+      "replace": "  use(router);\n",
+      "specs": [
+        "tests/unit/ai-mcp-oauth-error-redirect.spec.ts"
+      ],
+      "driverSpecific": false
+    },
+    {
+      "id": "mcp-oauth-deny-without-consent-token",
+      "defect": "12.3.0 — Deny on the MCP OAuth consent page was honoured without the CSRF token: a cross-site POST sent a signed-in user (SameSite=None session cookie) to the client's registered redirect URI.",
+      "file": "src/core/modules/ai/services/core-ai-mcp-oauth.service.ts",
+      "find": "      if (verdict === 'valid' && decision === 'deny') {\n",
+      "replace": "      if (decision === 'deny') {\n",
+      "specs": [
+        "tests/unit/ai-mcp-oauth-error-redirect.spec.ts"
+      ],
+      "driverSpecific": false
+    },
+    {
+      "id": "iam-social-sign-up-ignores-disable-sign-up",
+      "defect": "12.3.0 — emailAndPassword.disableSignUp closed /sign-up/email only: each social provider got clientId and clientSecret alone, so a first sign-in through Google, GitHub etc. created an account in a project that had closed registration.",
+      "file": "src/core/modules/better-auth/better-auth.config.ts",
+      "find": "          disableSignUp: typeof provider.disableSignUp === 'boolean' ? provider.disableSignUp : signUpClosed,\n",
+      "replace": "",
+      "specs": [
+        "tests/unit/better-auth-social-sign-up.spec.ts"
+      ],
+      "driverSpecific": false
+    },
+    {
+      "id": "iam-social-sign-up-string-opens",
+      "defect": "12.3.0 — a per-provider disableSignUp passed through as it came hands Better-Auth a non-boolean, and a falsy one (0, an empty string from NEST_SERVER_CONFIG) opens a registration the project closed.",
+      "file": "src/core/modules/better-auth/better-auth.config.ts",
+      "find": "          disableSignUp: typeof provider.disableSignUp === 'boolean' ? provider.disableSignUp : signUpClosed,\n",
+      "replace": "          disableSignUp: provider.disableSignUp ?? signUpClosed,\n",
+      "specs": [
+        "tests/unit/better-auth-social-sign-up.spec.ts"
+      ],
+      "driverSpecific": false
+    },
+    {
+      "id": "ai-auto-mode-skips-authorize",
+      "defect": "12.3.0 — auto mode, the default, called a tool's execute() without its authorize(), so a data-level check placed there (ownership, tenant) ran in plan mode only.",
+      "file": "src/core/modules/ai/services/core-ai.service.ts",
+      "find": "    const authorization = await this.authorizeCall(call, availableTools, context);\n",
+      "replace": "    const authorization: AiToolAuthorization = { allowed: true };\n",
+      "specs": [
+        "tests/unit/ai-tool-authorize-everywhere.spec.ts"
+      ],
+      "driverSpecific": false
+    },
+    {
+      "id": "ai-authorize-throw-allows",
+      "defect": "12.3.0 — an authorize() that throws must refuse the call; read as allowed, a failing ownership lookup would run the tool for anyone who may see it.",
+      "file": "src/core/modules/ai/helpers/ai-tool-authorization.helper.ts",
+      "find": "    return { allowed: false, reason: 'The authorization check for this action failed.' };\n",
+      "replace": "    return { allowed: true };\n",
+      "specs": [
+        "tests/unit/ai-tool-authorize-everywhere.spec.ts"
+      ],
+      "driverSpecific": false
+    },
+    {
+      "id": "ai-mcp-skips-authorize",
+      "defect": "12.3.0 — mcpCallTool() called execute() without authorize(), so an MCP client ran a tool on records the check would have refused.",
+      "file": "src/core/modules/ai/services/core-ai-mcp.service.ts",
+      "find": "    const authorization = await authorizeToolCall(tool, callArgs, context);\n",
+      "replace": "    const authorization = { allowed: true };\n",
+      "specs": [
+        "tests/unit/ai-tool-authorize-everywhere.spec.ts"
+      ],
+      "driverSpecific": false
+    },
+    {
+      "id": "ai-mcp-skips-confirmation",
+      "defect": "12.3.0 — destructive and mutating were read by the chat orchestrator only: a destructive tool ran over MCP on the first call, without the user being asked.",
+      "file": "src/core/modules/ai/services/core-ai-mcp.service.ts",
+      "find": "    if (policy?.decision === 'ask' || (await this.confirmationRequired(tool, user))) {\n",
+      "replace": "    if (false) {\n",
+      "specs": [
+        "tests/unit/ai-tool-authorize-everywhere.spec.ts"
+      ],
+      "driverSpecific": false
+    },
+    {
+      "id": "ai-mcp-elicit-decline-runs",
+      "defect": "12.3.0 — only an accepted elicitation with confirm: true may run a tool that needs confirmation; reading any answer as yes runs it although the user declined.",
+      "file": "src/core/modules/ai/services/core-ai-mcp.service.ts",
+      "find": "    return result?.action === 'accept' && result.content?.confirm === true;\n",
+      "replace": "    return true;\n",
+      "specs": [
+        "tests/unit/ai-tool-authorize-everywhere.spec.ts"
+      ],
+      "driverSpecific": false
+    },
+    {
+      "id": "ai-mcp-user-bypass-ignores-enforced",
+      "defect": "12.3.0 — a user's own \"do not ask me\" switch must give way to ai.mcp.confirmation.enforced; honoured anyway, an enforced confirmation is switched off by every user for themselves.",
+      "file": "src/core/modules/ai/helpers/ai-tool-authorization.helper.ts",
+      "find": "  if (policy.enforced || typeof userChoice !== 'boolean') {\n",
+      "replace": "  if (typeof userChoice !== 'boolean') {\n",
+      "specs": [
+        "tests/unit/ai-tool-authorize-everywhere.spec.ts"
+      ],
+      "driverSpecific": false
+    },
+    {
+      "id": "ai-settings-enforced-stored",
+      "defect": "12.3.0 — a change of a setting the server enforces must answer 403; stored and ignored instead, the user believes confirmation is off while it is not, or the stored choice takes effect the day the enforcement is lifted.",
+      "file": "src/core/modules/ai/services/core-ai-user-setting.service.ts",
+      "find": "      if (mcpConfirmationPolicy().enforced) {\n",
+      "replace": "      if (false) {\n",
+      "specs": [
+        "tests/unit/ai-tool-authorize-everywhere.spec.ts"
+      ],
+      "driverSpecific": false
+    },
+    {
+      "id": "ai-mcp-skips-tool-policy",
+      "defect": "12.3.0 — the admin's tool policies were evaluated by the chat orchestrator only: a deny rule did not stop the same call over MCP, and an ask rule did not ask.",
+      "file": "src/core/modules/ai/services/core-ai-mcp.service.ts",
+      "find": "    const policy = await this.evaluateToolPolicy(tool, callArgs, user);\n",
+      "replace": "    const policy: { decision?: string; reason?: string } | undefined = undefined;\n",
+      "specs": [
+        "tests/unit/ai-tool-authorize-everywhere.spec.ts"
+      ],
+      "driverSpecific": false
+    },
+    {
+      "id": "ai-mcp-unflagged-tool-read-only",
+      "defect": "12.3.0 — tools/list advertised readOnlyHint: true for every tool without mutating / destructive, although such a tool may write; a client that runs read-only tools without asking then ran it unasked.",
+      "file": "src/core/modules/ai/services/core-ai-mcp.service.ts",
+      "find": "      ...(tool.destructive || tool.mutating\n",
+      "replace": "      ...(true\n",
+      "specs": [
+        "tests/unit/ai-tool-authorize-everywhere.spec.ts"
+      ],
+      "driverSpecific": false
+    },
+    {
+      "id": "ai-mcp-confirmation-hides-arguments",
+      "defect": "12.3.0 — the confirmation question cut the whole argument text at a fixed length; the model controls the order, so a long first value pushed the target id out of what the user approved.",
+      "file": "src/core/modules/ai/services/core-ai-mcp.service.ts",
+      "find": "    const argumentsText = lines.length ? `\\nArguments:\\n${lines.join('\\n')}` : '';\n",
+      "replace": "    const argumentsText = lines.length ? `\\nArguments: ${JSON.stringify(args).slice(0, 500)}` : '';\n",
+      "specs": [
+        "tests/unit/ai-tool-authorize-everywhere.spec.ts"
+      ],
+      "driverSpecific": false
+    },
+    {
+      "id": "ai-native-catalog-duplicated",
+      "defect": "12.3.0 — a native connection got every tool description (and, without deferToolSchemas, every schema) twice: in the tool payload and in the system prompt catalog.",
+      "file": "src/core/modules/ai/services/core-ai-prompt-builder.service.ts",
+      "find": "    const namesOnly = supportsNativeTools && !planMode && ConfigService.get<string>('ai.nativeToolCatalog') !== 'full';\n",
+      "replace": "    const namesOnly = false;\n",
+      "specs": [
+        "tests/unit/ai-native-tool-catalog.spec.ts"
+      ],
+      "driverSpecific": false
+    },
+    {
+      "id": "ai-native-tools-not-in-budget",
+      "defect": "12.3.0 — the native tool payload occupies the context window but was not counted, so the history was kept until the provider overflowed or cut the input itself.",
+      "file": "src/core/modules/ai/services/core-ai.service.ts",
+      "find": "    return Math.max(512, this.contextBudget(connection) - Math.max(0, reservedTokens));\n",
+      "replace": "    return this.contextBudget(connection);\n",
+      "specs": [
+        "tests/unit/ai-native-tool-catalog.spec.ts"
+      ],
+      "driverSpecific": false
+    },
+    {
+      "id": "ai-crowded-context-silent",
+      "defect": "12.3.0 — a system prompt that left the conversation no room truncated the user message and was logged on debug only; nobody saw why the assistant answered generically.",
+      "file": "src/core/modules/ai/services/core-ai.service.ts",
+      "find": "    this.warnOnCrowdedContext(connection, this.estimateTokens(systemPrompt) + toolTokens);\n",
+      "replace": "",
+      "specs": [
+        "tests/unit/ai-native-tool-catalog.spec.ts"
+      ],
+      "driverSpecific": false
+    },
+    {
+      "id": "ai-run-ignores-native-tool-tokens",
+      "defect": "12.3.0 — runAuto() must hand the native tool payload to the context budget; without it a native connection undercounts by the whole payload once the catalog lists names only.",
+      "file": "src/core/modules/ai/services/core-ai.service.ts",
+      "find": "    const toolTokens = provider.capabilities.nativeTools ? this.estimateTokens(JSON.stringify(toolSchemas)) : 0;\n",
+      "replace": "    const toolTokens = 0;\n",
+      "specs": [
+        "tests/unit/ai-native-tool-catalog.spec.ts"
+      ],
+      "driverSpecific": false
+    },
+    {
+      "id": "mcp-stateless-post-uses-sessions",
+      "defect": "12.3.0 — ai.mcp.stateless must build a server and transport per POST; looking up a session instead answers 404 to every request that lands on another replica.",
+      "file": "src/core/modules/ai/core-ai-mcp.controller.ts",
+      "find": "    if (this.statelessEnabled()) {\n      await this.handleStatelessPost(req, res, user);\n",
+      "replace": "    if (false) {\n      await this.handleStatelessPost(req, res, user);\n",
+      "specs": [
+        "tests/unit/ai-mcp-stateless.spec.ts"
+      ],
+      "driverSpecific": false
+    },
+    {
+      "id": "mcp-stateless-get-delete-not-405",
+      "defect": "12.3.0 — without sessions GET and DELETE have nothing to serve and must answer 405 with Allow: POST, not 404.",
+      "file": "src/core/modules/ai/core-ai-mcp.controller.ts",
+      "find": "    if (this.statelessEnabled()) {\n      res.status(405)",
+      "replace": "    if (false) {\n      res.status(405)",
+      "specs": [
+        "tests/unit/ai-mcp-stateless.spec.ts"
+      ],
+      "driverSpecific": false
+    },
+    {
+      "id": "mcp-consent-texts-not-merged",
+      "defect": "12.3.0 — replacement consent texts must be merged per locale over the built-in ones.",
+      "file": "src/core/modules/ai/helpers/ai-mcp-oauth-consent.helper.ts",
+      "find": "  const t: Texts = { ...TEXTS[view.locale], ...options.texts?.[view.locale] };\n",
+      "replace": "  const t: Texts = TEXTS[view.locale];\n",
+      "specs": [
+        "tests/unit/ai-mcp-oauth-consent-options.spec.ts"
+      ],
+      "driverSpecific": false
+    },
+    {
+      "id": "mcp-consent-styles-break-out",
+      "defect": "12.3.0 — project CSS went into the style element verbatim, so a </style> in it continued as markup on the consent page.",
+      "file": "src/core/modules/ai/helpers/ai-mcp-oauth-consent.helper.ts",
+      "find": "  return typeof styles === 'string' ? styles.replace(/</g, '\\\\3c ') : '';\n",
+      "replace": "  return styles ?? '';\n",
+      "specs": [
+        "tests/unit/ai-mcp-oauth-consent-options.spec.ts"
+      ],
+      "driverSpecific": false
+    },
+    {
+      "id": "mcp-consent-internals-exported",
+      "defect": "12.3.0 — the consent page scripts and security headers are internals; exporting the whole helper makes them public API a project could pin.",
+      "file": "src/core/modules/ai/index.ts",
+      "find": "export {\n  MCP_OAUTH_CONSENT_DECISION_FIELD,\n",
+      "replace": "export * from './helpers/ai-mcp-oauth-consent.helper.js';\nexport {\n  MCP_OAUTH_CONSENT_DECISION_FIELD,\n",
+      "specs": [
+        "tests/unit/ai-mcp-oauth-consent-options.spec.ts"
+      ],
+      "driverSpecific": false
+    },
+    {
+      "id": "tenant-purge-skips-references",
+      "defect": "12.3.0 — the core could not delete a tenant's data; the references that are not a tenantId path (API tokens, the AI settings with scope 'tenant') were the ones a project missed.",
+      "file": "src/core/modules/tenant/core-tenant.service.ts",
+      "find": "    for (const reference of TENANT_REFERENCES) {\n",
+      "replace": "    for (const reference of [] as typeof TENANT_REFERENCES) {\n",
+      "specs": [
+        "tests/unit/tenant-purge.spec.ts"
+      ],
+      "driverSpecific": false
+    },
+    {
+      "id": "tenant-purge-frees-connection",
+      "defect": "12.3.0 — an empty AI connection tenantIds list means every tenant: removing the deleted tenant from a list it was alone in hands the connection, API key included, to all tenants.",
+      "file": "src/core/modules/tenant/core-tenant.service.ts",
+      "find": "      if (remaining.length === 0) {\n",
+      "replace": "      if (remaining.length < 0) {\n",
+      "specs": [
+        "tests/unit/tenant-purge.spec.ts"
+      ],
+      "driverSpecific": false
+    },
+    {
+      "id": "tenant-purge-members-last",
+      "defect": "12.3.0 — every way into the tenant (memberships, tenant tokens) must end before the data goes, or a member or an integration writes into the tenant while it is being deleted.",
+      "file": "src/core/modules/tenant/core-tenant.service.ts",
+      "find": "    const access = await this.endTenantAccess(tenantId, { dryRun, exclude });\n    const records = await this.purgeTenantRecords(tenantId, { dryRun, exclude });\n",
+      "replace": "    const records = await this.purgeTenantRecords(tenantId, { dryRun, exclude });\n    const access = await this.endTenantAccess(tenantId, { dryRun, exclude });\n",
+      "specs": [
+        "tests/unit/tenant-purge.spec.ts"
+      ],
+      "driverSpecific": false
+    },
+    {
+      "id": "tenant-purge-accepts-empty-id",
+      "defect": "12.3.0 — deleteMany({ tenantId: undefined }) matches every document on MongoDB, and an operator object matches every tenant.",
+      "file": "src/core/modules/tenant/core-tenant.service.ts",
+      "find": "  if (typeof tenantId !== 'string' || !tenantId.trim()) {\n",
+      "replace": "  if (tenantId === null) {\n",
+      "specs": [
+        "tests/unit/tenant-purge.spec.ts"
+      ],
+      "driverSpecific": false
+    },
+    {
+      "id": "tenant-invalidate-keeps-memberships",
+      "defect": "12.3.0 — invalidateTenant() forgot only the isTenantActive answer; cached memberships kept a deleted tenant reachable for up to cacheTtlMs.",
+      "file": "src/core/modules/tenant/core-tenant.guard.ts",
+      "find": "      if (key.slice(key.indexOf(':') + 1) === tenantId) {\n",
+      "replace": "      if (key === tenantId) {\n",
+      "specs": [
+        "tests/unit/tenant-purge.spec.ts"
+      ],
+      "driverSpecific": false
+    },
+    {
+      "id": "tenant-purge-one-statement",
+      "defect": "12.3.0 — one statement over a tenant's rows of a synchronized SQL model holds the model's change lock until it commits; every other tenant's writes to that model waited for the whole purge.",
+      "file": "src/core/modules/tenant/core-tenant.service.ts",
+      "find": "          report[name] = dryRun ? await store.count(where) : await this.deleteInBatches(store, where);\n",
+      "replace": "          report[name] = dryRun ? await store.count(where) : await store.deleteMany(where);\n",
+      "specs": [
+        "tests/unit/tenant-purge.spec.ts"
+      ],
+      "driverSpecific": false
+    },
+    {
+      "id": "tenant-purge-tokens-last",
+      "defect": "12.3.0 — a tenant token needs no membership: deleted with the other references after the data, it let an integration keep writing into the tenant while the purge ran.",
+      "file": "src/core/modules/tenant/core-tenant.service.ts",
+      "find": "  { access: true, model: API_TOKEN_MODEL_TOKEN, where: (tenantId) => ({ tenant: tenantId }) },\n",
+      "replace": "  { access: false, model: API_TOKEN_MODEL_TOKEN, where: (tenantId) => ({ tenant: tenantId }) },\n",
+      "specs": [
+        "tests/unit/tenant-purge.spec.ts"
+      ],
+      "driverSpecific": false
+    },
+    {
+      "id": "tenant-purge-skips-mongo-models",
+      "defect": "12.3.0 — a model registered only through MongooseModule.forFeature() has no data store; the purge reaches it through the MongoDB connection, or the tenant's documents there survive.",
+      "file": "src/core/modules/tenant/core-tenant.service.ts",
+      "find": "      for (const [name, model] of Object.entries(this.mongoConnection?.models ?? {})) {\n",
+      "replace": "      for (const [name, model] of Object.entries({} as NonNullable<typeof this.mongoConnection>['models'])) {\n",
+      "specs": [
+        "tests/unit/tenant-purge.spec.ts"
+      ],
+      "driverSpecific": false
+    },
+    {
+      "id": "tenant-purge-deletes-users",
+      "defect": "12.3.0 — per-tenant users (a User with a tenantId) were deleted straight from the store, past the user service, although the purge promises to leave users alone; their Better-Auth sessions and accounts stayed.",
+      "file": "src/core/modules/tenant/core-tenant.service.ts",
+      "find": "        if (tableName(descriptor) === USERS_COLLECTION) {\n",
+      "replace": "        if (tableName(descriptor) === `${USERS_COLLECTION}-never`) {\n",
+      "specs": [
+        "tests/unit/tenant-purge.spec.ts"
+      ],
+      "driverSpecific": false
+    },
+    {
+      "id": "tenant-purge-deletes-mongo-users",
+      "defect": "12.3.0 — a model on the users collection reached only through the MongoDB connection was purged like any tenant-scoped model, past the user service.",
+      "file": "src/core/modules/tenant/core-tenant.service.ts",
+      "find": "          (model.schema.get('collection') ?? defaultCollectionName(name)) !== USERS_COLLECTION\n",
+      "replace": "          (model.schema.get('collection') ?? defaultCollectionName(name)) !== `${USERS_COLLECTION}-never`\n",
+      "specs": [
+        "tests/unit/tenant-purge.spec.ts"
       ],
       "driverSpecific": false
     }

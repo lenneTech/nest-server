@@ -1,3 +1,4 @@
+import { Inject } from '@nestjs/common';
 import { Args, Mutation, Query, Resolver } from '@nestjs/graphql';
 
 import { FilterArgs } from '../../common/args/filter.args.js';
@@ -19,6 +20,7 @@ import { CoreAiPromptUpdateInput } from './inputs/core-ai-prompt-update.input.js
 import { CoreAiSlotCreateInput } from './inputs/core-ai-slot-create.input.js';
 import { CoreAiSlotUpdateInput } from './inputs/core-ai-slot-update.input.js';
 import { CoreAiPromptInput } from './inputs/core-ai-prompt.input.js';
+import { CoreAiSettingsInput } from './inputs/core-ai-settings.input.js';
 import { CoreAiAvailableConnection } from './models/core-ai-available-connection.model.js';
 import { CoreAiBudgetLimit } from './models/core-ai-budget-limit.model.js';
 import { CoreAiConnectionPreference } from './models/core-ai-connection-preference.model.js';
@@ -29,6 +31,7 @@ import { CoreAiPromptHint } from './models/core-ai-prompt-hint.model.js';
 import { CoreAiPrompt } from './models/core-ai-prompt.model.js';
 import { CoreAiSlot } from './models/core-ai-slot.model.js';
 import { CoreAiResponse } from './models/core-ai-response.model.js';
+import { CoreAiSettings } from './models/core-ai-settings.model.js';
 import { CoreAiUsageInfo } from './models/core-ai-usage-info.model.js';
 import { CoreAiBudgetService } from './services/core-ai-budget.service.js';
 import { CoreAiConnectionPreferenceService } from './services/core-ai-connection-preference.service.js';
@@ -40,6 +43,7 @@ import { CoreAiPromptHintService } from './services/core-ai-prompt-hint.service.
 import { CoreAiPromptService } from './services/core-ai-prompt.service.js';
 import { CoreAiSlotService } from './services/core-ai-slot.service.js';
 import { CoreAiService } from './services/core-ai.service.js';
+import { CoreAiUserSettingService } from './services/core-ai-user-setting.service.js';
 
 /**
  * GraphQL resolver for AI prompts and connection management.
@@ -66,6 +70,13 @@ export class CoreAiResolver {
     protected readonly promptHintService: CoreAiPromptHintService,
     protected readonly promptService: CoreAiPromptService,
   ) {}
+
+  /**
+   * Personal AI settings (12.3.0+). Injected as a property, not through the constructor, so a project subclass
+   * written before it keeps compiling and still gets the settings endpoints.
+   */
+  @Inject(CoreAiUserSettingService)
+  protected readonly userSettingService: CoreAiUserSettingService;
 
   // ===================================================================================================================
   // Prompt
@@ -346,6 +357,31 @@ export class CoreAiResolver {
   @Roles(RoleEnum.S_USER)
   async aiUsage(@GraphQLServiceOptions() serviceOptions: ServiceOptions): Promise<CoreAiUsageInfo> {
     return this.budgetService.getUsageInfo(serviceOptions?.currentUser?.id, RequestContext.getTenantId());
+  }
+
+  // ===================================================================================================================
+  // Personal settings
+  // ===================================================================================================================
+
+  /**
+   * The current user's AI settings as they take effect.
+   */
+  @Query(() => CoreAiSettings, { description: "The current user's effective AI settings" })
+  @Roles(RoleEnum.S_USER)
+  async aiSettings(@GraphQLServiceOptions() serviceOptions: ServiceOptions): Promise<CoreAiSettings> {
+    return this.userSettingService.getSettings(serviceOptions?.currentUser?.id);
+  }
+
+  /**
+   * Change the current user's own AI settings (403 for a setting the server enforces).
+   */
+  @Mutation(() => CoreAiSettings, { description: "Change the current user's own AI settings" })
+  @Roles(RoleEnum.S_USER)
+  async updateAiSettings(
+    @GraphQLServiceOptions() serviceOptions: ServiceOptions,
+    @Args('input') input: CoreAiSettingsInput,
+  ): Promise<CoreAiSettings> {
+    return this.userSettingService.updateSettings(serviceOptions?.currentUser?.id, input);
   }
 
   /**

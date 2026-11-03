@@ -119,3 +119,9 @@ permissions.md
 # Throwaway SWC build used by check:swc-tdz (kept only on failure, for inspecting the emit)
 dist-swc-tdz
 .lt-dev/
+
+# Internal working notes (review agents' memory, design plans) live in a private repository of the team,
+# linked in by the lt-memory plugin: this repository is public. No trailing slash: the link is a symlink, which a
+# directory-only pattern does not match (decided 2026-11-01)
+**/.claude/agent-memory
+**/.claude/plans

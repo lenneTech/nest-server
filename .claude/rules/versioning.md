@@ -25,6 +25,13 @@
 1. **Document breaking changes** clearly in commit messages when incrementing MINOR version
 2. **Update nest-server-starter** with migration instructions for breaking changes
 3. **Consider downstream impact** - this package is used by multiple projects
+4. **Every published version gets its nest-server-starter version** (repo owner, 2026-11-03). The
+   starter's `version` always equals the `@lenne.tech/nest-server` version it pins. Every version
+   published to npm is followed by the starter commit `Updated to nest-server version <X.Y.Z>`, tagged
+   `v<X.Y.Z>` by the starter's `tag.yml`, also when the bump is the only change. Starter changes
+   between two releases never change its version: the starter follows nest-server, never the other
+   way round. This covers the maintenance line too: a release from `release/11.x` is followed on the
+   starter's `release/11.x` branch.
 
 ## Release Process
 
@@ -36,8 +43,12 @@
    (You can also sync manually any time via `pnpm run spectaql:sync`.)
 3. Build the package (`pnpm run build`) — this also regenerates `FRAMEWORK-API.md` with the new version
 4. Publish to npm
-5. Update and test in [nest-server-starter](https://github.com/lenneTech/nest-server-starter)
-6. Commit changes to starter with migration notes
+5. **Release [nest-server-starter](https://github.com/lenneTech/nest-server-starter) with the same
+   version — a required step, not an optional "update and test".** Raise the framework and the
+   starter's own `version` to the new version (`pnpm run update`, migration guides applied), test, and
+   commit as `Updated to nest-server version <X.Y.Z>`; the starter's `tag.yml` tags it `v<X.Y.Z>` (rule 4).
+6. A release made with `/lt-dev:publish --skip-downstream` leaves a gap in the starter's tag series.
+   Close it before the next nest-server release.
 
 ### Version Consistency Check
 

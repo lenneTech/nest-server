@@ -494,6 +494,15 @@ export const LtnsErrors = {
     },
   },
 
+  INVALID_REQUEST_PATH: {
+    code: 'LTNS_0305',
+    message: 'Invalid request path',
+    translations: {
+      de: 'Der Anfragepfad ist ungültig.',
+      en: 'The request path is invalid.',
+    },
+  },
+
   // =====================================================
   // Resource Errors (LTNS_0400-LTNS_0499)
   // =====================================================
@@ -710,6 +719,15 @@ export const LtnsErrors = {
     translations: {
       de: 'Die KI-Verbindung hat keine gültige Basis-URL.',
       en: 'The AI connection has no valid base URL.',
+    },
+  },
+
+  AI_SETTING_ENFORCED: {
+    code: 'LTNS_0609',
+    message: 'This AI setting is fixed by the server',
+    translations: {
+      de: 'Diese KI-Einstellung ist vom Server festgelegt und kann nicht geändert werden.',
+      en: 'This AI setting is fixed by the server and cannot be changed.',
     },
   },
 

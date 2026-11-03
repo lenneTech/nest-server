@@ -10,6 +10,7 @@ import {
 } from '../../../common/services/rate-limit-store.js';
 import { RequestContext } from '../../../common/services/request-context.service.js';
 import { ErrorCode } from '../../error-code/index.js';
+import { authorizeToolCall, toolRequiresConfirmation } from '../helpers/ai-tool-authorization.helper.js';
 import { AiToolAuthorization, AiToolContext, AiToolResult, IAiTool } from '../interfaces/ai-tool.interface.js';
 import { LlmMessage, LlmResponse, LlmToolCall } from '../interfaces/llm-provider.interface.js';
 import { ResolvedAiConnection } from '../interfaces/resolved-ai-connection.interface.js';
@@ -107,6 +108,9 @@ export interface AiRunContext {
 export class CoreAiService {
   protected readonly logger = new Logger(CoreAiService.name);
 
+  /** Connections already warned about a crowded context window; created on first use, at most 1000 entries. */
+  protected crowdedContextWarned?: Set<string>;
+
   /** Rate-limit counters keyed by user id (Redis-backed when configured). */
   protected rateLimitStore?: RateLimitStore;
 
@@ -142,7 +146,10 @@ export class CoreAiService {
     hooks?: { onAction?: (action: CoreAiAction) => void },
   ): Promise<CoreAiResponse> {
     const mode = input.mode || ConfigService.get<string>('ai.defaultMode') || 'auto';
-    const resolvedInput = await this.resolvePromptPlaceholders(input, serviceOptions);
+    const resolvedInput = await this.scopeConversation(
+      await this.resolvePromptPlaceholders(input, serviceOptions),
+      serviceOptions,
+    );
     const run = await this.prepareRun(resolvedInput, serviceOptions);
     // No usable connection → AI handling is effectively disabled.
     if (!run) {
@@ -155,6 +162,28 @@ export class CoreAiService {
     // Attach the compact token-budget summary after the run was recorded.
     await this.attachBudgetSummary(response, run);
     return response;
+  }
+
+  /**
+   * Keep `conversationId` only when the caller owns that conversation; otherwise the run has no conversation at all:
+   * no history, no persisted turns, no conversation-scoped tool grants, and no `conversationId` in the response.
+   *
+   * Every conversation use of the run reads the id from the input, so it is decided once, before the run starts. A
+   * foreign id must not reach any of them: its turns would land in another user's history and feed that user's next
+   * runs, where tools act with the owner's rights, and a "remember my decision" grant stored on it would let the
+   * owner's assistant run a mutating tool unconfirmed. Admins included — they may read other users' conversations,
+   * never continue them. An unknown id is answered exactly like a foreign one, so the response tells nobody which
+   * conversation ids exist.
+   */
+  protected async scopeConversation(
+    input: CoreAiPromptInput,
+    serviceOptions: ServiceOptions,
+  ): Promise<CoreAiPromptInput> {
+    if (!input?.conversationId) {
+      return input;
+    }
+    const owned = await this.conversationService?.isOwnedBy(input.conversationId, serviceOptions?.currentUser?.id);
+    return owned ? input : { ...input, conversationId: undefined };
   }
 
   /**
@@ -403,6 +432,10 @@ export class CoreAiService {
       },
     );
     const toolSchemas = this.promptBuilder.buildToolSchemas(tools);
+    // A native connection carries the tool definitions in the payload, outside the messages: they occupy the context
+    // window all the same, so they come off the input budget (12.3.0).
+    const toolTokens = provider.capabilities.nativeTools ? this.estimateTokens(JSON.stringify(toolSchemas)) : 0;
+    this.warnOnCrowdedContext(connection, this.estimateTokens(systemPrompt) + toolTokens);
     // The JSON output contract belongs to the EMULATED protocol only: `output_contract`
     // and `tool_protocol_emulated` both carry `capability: 'emulated'`, so a NATIVE-tools
     // run is asked for PROSE and is handed no JSON shape to fill. Forcing
@@ -475,8 +508,8 @@ export class CoreAiService {
       iterations++;
       // Keep the session within the model's context window before every call:
       // LLM-driven compaction first (summarize), then hard trim as a fallback.
-      await this.compactMessages(messages, connection);
-      this.fitMessagesToContext(messages, connection);
+      await this.compactMessages(messages, connection, toolTokens);
+      this.fitMessagesToContext(messages, connection, toolTokens);
       const completion = await provider.chat(messages, toolSchemas, {
         ...jsonMode,
         maxTokens: connection.defaultMaxTokens,
@@ -642,8 +675,17 @@ export class CoreAiService {
     // Persist the turn pair for multi-turn conversations (not while awaiting confirmation
     // or a pending clarifying question — the user hasn't given a real answer yet).
     if (input.conversationId && this.conversationService && !requiresConfirmation && !pendingQuestion) {
-      await this.conversationService.appendMessage(input.conversationId, { content: input.prompt, role: 'user' });
-      await this.conversationService.appendMessage(input.conversationId, { content: finalText, role: 'assistant' });
+      const owner = currentUser?.id;
+      await this.conversationService.appendMessage(
+        input.conversationId,
+        { content: input.prompt, role: 'user' },
+        owner,
+      );
+      await this.conversationService.appendMessage(
+        input.conversationId,
+        { content: finalText, role: 'assistant' },
+        owner,
+      );
     }
 
     await this.audit({
@@ -676,6 +718,7 @@ export class CoreAiService {
 
     // 1. Planning call — the model returns the full ordered plan, executes nothing.
     const planSystemPrompt = await this.promptBuilder.buildPlanSystemPrompt(tools, currentUser, { language });
+    this.warnOnCrowdedContext(connection, this.estimateTokens(planSystemPrompt));
     const messages: LlmMessage[] = [{ content: planSystemPrompt, role: 'system' }];
     for (const turn of history) {
       messages.push({ content: turn.content, role: turn.role === 'assistant' ? 'assistant' : 'user' });
@@ -782,7 +825,7 @@ export class CoreAiService {
     response.text = finalText;
     response.usage = Object.assign(new CoreAiUsage(), usage);
 
-    await this.persistTurn(input, response);
+    await this.persistTurn(input, response, run);
     await this.audit(this.auditRecord(input, run, response, usage));
     return response;
   }
@@ -895,9 +938,10 @@ export class CoreAiService {
   }
 
   /**
-   * Pre-flight authorization for a planned/requested tool call. Combines the
-   * registry role filter (tool absent from the user's set → denied) with the
-   * tool's optional `authorize()` data-level check. Never mutates anything.
+   * Authorization for one tool call: the registry role filter (tool absent from the user's set → denied) and the
+   * tool's optional `authorize()` data-level check, fail-closed ({@link authorizeToolCall}). Runs before every
+   * execution (`executeToolCall()`) and, in plan mode, once more for the whole plan before any step runs. Never
+   * mutates anything.
    */
   protected async authorizeCall(
     call: LlmToolCall,
@@ -908,11 +952,7 @@ export class CoreAiService {
     if (!tool) {
       return { allowed: false, reason: `Unknown or not permitted tool: ${call.name}` };
     }
-    if (!tool.authorize) {
-      return { allowed: true };
-    }
-    const result = await tool.authorize(call.arguments ?? {}, context);
-    return typeof result === 'boolean' ? { allowed: result } : result;
+    return authorizeToolCall(tool, call.arguments ?? {}, context);
   }
 
   /**
@@ -921,18 +961,7 @@ export class CoreAiService {
    * client override unless enforced).
    */
   protected confirmationRequiredFor(tool: IAiTool, input: CoreAiPromptInput): boolean {
-    if (tool.destructive) {
-      return true;
-    }
-    if (!tool.mutating) {
-      return false;
-    }
-    const cfg = ConfigService.get<{ enabled?: boolean; default?: boolean; enforced?: boolean }>(
-      'ai.confirmation.mutating',
-    );
-    const enforced = cfg?.enforced === true;
-    const adminDefault = cfg?.default === true;
-    return enforced ? true : (input.requireConfirmation ?? adminDefault);
+    return toolRequiresConfirmation(tool, input.requireConfirmation);
   }
 
   /**
@@ -1051,13 +1080,22 @@ export class CoreAiService {
   }
 
   /**
-   * Append the user + assistant turns to the conversation (skipped while awaiting
+   * Append the user + assistant turns to the conversation of the run's user (skipped while awaiting
    * confirmation or when denied).
    */
-  protected async persistTurn(input: CoreAiPromptInput, response: CoreAiResponse): Promise<void> {
+  protected async persistTurn(input: CoreAiPromptInput, response: CoreAiResponse, run: AiRunContext): Promise<void> {
     if (input.conversationId && this.conversationService && !response.requiresConfirmation && !response.denied) {
-      await this.conversationService.appendMessage(input.conversationId, { content: input.prompt, role: 'user' });
-      await this.conversationService.appendMessage(input.conversationId, { content: response.text, role: 'assistant' });
+      const owner = run?.currentUser?.id;
+      await this.conversationService.appendMessage(
+        input.conversationId,
+        { content: input.prompt, role: 'user' },
+        owner,
+      );
+      await this.conversationService.appendMessage(
+        input.conversationId,
+        { content: response.text, role: 'assistant' },
+        owner,
+      );
     }
   }
 
@@ -1195,8 +1233,24 @@ export class CoreAiService {
       }
     }
 
+    // Authorize the arguments that will actually run — after the hooks rewrote them. No learning signal: a refusal
+    // is a decision about this user and these arguments, not a mistake the model should be taught to avoid.
+    const authorization = await this.authorizeCall(call, availableTools, context);
+    if (!authorization.allowed) {
+      action.success = false;
+      action.result = {
+        error: {
+          code: 'TOOL_NOT_AVAILABLE',
+          hint: 'The user may not run this tool with these arguments. Do not retry it; explain this to the user.',
+          message: authorization.reason || `Not permitted: ${call.name}`,
+        },
+      };
+      return action;
+    }
+    const toolContext: AiToolContext = tool.authorize ? { ...context, authorization } : context;
+
     try {
-      const raw = await tool.execute(call.arguments ?? {}, context);
+      const raw = await tool.execute(call.arguments ?? {}, toolContext);
       let success = true;
       let payload: unknown = raw;
       let message: string | undefined;
@@ -1469,6 +1523,47 @@ export class CoreAiService {
   }
 
   /**
+   * The share of {@link contextBudget} the messages may take: what remains after `reservedTokens` — the native tool
+   * definitions, which travel beside the messages but occupy the same window.
+   */
+  protected messageBudget(connection: ResolvedAiConnection, reservedTokens = 0): number {
+    return Math.max(512, this.contextBudget(connection) - Math.max(0, reservedTokens));
+  }
+
+  /** Share of the input budget the system prompt and tool definitions may take before {@link warnOnCrowdedContext} warns. */
+  protected crowdedContextShare(): number {
+    return 0.5;
+  }
+
+  /**
+   * Warns once per connection and process when the system prompt and the native tool definitions take more than
+   * {@link crowdedContextShare} of the input budget (12.3.0). What remains is all the conversation has: older turns
+   * are dropped early, and a long user message is cut to fit — which, logged on debug only, read as an assistant that
+   * answers generically. Names the remedy: a context window for the connection, or a smaller catalog.
+   */
+  protected warnOnCrowdedContext(connection: ResolvedAiConnection, fixedTokens: number): void {
+    const budget = this.contextBudget(connection);
+    const key = connection.id ?? connection.name ?? '';
+    const warned = (this.crowdedContextWarned ??= new Set<string>());
+    if (fixedTokens <= budget * this.crowdedContextShare() || warned.has(key)) {
+      return;
+    }
+    if (warned.size >= 1000) {
+      warned.clear();
+    }
+    warned.add(key);
+    const window = connection.contextWindow
+      ? `its context window of ${connection.contextWindow}`
+      : `the ai.contextWindow fallback of ${ConfigService.get<number>('ai.contextWindow') ?? 8192} (the connection has no context window of its own)`;
+    this.logger.warn(
+      `AI connection "${connection.name ?? key}": the system prompt and tool definitions take ~${fixedTokens} of ` +
+        `${budget} input tokens (${window}). Little room is left for the conversation: older turns are dropped ` +
+        `early and a long message is cut. Set the connection's contextWindow, or shrink the tool catalog ` +
+        `(ai.deferToolSchemas, fewer tools per role).`,
+    );
+  }
+
+  /**
    * Keep the assembled session messages within the model's context window. Operates
    * per user/session: the system prompt (index 0) and the most recent message (the
    * current user/tool input) are always preserved; the OLDEST session-history turns
@@ -1483,14 +1578,18 @@ export class CoreAiService {
    *
    * Enabled by `ai.compaction !== false`. When OFF, only the hard trim is used.
    */
-  protected async compactMessages(messages: LlmMessage[], connection: ResolvedAiConnection): Promise<number> {
+  protected async compactMessages(
+    messages: LlmMessage[],
+    connection: ResolvedAiConnection,
+    reservedTokens = 0,
+  ): Promise<number> {
     if (ConfigService.get<boolean>('ai.compaction') === false) {
       return 0;
     }
     if (messages.length <= 3) {
       return 0;
     }
-    const budget = this.contextBudget(connection);
+    const budget = this.messageBudget(connection, reservedTokens);
     const total = (): number => messages.reduce((sum, m) => sum + this.estimateTokens(m.content) + 4, 0);
     if (total() <= budget) {
       return 0;
@@ -1539,11 +1638,11 @@ export class CoreAiService {
     }
   }
 
-  protected fitMessagesToContext(messages: LlmMessage[], connection: ResolvedAiConnection): void {
+  protected fitMessagesToContext(messages: LlmMessage[], connection: ResolvedAiConnection, reservedTokens = 0): void {
     if (messages.length === 0) {
       return;
     }
-    const budget = this.contextBudget(connection);
+    const budget = this.messageBudget(connection, reservedTokens);
     const total = (): number => messages.reduce((sum, m) => sum + this.estimateTokens(m.content) + 4, 0);
     let dropped = 0;
     // Drop oldest non-system, non-last messages until within budget.

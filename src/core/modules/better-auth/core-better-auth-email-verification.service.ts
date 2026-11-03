@@ -38,7 +38,7 @@ type ResolvedEmailVerificationConfig = Pick<
  * Default configuration for email verification
  */
 const DEFAULT_CONFIG: ResolvedEmailVerificationConfig = {
-  autoSignInAfterVerification: true,
+  autoSignInAfterVerification: false,
   callbackURL: '/auth/verify-email',
   enabled: true,
   expiresIn: 86400, // 24 hours in seconds
@@ -192,9 +192,12 @@ export class CoreBetterAuthEmailVerificationService {
 
   /**
    * Check if auto sign-in after verification is enabled
+   *
+   * `=== true` as in `better-auth.config.ts`, which decides what Better-Auth does: a value arriving as
+   * a string in `NEST_SERVER_CONFIG` must not report a sign-in that Better-Auth never performs.
    */
   shouldAutoSignIn(): boolean {
-    return this.config.autoSignInAfterVerification;
+    return this.config.autoSignInAfterVerification === true;
   }
 
   /**

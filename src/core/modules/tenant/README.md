@@ -391,6 +391,51 @@ Mechanism, for anyone extending the guard (`core-tenant.guard.ts`):
 - **A received broadcast clears locally and does NOT re-publish** (`applyInvalidation()` → `clearUser()` / `clearAll()`, the no-broadcast variants). Re-publishing would bounce the message around the cluster forever.
 - **Publishing is fire-and-forget and failures are debug-level only.** A missed broadcast is not an error: it merely leaves the other replicas' caches stale until their TTL — exactly the no-Redis behaviour. Nothing about a request path depends on the broadcast succeeding.
 
+### Removing a Tenant (`purgeTenantData`, since 12.3.0)
+
+The core has no tenant model, so it cannot notice that a project deleted one — but it knows every place where it
+stores tenant data itself. When the project deletes its tenant record, it calls:
+
+```typescript
+const report = await this.tenantService.purgeTenantData(tenantId);
+// { TenantMember: 4, Invoice: 120, ApiToken: 2, AiConnection: 1 } — models with nothing to delete are left out
+
+// Count first, e.g. for a confirmation dialog:
+await this.tenantService.purgeTenantData(tenantId, { dryRun: true });
+
+// Leave a model alone (in addition to multiTenancy.excludeSchemas):
+await this.tenantService.purgeTenantData(tenantId, { exclude: ['AuditEntry'] });
+```
+
+| Step | What is deleted                                                                                                                                                                                                                                              |
+| ---- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| 1    | Every way in, so nobody writes into the tenant while its data goes: each membership in any status (`deleteAllMembers()`), its cached access invalidated at once — on every replica with Redis — and the tenant's API tokens (`tenant`), which need no member |
+| 2    | Every model registered with `CorePersistenceModule.forFeature()` that has a `tenantId` path, on whatever database it is routed to — the project's own models included                                                                                        |
+| 3    | Models with a `tenantId` path registered only through `MongooseModule.forFeature()` (MongoDB)                                                                                                                                                                |
+| 4    | Core models that name the tenant in another field: AI budget limits, connection preferences, tool grants and tool policies (`scope: 'tenant'`, `refId`)                                                                                                      |
+| 5    | AI connections: one only this tenant could use is deleted; from a shared one only the tenant is removed. An empty `tenantIds` list means "every tenant", so emptying it would hand the connection to all of them                                             |
+
+Not deleted:
+
+- models in `multiTenancy.excludeSchemas` — a `tenantId` there is not ownership — and models named in `exclude`;
+- users (the `users` table or collection): they are global and may belong to other tenants. That holds where `User`
+  carries a `tenantId` too (per-tenant users): delete those through the user service before the purge, which also
+  ends their Better-Auth sessions and accounts;
+- **files**: the file metadata carries no `tenantId`, and only the project knows which files (GridFS, S3, file system)
+  belonged to the tenant. Delete them through `CoreFileService` before the purge (a TUS upload records
+  `metadata.tenantId`);
+- references the core does not know of, e.g. a `companyId` field. Add them by overriding the protected
+  `purgeTenantRecords()` and calling `super`.
+
+The memberships cannot be excluded. Records go in batches of 1000 ids, so a large tenant never holds a synchronized
+model's change lock (and with it every other tenant's writes to that model) for the whole purge. A synchronized model
+(offline sync) keeps a tombstone per deleted record until the tombstone purge removes it. The purge runs as a system operation (no tenant filter), so call it only from a route that
+checked who may delete the tenant.
+
+`tenantGuard.invalidateTenant(tenantId)` clears the tenant's cached memberships as well (since 12.3.0). Before, it
+forgot only the `isTenantActive` answer, so memberships removed without `invalidateUser()` kept counting for up to
+`cacheTtlMs`.
+
 ### SkipTenantCheck
 
 For high-frequency endpoints that don't access tenant-scoped data, use `@SkipTenantCheck()` to avoid the membership lookup entirely.
@@ -466,9 +511,10 @@ this module:
   global roles removed (no admin bypass), optionally restricted to one tenant and capped by
   `maxTenantRole`.
 
-Both are denied on routes without `@ApiTokenScopes()`. **Call `CoreApiTokenService.deleteAllForTenant()`
-when you delete a tenant — nothing does it for you**: the core has no tenant model to notice the
-deletion, and a tenant token does not depend on any member, so it keeps authenticating until then.
+Both are denied on routes without `@ApiTokenScopes()`. **When you delete a tenant, call
+`CoreTenantService.purgeTenantData()` (or at least `CoreApiTokenService.deleteAllForTenant()`)** — the core has no
+tenant model to notice the deletion, and a tenant token does not depend on any member, so it keeps authenticating
+until then.
 
 ## Related
 

@@ -1,4 +1,5 @@
 import { Body, Controller, Delete, Get, HttpCode, HttpStatus, Module, Param, Post, Req } from '@nestjs/common';
+import { getModelToken, MongooseModule } from '@nestjs/mongoose';
 import { ScheduleModule } from '@nestjs/schedule';
 import { Test, TestingModule } from '@nestjs/testing';
 import { PubSub } from 'graphql-subscriptions';
@@ -22,6 +23,7 @@ import {
   type DataStore,
   HttpExceptionLogFilter,
   MongoStateStore,
+  RequestContext,
   RoleEnum,
   Roles,
   SqlStateStore,
@@ -57,6 +59,12 @@ const PASSWORD = 'Parity-Password-1!';
 
 /** The project's own tenant model: what `multiTenancy.isTenantActive` looks up through `store()` */
 const ParityTenantSchema = new mongoose.Schema({ active: Boolean, name: String });
+
+/** A tenant-scoped model of the project: what `CoreTenantService.purgeTenantData()` finds through its `tenantId` */
+const ParityNoteSchema = new mongoose.Schema({ tenantId: String, text: String });
+
+/** The same, registered only through `MongooseModule.forFeature()`: no data store, MongoDB for every column */
+const ParityLegacyNoteSchema = new mongoose.Schema({ tenantId: String, text: String });
 
 /** Routes released to API tokens, and one that is not — what the token cases call */
 @Controller('parity-token')
@@ -150,6 +158,8 @@ interface Harness {
   database?: MysqlTestDatabase | PostgresTestDatabase;
   moduleRef: TestingModule;
   apiTokens: DataStore<any>;
+  legacyNotes: mongoose.Model<any>;
+  notes: DataStore<any>;
   tenantGuard: CoreTenantGuard;
   tenants: DataStore<any>;
   tenantService: CoreTenantService;
@@ -194,7 +204,11 @@ async function boot(driver: CoreModuleDriver): Promise<Harness> {
     ],
     imports: [
       CoreModule.forRoot(CoreAuthService, AuthModule.forRoot(config.jwt), config as any),
-      CorePersistenceModule.forFeature([{ name: 'ParityTenant', schema: ParityTenantSchema }]),
+      CorePersistenceModule.forFeature([
+        { name: 'ParityTenant', schema: ParityTenantSchema },
+        { name: 'ParityNote', schema: ParityNoteSchema },
+      ]),
+      MongooseModule.forFeature([{ name: 'ParityLegacyNote', schema: ParityLegacyNoteSchema }]),
       ScheduleModule.forRoot(),
       AuthModule.forRoot(config.jwt),
       BetterAuthModule.forRoot({}),
@@ -216,6 +230,8 @@ async function boot(driver: CoreModuleDriver): Promise<Harness> {
     database,
     moduleRef,
     apiTokens: moduleRef.get(getStoreToken('ApiToken'), { strict: false }),
+    legacyNotes: moduleRef.get(getModelToken('ParityLegacyNote'), { strict: false }),
+    notes: moduleRef.get(getStoreToken('ParityNote'), { strict: false }),
     tenantGuard: moduleRef.get(CoreTenantGuard, { strict: false }),
     tenants: moduleRef.get(getStoreToken('ParityTenant'), { strict: false }),
     tenantService: moduleRef.get(CoreTenantService, { strict: false }),
@@ -529,7 +545,12 @@ describe.each(CORE_MODULE_DRIVERS)('core module parity — %s (e2e)', (driver) =
     const { id, token } = await iamSignUp(email, { roles: ['admin'] });
     expect((await users.findById(id)).roles).toEqual([]);
 
-    await testHelper.rest('/iam/update-user', { method: 'POST', payload: { roles: ['admin'] }, statusCode: 400, token });
+    await testHelper.rest('/iam/update-user', {
+      method: 'POST',
+      payload: { roles: ['admin'] },
+      statusCode: 400,
+      token,
+    });
     expect((await users.findById(id)).roles).toEqual([]);
     // An administrator's route stays closed to the user
     expect(statusOf(await gql('findUsers', {}, ['id'], token, true))).toBe(403);
@@ -692,6 +713,46 @@ describe.each(CORE_MODULE_DRIVERS)('core module parity — %s (e2e)', (driver) =
     harness.tenantGuard.invalidateTenant(tenant);
     await tenantRoute('member', frank.token, tenant, 403);
     expect((await tenantRoute('mine', frank.token)).tenantIds).toEqual([]);
+  });
+
+  moduleIt('tenant-purge', driver, async () => {
+    const [gone, kept] = [await newTenant(), await newTenant()];
+    const grace = await member('purge-grace');
+    const henry = await member('purge-henry');
+    await harness.tenantService.addMember(gone, grace.id, 'owner');
+    await harness.tenantService.addMember(kept, henry.id, 'owner');
+    await harness.tenantService.addMember(kept, grace.id, 'member');
+    const token = await testHelper.rest('/parity-api-tokens/tenant', {
+      headers: { 'x-tenant-id': gone },
+      method: 'POST',
+      payload: { name: 'purge', scopes: ['read'] },
+      statusCode: 201,
+      token: grace.token,
+    });
+    const system = <T>(work: () => Promise<T>) => RequestContext.runWithBypassTenantGuard(work);
+    await system(() => harness.notes.insert({ tenantId: gone, text: 'gone 1' }));
+    await system(() => harness.notes.insert({ tenantId: gone, text: 'gone 2' }));
+    await system(() => harness.notes.insert({ tenantId: kept, text: 'kept' }));
+    await system(() =>
+      harness.legacyNotes.create([{ tenantId: gone }, { tenantId: kept }].map((n) => ({ ...n, text: 'x' }))),
+    );
+    // Warms the guard's membership cache, which the purge has to clear
+    await tenantRoute('member', grace.token, gone);
+    const expected = { ApiToken: 1, ParityLegacyNote: 1, ParityNote: 2, TenantMember: 1 };
+
+    expect(await harness.tenantService.purgeTenantData(gone, { dryRun: true })).toEqual(expected);
+    expect(await system(() => harness.notes.count({ tenantId: gone }))).toBe(2);
+
+    expect(await harness.tenantService.purgeTenantData(gone)).toEqual(expected);
+    expect(await system(() => harness.notes.count({ tenantId: gone }))).toBe(0);
+    await tenantRoute('member', grace.token, gone, 403);
+    await withToken('/parity-token/member', token.token, 401);
+    // The other tenant keeps its data, its members and grace's membership there
+    expect(await system(() => harness.notes.count({ tenantId: kept }))).toBe(1);
+    expect(await system(() => harness.legacyNotes.countDocuments({ tenantId: { $in: [gone, kept] } }))).toBe(1);
+    expect((await tenantRoute('mine', grace.token)).tenantIds).toEqual([kept]);
+    expect(await tenantRoute('member', henry.token, kept)).toEqual({ tenantId: kept, tenantRole: 'owner' });
+    expect(await harness.tenantService.purgeTenantData(gone)).toEqual({});
   });
   // --- API tokens ----------------------------------------------------------------------------------------------
 

@@ -4,6 +4,7 @@ import request from 'supertest';
 
 import {
   AiToolRegistry,
+  ConfigService,
   CoreAiBudgetService,
   CoreAiConnectionPreferenceService,
   CoreAiConnectionResolverService,
@@ -468,6 +469,92 @@ describe('AI module (e2e)', () => {
     expect(res.status).toBe(401);
   });
 
+  /**
+   * DEV-3922: a prompt continues only the caller's own conversation. Until then `appendMessage()` wrote the turns of
+   * a prompt into whatever conversation its `conversationId` named — another user's included, across tenants, since
+   * the model carries no `tenantId` — while the history read already refused it. The planted turns then fed the
+   * owner's next runs. All three entry points (REST, the SSE stream, GraphQL) go through `CoreAiService.prompt()`; the
+   * mechanism and its mutations are pinned in tests/unit/ai-conversation-ownership.spec.ts.
+   */
+  it("keeps another user's conversation untouched when a prompt names it — REST, stream and GraphQL, admin included", async () => {
+    providerFactory.registerBuilder('fake-e2e', () => new ScriptedE2eProvider([JSON.stringify({ final: 'answer' })]));
+    const conn = await connectionService.create(
+      { baseUrl: 'http://fake/v1', isDefault: true, model: 'm', name: 'Owner Conn', providerType: 'fake-e2e' } as any,
+      adminOptions,
+    );
+    const intruderEmail = `ai-http-intruder-${Date.now()}-${Math.random().toString(36).slice(2)}@test.com`;
+    const intruderToken = await createHttpUser(intruderEmail, []);
+    const title = `Owned ${Math.random().toString(36).slice(2, 8)}`;
+
+    // The regular user owns the conversation.
+    const created = await request(app.getHttpServer())
+      .post('/ai/conversations')
+      .set('Authorization', `Bearer ${httpRegularToken}`)
+      .send({ title });
+    expect(created.status).toBe(201);
+    const conversationId: string = created.body.id;
+    const messagesOf = async () => ((await ai.conversations.findById(conversationId))?.messages ?? []) as any[];
+
+    // Another user names it on every entry point: answered, but nothing written and no conversation echoed.
+    const rest = await request(app.getHttpServer())
+      .post('/ai/prompt')
+      .set('Authorization', `Bearer ${intruderToken}`)
+      .send({ conversationId, prompt: 'planted via REST' });
+    expect([200, 201]).toContain(rest.status);
+    expect(rest.body.text).toBe('answer');
+    expect(rest.body.conversationId).toBeUndefined();
+
+    const stream = await request(app.getHttpServer())
+      .post('/ai/stream')
+      .set('Authorization', `Bearer ${intruderToken}`)
+      .send({ conversationId, prompt: 'planted via stream' });
+    expect(stream.text).toContain('"type":"final"');
+    expect(stream.text).not.toContain(conversationId);
+
+    const graphQl = await testHelper.graphQl(
+      {
+        arguments: { input: { conversationId, prompt: 'planted via GraphQL' } },
+        fields: ['conversationId', 'text'],
+        name: 'aiPrompt',
+        type: TestGraphQLType.MUTATION,
+      },
+      { token: intruderToken },
+    );
+    expect(graphQl.errors).toBeUndefined();
+    expect(graphQl.text).toBe('answer');
+    expect(graphQl.conversationId).toBeNull();
+
+    // An admin may read other users' conversations, but continuing one is the same planting.
+    const asAdmin = await request(app.getHttpServer())
+      .post('/ai/prompt')
+      .set('Authorization', `Bearer ${httpAdminToken}`)
+      .send({ conversationId, prompt: 'planted by an admin' });
+    expect([200, 201]).toContain(asAdmin.status);
+    expect(asAdmin.body.conversationId).toBeUndefined();
+
+    expect(await messagesOf()).toEqual([]);
+
+    // The owner continues it as before.
+    const own = await request(app.getHttpServer())
+      .post('/ai/prompt')
+      .set('Authorization', `Bearer ${httpRegularToken}`)
+      .send({ conversationId, prompt: 'question of the owner' });
+    expect([200, 201]).toContain(own.status);
+    expect(own.body.conversationId).toBe(conversationId);
+    expect((await messagesOf()).map((message) => message.content)).toEqual(['question of the owner', 'answer']);
+
+    // The admin's documented read access is unchanged.
+    const read = await request(app.getHttpServer())
+      .get(`/ai/conversations/${conversationId}`)
+      .set('Authorization', `Bearer ${httpAdminToken}`);
+    expect(read.status).toBe(200);
+    expect(read.body.messages).toHaveLength(2);
+
+    await ai.system(() => ai.conversations.deleteMany({ title }));
+    await connectionService.delete(conn.id, adminOptions);
+    await iamDb.deleteUsers({ email: intruderEmail });
+  });
+
   it('exposes an MCP endpoint that rejects unauthenticated requests with 401', async () => {
     const res = await request(app.getHttpServer())
       .post('/ai/mcp')
@@ -485,6 +572,8 @@ describe('AI module (e2e)', () => {
 
   const mcpUserTool = 'e2e_mcp_user_tool';
   const mcpAdminTool = 'e2e_mcp_admin_tool';
+  const mcpDestructiveTool = 'e2e_mcp_destructive_tool';
+  let mcpDestructiveRuns = 0;
 
   let mcpToolsRegistered = false;
   function registerMcpTools(): void {
@@ -508,6 +597,17 @@ describe('AI module (e2e)', () => {
       name: mcpAdminTool,
       parameters: { properties: {}, type: 'object' },
       roles: [RoleEnum.ADMIN],
+    });
+    registry.register({
+      description: 'MCP e2e: destructive, open to every signed-in user',
+      destructive: true,
+      execute: async () => {
+        mcpDestructiveRuns++;
+        return { data: { deleted: true }, success: true };
+      },
+      name: mcpDestructiveTool,
+      parameters: { properties: {}, type: 'object' },
+      roles: [RoleEnum.S_USER],
     });
   }
 
@@ -591,6 +691,153 @@ describe('AI module (e2e)', () => {
       { id: 3, method: 'tools/list' },
       { sessionId: session.sessionId, statusCode: 404, token: httpRegularToken },
     );
+  });
+
+  /**
+   * The MCP confirmation gate over the assembled stack (12.3.0): on by default, and each user's own switch, stored
+   * through REST and read back through GraphQL, on whatever database the run routes the AI models to.
+   */
+  it('MCP: asks before a destructive tool; a user switches that off and on for themselves only', async () => {
+    registerMcpTools();
+    const settingsFields = ['mcpConfirmation', 'mcpConfirmationEnforced'];
+    const session = await testHelper.mcpSession({ token: httpRegularToken });
+
+    // TestHelper's MCP client declares no elicitation capability, so it cannot ask: the default refuses
+    expect(await testHelper.rest('/ai/settings', { token: httpRegularToken })).toEqual({
+      mcpConfirmation: true,
+      mcpConfirmationEnforced: false,
+    });
+    const refused = await session.callTool(mcpDestructiveTool);
+    expect(refused.isError).toBe(true);
+    expect(refused.content[0].text).toContain('confirmation');
+    expect(mcpDestructiveRuns).toBe(0);
+
+    try {
+      expect(
+        await testHelper.rest('/ai/settings', {
+          method: 'PUT',
+          payload: { mcpConfirmation: false },
+          token: httpRegularToken,
+        }),
+      ).toEqual({ mcpConfirmation: false, mcpConfirmationEnforced: false });
+      // Stored, not only answered
+      expect(
+        await testHelper.graphQl(
+          { fields: settingsFields, name: 'aiSettings', type: TestGraphQLType.QUERY },
+          { token: httpRegularToken },
+        ),
+      ).toEqual({ mcpConfirmation: false, mcpConfirmationEnforced: false });
+
+      expect((await session.callTool(mcpDestructiveTool)).isError).toBeFalsy();
+      expect(mcpDestructiveRuns).toBe(1);
+
+      // Another user keeps the server default
+      const adminSession = await testHelper.mcpSession({ token: httpAdminToken });
+      expect((await adminSession.callTool(mcpDestructiveTool)).isError).toBe(true);
+      expect(mcpDestructiveRuns).toBe(1);
+    } finally {
+      await testHelper.graphQl(
+        {
+          arguments: { input: { mcpConfirmation: true } },
+          fields: settingsFields,
+          name: 'updateAiSettings',
+          type: TestGraphQLType.MUTATION,
+        },
+        { token: httpRegularToken },
+      );
+    }
+
+    expect((await session.callTool(mcpDestructiveTool)).isError).toBe(true);
+    expect(mcpDestructiveRuns).toBe(1);
+  });
+
+  it('AI settings: an anonymous caller gets 401', async () => {
+    await testHelper.rest('/ai/settings', { statusCode: 401 });
+  });
+
+  // ai.mcp.stateless: every POST builds its own server and transport, so any replica can answer it.
+  // Toggled at runtime — the controller reads the option per request.
+  describe('MCP stateless mode (ai.mcp.stateless)', () => {
+    let originalMcpConfig: unknown;
+
+    beforeAll(() => {
+      originalMcpConfig = ConfigService.get('ai.mcp');
+      ConfigService.setProperty('ai.mcp', { stateless: true });
+    });
+
+    afterAll(() => {
+      // Direct assignment, so the original scalar `true` comes back unchanged.
+      ConfigService.setProperty('ai.mcp', originalMcpConfig);
+    });
+
+    it('MCP stateless: initialize issues no session id, and later requests work without one', async () => {
+      registerMcpTools();
+      const session = await testHelper.mcpSession({ token: httpRegularToken });
+
+      expect(session.sessionId).toBe('');
+      expect(session.initializeResult.serverInfo).toBeDefined();
+      // Each of these is a fresh server and transport; nothing was carried over from initialize.
+      const names = (await session.listTools()).map(tool => tool.name);
+      expect(names).toContain(mcpUserTool);
+      expect(names).not.toContain(mcpAdminTool);
+      const result = await session.callTool(mcpUserTool);
+      expect(result.isError).toBeFalsy();
+      expect(result.json.data.callerId).toBeTruthy();
+    });
+
+    it('MCP stateless: the role filter still applies per request', async () => {
+      registerMcpTools();
+      const session = await testHelper.mcpSession({ token: httpRegularToken });
+
+      const result = await session.callTool(mcpAdminTool);
+
+      expect(result.isError).toBe(true);
+      expect(JSON.stringify(result)).not.toContain('admin-only-payload');
+    });
+
+    it('MCP stateless: a stale session id is ignored instead of answered 404', async () => {
+      registerMcpTools();
+      const { message } = await testHelper.mcp(
+        { id: 2, method: 'tools/list' },
+        { sessionId: 'id-from-the-session-mode', token: httpRegularToken },
+      );
+
+      expect(message?.result?.tools?.map((tool: any) => tool.name)).toContain(mcpUserTool);
+    });
+
+    it('MCP stateless: GET and DELETE answer 405, there is no stream and no session to end', async () => {
+      for (const method of ['GET', 'DELETE'] as const) {
+        const response = await testHelper.rest('/ai/mcp', {
+          headers: { 'mcp-session-id': 'any' },
+          method,
+          returnResponse: true,
+          statusCode: 405,
+          token: httpRegularToken,
+        });
+        expect(response.headers.allow).toBe('POST');
+      }
+    });
+
+    /**
+     * A stateless server cannot ask the user: the client's answer would reach another server. The confirmation gate
+     * therefore refuses a destructive tool here — fail-closed — unless the user or `ai.mcp.confirmation` switched the
+     * question off (DEV-2653).
+     */
+    it('MCP stateless: a destructive tool is refused, no session can carry the question to the user', async () => {
+      registerMcpTools();
+      const session = await testHelper.mcpSession({ token: httpRegularToken });
+      const runsBefore = mcpDestructiveRuns;
+
+      const refused = await session.callTool(mcpDestructiveTool);
+
+      expect(refused.isError).toBe(true);
+      expect(refused.content[0].text).toContain('confirmation');
+      expect(mcpDestructiveRuns).toBe(runsBefore);
+    });
+
+    it('MCP stateless: an unauthenticated request is still refused with 401', async () => {
+      await testHelper.mcp({ id: 1, method: 'initialize', params: {} }, { statusCode: 401 });
+    });
   });
 
   it('enforces a per-user token limit and reports usage in the response + aiUsage', async () => {

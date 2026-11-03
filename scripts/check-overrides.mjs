@@ -1022,9 +1022,20 @@ function resolvedVersions(name) {
  * this over-counts rather than under-counts, and the error lands on the safe
  * side: an extra RE-TEST asks for a second look at a suppression, where a missed
  * edge would hide a consumer nobody assessed.
+ *
+ * ## Only edges to an AFFECTED version count (12.3.0)
+ *
+ * `ranges` are the advisory's `vulnerable_version_range`s for `name`. An edge whose
+ * resolved version lies outside every one of them pulls the FIXED package and is no
+ * consumer of the vulnerability. Counting it made a correct declaration fail for
+ * good the moment one subtree was lifted to the fixed major (glob 14.0.3 pulling
+ * minimatch 11.0.3 beside the declared consumers still on minimatch 10): the
+ * declaration could never become true again, short of lifting every consumer.
+ * An edge counts unless its version is READ and lies outside every range — an
+ * alias, a `link:` or a range nobody can parse counts, as does any edge when the
+ * advisory lists no range for the package (fail-closed, as above).
  */
-function dependentsOf(name) {
-  const escaped = name.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+function dependentsOf(name, ranges = []) {
   const DEPENDENCY_SECTIONS = new Set(['dependencies', 'devDependencies', 'optionalDependencies']);
   const halves = [
     { edge: 6, header: /^importers:\s*$/m, key: 2, section: 4, workspace: true },
@@ -1042,13 +1053,14 @@ function dependentsOf(name) {
     scanned = true;
     const keyRe = new RegExp(`^ {${half.key}}('[^']+'|[^\\s:][^:]*):\\s*(\\{\\})?\\s*$`);
     const sectionRe = new RegExp(`^ {${half.section}}([a-zA-Z]+):\\s*$`);
-    // `(\s|$)` — an importer's package line ends at the colon, a snapshot's
-    // carries the version after it.
-    const edgeRe = new RegExp(`^ {${half.edge}}'?${escaped}'?:(\\s|$)`);
+    // Any edge; which package it pulls is decided from its value below. `(\s|$)` — an importer's package
+    // line ends at the colon, a snapshot's carries the version after it.
+    const edgeRe = new RegExp(`^ {${half.edge}}('[^']+'|[^\\s:'][^:]*):(\\s|$)`);
     let current = null;
     let section = null;
 
-    for (const line of lockText.slice(at).split('\n')) {
+    const lines = lockText.slice(at).split('\n');
+    for (const [index, line] of lines.entries()) {
       // A later top-level section ends this half.
       if (/^[a-zA-Z]/.test(line) && !half.header.test(line)) {
         if (current !== null || section !== null) {
@@ -1067,7 +1079,17 @@ function dependentsOf(name) {
         section = sub[1];
         continue;
       }
-      if (current && section && DEPENDENCY_SECTIONS.has(section) && edgeRe.test(line)) {
+      const edge = current && section && DEPENDENCY_SECTIONS.has(section) ? line.match(edgeRe) : null;
+      if (edge) {
+        // An npm alias is keyed by the alias (`mm-cjs: minimatch@5.1.9`); the edge belongs to the package it
+        // pulls. Matched by its key, such a parent was invisible, and a key naming the package can pull another.
+        const target = edgeTarget(edge[1].replace(/^'|'$/g, ''), edgeValue(half, line, lines.slice(index + 1)));
+        if (target.name !== name) {
+          continue;
+        }
+        if (!pullsAffectedVersion(target.version, ranges)) {
+          continue;
+        }
         parents.add(
           half.workspace
             ? // The workspace package itself, named by its path as the lockfile spells it.
@@ -1084,6 +1106,50 @@ function dependentsOf(name) {
   }
 
   return { parents: [...parents], scanned };
+}
+
+/**
+ * What an edge resolves to, as the lockfile spells it. A snapshot carries it on the edge line
+ * (`minimatch: 11.0.3(peer@1.0.0)`, an alias as `mm-cjs: minimatch@5.1.9`); an importer on a `version:` line
+ * underneath (`version: 11.0.3(peer@1.0.0)`, an alias as `version: minimatch@5.1.9`).
+ */
+function edgeValue(half, line, following) {
+  if (!half.workspace) {
+    return line.slice(line.indexOf(':') + 1);
+  }
+  for (const next of following) {
+    const deeper = next.match(new RegExp(`^ {${half.edge + 2}}([a-zA-Z]+):\\s*(.*)$`));
+    if (!deeper) {
+      return undefined;
+    }
+    if (deeper[1] === 'version') {
+      return deeper[2];
+    }
+  }
+  return undefined;
+}
+
+/**
+ * The package an edge pulls and its version: the alias target when the value names one (`minimatch@5.1.9`,
+ * `npm:@s/glob@13.0.6`), otherwise the edge's key. The version is null when it cannot be read as one (`link:`,
+ * `file:`).
+ */
+function edgeTarget(key, value) {
+  const resolved = String(value ?? '')
+    .trim()
+    .replace(/^'|'$/g, '')
+    .replace(/\(.*$/, '');
+  const alias = resolved.match(/^(?:npm:)?(@?[^@\s:]+)@(\d\S*)$/);
+  const version = alias ? alias[2] : resolved;
+  return { name: alias ? alias[1] : key, version: parseVersion(version) ? version : null };
+}
+
+/** Whether an edge to `version` counts: everything but a READ version outside every range. */
+function pullsAffectedVersion(version, ranges) {
+  if (version === null || ranges.length === 0) {
+    return true;
+  }
+  return ranges.some((range) => inVulnerableRange(version, range) !== false);
 }
 
 // ---------------------------------------------------------------------------
@@ -1407,7 +1473,15 @@ if (suppressed.length > 0) {
     // the declaration's entire argument is "only these". Comparing by name
     // alone let `@nuxt/devtools@3.5.0` ride along on a declaration written for
     // 3.4.1, with the winner decided by the order the lockfile listed them in.
-    const scans = info.affectedPackages.map((affected) => ({ affected, ...dependentsOf(affected) }));
+    // Only edges to an affected VERSION: a subtree lifted to the fixed release is no consumer of the
+    // vulnerability, and counting it would fail a correct declaration for good.
+    const scans = info.affectedPackages.map((affected) => ({
+      affected,
+      ...dependentsOf(
+        affected,
+        info.vulnerabilities.filter((v) => v.name === affected).map((v) => v.range),
+      ),
+    }));
     if (info.affectedPackages.length === 0 || scans.some((scan) => !scan.scanned)) {
       // Fail-closed. "I could not check" must never read like "there is nothing
       // to find" — an empty answer used to pass here in silence.
@@ -1418,7 +1492,9 @@ if (suppressed.length > 0) {
     }
     const allParents = [...new Set(scans.flatMap((scan) => scan.parents))];
     if (allParents.length === 0) {
-      note(`nothing pulls ${info.affectedPackages.join(', ')} any more, so the suppression is moot`);
+      note(
+        `nothing pulls an affected version of ${info.affectedPackages.join(', ')} any more, so the suppression is moot`,
+      );
       continue;
     }
     const others = allParents.filter((parent) => !expected.includes(parent));
