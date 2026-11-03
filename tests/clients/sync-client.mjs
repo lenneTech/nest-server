@@ -191,11 +191,17 @@ export class SyncClient {
 
   async push(result) {
     const carried = new Set();
+    // Records whose change this push carried and the server answered `retry`: their later changes wait for the next
+    // sync. The server holds a chain back only within one request; sent alone in a later one, a change's baseVersion
+    // could match another writer's version (protocol §6.3, §11)
+    const waiting = new Set();
     for (;;) {
       // Read and mark in ONE transaction, and send what that transaction read: an edit between a separate read and
       // mark would fold into an item already on its way and be lost
       const chunk = await this.store.run(async (tx) => {
-        const items = (await tx.listOutbox()).filter((item) => !carried.has(item.mutationId)).slice(0, 100);
+        const items = (await tx.listOutbox())
+          .filter((item) => !carried.has(item.mutationId) && !waiting.has(item.id))
+          .slice(0, 100);
         for (const item of items) {
           await tx.putOutbox({ ...item, attempted: true });
         }
@@ -211,6 +217,9 @@ export class SyncClient {
       const results = response.body.results ?? [];
       for (let index = 0; index < chunk.length; index++) {
         await this.store.run((tx) => this.settle(tx, chunk[index], results[index], result));
+        if (!results[index]?.status || results[index].status === 'retry') {
+          waiting.add(chunk[index].id);
+        }
       }
     }
   }
@@ -249,9 +258,7 @@ export class SyncClient {
     if (status === 'conflict') {
       // This client's policy: the server wins. Later changes of the record were based on the lost one, so they go too
       result.conflicts.push(outcome);
-      for (const later of (await tx.listOutbox()).filter((entry) => entry.id === item.id)) {
-        await tx.removeOutbox(later.mutationId);
-      }
+      await this.dropLater(tx, item.id);
       if (outcome.record?.deletedAt) {
         await tx.deleteRecord(item.id);
       } else if (outcome.record) {
@@ -260,13 +267,23 @@ export class SyncClient {
       return;
     }
     if (status === 'not_found') {
+      await this.dropLater(tx, item.id);
       await tx.deleteRecord(item.id);
       return;
     }
-    // rejected: retrying the same change will not help; a record the server never had goes with it
+    // rejected: retrying the same change will not help; a record the server never had goes with it. The later changes
+    // of the record built on this one, so they go too — sent on their own, one could match another writer's version
     result.rejected.push(outcome);
+    await this.dropLater(tx, item.id);
     if (record && !record.version) {
       await tx.deleteRecord(item.id);
+    }
+  }
+
+  /** Remove the queued changes of a record — they built on a change the server did not store */
+  async dropLater(tx, id) {
+    for (const later of (await tx.listOutbox()).filter((entry) => entry.id === id)) {
+      await tx.removeOutbox(later.mutationId);
     }
   }
 

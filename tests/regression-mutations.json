@@ -5588,6 +5588,61 @@
         "tests/unit/better-auth-auto-sign-in.spec.ts"
       ],
       "driverSpecific": false
+    },
+    {
+      "id": "sync-push-applies-after-refused-item",
+      "defect": "12.3.0 — CoreSyncService.push() applied every item on its own: a change chained to a refused one (protocol §6.2) was applied on the version another writer left, while the client dropped it locally.",
+      "file": "src/core/modules/sync/core-sync.service.ts",
+      "find": "      const held = heldBack.get(item.id);\n",
+      "replace": "      const held = undefined as 'refused' | 'retry' | undefined;\n",
+      "specs": [
+        "tests/sync-contract.e2e-spec.ts"
+      ],
+      "driverSpecific": false
+    },
+    {
+      "id": "sync-push-loop-ignores-refused-item",
+      "defect": "12.3.0 — CoreSyncService.push() applied every item on its own: a change chained to a refused one (protocol §6.2) was applied on the version another writer left, while the client dropped it locally.",
+      "file": "src/core/modules/sync/core-sync.service.ts",
+      "find": "      const held = heldBack.get(item.id);\n",
+      "replace": "      const held = undefined as 'refused' | 'retry' | undefined;\n",
+      "specs": [
+        "tests/unit/sync-push-held-back.spec.ts"
+      ],
+      "driverSpecific": false
+    },
+    {
+      "id": "sync-push-retry-held-back-as-conflict",
+      "defect": "12.3.0 — a later item behind an item answered retry was answered conflict: a server-wins client drops a change nobody decided against, instead of sending both again.",
+      "file": "src/core/modules/sync/core-sync.service.ts",
+      "find": "    if (reason === 'retry') {\n      return reply(item, 'retry');\n",
+      "replace": "    if (reason === ('none' as string)) {\n      return reply(item, 'retry');\n",
+      "specs": [
+        "tests/unit/sync-push-held-back.spec.ts"
+      ],
+      "driverSpecific": false
+    },
+    {
+      "id": "sync-client-sends-behind-retry",
+      "defect": "12.3.0 — the reference client sent a record's later change in the next request of a push although the change before it came back retry: alone, its base version matched another writer's version (the server holds a chain back within one request only).",
+      "file": "tests/clients/sync-client.mjs",
+      "find": "          .filter((item) => !carried.has(item.mutationId) && !waiting.has(item.id))\n",
+      "replace": "          .filter((item) => !carried.has(item.mutationId))\n",
+      "specs": [
+        "tests/unit/sync-client.spec.ts"
+      ],
+      "driverSpecific": false
+    },
+    {
+      "id": "sync-client-keeps-changes-behind-rejected",
+      "defect": "12.3.0 — the reference client dropped a rejected change alone: the later changes of the record stayed queued, and one sent in a later request matched another writer's version.",
+      "file": "tests/clients/sync-client.mjs",
+      "find": "    result.rejected.push(outcome);\n    await this.dropLater(tx, item.id);\n",
+      "replace": "    result.rejected.push(outcome);\n",
+      "specs": [
+        "tests/unit/sync-client.spec.ts"
+      ],
+      "driverSpecific": false
     }
   ]
 }
