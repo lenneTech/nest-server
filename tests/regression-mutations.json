@@ -5841,6 +5841,61 @@
         "tests/unit/ai-native-tool-catalog.spec.ts"
       ],
       "driverSpecific": false
+    },
+    {
+      "id": "mcp-stateless-post-uses-sessions",
+      "defect": "12.3.0 — ai.mcp.stateless must build a server and transport per POST; looking up a session instead answers 404 to every request that lands on another replica.",
+      "file": "src/core/modules/ai/core-ai-mcp.controller.ts",
+      "find": "    if (this.statelessEnabled()) {\n      await this.handleStatelessPost(req, res, user);\n",
+      "replace": "    if (false) {\n      await this.handleStatelessPost(req, res, user);\n",
+      "specs": [
+        "tests/unit/ai-mcp-stateless.spec.ts"
+      ],
+      "driverSpecific": false
+    },
+    {
+      "id": "mcp-stateless-get-delete-not-405",
+      "defect": "12.3.0 — without sessions GET and DELETE have nothing to serve and must answer 405 with Allow: POST, not 404.",
+      "file": "src/core/modules/ai/core-ai-mcp.controller.ts",
+      "find": "    if (this.statelessEnabled()) {\n      res.status(405)",
+      "replace": "    if (false) {\n      res.status(405)",
+      "specs": [
+        "tests/unit/ai-mcp-stateless.spec.ts"
+      ],
+      "driverSpecific": false
+    },
+    {
+      "id": "mcp-consent-texts-not-merged",
+      "defect": "12.3.0 — replacement consent texts must be merged per locale over the built-in ones.",
+      "file": "src/core/modules/ai/helpers/ai-mcp-oauth-consent.helper.ts",
+      "find": "  const t: Texts = { ...TEXTS[view.locale], ...options.texts?.[view.locale] };\n",
+      "replace": "  const t: Texts = TEXTS[view.locale];\n",
+      "specs": [
+        "tests/unit/ai-mcp-oauth-consent-options.spec.ts"
+      ],
+      "driverSpecific": false
+    },
+    {
+      "id": "mcp-consent-styles-break-out",
+      "defect": "12.3.0 — project CSS went into the style element verbatim, so a </style> in it continued as markup on the consent page.",
+      "file": "src/core/modules/ai/helpers/ai-mcp-oauth-consent.helper.ts",
+      "find": "  return typeof styles === 'string' ? styles.replace(/</g, '\\\\3c ') : '';\n",
+      "replace": "  return styles ?? '';\n",
+      "specs": [
+        "tests/unit/ai-mcp-oauth-consent-options.spec.ts"
+      ],
+      "driverSpecific": false
+    },
+    {
+      "id": "mcp-consent-internals-exported",
+      "defect": "12.3.0 — the consent page scripts and security headers are internals; exporting the whole helper makes them public API a project could pin.",
+      "file": "src/core/modules/ai/index.ts",
+      "find": "export {\n  MCP_OAUTH_CONSENT_DECISION_FIELD,\n",
+      "replace": "export * from './helpers/ai-mcp-oauth-consent.helper.js';\nexport {\n  MCP_OAUTH_CONSENT_DECISION_FIELD,\n",
+      "specs": [
+        "tests/unit/ai-mcp-oauth-consent-options.spec.ts"
+      ],
+      "driverSpecific": false
     }
   ]
 }

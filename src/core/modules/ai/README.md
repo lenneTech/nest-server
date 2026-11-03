@@ -791,12 +791,15 @@ and sends operators looking in the wrong place.
 
 Without Redis nothing changes: unknown ids answer `404` exactly as before.
 
-**No sticky sessions available?** Set `ai.mcp.stateless: true`. Every POST then builds its own server
-and transport for the authenticated user (the SDK's stateless mode, `sessionIdGenerator: undefined`),
-no `mcp-session-id` is issued, and GET / DELETE answer `405`. Any replica can answer any request, and
-the user's rights are read per request by construction. What is lost is what a session carries:
-server-initiated messages and the SSE stream — a server that only offers tools does not use them.
-`testHelper.mcpSession()` follows the setting (no session id expected or sent).
+**No sticky sessions available?** Set `ai.mcp.stateless: true` (12.3.0+). Every POST then builds its own
+server and transport for the authenticated user (the SDK's stateless mode, `sessionIdGenerator: undefined`),
+no `mcp-session-id` is issued, a session id a client still sends is ignored, and GET / DELETE answer `405`
+with `Allow: POST`. Any replica can answer any request, and the user's rights and tenant are read per request
+by construction. What is lost is what a session carries: server-initiated messages, the SSE stream, and
+server-initiated requests — **MCP elicitation among them**. A tool that needs confirmation (above) is
+therefore refused in this mode unless the user switched the question off (`PUT /ai/settings`) or
+`ai.mcp.confirmation` is `false`. A server that only offers read tools is not affected.
+`testHelper.mcpSession()` follows the setting (no session id expected or sent; `sessionId` is `''`).
 
 ### OAuth 2.1 (`ai.mcp.oauth: true`)
 
@@ -900,8 +903,25 @@ the page offers no sign-in. Its sign-in goes through the IAM sign-in controller,
 hands Better-Auth the request so Better-Auth's own login-CSRF protection runs — otherwise a hostile page
 could sign the visitor in to the attacker's account before they approve a client.
 
-**Your own page.** Override `renderConsentPage(view)` in a subclass to restyle it (keep every value
-escaped), or `authorizeConsent(client, params, res)` for a consent UI of your own — same shape: no session
+**Your own wording and look (12.3.0+).** Override `renderConsentPage(view)` and call
+`renderMcpOAuthConsentPage(view, { texts, styles })`: `texts` replaces single texts per locale (merged over
+the built-in ones, still escaped), `styles` is CSS appended inside the page's nonce'd `<style>` element. The
+markup, the scripts and the security headers stay the framework's, so the page keeps receiving their fixes.
+Fill both from code or configuration only, never from user or tenant input: a `<` in `styles` is neutralized
+so it cannot end the `<style>` element, and the page's CSP blocks what CSS could load from elsewhere, but CSS
+still decides what the page shows.
+
+```typescript
+protected override renderConsentPage(view: IMcpOAuthConsentView): string {
+  return renderMcpOAuthConsentPage(view, {
+    styles: ':root{--accent:#0b5}',
+    texts: { de: { intro: '{client} möchte in Ihrem Namen auf {app} zugreifen.' } },
+  });
+}
+```
+
+**Your own page.** Override `renderConsentPage(view)` in a subclass to restyle it beyond that (keep every
+value escaped), or `authorizeConsent(client, params, res)` for a consent UI of your own — same shape: no session
 → sign in, GET → show which client, POST with a CSRF token → `saveAuthorizationCode()` and redirect;
 refuse with `AccessDeniedError` from `this.loadOAuthErrors()`. Register the subclass via
 `CoreModule.forRoot(env, { ai: { mcpOAuthService } })`, so the MCP controller and the endpoints share it.

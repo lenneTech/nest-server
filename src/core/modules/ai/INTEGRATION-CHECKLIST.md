@@ -241,8 +241,14 @@ Put `{returnTo}` into it only if that login page can send the user back to the A
 (the nuxt-base-starter login accepts same-origin targets only, so leave it out there).
 
 **Optional — your own consent UI:** a subclass of `CoreAiMcpOAuthService` overriding
-`renderConsentPage(view)` (restyle) or `authorizeConsent(client, params, res)` (replace), registered via
+`renderConsentPage(view)` (restyle — `renderMcpOAuthConsentPage(view, { texts, styles })` changes wording and
+CSS without copying markup, scripts or headers; fill both from code or configuration only) or
+`authorizeConsent(client, params, res)` (replace), registered via
 `CoreModule.forRoot(envConfig, { ai: { mcpOAuthService: McpOAuthService } })`.
+
+**Optional — no sticky sessions:** `ai: { mcp: { stateless: true } }` serves `/ai/mcp` without sessions, so any
+replica answers any request. Without a session the server cannot ask the user (no MCP elicitation): tools that
+need confirmation are refused there unless the user or `ai.mcp.confirmation` switched the question off.
 
 **WHY a POST, never "signed in, so issue":** anybody can register a client with their own redirect
 URI and start the flow — PKCE is then theirs too. A GET to `/authorize` is what any link produces,
