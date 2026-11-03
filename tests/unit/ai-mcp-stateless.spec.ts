@@ -65,6 +65,11 @@ describe('CoreAiMcpController — ai.mcp.stateless', () => {
     ConfigService.setProperty('ai.mcp', original);
   });
 
+  /**
+   * @regression   12.3.0 — the stateless mode must build a server per request instead of looking up a session.
+   * @seen-failing Skip the stateless branch in handlePost() (src/core/modules/ai/core-ai-mcp.controller.ts) —
+   *   registered as mutation `mcp-stateless-post-uses-sessions` in tests/regression-mutations.json.
+   */
   it('ignores a session id a client still sends instead of answering 404', async () => {
     // A client that held a session before the switch to stateless would otherwise be sent into a
     // reconnect that cannot help: there is no session its id could ever refer to.
@@ -92,6 +97,11 @@ describe('CoreAiMcpController — ai.mcp.stateless', () => {
     expect(typeof mcpService.createServer.mock.calls[0][0]).toBe('object');
   });
 
+  /**
+   * @regression   12.3.0 — without sessions there is no stream to open or session to end; GET and DELETE answer 405.
+   * @seen-failing Skip the stateless check in handleSessionRequest() (src/core/modules/ai/core-ai-mcp.controller.ts)
+   *   — registered as mutation `mcp-stateless-get-delete-not-405` in tests/regression-mutations.json.
+   */
   it.each(['handleGet', 'handleDelete'] as const)('answers 405 with Allow: POST to %s', async (method) => {
     ConfigService.setProperty('ai.mcp', { stateless: true });
     const { controller } = buildController();

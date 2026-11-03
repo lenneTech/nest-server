@@ -349,9 +349,9 @@ export interface TestMcpSession {
   ): Promise<null | TestMcpMessage>;
 
   /**
-   * `mcp-session-id` the server assigned; undefined on a stateless server
+   * `mcp-session-id` the server assigned; `''` on a stateless server (`ai.mcp.stateless`)
    */
-  sessionId: string | undefined;
+  sessionId: string;
 }
 
 /**
@@ -709,7 +709,7 @@ export class TestHelper {
     if (!stateless) {
       expect(init.sessionId).toBeTruthy();
     }
-    const sessionId = stateless ? undefined : init.sessionId;
+    const sessionId: string = stateless ? '' : (init.sessionId ?? '');
     await this.mcp({ method: 'notifications/initialized' }, { ...base, sessionId });
 
     let nextId = 2;
