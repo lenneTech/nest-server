@@ -370,7 +370,7 @@ removed an export its consumer imports, or the consumer pins the vulnerable rang
 `FIX AVAILABLE` is not advice but a dead end, and the only ways out used to be a permanently red
 build or a guard switched off for that entry.
 
-Measured case (lt-crm, 2026-10-06): three `simple-git` advisories, one CRITICAL requiring `>=4.0.1`,
+Measured case (a consuming Nuxt project, 2026-10-06): three `simple-git` advisories, one CRITICAL requiring `>=4.0.1`,
 reachable only via `nuxt > @nuxt/devtools > simple-git`. simple-git 4 dropped the default export
 devtools imports, so the override made `nuxt prepare` fail outright. The newest devtools in the 3.x
 line still imports it that way, and devtools is a hard `dependencies` entry of `nuxt` — so it can be

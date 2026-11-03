@@ -82,7 +82,7 @@ pnpm run test:infra:down     # stop and remove
 | Port | 6380 (6379 is an auth-protected TurboOps Redis on lt dev machines) | 9102 | 5440 | 3316 | 3317 | 27019 |
 | Container | `nest-server-2985-redis` | `nest-server-2985-rustfs` | `nest-server-2985-postgres` | `nest-server-2985-mysql` | `nest-server-2985-mariadb` | `nest-server-2985-mongo-rs` |
 
-**PostgreSQL runs with two roles, as every environment does** (`.claude/plans/db-agnostic/PLAN.md`
+**PostgreSQL runs with two roles, as every environment does** (db-agnostic plan
 §3.9): `nest_owner` owns the databases and their schema, `nest_app` owns nothing and has neither
 superuser nor `BYPASSRLS` — so a suite running as the application role meets row-level security the
 way production does. The readiness step creates `nest_app`, which is why the container is started

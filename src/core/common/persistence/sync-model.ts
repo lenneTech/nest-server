@@ -9,7 +9,7 @@ import type {
 export type { SyncDescriptor, SyncIdFormat } from './model-descriptor.interface.js';
 
 /**
- * Synchronized models (offline sync, `docs/offline-sync-protocol.md`, plan `.claude/plans/offline-sync/PLAN.md` §3.2).
+ * Synchronized models (offline sync, `docs/offline-sync-protocol.md`, offline-sync plan §3.2).
  *
  * A model declared with `@PersistedModel({ sync })` carries three system fields every store maintains and no caller
  * writes — `version`, `deletedAt` and its position in the change order — and its delete leaves a tombstone instead of

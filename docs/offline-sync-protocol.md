@@ -4,8 +4,9 @@
 > resync (DEV-3901), hints (§9) and the tombstone purge (DEV-3902), proven end to end by a PWA and a Node test client
 > and by two server instances with skewed clocks (DEV-3903). Specified in
 > phase 1 of the offline-sync epic (DEV-3819, DEV-3898), the open points decided by the cursor prototype of phase 2
-> (DEV-3899). The implementation plan, the port extensions, the reasoning and the measurements live in the framework
-> repository under `.claude/plans/offline-sync/PLAN.md`; §15 lists every decision.
+> (DEV-3899). The implementation plan, the port extensions, the reasoning and the measurements live in the epic's
+> design plan, which the team keeps outside this public repository; references to §15 below point into its list of
+> decisions.
 
 Clients read and write while disconnected and reconcile with the server when they are back: they pull what changed
 since their cursor, push what they changed locally, and receive tombstones for deletions. The protocol is HTTP with
@@ -360,7 +361,7 @@ project stays as it is.
 
 ## 14. Requirement trace
 
-Every requirement of DEV-3819 and where this document meets it (P = `.claude/plans/offline-sync/PLAN.md`).
+Every requirement of DEV-3819 and where this document meets it (P = the offline-sync design plan).
 
 | Requirement (DEV-3819) | Where |
 |---|---|

@@ -192,6 +192,11 @@ pnpm run reinit         # Clean reinstall + tests + build
 
 ## Code Architecture
 
+**Internal notes are not in this repository.** The review agents' memory (`.claude/agent-memory`) and the design
+plans of larger epics (`.claude/plans`, cited in code comments as `plan §3.4` or `offline-sync plan §3.4`) live in a
+private repository of the team and are linked in as gitignored symlinks. This repository is public: never copy their
+contents into a tracked file, a commit message or a PR. Pinned by `tests/unit/public-repo-hygiene.spec.ts`.
+
 **Two-Layer Structure:**
 - `src/core/` - Reusable framework components (exported)
 - `src/server/` - Internal test implementation (not exported)

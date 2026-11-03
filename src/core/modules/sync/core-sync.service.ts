@@ -157,7 +157,7 @@ const SYSTEM_RECORD_FIELDS = new Set([
 ]);
 
 /**
- * Offline sync (protocol `docs/offline-sync-protocol.md`, plan `.claude/plans/offline-sync/PLAN.md`): pull in pages
+ * Offline sync (protocol `docs/offline-sync-protocol.md`, offline-sync plan): pull in pages
  * along the store's change order, push item by item with idempotency, conflict strategies and client ids, resync when a
  * cursor cannot be continued consistently.
  *

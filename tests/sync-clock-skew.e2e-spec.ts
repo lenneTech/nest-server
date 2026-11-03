@@ -19,7 +19,7 @@ import { type SyncTestDatabase, syncTestDatabase } from './helpers/sync-test-dat
  *
  * The columns cover both change orders and both SQL numbering paths: MongoDB orders by the database clock with a window
  * (standalone and replica set), PostgreSQL numbers under an advisory lock, MySQL through its counter row. The store-level
- * prototype measured all seven targets (`.claude/plans/offline-sync/PLAN.md` §5); this suite proves the assembled
+ * prototype measured all seven targets (offline-sync plan §5); this suite proves the assembled
  * servers. Excluded from the `postgres` vitest project: it brings its own databases.
  */
 const CLOCK_DRIVERS: readonly SyncDriver[] = ['mongodb', 'mongodb-rs', 'postgres-typeorm', 'mysql'];
