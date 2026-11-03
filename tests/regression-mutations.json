@@ -5621,6 +5621,28 @@
         "tests/unit/sync-push-held-back.spec.ts"
       ],
       "driverSpecific": false
+    },
+    {
+      "id": "sync-client-sends-behind-retry",
+      "defect": "12.3.0 — the reference client sent a record's later change in the next request of a push although the change before it came back retry: alone, its base version matched another writer's version (the server holds a chain back within one request only).",
+      "file": "tests/clients/sync-client.mjs",
+      "find": "          .filter((item) => !carried.has(item.mutationId) && !waiting.has(item.id))\n",
+      "replace": "          .filter((item) => !carried.has(item.mutationId))\n",
+      "specs": [
+        "tests/unit/sync-client.spec.ts"
+      ],
+      "driverSpecific": false
+    },
+    {
+      "id": "sync-client-keeps-changes-behind-rejected",
+      "defect": "12.3.0 — the reference client dropped a rejected change alone: the later changes of the record stayed queued, and one sent in a later request matched another writer's version.",
+      "file": "tests/clients/sync-client.mjs",
+      "find": "    result.rejected.push(outcome);\n    await this.dropLater(tx, item.id);\n",
+      "replace": "    result.rejected.push(outcome);\n",
+      "specs": [
+        "tests/unit/sync-client.spec.ts"
+      ],
+      "driverSpecific": false
     }
   ]
 }

@@ -23,6 +23,8 @@ class FakeSyncServer {
   inProgress = new Set<string>();
   outcomes = new Map<string, any>();
   pushes: any[][] = [];
+  /** Mutation ids the server refuses with `rejected` / `VALIDATION_FAILED` */
+  rejectMutations = new Set<string>();
   records = new Map<string, { data?: any; deletedAt: null | string; id: string; seq: number; version: number }>();
   seq = 0;
   unauthorized = false;
@@ -38,7 +40,7 @@ class FakeSyncServer {
       const during = this.duringPush;
       this.duringPush = undefined;
       await during?.();
-      const results = items.map((item: any) => this.apply(item));
+      const results = this.applyBatch(items);
       if (this.dropNextAnswer) {
         this.dropNextAnswer = false;
         throw new TypeError('fetch failed');
@@ -84,6 +86,33 @@ class FakeSyncServer {
     return record;
   }
 
+  /**
+   * The items in order, each on its own — and the later items of a record whose item was not stored held back, as the
+   * real server does (protocol §6.3): `retry` behind a `retry`, otherwise `conflict` with the record (`not_found`)
+   */
+  applyBatch(items: any[]) {
+    const heldBack = new Map<string, 'refused' | 'retry'>();
+    return items.map((item: any) => {
+      const held = heldBack.get(item.id);
+      if (held) {
+        const existing = this.records.get(item.id);
+        if (held === 'retry') {
+          return { id: item.id, mutationId: item.mutationId, status: 'retry' };
+        }
+        return existing
+          ? { id: item.id, mutationId: item.mutationId, record: this.item(existing), status: 'conflict', version: existing.version }
+          : { id: item.id, mutationId: item.mutationId, status: 'not_found' };
+      }
+      const outcome = this.apply(item);
+      if (outcome.status === 'retry') {
+        heldBack.set(item.id, 'retry');
+      } else if (outcome.status !== 'applied' && outcome.status !== 'merged') {
+        heldBack.set(item.id, 'refused');
+      }
+      return outcome;
+    });
+  }
+
   apply(item: any) {
     const recorded = this.outcomes.get(item.mutationId);
     if (recorded) {
@@ -91,6 +120,11 @@ class FakeSyncServer {
     }
     if (this.inProgress.has(item.mutationId)) {
       return { id: item.id, mutationId: item.mutationId, status: 'retry' };
+    }
+    if (this.rejectMutations.has(item.mutationId)) {
+      const rejected = { code: 'VALIDATION_FAILED', id: item.id, mutationId: item.mutationId, status: 'rejected' };
+      this.outcomes.set(item.mutationId, rejected);
+      return rejected;
     }
     const existing = this.records.get(item.id);
     const conflict = (record: any) => ({ id: item.id, mutationId: item.mutationId, record: this.item(record), status: 'conflict', version: record.version });
@@ -270,6 +304,65 @@ describe('offline-sync test client (sync-client.mjs on SQLite)', () => {
     server.inProgress.clear();
     expect(await client.sync()).toMatchObject({ applied: 1 });
     expect(await client.get(note.id)).toMatchObject({ version: 1 });
+  });
+
+  /**
+   * A record's change carried while offline (so it is on its way and never folded again), 100 other changes, then a
+   * later change of the record: the outbox is pushed in two requests, the later change in the second one. Another writer
+   * meanwhile moved the record to version 2 — exactly the base version the later change carries.
+   */
+  const splitChain = async () => {
+    const context = setup();
+    const { client, network, outbox, server } = context;
+    const note = await client.create({ title: 'v1' });
+    await client.sync();
+    network.online = false;
+    await client.update(note.id, { title: 'mine' });
+    expect(await client.sync()).toMatchObject({ offline: true });
+    for (let index = 0; index < 100; index++) {
+      await client.create({ title: `other ${index}` });
+    }
+    await client.update(note.id, { title: 'based on mine' });
+    const [first] = (await outbox()).filter((item: any) => item.id === note.id);
+    server.write(note.id, { data: { title: 'theirs' } });
+    network.online = true;
+    return { ...context, first, note };
+  };
+
+  /**
+   * @regression   12.3.0 — the client pushed its outbox in requests of 100 and sent a record's later change in the next
+   *   request although the change before it had come back `retry`: on its own its base version matched another
+   *   writer's version, and the change landed on their data. The server holds a chain back within one request only.
+   * @seen-failing Send the changes behind a retried one in push() (tests/clients/sync-client.mjs) — registered as
+   *   mutation `sync-client-sends-behind-retry` in tests/regression-mutations.json.
+   */
+  it('keeps the later changes of a record back while the change before it waits for a retry, also across requests', async () => {
+    const { client, first, note, outbox, server } = await splitChain();
+    server.inProgress.add(first.mutationId);
+    await client.sync();
+    expect(server.records.get(note.id)).toMatchObject({ data: { title: 'theirs' }, version: 2 });
+    expect((await outbox()).map((item: any) => item.id)).toEqual([note.id, note.id]);
+    server.inProgress.clear();
+    const result = await client.sync();
+    expect(new Set(result.conflicts.map((conflict: any) => conflict.id))).toEqual(new Set([note.id]));
+    expect(server.records.get(note.id)).toMatchObject({ data: { title: 'theirs' }, version: 2 });
+    expect(await client.get(note.id)).toMatchObject({ data: { title: 'theirs' }, version: 2 });
+    expect(await outbox()).toEqual([]);
+  });
+
+  /**
+   * @regression   12.3.0 — a rejected change was dropped alone: the later changes of the record stayed queued, and one
+   *   sent in a later request matched another writer's version with its base version.
+   * @seen-failing Keep the later changes of a record after a rejection in settle() (tests/clients/sync-client.mjs) —
+   *   registered as mutation `sync-client-keeps-changes-behind-rejected` in tests/regression-mutations.json.
+   */
+  it('drops the later changes of a record when the change before it is rejected, also across requests', async () => {
+    const { client, first, note, outbox, server } = await splitChain();
+    server.rejectMutations.add(first.mutationId);
+    const result = await client.sync();
+    expect(result.rejected.map((rejected: any) => rejected.mutationId)).toEqual([first.mutationId]);
+    expect(server.records.get(note.id)).toMatchObject({ data: { title: 'theirs' }, version: 2 });
+    expect(await outbox()).toEqual([]);
   });
 
   it('resyncs on 410: drops the local copies, keeps the unsent changes, pulls from scratch and pushes them', async () => {
