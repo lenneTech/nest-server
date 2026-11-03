@@ -5896,6 +5896,94 @@
         "tests/unit/ai-mcp-oauth-consent-options.spec.ts"
       ],
       "driverSpecific": false
+    },
+    {
+      "id": "tenant-purge-skips-references",
+      "defect": "12.3.0 — the core could not delete a tenant's data; the references that are not a tenantId path (API tokens, the AI settings with scope 'tenant') were the ones a project missed.",
+      "file": "src/core/modules/tenant/core-tenant.service.ts",
+      "find": "    for (const reference of TENANT_REFERENCES) {\n",
+      "replace": "    for (const reference of [] as typeof TENANT_REFERENCES) {\n",
+      "specs": [
+        "tests/unit/tenant-purge.spec.ts"
+      ],
+      "driverSpecific": false
+    },
+    {
+      "id": "tenant-purge-frees-connection",
+      "defect": "12.3.0 — an empty AI connection tenantIds list means every tenant: removing the deleted tenant from a list it was alone in hands the connection, API key included, to all tenants.",
+      "file": "src/core/modules/tenant/core-tenant.service.ts",
+      "find": "      if (remaining.length === 0) {\n",
+      "replace": "      if (remaining.length < 0) {\n",
+      "specs": [
+        "tests/unit/tenant-purge.spec.ts"
+      ],
+      "driverSpecific": false
+    },
+    {
+      "id": "tenant-purge-members-last",
+      "defect": "12.3.0 — every way into the tenant (memberships, tenant tokens) must end before the data goes, or a member or an integration writes into the tenant while it is being deleted.",
+      "file": "src/core/modules/tenant/core-tenant.service.ts",
+      "find": "    const access = await this.endTenantAccess(tenantId, { dryRun, exclude });\n    const records = await this.purgeTenantRecords(tenantId, { dryRun, exclude });\n",
+      "replace": "    const records = await this.purgeTenantRecords(tenantId, { dryRun, exclude });\n    const access = await this.endTenantAccess(tenantId, { dryRun, exclude });\n",
+      "specs": [
+        "tests/unit/tenant-purge.spec.ts"
+      ],
+      "driverSpecific": false
+    },
+    {
+      "id": "tenant-purge-accepts-empty-id",
+      "defect": "12.3.0 — deleteMany({ tenantId: undefined }) matches every document on MongoDB, and an operator object matches every tenant.",
+      "file": "src/core/modules/tenant/core-tenant.service.ts",
+      "find": "  if (typeof tenantId !== 'string' || !tenantId.trim()) {\n",
+      "replace": "  if (tenantId === null) {\n",
+      "specs": [
+        "tests/unit/tenant-purge.spec.ts"
+      ],
+      "driverSpecific": false
+    },
+    {
+      "id": "tenant-invalidate-keeps-memberships",
+      "defect": "12.3.0 — invalidateTenant() forgot only the isTenantActive answer; cached memberships kept a deleted tenant reachable for up to cacheTtlMs.",
+      "file": "src/core/modules/tenant/core-tenant.guard.ts",
+      "find": "      if (key.slice(key.indexOf(':') + 1) === tenantId) {\n",
+      "replace": "      if (key === tenantId) {\n",
+      "specs": [
+        "tests/unit/tenant-purge.spec.ts"
+      ],
+      "driverSpecific": false
+    },
+    {
+      "id": "tenant-purge-one-statement",
+      "defect": "12.3.0 — one statement over a tenant's rows of a synchronized SQL model holds the model's change lock until it commits; every other tenant's writes to that model waited for the whole purge.",
+      "file": "src/core/modules/tenant/core-tenant.service.ts",
+      "find": "          report[name] = dryRun ? await store.count(where) : await this.deleteInBatches(store, where);\n",
+      "replace": "          report[name] = dryRun ? await store.count(where) : await store.deleteMany(where);\n",
+      "specs": [
+        "tests/unit/tenant-purge.spec.ts"
+      ],
+      "driverSpecific": false
+    },
+    {
+      "id": "tenant-purge-tokens-last",
+      "defect": "12.3.0 — a tenant token needs no membership: deleted with the other references after the data, it let an integration keep writing into the tenant while the purge ran.",
+      "file": "src/core/modules/tenant/core-tenant.service.ts",
+      "find": "  { access: true, model: API_TOKEN_MODEL_TOKEN, where: (tenantId) => ({ tenant: tenantId }) },\n",
+      "replace": "  { access: false, model: API_TOKEN_MODEL_TOKEN, where: (tenantId) => ({ tenant: tenantId }) },\n",
+      "specs": [
+        "tests/unit/tenant-purge.spec.ts"
+      ],
+      "driverSpecific": false
+    },
+    {
+      "id": "tenant-purge-skips-mongo-models",
+      "defect": "12.3.0 — a model registered only through MongooseModule.forFeature() has no data store; the purge reaches it through the MongoDB connection, or the tenant's documents there survive.",
+      "file": "src/core/modules/tenant/core-tenant.service.ts",
+      "find": "      for (const [name, model] of Object.entries(this.mongoConnection?.models ?? {})) {\n",
+      "replace": "      for (const [name, model] of Object.entries({} as NonNullable<typeof this.mongoConnection>['models'])) {\n",
+      "specs": [
+        "tests/unit/tenant-purge.spec.ts"
+      ],
+      "driverSpecific": false
     }
   ]
 }
