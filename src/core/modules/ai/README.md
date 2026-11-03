@@ -551,6 +551,37 @@ When a user's session history would overflow, the **oldest non-system turns are 
 `ai.maxToolResultChars` (default `12000`) — so long-running conversations never exceed the
 model's limit.
 
+**Native tool definitions count against the budget** (12.3.0+): a connection with
+`supportsNativeTools: true` carries every description and schema in the `tools` payload, beside
+the messages, and that payload occupies the same window. **A crowded window is reported**: when
+the system prompt and the tool definitions take more than half of the input budget, the
+framework warns once per connection and process, naming the connection, the numbers and whether
+the window is the connection's own or the `ai.contextWindow` fallback. Before, the only trace was
+a debug line, and the visible symptom was an assistant that answered generically because the
+user's message had been cut.
+
+**Guarding the prompt size in a project test:** measure against `ai.contextWindow` (the
+fallback) and say so in the test — it guards the connections without a window of their own,
+the worst case, not the window a pinned or detected connection has. Raising its limit removes
+that guard; shrink the catalog instead (`deferToolSchemas`, `deferToolSummaryChars`, fewer
+tools per role).
+
+## Tool catalog for native connections (12.3.0+)
+
+A connection with native tool calling receives every tool's description and parameter schema
+in the `tools` payload. Its system-prompt catalog therefore lists **names only** — repeating
+the descriptions (and, without `deferToolSchemas`, the schemas) paid for every tool twice.
+Emulated connections and plan mode keep the full catalog: there it is the model's only source.
+
+```typescript
+ai: {
+  nativeToolCatalog: 'full', // restores descriptions (and schemas) in the native catalog; default 'names'
+}
+```
+
+Use `'full'` only for a model that demonstrably picks tools better with the descriptions in the
+prompt; the cost is the duplicated text on every call.
+
 ## Deferred tool schemas (large registries)
 
 The system prompt normally carries every tool's full JSON parameter schema. With a large
@@ -576,9 +607,10 @@ context, set `deferToolSummaryChars` alongside it (roughly 200–400 works well)
 
 > **Scoped to the emulated tool protocol, not to the provider.** In auto mode a connection
 > with `supportsNativeTools: true` receives every full description and JSON schema through
-> the native `tools` payload anyway, so truncation is skipped there and no `search_tools`
-> banner is emitted — telling the model a description was cut while handing it the full text
-> in the same request would only buy a wasted round-trip against `maxIterations`.
+> the native `tools` payload anyway, and its catalog lists names only (see above), so
+> `deferToolSummaryChars` has no effect there and no `search_tools` banner is emitted —
+> telling the model a description was cut while handing it the full text in the same request
+> would only buy a wasted round-trip against `maxIterations`.
 >
 > **Plan mode always uses the emulated protocol**, so a native connection IS truncated there.
 > Because plan mode returns a complete plan in one call without executing anything, the model

@@ -108,6 +108,9 @@ export interface AiRunContext {
 export class CoreAiService {
   protected readonly logger = new Logger(CoreAiService.name);
 
+  /** Connections already warned about a crowded context window; created on first use, at most 1000 entries. */
+  protected crowdedContextWarned?: Set<string>;
+
   /** Rate-limit counters keyed by user id (Redis-backed when configured). */
   protected rateLimitStore?: RateLimitStore;
 
@@ -429,6 +432,10 @@ export class CoreAiService {
       },
     );
     const toolSchemas = this.promptBuilder.buildToolSchemas(tools);
+    // A native connection carries the tool definitions in the payload, outside the messages: they occupy the context
+    // window all the same, so they come off the input budget (12.3.0).
+    const toolTokens = provider.capabilities.nativeTools ? this.estimateTokens(JSON.stringify(toolSchemas)) : 0;
+    this.warnOnCrowdedContext(connection, this.estimateTokens(systemPrompt) + toolTokens);
     // The JSON output contract belongs to the EMULATED protocol only: `output_contract`
     // and `tool_protocol_emulated` both carry `capability: 'emulated'`, so a NATIVE-tools
     // run is asked for PROSE and is handed no JSON shape to fill. Forcing
@@ -501,8 +508,8 @@ export class CoreAiService {
       iterations++;
       // Keep the session within the model's context window before every call:
       // LLM-driven compaction first (summarize), then hard trim as a fallback.
-      await this.compactMessages(messages, connection);
-      this.fitMessagesToContext(messages, connection);
+      await this.compactMessages(messages, connection, toolTokens);
+      this.fitMessagesToContext(messages, connection, toolTokens);
       const completion = await provider.chat(messages, toolSchemas, {
         ...jsonMode,
         maxTokens: connection.defaultMaxTokens,
@@ -711,6 +718,7 @@ export class CoreAiService {
 
     // 1. Planning call — the model returns the full ordered plan, executes nothing.
     const planSystemPrompt = await this.promptBuilder.buildPlanSystemPrompt(tools, currentUser, { language });
+    this.warnOnCrowdedContext(connection, this.estimateTokens(planSystemPrompt));
     const messages: LlmMessage[] = [{ content: planSystemPrompt, role: 'system' }];
     for (const turn of history) {
       messages.push({ content: turn.content, role: turn.role === 'assistant' ? 'assistant' : 'user' });
@@ -1515,6 +1523,47 @@ export class CoreAiService {
   }
 
   /**
+   * The share of {@link contextBudget} the messages may take: what remains after `reservedTokens` — the native tool
+   * definitions, which travel beside the messages but occupy the same window.
+   */
+  protected messageBudget(connection: ResolvedAiConnection, reservedTokens = 0): number {
+    return Math.max(512, this.contextBudget(connection) - Math.max(0, reservedTokens));
+  }
+
+  /** Share of the input budget the system prompt and tool definitions may take before {@link warnOnCrowdedContext} warns. */
+  protected crowdedContextShare(): number {
+    return 0.5;
+  }
+
+  /**
+   * Warns once per connection and process when the system prompt and the native tool definitions take more than
+   * {@link crowdedContextShare} of the input budget (12.3.0). What remains is all the conversation has: older turns
+   * are dropped early, and a long user message is cut to fit — which, logged on debug only, read as an assistant that
+   * answers generically. Names the remedy: a context window for the connection, or a smaller catalog.
+   */
+  protected warnOnCrowdedContext(connection: ResolvedAiConnection, fixedTokens: number): void {
+    const budget = this.contextBudget(connection);
+    const key = connection.id ?? connection.name ?? '';
+    const warned = (this.crowdedContextWarned ??= new Set<string>());
+    if (fixedTokens <= budget * this.crowdedContextShare() || warned.has(key)) {
+      return;
+    }
+    if (warned.size >= 1000) {
+      warned.clear();
+    }
+    warned.add(key);
+    const window = connection.contextWindow
+      ? `its context window of ${connection.contextWindow}`
+      : `the ai.contextWindow fallback of ${ConfigService.get<number>('ai.contextWindow') ?? 8192} (the connection has no context window of its own)`;
+    this.logger.warn(
+      `AI connection "${connection.name ?? key}": the system prompt and tool definitions take ~${fixedTokens} of ` +
+        `${budget} input tokens (${window}). Little room is left for the conversation: older turns are dropped ` +
+        `early and a long message is cut. Set the connection's contextWindow, or shrink the tool catalog ` +
+        `(ai.deferToolSchemas, fewer tools per role).`,
+    );
+  }
+
+  /**
    * Keep the assembled session messages within the model's context window. Operates
    * per user/session: the system prompt (index 0) and the most recent message (the
    * current user/tool input) are always preserved; the OLDEST session-history turns
@@ -1529,14 +1578,18 @@ export class CoreAiService {
    *
    * Enabled by `ai.compaction !== false`. When OFF, only the hard trim is used.
    */
-  protected async compactMessages(messages: LlmMessage[], connection: ResolvedAiConnection): Promise<number> {
+  protected async compactMessages(
+    messages: LlmMessage[],
+    connection: ResolvedAiConnection,
+    reservedTokens = 0,
+  ): Promise<number> {
     if (ConfigService.get<boolean>('ai.compaction') === false) {
       return 0;
     }
     if (messages.length <= 3) {
       return 0;
     }
-    const budget = this.contextBudget(connection);
+    const budget = this.messageBudget(connection, reservedTokens);
     const total = (): number => messages.reduce((sum, m) => sum + this.estimateTokens(m.content) + 4, 0);
     if (total() <= budget) {
       return 0;
@@ -1585,11 +1638,11 @@ export class CoreAiService {
     }
   }
 
-  protected fitMessagesToContext(messages: LlmMessage[], connection: ResolvedAiConnection): void {
+  protected fitMessagesToContext(messages: LlmMessage[], connection: ResolvedAiConnection, reservedTokens = 0): void {
     if (messages.length === 0) {
       return;
     }
-    const budget = this.contextBudget(connection);
+    const budget = this.messageBudget(connection, reservedTokens);
     const total = (): number => messages.reduce((sum, m) => sum + this.estimateTokens(m.content) + 4, 0);
     let dropped = 0;
     // Drop oldest non-system, non-last messages until within budget.

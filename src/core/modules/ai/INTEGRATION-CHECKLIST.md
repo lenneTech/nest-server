@@ -175,8 +175,9 @@ ai: {
   `deferToolSummaryChars` (~200–400) ALONGSIDE it — otherwise the descriptions alone
   re-inflate the prompt you just shrank. Both are scoped to the **emulated tool protocol**:
   in auto mode a connection with `supportsNativeTools: true` gets every full description and
-  schema in the native `tools` payload regardless, so truncation and the banner are skipped
-  there. **Plan mode always uses the emulated protocol**, so a native connection IS truncated
+  schema in the native `tools` payload regardless, and its prompt catalog lists names only
+  (12.3.0+, `ai.nativeToolCatalog: 'full'` restores it), so truncation and the banner are
+  skipped there. **Plan mode always uses the emulated protocol**, so a native connection IS truncated
   there — and since plan mode plans in one call without executing, it cannot follow the
   `search_tools` hint. Keep the cap generous if you use plan mode.
   The truncated tail is typically where a tool's preconditions and role limits are written;
@@ -184,6 +185,11 @@ ai: {
   stays with the registry's role filter, the execution-time re-check, and the
   `mutating`/`destructive` flags behind the confirmation gate, none of which read the
   description.
+- **Guarding the prompt size in a test?** Measure against `ai.contextWindow`, the fallback for
+  connections without a window of their own, and name the test that way: it guards the worst
+  case, not the window a pinned or detected connection has. Raising its limit removes the guard;
+  shrink the catalog instead. At runtime the framework warns once per connection when the system
+  prompt and tool definitions take more than half of the real input budget.
 - **Where data-level checks belong:** `authorize()` decides whether a call may be tried;
   `execute()` still routes every read and write through `CrudService` +
   `context.serviceOptions`, so `@Restricted`, `securityCheck()` and tenant scoping apply.

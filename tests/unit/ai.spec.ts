@@ -587,8 +587,10 @@ describe('CoreAiPromptBuilderService (enrichment)', () => {
     const builder = new CoreAiPromptBuilderService();
     const tool = verboseTool('delete_record');
 
+    // Since 12.3.0 the native catalog lists names only — the description travels in the tool payload
     const nativePrompt = await builder.buildSystemPrompt([tool], true, { id: 'u1', roles: [] });
-    expect(nativePrompt).toContain(`- delete_record: ${tool.description}`);
+    expect(nativePrompt).toContain('- delete_record');
+    expect(nativePrompt).not.toContain('Delete a record');
     expect(nativePrompt).not.toMatch(/TRUNCATED/);
     expect(nativePrompt).not.toContain('Schemas deferred');
 

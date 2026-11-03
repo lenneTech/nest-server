@@ -2021,7 +2021,13 @@ export interface IAi {
    * Fallback total context window (input + output tokens) used to budget the
    * assembled session messages when a connection has no `contextWindow` set. When the
    * conversation (per user/session) would overflow, the oldest history turns are
-   * dropped and oversized payloads truncated before the LLM call.
+   * dropped and oversized payloads truncated before the LLM call. Native tool
+   * definitions count against that budget too (12.3.0+), and when the system prompt and
+   * tools take more than half of it, a warning names the connection once per process.
+   *
+   * A test that guards the prompt size against this value guards the connections WITHOUT
+   * a window of their own — the worst case — not the window a pinned or detected
+   * connection actually has. Name it that way; raising its limit removes that guard.
    * @default 8192
    */
   contextWindow?: number;
@@ -2083,9 +2089,9 @@ export interface IAi {
    *
    * Applies to the EMULATED tool protocol, not to a provider as such. In auto mode
    * a connection with native tool calling receives every full description and schema
-   * through `buildToolSchemas()` regardless, so no truncation is applied there and no
-   * `search_tools` banner is emitted — capping would otherwise assert a truncation
-   * that the tool payload right next to it contradicts.
+   * through `buildToolSchemas()` regardless, and its catalog lists names only since
+   * 12.3.0 (`nativeToolCatalog`), so this cap has no effect there and no `search_tools`
+   * banner is emitted.
    *
    * **Plan mode always uses the emulated protocol** (it sends no native schemas), so a
    * native connection IS truncated there. Because plan mode returns a complete plan in
@@ -2107,6 +2113,17 @@ export interface IAi {
    * @default 0
    */
   deferToolSummaryChars?: number;
+
+  /**
+   * What the system prompt's tool catalog holds for a connection with NATIVE tool calling in auto mode (12.3.0+).
+   * Such a connection receives every description and parameter schema in the tool payload, so by default the catalog
+   * lists names only — repeating the descriptions (and, without `deferToolSchemas`, the schemas) paid for every tool
+   * twice. `'full'` restores the full catalog, for a model that picks tools better with the descriptions in the prompt.
+   *
+   * Emulated connections and plan mode always get the full catalog: there it is the model's only source.
+   * @default 'names'
+   */
+  nativeToolCatalog?: 'full' | 'names';
 
   /** Maximum number of agent-loop iterations (tool round-trips). @default 5 */
   maxIterations?: number;
