@@ -82,6 +82,17 @@ export interface IWsConnectionRegistration {
    */
   carrier: object;
 
+  /** How the log names the connection when it is closed. Default `GraphQL WebSocket`. */
+  channel?: string;
+
+  /**
+   * The connection cannot be re-checked in place — an HTTP stream has no handshake to repeat — so every re-check ends
+   * it, and the client's reconnect passes the guards again. The end the re-check interval brings is planned and logged
+   * at debug; one an invalidation brings (sign-out, role or tenant change) is logged like every withdrawn
+   * authorization. `reauthenticate` is not called.
+   */
+  endsOnRecheck?: boolean;
+
   /**
    * Re-run the handshake's authentication. Resolves to the user the credential authenticates as NOW,
    * or to a falsy value when it no longer does. A rejection counts as falsy. Without it only the
@@ -105,7 +116,9 @@ export interface IWsConnectionIdentity {
 
 /** @internal The registered state of one connection. */
 export interface WsConnection {
+  readonly channel: string;
   readonly email?: string;
+  readonly endsOnRecheck: boolean;
   readonly iamId?: string;
   readonly reauthenticate?: () => any;
   readonly socket?: IWsConnectionSocket;
@@ -206,13 +219,15 @@ export function readWsTenantHeader(contextValue: any): string | undefined {
  * the handshake recorded on the carrier.
  */
 export function registerWsConnection(registration: IWsConnectionRegistration): void {
-  const { carrier, reauthenticate, socket, user } = registration;
+  const { carrier, channel, endsOnRecheck, reauthenticate, socket, user } = registration;
   if (!carrier || typeof carrier !== 'object') {
     return;
   }
   const userId = user?.id ?? user?._id;
   const connection: WsConnection = {
+    channel: channel || 'GraphQL WebSocket',
     email: typeof user?.email === 'string' ? user.email.toLowerCase() : undefined,
+    endsOnRecheck: endsOnRecheck === true,
     iamId: typeof user?.iamId === 'string' ? user.iamId : undefined,
     reauthenticate,
     socket,
@@ -246,15 +261,20 @@ export function getWsConnection(contextValue: any): undefined | WsConnection {
 
 /**
  * Close a connection whose authorization no longer holds. Idempotent; always answers `false` so a
- * caller can `return terminate(...)`.
+ * caller can `return terminate(...)`. `debug` is for a planned end, which says nothing about the user.
  */
-function terminate(connection: WsConnection, reason: string): false {
+function terminate(connection: WsConnection, reason: string, level: 'debug' | 'log' = 'log'): false {
   if (connection.terminated) {
     return false;
   }
   connection.terminated = true;
   liveConnections.delete(connection);
-  logger.log(`Closing GraphQL WebSocket of user ${connection.userId ?? '(unknown)'}: ${reason}`);
+  const message = `Closing ${connection.channel} of user ${connection.userId ?? '(unknown)'}: ${reason}`;
+  if (level === 'debug') {
+    logger.debug(message);
+  } else {
+    logger.log(message);
+  }
   try {
     // A close reason is limited to 123 bytes on the wire; these are short and ASCII.
     connection.socket?.close(WS_AUTHORIZATION_CHANGED_CLOSE_CODE, reason);
@@ -265,7 +285,15 @@ function terminate(connection: WsConnection, reason: string): false {
 }
 
 async function revalidate(connection: WsConnection): Promise<boolean> {
+  const invalidated = connection.stale;
   connection.stale = false;
+  if (connection.endsOnRecheck) {
+    // Nothing to check in place: the end IS the re-check, and the reconnect is authorized afresh. Only an invalidation
+    // says that the rights may have changed; the interval is the planned beat and must not read like a lost session.
+    return invalidated
+      ? terminate(connection, 'authorization invalidated, client reconnects')
+      : terminate(connection, 're-check interval reached, client reconnects', 'debug');
+  }
   try {
     let user = connection.user;
     if (connection.reauthenticate) {

@@ -1412,8 +1412,9 @@ export class CoreSyncService implements OnApplicationBootstrap, OnModuleDestroy,
     response.once?.('close', end);
     registerWsConnection({
       carrier,
+      channel: 'SSE hint stream',
       // No credential to check again: every re-check ends the stream, and the reconnect is checked by the guards
-      reauthenticate: () => undefined,
+      endsOnRecheck: true,
       socket: {
         close: () => end(),
         once: (event, listener) => {
