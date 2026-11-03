@@ -5797,6 +5797,39 @@
         "tests/unit/ai-tool-authorize-everywhere.spec.ts"
       ],
       "driverSpecific": false
+    },
+    {
+      "id": "ai-native-catalog-duplicated",
+      "defect": "12.3.0 — a native connection got every tool description (and, without deferToolSchemas, every schema) twice: in the tool payload and in the system prompt catalog.",
+      "file": "src/core/modules/ai/services/core-ai-prompt-builder.service.ts",
+      "find": "    const namesOnly = supportsNativeTools && !planMode && ConfigService.get<string>('ai.nativeToolCatalog') !== 'full';\n",
+      "replace": "    const namesOnly = false;\n",
+      "specs": [
+        "tests/unit/ai-native-tool-catalog.spec.ts"
+      ],
+      "driverSpecific": false
+    },
+    {
+      "id": "ai-native-tools-not-in-budget",
+      "defect": "12.3.0 — the native tool payload occupies the context window but was not counted, so the history was kept until the provider overflowed or cut the input itself.",
+      "file": "src/core/modules/ai/services/core-ai.service.ts",
+      "find": "    return Math.max(512, this.contextBudget(connection) - Math.max(0, reservedTokens));\n",
+      "replace": "    return this.contextBudget(connection);\n",
+      "specs": [
+        "tests/unit/ai-native-tool-catalog.spec.ts"
+      ],
+      "driverSpecific": false
+    },
+    {
+      "id": "ai-crowded-context-silent",
+      "defect": "12.3.0 — a system prompt that left the conversation no room truncated the user message and was logged on debug only; nobody saw why the assistant answered generically.",
+      "file": "src/core/modules/ai/services/core-ai.service.ts",
+      "find": "    this.warnOnCrowdedContext(connection, this.estimateTokens(systemPrompt) + toolTokens);\n",
+      "replace": "",
+      "specs": [
+        "tests/unit/ai-native-tool-catalog.spec.ts"
+      ],
+      "driverSpecific": false
     }
   ]
 }
