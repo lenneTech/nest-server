@@ -283,6 +283,52 @@ describe('CoreTenantService.purgeTenantData()', () => {
     expect(notes.rows.map((r) => r.id)).toEqual(['n2']);
   });
 
+  /**
+   * @regression   12.3.0 — per-tenant users (a `User` with a `tenantId`) were deleted straight from the store, past the
+   *   user service, although the purge promises to leave users alone; their Better-Auth sessions and accounts stayed.
+   * @seen-failing Drop the `users` check from the store loop, or from the connection loop, in purgeTenantRecords()
+   *   (src/core/modules/tenant/core-tenant.service.ts) — registered as `tenant-purge-deletes-users` and
+   *   `tenant-purge-deletes-mongo-users` in tests/regression-mutations.json.
+   */
+  it('leaves the users table alone, also where users carry a tenantId', async () => {
+    const { members, notes, service } = setup();
+    registerModelSchema('User', new mongoose.Schema({ email: String, tenantId: String }));
+    const users = new MemoryStore('User', [
+      { email: 'a@test.com', id: 'u1', tenantId: tenant },
+      { email: 'b@test.com', id: 'u2', tenantId: other },
+    ]);
+    registerDataStore('User', users as any);
+    const untouchable = () => {
+      throw new Error('deleted from the users collection');
+    };
+    const bound = (store: MemoryStore, definition: Row) => {
+      const model = Object.assign(function BoundModel() {}, { schema: new mongoose.Schema(definition) });
+      bindStoreToModel(model, store as any);
+      return model;
+    };
+    (service as any).mongoConnection = {
+      models: {
+        PurgeNote: bound(notes, { tenantId: String }),
+        TenantMember: bound(members, { tenant: String }),
+        // Reached only through the connection, as a model registered with MongooseModule.forFeature() is
+        Account: {
+          deleteMany: untouchable,
+          schema: new mongoose.Schema({ tenantId: String }, { collection: 'users' }),
+        },
+        // Registered with CorePersistenceModule.forFeature(): its Mongoose model is bound to the store
+        User: Object.assign(bound(users, { email: String, tenantId: String }), { deleteMany: untouchable }),
+      },
+    };
+
+    const report = await service.purgeTenantData(tenant);
+
+    expect(report.User).toBeUndefined();
+    expect(report.Account).toBeUndefined();
+    expect(users.rows.map((r) => r.id)).toEqual(['u1', 'u2']);
+    expect(users.calls).toEqual([]);
+    expect(notes.rows.map((r) => r.id)).toEqual(['n2']);
+  });
+
   it('counts without deleting in a dry run, and leaves out what the caller excludes', async () => {
     const { members, notes, service, tokens } = setup();
 

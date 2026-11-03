@@ -418,7 +418,9 @@ await this.tenantService.purgeTenantData(tenantId, { exclude: ['AuditEntry'] });
 Not deleted:
 
 - models in `multiTenancy.excludeSchemas` — a `tenantId` there is not ownership — and models named in `exclude`;
-- users: they are global and may belong to other tenants;
+- users (the `users` table or collection): they are global and may belong to other tenants. That holds where `User`
+  carries a `tenantId` too (per-tenant users): delete those through the user service before the purge, which also
+  ends their Better-Auth sessions and accounts;
 - **files**: the file metadata carries no `tenantId`, and only the project knows which files (GridFS, S3, file system)
   belonged to the tenant. Delete them through `CoreFileService` before the purge (a TUS upload records
   `metadata.tenantId`);

@@ -5984,6 +5984,28 @@
         "tests/unit/tenant-purge.spec.ts"
       ],
       "driverSpecific": false
+    },
+    {
+      "id": "tenant-purge-deletes-users",
+      "defect": "12.3.0 — per-tenant users (a User with a tenantId) were deleted straight from the store, past the user service, although the purge promises to leave users alone; their Better-Auth sessions and accounts stayed.",
+      "file": "src/core/modules/tenant/core-tenant.service.ts",
+      "find": "        if (tableName(descriptor) === USERS_COLLECTION) {\n",
+      "replace": "        if (tableName(descriptor) === `${USERS_COLLECTION}-never`) {\n",
+      "specs": [
+        "tests/unit/tenant-purge.spec.ts"
+      ],
+      "driverSpecific": false
+    },
+    {
+      "id": "tenant-purge-deletes-mongo-users",
+      "defect": "12.3.0 — a model on the users collection reached only through the MongoDB connection was purged like any tenant-scoped model, past the user service.",
+      "file": "src/core/modules/tenant/core-tenant.service.ts",
+      "find": "          (model.schema.get('collection') ?? defaultCollectionName(name)) !== USERS_COLLECTION\n",
+      "replace": "          (model.schema.get('collection') ?? defaultCollectionName(name)) !== `${USERS_COLLECTION}-never`\n",
+      "specs": [
+        "tests/unit/tenant-purge.spec.ts"
+      ],
+      "driverSpecific": false
     }
   ]
 }

@@ -5,6 +5,8 @@ import type { Connection, Model } from 'mongoose';
 import { looksLikeGlobalOnlyRole, looksLikeSystemRole, SYSTEM_ROLE_PREFIX } from '../../common/enums/role.enum.js';
 import type { DataStore } from '../../common/persistence/data-store.interface.js';
 import { getModelDescriptors } from '../../common/persistence/model-metadata.registry.js';
+import { defaultCollectionName } from '../../common/persistence/mongo/collection-name.js';
+import { tableName } from '../../common/persistence/sql/sql-schema.shared.js';
 import { getModelStore, getStoreForModel } from '../../common/persistence/persistence-runtime.registry.js';
 import { ConfigService } from '../../common/services/config.service.js';
 import { RequestContext } from '../../common/services/request-context.service.js';
@@ -356,8 +358,10 @@ export class CoreTenantService {
    *   other way round — an empty `tenantIds` list means "every tenant".
    *
    * Left out: models in `multiTenancy.excludeSchemas` (a `tenantId` there is no ownership), every model named in
-   * `exclude`, users (they are global), and files — their bytes can only be assigned to a tenant by the project, which
-   * deletes them through `CoreFileService`. The memberships cannot be excluded. A synchronized model keeps a tombstone
+   * `exclude`, users — the `users` table or collection, also where users carry a `tenantId`: a project with per-tenant
+   * users deletes them through its user service, which also ends their Better-Auth sessions and accounts — and files:
+   * their bytes can only be assigned to a tenant by the project, which deletes them through `CoreFileService`. The
+   * memberships cannot be excluded. A synchronized model keeps a tombstone
    * per deleted record until the tombstone purge removes it.
    */
   async purgeTenantData(tenantId: string, options: TenantPurgeOptions = {}): Promise<Record<string, number>> {
@@ -413,6 +417,10 @@ export class CoreTenantService {
 
       // Every routed model with a tenantId path
       for (const [name, descriptor] of getModelDescriptors()) {
+        if (tableName(descriptor) === USERS_COLLECTION) {
+          handled.add(name);
+          continue;
+        }
         const store =
           descriptor.tenantScoped &&
           !handled.has(name) &&
@@ -427,7 +435,12 @@ export class CoreTenantService {
 
       // MongoDB models no store serves (registered only through MongooseModule.forFeature())
       for (const [name, model] of Object.entries(this.mongoConnection?.models ?? {})) {
-        if (!handled.has(name) && !exclude.has(name) && model.schema?.path('tenantId')) {
+        if (
+          !handled.has(name) &&
+          !exclude.has(name) &&
+          model.schema?.path('tenantId') &&
+          (model.schema.get('collection') ?? defaultCollectionName(name)) !== USERS_COLLECTION
+        ) {
           const where = { tenantId };
           report[name] = dryRun ? await model.countDocuments(where) : (await model.deleteMany(where)).deletedCount;
         }
@@ -538,6 +551,12 @@ export interface TenantPurgeOptions {
 
 /** Records `purgeTenantData()` deletes per statement */
 const TENANT_PURGE_BATCH = 1000;
+
+/**
+ * The table / collection the user model shares with Better-Auth. `purgeTenantData()` never deletes from it, also where
+ * users carry a `tenantId`: a user leaves through the user service, which also ends the Better-Auth sessions and accounts
+ */
+const USERS_COLLECTION = 'users';
 
 /**
  * Core models that reference a tenant without a `tenantId` path, and how they name it. `access`: the record lets
