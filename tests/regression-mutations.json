@@ -2098,8 +2098,19 @@
       "id": "unusable-fix-counts-fixed-edges",
       "defect": "The consumer-set check counts every parent of the affected package, whatever version it pulls. A subtree lifted to the fixed release then fails a correct declaration for good, because the lifted parent is counted as a consumer nobody assessed.",
       "file": "scripts/check-overrides.mjs",
-      "find": "        if (!pullsAffectedVersion(edgeVersion(half, line, lines.slice(index + 1)), ranges)) {",
+      "find": "        if (!pullsAffectedVersion(target.version, ranges)) {",
       "replace": "        if (false) {",
+      "specs": [
+        "tests/unit/check-overrides.guard.spec.ts"
+      ],
+      "driverSpecific": false
+    },
+    {
+      "id": "unusable-fix-matches-alias-by-key",
+      "defect": "The consumer-set check matches an edge by its key. pnpm keys an npm alias by the alias, so a parent pulling the affected package through one is invisible and an incomplete declaration passes, while a declared consumer reaching it only through an alias fails for good.",
+      "file": "scripts/check-overrides.mjs",
+      "find": "        if (target.name !== name) {",
+      "replace": "        if (edge[1].replace(/^'|'$/g, '') !== name) {",
       "specs": [
         "tests/unit/check-overrides.guard.spec.ts"
       ],

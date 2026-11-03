@@ -408,7 +408,10 @@ counted, so lifting one subtree to the fixed major (glob 14.0.3 pulling minimatc
 consumers still on minimatch 10) failed a correct declaration for good. An edge whose version cannot be
 read (`link:`, `file:`), or any edge of an advisory that lists no range, still counts: "I could not tell
 which version it pulls" must not read as "it pulls the fixed one" (mutations
-`unusable-fix-counts-fixed-edges`, `unusable-fix-skips-unreadable-edge`).
+`unusable-fix-counts-fixed-edges`, `unusable-fix-skips-unreadable-edge`). An edge is matched by the package it
+PULLS, not by its key: pnpm keys an npm alias by the alias (`mm-cjs: minimatch@5.1.9`, an importer's
+`version: minimatch@5.1.9`), so a key match missed every consumer behind an alias and read an edge keyed
+`minimatch` that pulls a fork as a minimatch edge (mutation `unusable-fix-matches-alias-by-key`).
 
 **Several consumers (12.1.1+)** are joined with ` + `, each at its assessed version —
 `'@nestjs/cli@12.0.11 + nodemon@3.1.14 cannot use 11.0.1'`. One vulnerable package often sits under

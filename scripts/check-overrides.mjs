@@ -1036,7 +1036,6 @@ function resolvedVersions(name) {
  * advisory lists no range for the package (fail-closed, as above).
  */
 function dependentsOf(name, ranges = []) {
-  const escaped = name.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
   const DEPENDENCY_SECTIONS = new Set(['dependencies', 'devDependencies', 'optionalDependencies']);
   const halves = [
     { edge: 6, header: /^importers:\s*$/m, key: 2, section: 4, workspace: true },
@@ -1054,9 +1053,9 @@ function dependentsOf(name, ranges = []) {
     scanned = true;
     const keyRe = new RegExp(`^ {${half.key}}('[^']+'|[^\\s:][^:]*):\\s*(\\{\\})?\\s*$`);
     const sectionRe = new RegExp(`^ {${half.section}}([a-zA-Z]+):\\s*$`);
-    // `(\s|$)` — an importer's package line ends at the colon, a snapshot's
-    // carries the version after it.
-    const edgeRe = new RegExp(`^ {${half.edge}}'?${escaped}'?:(\\s|$)`);
+    // Any edge; which package it pulls is decided from its value below. `(\s|$)` — an importer's package
+    // line ends at the colon, a snapshot's carries the version after it.
+    const edgeRe = new RegExp(`^ {${half.edge}}('[^']+'|[^\\s:'][^:]*):(\\s|$)`);
     let current = null;
     let section = null;
 
@@ -1080,8 +1079,15 @@ function dependentsOf(name, ranges = []) {
         section = sub[1];
         continue;
       }
-      if (current && section && DEPENDENCY_SECTIONS.has(section) && edgeRe.test(line)) {
-        if (!pullsAffectedVersion(edgeVersion(half, line, lines.slice(index + 1)), ranges)) {
+      const edge = current && section && DEPENDENCY_SECTIONS.has(section) ? line.match(edgeRe) : null;
+      if (edge) {
+        // An npm alias is keyed by the alias (`mm-cjs: minimatch@5.1.9`); the edge belongs to the package it
+        // pulls. Matched by its key, such a parent was invisible, and a key naming the package can pull another.
+        const target = edgeTarget(edge[1].replace(/^'|'$/g, ''), edgeValue(half, line, lines.slice(index + 1)));
+        if (target.name !== name) {
+          continue;
+        }
+        if (!pullsAffectedVersion(target.version, ranges)) {
           continue;
         }
         parents.add(
@@ -1103,32 +1109,39 @@ function dependentsOf(name, ranges = []) {
 }
 
 /**
- * The version an edge resolves to, or null when it cannot be read as one. A snapshot carries it on the
- * edge line (`minimatch: 11.0.3(peer@1.0.0)`, an alias as `string-width: string-width@4.2.3`); an importer
- * on a `version:` line underneath (`version: 11.0.3(peer@1.0.0)`).
+ * What an edge resolves to, as the lockfile spells it. A snapshot carries it on the edge line
+ * (`minimatch: 11.0.3(peer@1.0.0)`, an alias as `mm-cjs: minimatch@5.1.9`); an importer on a `version:` line
+ * underneath (`version: 11.0.3(peer@1.0.0)`, an alias as `version: minimatch@5.1.9`).
  */
-function edgeVersion(half, line, following) {
-  let value;
-  if (half.workspace) {
-    for (const next of following) {
-      const deeper = next.match(new RegExp(`^ {${half.edge + 2}}([a-zA-Z]+):\\s*(.*)$`));
-      if (!deeper) {
-        break;
-      }
-      if (deeper[1] === 'version') {
-        value = deeper[2];
-        break;
-      }
-    }
-  } else {
-    value = line.slice(line.indexOf(':') + 1);
+function edgeValue(half, line, following) {
+  if (!half.workspace) {
+    return line.slice(line.indexOf(':') + 1);
   }
+  for (const next of following) {
+    const deeper = next.match(new RegExp(`^ {${half.edge + 2}}([a-zA-Z]+):\\s*(.*)$`));
+    if (!deeper) {
+      return undefined;
+    }
+    if (deeper[1] === 'version') {
+      return deeper[2];
+    }
+  }
+  return undefined;
+}
+
+/**
+ * The package an edge pulls and its version: the alias target when the value names one (`minimatch@5.1.9`,
+ * `npm:@s/glob@13.0.6`), otherwise the edge's key. The version is null when it cannot be read as one (`link:`,
+ * `file:`).
+ */
+function edgeTarget(key, value) {
   const resolved = String(value ?? '')
     .trim()
     .replace(/^'|'$/g, '')
     .replace(/\(.*$/, '');
-  const version = resolved.includes('@') ? resolved.slice(resolved.lastIndexOf('@') + 1) : resolved;
-  return parseVersion(version) ? version : null;
+  const alias = resolved.match(/^(?:npm:)?(@?[^@\s:]+)@(\d\S*)$/);
+  const version = alias ? alias[2] : resolved;
+  return { name: alias ? alias[1] : key, version: parseVersion(version) ? version : null };
 }
 
 /** Whether an edge to `version` counts: everything but a READ version outside every range. */
