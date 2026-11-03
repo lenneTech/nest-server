@@ -774,7 +774,7 @@ describe('AI module (e2e)', () => {
       registerMcpTools();
       const session = await testHelper.mcpSession({ token: httpRegularToken });
 
-      expect(session.sessionId).toBeUndefined();
+      expect(session.sessionId).toBe('');
       expect(session.initializeResult.serverInfo).toBeDefined();
       // Each of these is a fresh server and transport; nothing was carried over from initialize.
       const names = (await session.listTools()).map(tool => tool.name);
@@ -816,6 +816,23 @@ describe('AI module (e2e)', () => {
         });
         expect(response.headers.allow).toBe('POST');
       }
+    });
+
+    /**
+     * A stateless server cannot ask the user: the client's answer would reach another server. The confirmation gate
+     * therefore refuses a destructive tool here — fail-closed — unless the user or `ai.mcp.confirmation` switched the
+     * question off (DEV-2653).
+     */
+    it('MCP stateless: a destructive tool is refused, no session can carry the question to the user', async () => {
+      registerMcpTools();
+      const session = await testHelper.mcpSession({ token: httpRegularToken });
+      const runsBefore = mcpDestructiveRuns;
+
+      const refused = await session.callTool(mcpDestructiveTool);
+
+      expect(refused.isError).toBe(true);
+      expect(refused.content[0].text).toContain('confirmation');
+      expect(mcpDestructiveRuns).toBe(runsBefore);
     });
 
     it('MCP stateless: an unauthenticated request is still refused with 401', async () => {
