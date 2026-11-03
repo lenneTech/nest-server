@@ -242,7 +242,10 @@ with a CSRF token.
 **WHY refuse with `this.loadOAuthErrors()`:** the SDK maps an error to its OAuth code only when it
 is one of its own `OAuthError` classes, and turns anything else into `server_error`. A user who
 declines consent should send the client back with `access_denied` (`AccessDeniedError`), not with
-a server error.
+a server error. Check the CSRF token on Deny as on Allow (12.3.0): the refusal redirects the browser to
+the client's registered URI, so an unprotected Deny lets a cross-site POST send a signed-in user there.
+An error before your method runs (a malformed request) is answered with 400 by the framework and never
+redirected.
 
 ## Verification Checklist
 

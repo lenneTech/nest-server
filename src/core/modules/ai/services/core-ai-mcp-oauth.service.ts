@@ -597,8 +597,10 @@ export class CoreAiMcpOAuthService implements OnModuleInit {
    * - signed in, GET → the consent view: which client, where the code goes, Allow / Deny, with a
    *   CSRF token bound to user, client, redirect URI and PKCE challenge.
    * - signed in, POST with Allow and a valid token → the code is issued, the browser goes to
-   *   `redirect_uri?code=…&state=…`. Deny → `access_denied`. A stale token shows the form again; a
-   *   foreign or tampered one too, and issues nothing.
+   *   `redirect_uri?code=…&state=…`. Deny with a valid token → `access_denied`. A stale token shows the
+   *   form again; a foreign or tampered one too, and decides nothing.
+   * - an error before this method runs (a malformed request) is answered with 400, never sent to the
+   *   client's redirect URI — `mountAiMcpOAuthRouter()` guards `/authorize` (RFC 9700 §4.11.2).
    *
    * The signed-in user is whoever the Better-Auth middleware put on the request (session cookie or
    * bearer). An API token never gets here — `buildOAuthProvider().authorize` refuses it first — and a
@@ -615,20 +617,21 @@ export class CoreAiMcpOAuthService implements OnModuleInit {
     const user = await this.consentUser(req);
     const decision = req?.method === 'POST' ? req.body?.[MCP_OAUTH_CONSENT_DECISION_FIELD] : undefined;
 
-    if (user && decision === 'deny') {
-      const { AccessDeniedError } = await this.loadOAuthErrors();
-      throw new AccessDeniedError('The user denied access');
-    }
-
     let notice: IMcpOAuthConsentView['notice'];
-    if (user && decision === 'approve') {
+    if (user && (decision === 'approve' || decision === 'deny')) {
       const binding: IAiMcpOAuthConsentBinding = {
         clientId: String(client.client_id),
         codeChallenge: String(params.codeChallenge),
         redirectUri: String(params.redirectUri),
         userId: user.id,
       };
+      // Deny needs the token as Allow does: it sends the browser to the client's redirect URI, and without the token a
+      // cross-site POST could do that for a signed-in user whose session cookie is `SameSite=None`
       const verdict = this.verifyConsentToken(req.body?.[MCP_OAUTH_CONSENT_TOKEN_FIELD], binding);
+      if (verdict === 'valid' && decision === 'deny') {
+        const { AccessDeniedError } = await this.loadOAuthErrors();
+        throw new AccessDeniedError('The user denied access');
+      }
       if (verdict === 'valid') {
         const code = this.generateId();
         await this.saveAuthorizationCode(code, {
@@ -649,7 +652,7 @@ export class CoreAiMcpOAuthService implements OnModuleInit {
       } else {
         this.logger.warn(
           `MCP OAuth consent for client ${binding.clientId} carried an invalid token (forged, tampered, or from ` +
-            'another session); no code issued, the form is shown again.',
+            'another session); neither approved nor denied, the form is shown again.',
         );
       }
     }

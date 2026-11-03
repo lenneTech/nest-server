@@ -777,7 +777,13 @@ user decides whether an MCP client may act for them:
 - **Allow** issues the code only with the page's CSRF token, signed with the OAuth secret and bound to
   the user, the client, the redirect URI and the PKCE challenge (10 minutes); a stale token shows the
   form again, a forged or tampered one too, and nothing is issued. **Deny** sends the client back with
-  `access_denied`.
+  `access_denied` — with the same token since 12.3.0; without it the form is shown again.
+- **A malformed request** (a missing `code_challenge`, a wrong `response_type`, …) is answered with `400`
+  and `{ error, error_description }`, never redirected to the client (12.3.0). The redirect URI is whatever
+  the client's registrant wrote, so the SDK's error redirect made `/authorize` an open redirect on this
+  domain (RFC 9700 §4.11.2). Registration itself stays open — claude.ai, ChatGPT, Cursor and Claude Code
+  register their own URIs. Only what happens once the request reached the provider (the user's Allow or
+  Deny, and refusals raised in `authorizeConsent()`) still redirects.
 
 The page carries its own `Content-Security-Policy` (script and style by nonce, `frame-ancestors 'none'`,
 no `form-action`, which browsers would apply to the redirect to the client), `X-Frame-Options: DENY`,
