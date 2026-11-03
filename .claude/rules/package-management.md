@@ -330,6 +330,26 @@ on `FIX AVAILABLE` (a `first_patched_version` now exists) or on a withdrawn advi
 API is reported as `UNVERIFIED` and tolerated locally — but **fails under `CI`**, because a skip
 nobody reads is indistinguishable from a check that ran.
 
+**A fix nobody named is still a fix (11.43.5).** GitHub leaves `first_patched_version` null on some advisories
+after a release outside the vulnerable range shipped: GHSA-86w9-cpqp-85rv (node-forge) read
+`<= 1.4.0` / null a day after 1.4.1 was published. Until 11.43.4 the guard skipped such an advisory,
+so its suppression passed every run. It now reads the package's packument from the registry pnpm
+installs from and, per vulnerable copy in the lockfile, looks for a stable release above it that
+lies outside **every** range the advisory lists. A deprecated release is held back, not ruled out: it
+counts only when every such release is deprecated, because some packages deprecate all of them
+(node-sass: 132 of 132 stable releases), and ruling them out reads a published fix as "no fix" for good.
+
+| Finding | Verdict |
+|---------|---------|
+| every copy has such a release, past `minimumReleaseAge` | `FIX AVAILABLE`, naming it — `unusableFixConsumers` applies as for a named fix |
+| one is published but younger than `minimumReleaseAge` | passes, printed as `pending` with the date the gate clears (pnpm would refuse it, so failing would order a `minimumReleaseAgeExclude` nobody decided on) |
+| some copy has none | passes — the suppression is still justified |
+| no version the lockfile resolves is in the range any more | `NOT IN TREE` — the entry hides nothing |
+| registry or lockfile unreadable | `UNVERIFIED`, with the reason (fails under `CI`) |
+
+`--advisory-file` runs stay offline: they take packuments from `--packument-file` and never ask the
+registry.
+
 One consequence worth knowing before you reach for this mechanism: the guard fires when the advisory
 has a patched version for **any** affected range. For most findings that is the honest outcome — a
 fix exists, take it, and the case is an override problem rather than a suppression problem.
@@ -341,7 +361,7 @@ removed an export its consumer imports, or the consumer pins the vulnerable rang
 `FIX AVAILABLE` is not advice but a dead end, and the only ways out used to be a permanently red
 build or a guard switched off for that entry.
 
-Measured case (lt-crm, 2026-10-06): three `simple-git` advisories, one CRITICAL requiring `>=4.0.1`,
+Measured case (a consuming Nuxt project, 2026-10-06): three `simple-git` advisories, one CRITICAL requiring `>=4.0.1`,
 reachable only via `nuxt > @nuxt/devtools > simple-git`. simple-git 4 dropped the default export
 devtools imports, so the override made `nuxt prepare` fail outright. The newest devtools in the 3.x
 line still imports it that way, and devtools is a hard `dependencies` entry of `nuxt` — so it can be
@@ -372,6 +392,25 @@ any has moved:
    second version of the same consumer is a path nobody assessed, and comparing by name alone let
    one ride along on the other's declaration, with the winner decided by lockfile order.
 
+**"Pulls an affected package" means an affected VERSION (11.43.5).** Checks 3 and the idle check below
+count an edge only when its resolved version lies in one of the advisory's `vulnerable_version_range`s.
+A parent pulling the FIXED release is no consumer of the vulnerability. Until 11.43.5 every parent
+counted, so lifting one subtree to the fixed major (glob 14.0.3 pulling minimatch 11.0.3 next to
+consumers still on minimatch 10) failed a correct declaration for good. An edge whose version cannot be
+read (`link:`, `file:`), or any edge of an advisory that lists no range, still counts: "I could not tell
+which version it pulls" must not read as "it pulls the fixed one" (mutations
+`unusable-fix-counts-fixed-edges`, `unusable-fix-skips-unreadable-edge`). An edge is matched by the package it
+PULLS, not by its key: pnpm keys an npm alias by the alias (`mm-cjs: minimatch@5.1.9`, an importer's
+`version: minimatch@5.1.9`), so a key match missed every consumer behind an alias and read an edge keyed
+`minimatch` that pulls a fork as a minimatch edge (mutation `unusable-fix-matches-alias-by-key`).
+
+**Several consumers (11.43.5)** are joined with ` + `, each at its assessed version —
+`'@nestjs/cli@11.0.24 + rimraf@6.1.3 cannot use 14.0.2'`. One vulnerable package often sits under
+several dev tools at once, and before this a declaration could name only one, so such a finding had no
+honest way in. Every listed consumer gets checks 1 and 3, and one more: a listed consumer that no
+longer pulls an affected package fails too (mutation `unusable-fix-accepts-idle-consumer`), because a
+list is where a path that is gone would otherwise keep covering.
+
 The third check reads **both halves** of the lockfile. `importers:` holds what the repository itself
 declares (`.`, `projects/api`, `projects/app`), `snapshots:` the edges between third-party packages
 — and the first is the likelier production path, because a direct dependency can simply be raised.
@@ -401,12 +440,22 @@ plus one for the opposite failure, a guard that rejects a declaration which is s
 matters just as much: a check that cries wolf on correct entries is a check that gets switched off,
 which is how the hole this feature closes came about in the first place.
 
-**Current entry (since 2026-10-11):** `GHSA-vfj7-8cjw-p6xm` (braces, via nodemon / npm-watch), a
-dev-tooling-only path of an advisory with no patched release at all; the justification sits next to
-the entry in `pnpm-workspace.yaml`. **Do not copy it into nest-server-starter without thinking it
-through:** since lt CLI 1.42.0 the starter's `auditConfig` is hoisted as a union into every
-generated project, so an entry there hides the advisory in every customer workspace — including
-production paths this repository does not have.
+**Current entries on `release/11.x` (since 11.43.5).** `GHSA-gcqx-w48m-w2h4` (deepmerge `<= 4.3.1`, low,
+since 11.43.4): dev tooling only, through @nestjs/cli 11 > fork-ts-checker-webpack-plugin, with no patched
+release at all. `GHSA-g3hv-75wg-m249` (minimatch `< 11.0.1`) and `GHSA-3g3m-2fjr-6pw4` (glob `<= 14.0.1`), both
+moderate, both fixed only in a new major released 2026-10-27 that none of their consumers can take yet — five
+for minimatch (@nestjs/cli 11.0.24 pins fork-ts-checker-webpack-plugin 9.1.0, which needs minimatch ^3), two for
+glob (@nestjs/cli 11.0.24 pins glob 13.0.6 exactly, rimraf 6.1.3 needs ^13); the same two entries as 12.x
+(DEV-3899). The justification is in the comment above `ignoreGhsas`, the declarations in
+`unusableFixConsumers`. `tests/unit/audit-suppression-scope.spec.ts` keeps deepmerge and glob out of the
+production tree and allows minimatch there only under `@ts-morph/common` (ts-morph, the Permissions module's
+scanner, matching globs the developer writes) — its `prodVia` form.
+
+`GHSA-vfj7-8cjw-p6xm` (braces, via nodemon / npm-watch) was listed from 2026-10-11 until 11.43.4: a
+dev-tooling-only path of an advisory with no patched release at all, withdrawn by GitHub on 2026-10-23.
+**Before adding an entry, and before copying one into nest-server-starter:** since lt CLI 1.42.0 the
+starter's `auditConfig` is hoisted as a union into every generated project, so an entry there hides the
+advisory in every customer workspace — including production paths this repository does not have.
 
 **An entry whose package has left the declared range goes, even when the new version is no fix.**
 `GHSA-ch52-4w7c-c8xp` (http-cache-semantics `<= 4.2.0`) was listed from 2026-10-03 to 2026-10-11.

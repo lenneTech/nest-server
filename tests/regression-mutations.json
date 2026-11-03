@@ -1999,7 +1999,7 @@
       "id": "unusable-fix-ignores-moved-consumer",
       "defect": "A suppression whose consumer has MOVED is reported as if a SECOND consumer had appeared — \"@nuxt/devtools@3.5.0 also pulls an affected package\" for what is the same package one version further on. The consumer-set check does catch the move on its own since it compares `name@version`, so this is a diagnosis defect rather than a hole: the reader is sent looking for a second consumer instead of re-assessing the declared one against its new version. Pinned on the MESSAGE for exactly that reason.",
       "file": "scripts/check-overrides.mjs",
-      "find": "    if (!present.includes(assessedAt)) {\n      note(`${consumer} moved from ${assessedAt} to ${present.join(', ')}`);\n      continue;\n    }\n",
+      "find": "        if (!present.includes(assessedAt)) {\n          return `${consumer} moved from ${assessedAt} to ${present.join(', ')}`;\n        }\n",
       "replace": "",
       "specs": [
         "tests/unit/check-overrides.guard.spec.ts"
@@ -2010,7 +2010,7 @@
       "id": "unusable-fix-accepts-absent-consumer",
       "defect": "The declared consumer has left the tree, so nothing pulls the vulnerable version in any more and the finding should have disappeared — but the suppression is still accepted, keeping dead config that reads like a considered risk decision.",
       "file": "scripts/check-overrides.mjs",
-      "find": "    if (present.length === 0) {\n      note(`no ${consumer} in the tree any more, so the suppression is moot`);\n      continue;\n    }\n",
+      "find": "        if (present.length === 0) {\n          return `no ${consumer} in the tree any more, so the suppression is moot`;\n        }\n",
       "replace": "",
       "specs": [
         "tests/unit/check-overrides.guard.spec.ts"
@@ -2032,7 +2032,7 @@
       "id": "unusable-fix-ignores-second-consumer",
       "defect": "A second package starts pulling the affected package, possibly one in the production closure. `ignoreGhsas` hides the advisory everywhere, so without this check the declaration keeps arguing \"only this one dev-tooling consumer\" while that is no longer true.",
       "file": "scripts/check-overrides.mjs",
-      "find": "    const others = allParents.filter((parent) => parent !== expected);\n    if (others.length > 0) {",
+      "find": "    const others = allParents.filter((parent) => !expected.includes(parent));\n    if (others.length > 0) {",
       "replace": "    const others = [];\n    if (others.length > 0) {",
       "specs": [
         "tests/unit/check-overrides.guard.spec.ts"
@@ -2924,6 +2924,116 @@
       "replace": "    const endpoint = (request.url || request.path || '').split('/').pop() || 'unknown';\n",
       "specs": [
         "tests/unit/legacy-auth-rate-limit-guard.spec.ts"
+      ]
+    },
+    {
+      "id": "unusable-fix-accepts-idle-consumer",
+      "defect": "A declaration lists several consumers and one of them stops pulling the affected package. It is still in the tree at its assessed version, so every other check passes, and the declaration keeps covering a path that no longer exists.",
+      "file": "scripts/check-overrides.mjs",
+      "find": "    const idle = expected.filter((entry) => !allParents.includes(entry));",
+      "replace": "    const idle = [];",
+      "specs": [
+        "tests/unit/check-overrides.guard.spec.ts"
+      ],
+      "driverSpecific": false
+    },
+    {
+      "id": "unusable-fix-counts-fixed-edges",
+      "defect": "The consumer-set check counts every parent of the affected package, whatever version it pulls. A subtree lifted to the fixed release then fails a correct declaration for good, because the lifted parent is counted as a consumer nobody assessed.",
+      "file": "scripts/check-overrides.mjs",
+      "find": "        if (!pullsAffectedVersion(target.version, ranges)) {",
+      "replace": "        if (false) {",
+      "specs": [
+        "tests/unit/check-overrides.guard.spec.ts"
+      ],
+      "driverSpecific": false
+    },
+    {
+      "id": "unusable-fix-matches-alias-by-key",
+      "defect": "The consumer-set check matches an edge by its key. pnpm keys an npm alias by the alias, so a parent pulling the affected package through one is invisible and an incomplete declaration passes, while a declared consumer reaching it only through an alias fails for good.",
+      "file": "scripts/check-overrides.mjs",
+      "find": "        if (target.name !== name) {",
+      "replace": "        if (edge[1].replace(/^'|'$/g, '') !== name) {",
+      "specs": [
+        "tests/unit/check-overrides.guard.spec.ts"
+      ],
+      "driverSpecific": false
+    },
+    {
+      "id": "unusable-fix-skips-unreadable-edge",
+      "defect": "An edge whose version cannot be read (link:, file:) is treated as pulling the fixed package, so an unassessed parent stays hidden behind a declaration that claims only its consumers pull the vulnerable version.",
+      "file": "scripts/check-overrides.mjs",
+      "find": "  if (version === null || ranges.length === 0) {",
+      "replace": "  if (version === null) {\n    return false;\n  }\n  if (ranges.length === 0) {",
+      "specs": [
+        "tests/unit/check-overrides.guard.spec.ts"
+      ],
+      "driverSpecific": false
+    },
+    {
+      "driverSpecific": false,
+      "id": "suppression-unnamed-fix-not-looked-up",
+      "defect": "12.0.x — an advisory without a named `first_patched_version` was skipped with a bare `continue`, so its suppression passed every run while a release outside the vulnerable range sat on the registry (node-forge 1.4.1 against GHSA-86w9-cpqp-85rv). The mutation restores the skip: the registry is never asked.",
+      "file": "scripts/check-overrides.mjs",
+      "find": "      const verdict = await registryFix(info);",
+      "replace": "      const verdict = { kind: 'none' };",
+      "specs": [
+        "tests/unit/check-overrides.guard.spec.ts"
+      ]
+    },
+    {
+      "driverSpecific": false,
+      "id": "suppression-unnamed-fix-ignores-release-age",
+      "defect": "12.0.x — a registry fix younger than the workspace's `minimumReleaseAge` is one pnpm still refuses; failing on it would order a `minimumReleaseAgeExclude` entry nobody decided on. The mutation takes the smallest candidate whatever its publish time.",
+      "file": "scripts/check-overrides.mjs",
+      "find": "    const mature = candidates.find((v) => now - Date.parse(time[v] ?? '') >= gateMs);",
+      "replace": "    const mature = candidates[0];",
+      "specs": [
+        "tests/unit/check-overrides.guard.spec.ts"
+      ]
+    },
+    {
+      "driverSpecific": false,
+      "id": "suppression-unnamed-fix-takes-vulnerable-release",
+      "defect": "12.0.x — a registry fix must leave EVERY range the advisory lists for the package; a release inside a later vulnerable line is no way out. The mutation drops that filter, so a still-vulnerable release is named as the fix.",
+      "file": "scripts/check-overrides.mjs",
+      "find": "      .filter((v) => ranges.every((range) => inVulnerableRange(v, range) === false))\n",
+      "replace": "",
+      "specs": [
+        "tests/unit/check-overrides.guard.spec.ts"
+      ]
+    },
+    {
+      "driverSpecific": false,
+      "id": "suppression-unnamed-fix-ignores-tree",
+      "defect": "12.0.x — once no version the lockfile resolves is in the vulnerable range, the suppression hides nothing (nuxt-base-starter's image-size suppressions outlived the package by a release cycle). The mutation drops the NOT IN TREE verdict, so the entry passes.",
+      "file": "scripts/check-overrides.mjs",
+      "find": "        obsoleteSuppressions.push({ id, ...info, absent: verdict.detail });",
+      "replace": "",
+      "specs": [
+        "tests/unit/check-overrides.guard.spec.ts"
+      ]
+    },
+    {
+      "driverSpecific": false,
+      "id": "suppression-unnamed-fix-rules-out-deprecated",
+      "defect": "12.0.x — a registry fix may be a deprecated release when every release outside the vulnerable range is deprecated (node-sass deprecated all 132 of its stable releases; GHSA-r8f7-9pfq-mjmv is fixed in 7.0.0). The mutation rules deprecated releases out, so such a package reads as having no fix and its suppression holds for good.",
+      "file": "scripts/check-overrides.mjs",
+      "find": "    const candidates = supported.length > 0 ? supported : outside;\n",
+      "replace": "    const candidates = supported;\n",
+      "specs": [
+        "tests/unit/check-overrides.guard.spec.ts"
+      ]
+    },
+    {
+      "driverSpecific": false,
+      "id": "suppression-unnamed-fix-prefers-deprecated",
+      "defect": "12.0.x — a deprecated release is only the fallback: where a supported release leaves the vulnerable range too, that one is the fix to name. The mutation treats deprecated releases like any other, so a smaller deprecated release is named.",
+      "file": "scripts/check-overrides.mjs",
+      "find": "    const candidates = supported.length > 0 ? supported : outside;\n",
+      "replace": "    const candidates = outside;\n",
+      "specs": [
+        "tests/unit/check-overrides.guard.spec.ts"
       ]
     }
   ]

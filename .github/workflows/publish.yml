@@ -120,7 +120,7 @@ jobs:
         uses: actions/checkout@v7
         with:
           path: consumer/nest-server-starter
-          ref: v11.43.3
+          ref: v11.43.4
           repository: lenneTech/nest-server-starter
 
       # `--fast` = the consumer's typecheck + build + full test suite. Deliberately NOT the

@@ -23,12 +23,21 @@ import { describe, expect, it } from 'vitest';
 const ROOT = join(__dirname, '../..');
 
 /**
- * Packages whose advisories are currently suppressed, and must stay dev-only.
+ * Packages whose advisories are currently suppressed, and the production reach each justification allows.
  *
- * One entry since 2026-10-11, an advisory with NO patched release at all, reached only
- * through dev tooling (see the comments in `pnpm-workspace.yaml`). The pattern matches
- * ANY version on purpose: with no fixed release, every version in the production tree
- * is a vulnerable one, so any appearance there voids the justification.
+ * GHSA-gcqx-w48m-w2h4 (deepmerge, since 11.43.4): an advisory with NO patched release at all, reached only
+ * through dev tooling (see the comments in `pnpm-workspace.yaml`). The pattern matches ANY version on purpose:
+ * with no fixed release, every version in the production tree is a vulnerable one, so any appearance there voids
+ * the justification.
+ *
+ * Since 11.43.5 two more, both with a fix only in a new major that no consumer can take yet
+ * (`unusableFixConsumers` in `pnpm-workspace.yaml`, re-tested by `check:overrides`) — the same entries as 12.x:
+ *
+ * - GHSA-3g3m-2fjr-6pw4 (glob, via @nestjs/cli and rimraf): dev tooling only — any glob in the production tree
+ *   voids it.
+ * - GHSA-g3hv-75wg-m249 (minimatch): reaches production through exactly ONE path, ts-morph's `@ts-morph/common`,
+ *   which the Permissions module's scanner uses with globs the developer writes. The argument is "no request input
+ *   reaches the matcher", and it holds only for that path, so any other production parent voids it (`prodVia`).
  *
  * GHSA-ch52-4w7c-c8xp (http-cache-semantics) had an entry here from 2026-10-03 until
  * 2026-10-11. It left with its suppression, when the lockfile moved to 4.3.0 — outside
@@ -68,9 +77,11 @@ const ROOT = join(__dirname, '../..');
  * An entry added below should still carry a date to re-verify by — the guard tells you
  * when upstream moves, not when your own reasoning stopped applying.
  */
-const DEV_ONLY_SUPPRESSIONS: { ghsa: string; pkg: string; vulnerableInProd: RegExp }[] = [
+const DEV_ONLY_SUPPRESSIONS: { ghsa: string; pkg: string; prodVia?: string; vulnerableInProd: RegExp }[] = [
   // via @nestjs/cli 11 > fork-ts-checker-webpack-plugin
   { ghsa: 'GHSA-gcqx-w48m-w2h4', pkg: 'deepmerge', vulnerableInProd: /deepmerge@/ },
+  { ghsa: 'GHSA-3g3m-2fjr-6pw4', pkg: 'glob', vulnerableInProd: /glob@/ },
+  { ghsa: 'GHSA-g3hv-75wg-m249', pkg: 'minimatch', prodVia: '@ts-morph/common', vulnerableInProd: /minimatch@/ },
 ];
 
 describe('audit suppressions stay within their justification', () => {
@@ -83,8 +94,8 @@ describe('audit suppressions stay within their justification', () => {
     expect(listed.sort()).toEqual(DEV_ONLY_SUPPRESSIONS.map((s) => s.ghsa).sort());
   });
 
-  for (const { ghsa, pkg, vulnerableInProd } of DEV_ONLY_SUPPRESSIONS) {
-    it(`keeps ${pkg} (${ghsa}) out of the production dependency tree`, () => {
+  for (const { ghsa, pkg, prodVia, vulnerableInProd } of DEV_ONLY_SUPPRESSIONS) {
+    it(`keeps ${pkg} (${ghsa}) ${prodVia ? `in production only under ${prodVia}` : 'out of the production dependency tree'}`, () => {
       // `--prod` walks `dependencies` only. If the vulnerable major shows up
       // here, the "dev tooling only, no consumer and no runtime reaches it"
       // argument behind the suppression no longer holds.
@@ -98,7 +109,17 @@ describe('audit suppressions stay within their justification', () => {
         stdio: ['ignore', 'pipe', 'pipe'],
       });
 
-      expect(out).not.toMatch(vulnerableInProd);
+      if (!prodVia) {
+        expect(out).not.toMatch(vulnerableInProd);
+        return;
+      }
+      // The direct parents are the first-level children under each `<pkg>@<version>` header.
+      const parents = Array.from(out.matchAll(/^[└├]─[┬─] (\S+)/gm)).map((m) => m[1]);
+      expect(parents.length, `expected a production path, got:\n${out}`).toBeGreaterThan(0);
+      expect(
+        parents.filter((parent) => !parent.startsWith(`${prodVia}@`)),
+        `a production parent other than ${prodVia} voids the suppression:\n${out}`,
+      ).toEqual([]);
     }, 60_000);
   }
 });
