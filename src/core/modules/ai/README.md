@@ -400,7 +400,7 @@ factory.registerBuilder('my-provider', (conn) => new MyProvider(conn));
   GraphQL alike. An id the caller did not create — another user's, or one that does
   not exist — counts as no conversation: the run reads no history, writes nothing,
   uses no conversation-scoped tool grants, and its response carries no
-  `conversationId` (12.2.x; before, the turns were written into the other user's
+  `conversationId` (12.3.0; before, the turns were written into the other user's
   conversation). Admins are no exception here: they may READ every conversation
   (`getAiConversation`, `findAiConversations` with `all`), never continue one.
   `CoreAiConversationService.appendMessage(id, message, ownerId)` checks the owner

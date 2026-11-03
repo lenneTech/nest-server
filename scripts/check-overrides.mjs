@@ -1023,7 +1023,7 @@ function resolvedVersions(name) {
  * side: an extra RE-TEST asks for a second look at a suppression, where a missed
  * edge would hide a consumer nobody assessed.
  *
- * ## Only edges to an AFFECTED version count (12.2.x)
+ * ## Only edges to an AFFECTED version count (12.3.0)
  *
  * `ranges` are the advisory's `vulnerable_version_range`s for `name`. An edge whose
  * resolved version lies outside every one of them pulls the FIXED package and is no

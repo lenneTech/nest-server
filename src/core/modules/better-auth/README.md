@@ -550,6 +550,13 @@ const config = {
 
 **Brevo Integration:** When `brevoTemplateId` is set and Brevo is configured (`config.brevo`), verification emails are sent via Brevo's transactional API instead of SMTP/EJS templates. The same template variables (`name`, `link`, `appName`, `expiresIn`) are passed to the Brevo template.
 
+**Auto sign-in after verification (`autoSignInAfterVerification`, default `false` since 12.3.0):** with it on,
+`GET /iam/verify-email` signs in the browser that opens the link — to the account the link belongs to, whoever opens
+it. Someone who signs up with their own address and forwards the unopened link then has the recipient's browser signed
+in to their account, and what the recipient enters there lands with them (login CSRF). Off, the user verifies and then
+signs in once, as in Better-Auth's own default. Switch it on (`emailVerification: { autoSignInAfterVerification: true }`)
+only where a verification link reaches nobody but its owner.
+
 ### Sign-Up Checks (v11.13.0+)
 
 Sign-up validation is **enabled by default** requiring `termsAndPrivacyAccepted: true`.

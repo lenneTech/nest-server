@@ -824,7 +824,7 @@ describe('check-overrides — suppressed advisories that got a fix', () => {
     )}\n  new-parent@1.0.0:\n    dependencies:\n      simple-git: ${secondEdge}\n`;
 
   /**
-   * @regression   12.2.x — the consumer-set check counted every parent of the affected package, whatever
+   * @regression   12.3.0 — the consumer-set check counted every parent of the affected package, whatever
    *   version it pulled. Lifting one subtree to the FIXED release (glob 14.0.3 pulling minimatch 11.0.3 next to
    *   the declared consumers still on minimatch 10) therefore failed a correct declaration for good: it could
    *   only become true again once every consumer had moved, which is exactly the state it exists to cover.
@@ -867,7 +867,7 @@ describe('check-overrides — suppressed advisories that got a fix', () => {
   });
 
   /**
-   * @regression   12.2.x — an edge whose version cannot be read (a `link:`, a `file:` path) must count like a
+   * @regression   12.3.0 — an edge whose version cannot be read (a `link:`, a `file:` path) must count like a
    *   vulnerable one: "I could not tell which version it pulls" is not "it pulls the fixed one".
    * @seen-failing Treat an unreadable version as unaffected in pullsAffectedVersion() (scripts/check-overrides.mjs) —
    *   registered as mutation `unusable-fix-skips-unreadable-edge` in tests/regression-mutations.json.
@@ -893,7 +893,7 @@ describe('check-overrides — suppressed advisories that got a fix', () => {
       .replace('      simple-git: PLACEHOLDER\n', `      ${newParent}\n`);
 
   /**
-   * @regression   12.2.x — the consumer-set check matched an edge by its KEY. pnpm keys an npm alias by the alias
+   * @regression   12.3.0 — the consumer-set check matched an edge by its KEY. pnpm keys an npm alias by the alias
    *   (`simple-git-cjs: simple-git@3.36.0`), so a parent pulling the affected package through one stayed
    *   invisible and an incomplete declaration passed; a declared consumer reaching it only through an alias
    *   failed with RE-TEST for good instead.

@@ -5447,7 +5447,7 @@
     },
     {
       "id": "iam-path-guard-dot-segments-allowed",
-      "defect": "12.2.x — the checks under the Better-Auth base path read the path as sent, while Better-Auth routes it after new URL() resolved dot segments: POST /iam/callback/../sign-in/email passed the rate limiter as a skipped callback and ran as a sign-in.",
+      "defect": "12.3.0 — the checks under the Better-Auth base path read the path as sent, while Better-Auth routes it after new URL() resolved dot segments: POST /iam/callback/../sign-in/email passed the rate limiter as a skipped callback and ran as a sign-in.",
       "file": "src/core/modules/better-auth/core-better-auth-path-guard.middleware.ts",
       "find": "    if (dots === '.' || dots === '..') {\n",
       "replace": "    if (dots === '') {\n",
@@ -5458,7 +5458,7 @@
     },
     {
       "id": "iam-rate-limit-reads-raw-path",
-      "defect": "12.2.x — CoreBetterAuthRateLimiter matched its skip list against the raw path, so /callback/../sign-in/email was skipped as a callback while Better-Auth ran it as a sign-in: sign-in attempts were not counted where the path guard is not registered.",
+      "defect": "12.3.0 — CoreBetterAuthRateLimiter matched its skip list against the raw path, so /callback/../sign-in/email was skipped as a callback while Better-Auth ran it as a sign-in: sign-in attempts were not counted where the path guard is not registered.",
       "file": "src/core/modules/better-auth/core-better-auth-rate-limiter.service.ts",
       "find": "    const path = canonicalRequestPath(requestPath).toLowerCase();\n",
       "replace": "    const path = requestPath.toLowerCase();\n",
@@ -5469,7 +5469,7 @@
     },
     {
       "id": "iam-path-guard-not-registered",
-      "defect": "12.2.x — without the path guard first under the base path, a non-canonical path such as /iam/callback/../sign-in/email reaches the rate limiter and the forwarding to Better-Auth, which resolve it differently.",
+      "defect": "12.3.0 — without the path guard first under the base path, a non-canonical path such as /iam/callback/../sign-in/email reaches the rate limiter and the forwarding to Better-Auth, which resolve it differently.",
       "file": "src/core/modules/better-auth/core-better-auth.module.ts",
       "find": "      consumer.apply(CoreBetterAuthPathGuardMiddleware).forRoutes(`${basePath}/*path`);\n",
       "replace": "",
@@ -5480,7 +5480,7 @@
     },
     {
       "id": "iam-rate-limit-case-sensitive",
-      "defect": "12.2.x — CoreBetterAuthRateLimiter compared and keyed on the path as typed while Express routes case-insensitively: every case variant of /sign-in/email reached the same sign-in with its own counter and the full instead of the strict limit.",
+      "defect": "12.3.0 — CoreBetterAuthRateLimiter compared and keyed on the path as typed while Express routes case-insensitively: every case variant of /sign-in/email reached the same sign-in with its own counter and the full instead of the strict limit.",
       "file": "src/core/modules/better-auth/core-better-auth-rate-limiter.service.ts",
       "find": "    const path = canonicalRequestPath(requestPath).toLowerCase();\n",
       "replace": "    const path = canonicalRequestPath(requestPath);\n",
@@ -5491,7 +5491,7 @@
     },
     {
       "id": "iam-rate-limit-middleware-reads-req-path",
-      "defect": "12.2.x — CoreBetterAuthRateLimitMiddleware read req.path, which is \"/\" for a middleware Nest mounts on ${basePath}/*path (Express moves the match into req.baseUrl): every IAM request of a client shared one counter with the full limit, so neither the skip list nor the strict limit for sign-in ever applied over HTTP.",
+      "defect": "12.3.0 — CoreBetterAuthRateLimitMiddleware read req.path, which is \"/\" for a middleware Nest mounts on ${basePath}/*path (Express moves the match into req.baseUrl): every IAM request of a client shared one counter with the full limit, so neither the skip list nor the strict limit for sign-in ever applied over HTTP.",
       "file": "src/core/modules/better-auth/core-better-auth-rate-limit.middleware.ts",
       "find": "    const requestPath = (req.originalUrl || req.url || '').split('?')[0];\n",
       "replace": "    const requestPath = req.path;\n",
@@ -5502,7 +5502,7 @@
     },
     {
       "id": "iam-http-rate-limit-reads-req-path",
-      "defect": "12.2.x — CoreBetterAuthRateLimitMiddleware read req.path, which is \"/\" for a middleware Nest mounts on ${basePath}/*path (Express moves the match into req.baseUrl): every IAM request of a client shared one counter with the full limit, so neither the skip list nor the strict limit for sign-in ever applied over HTTP.",
+      "defect": "12.3.0 — CoreBetterAuthRateLimitMiddleware read req.path, which is \"/\" for a middleware Nest mounts on ${basePath}/*path (Express moves the match into req.baseUrl): every IAM request of a client shared one counter with the full limit, so neither the skip list nor the strict limit for sign-in ever applied over HTTP.",
       "file": "src/core/modules/better-auth/core-better-auth-rate-limit.middleware.ts",
       "find": "    const requestPath = (req.originalUrl || req.url || '').split('?')[0];\n",
       "replace": "    const requestPath = req.path;\n",
@@ -5553,6 +5553,39 @@
       "replace": "      reauthenticate: () => undefined,",
       "specs": [
         "tests/unit/sync-hint-stream-log.spec.ts"
+      ],
+      "driverSpecific": false
+    },
+    {
+      "id": "iam-auto-sign-in-after-verification-default-on",
+      "defect": "12.3.0 — autoSignInAfterVerification defaulted to true (Better-Auth: false), so GET /iam/verify-email signed in whoever opened a forwarded verification link, to the account of the link owner.",
+      "file": "src/core/modules/better-auth/better-auth.config.ts",
+      "find": "  const autoSignInAfterVerification = configObj.autoSignInAfterVerification === true;\n",
+      "replace": "  const autoSignInAfterVerification = configObj.autoSignInAfterVerification ?? true;\n",
+      "specs": [
+        "tests/unit/better-auth-auto-sign-in.spec.ts"
+      ],
+      "driverSpecific": false
+    },
+    {
+      "id": "iam-auto-sign-in-service-default-on",
+      "defect": "12.3.0 — the e-mail verification service reported the old default (auto sign-in on) as well.",
+      "file": "src/core/modules/better-auth/core-better-auth-email-verification.service.ts",
+      "find": "  autoSignInAfterVerification: false,\n",
+      "replace": "  autoSignInAfterVerification: true,\n",
+      "specs": [
+        "tests/unit/better-auth-auto-sign-in.spec.ts"
+      ],
+      "driverSpecific": false
+    },
+    {
+      "id": "iam-auto-sign-in-service-truthy",
+      "defect": "12.3.0 — shouldAutoSignIn() returned the merged value as it came, so a string in NEST_SERVER_CONFIG reported a sign-in Better-Auth never performs.",
+      "file": "src/core/modules/better-auth/core-better-auth-email-verification.service.ts",
+      "find": "    return this.config.autoSignInAfterVerification === true;\n",
+      "replace": "    return !!this.config.autoSignInAfterVerification;\n",
+      "specs": [
+        "tests/unit/better-auth-auto-sign-in.spec.ts"
       ],
       "driverSpecific": false
     }

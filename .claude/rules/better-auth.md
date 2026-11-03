@@ -483,7 +483,7 @@ and fetch normalise them away; mutation `openapi-plugin-routable` drops `serverO
 canonical case red — the spellings are refused by the path guard below either way) and the "framework routes"
 cases in `tests/unit/swagger-helper.spec.ts`, which run against the REAL generator output rather than a fixture.
 
-### The path guard: the general answer to "the check reads a different path" (12.2.x)
+### The path guard: the general answer to "the check reads a different path" (12.3.0)
 
 The same mismatch reached past the open-api routes: the rate limiter skipped `/callback/../sign-in/email` as a
 callback (its skip list matched the raw path) while Better-Auth ran it as a sign-in — no counter on sign-in at all.
@@ -501,7 +501,7 @@ registered.
 | A new check on the request path under the base path reads it AFTER the guard, never instead of it | the guard is what makes "the path as sent" and "the path Better-Auth routes" the same string |
 | Do not widen the guard into a deny-list of routes | it refuses a SHAPE no route has; a route list is the §9 trap again |
 | Match route lists by whole segments, not `includes()` | `includes('/session')` also matched `/sessions-export` |
-| A middleware under the base path reads `req.originalUrl`, never `req.path` | Nest mounts it on `${basePath}/*path`, and Express moves the whole match into `req.baseUrl`: `req.path` is "/" there. The rate-limit middleware read it until 12.2.x, so every IAM request of a client shared one counter with the full limit and neither the skip list nor the strict sign-in limit applied over HTTP |
+| A middleware under the base path reads `req.originalUrl`, never `req.path` | Nest mounts it on `${basePath}/*path`, and Express moves the whole match into `req.baseUrl`: `req.path` is "/" there. The rate-limit middleware read it until 12.3.0, so every IAM request of a client shared one counter with the full limit and neither the skip list nor the strict sign-in limit applied over HTTP |
 | Lower-case before comparing or keying | Express routes case-insensitively: `/sign-in/EMAIL` is the same sign-in and must share its counter |
 
 Pinned by `tests/unit/better-auth-path-guard.spec.ts` (mutations `iam-path-guard-dot-segments-allowed`,
