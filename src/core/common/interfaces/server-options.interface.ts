@@ -801,6 +801,10 @@ export interface IBetterAuthPasskeyConfig {
    * - 'required': Always require biometric/PIN verification (most secure)
    * - 'preferred': Request verification if available (default)
    * - 'discouraged': Skip verification for faster auth (least secure)
+   *
+   * With 'required', a passkey response without user verification is refused at registration and sign-in. Takes effect
+   * since 12.3.1, as do `authenticatorAttachment` and `residentKey`: before, the three reached the passkey plugin where
+   * it never reads them.
    * @default 'preferred'
    */
   userVerification?: 'discouraged' | 'preferred' | 'required';

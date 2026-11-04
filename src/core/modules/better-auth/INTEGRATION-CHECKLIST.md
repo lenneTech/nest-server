@@ -18,14 +18,17 @@ From `@lenne.tech/nest-server` 11.37.0, better-auth is **not** a dependency of t
 non-optional **peer dependency**, so your project declares and owns the version:
 
 ```bash
-pnpm add better-auth@1.7.7 @better-auth/passkey@1.7.7 @better-auth/core@1.7.7
+pnpm add better-auth@1.7.16 @better-auth/passkey@1.7.16 @better-auth/core@1.7.16
 ```
+
+1.7.16 is the floor since nest-server 12.3.1: it closes the better-auth advisories published on 2026-11-03 (social
+sign-in, passkeys, e-mail change links, revoked sessions with a session cache).
 
 **Pin all three to the same exact version** — no `^`, no `~`. They are one release train, and a
 mixed set fails in ways the type checker does not catch.
 
 > **Do not rely on `pnpm install` to remind you.** On pnpm's default `autoInstallPeers: true` the
-> packages are installed silently at whatever version satisfies `>=1.7.7 <1.8.0` — your build stays
+> packages are installed silently at whatever version satisfies `>=1.7.16 <1.8.0` — your build stays
 > green while the version is unpinned and free to drift. Verify with `pnpm why better-auth`.
 
 **Why peers rather than dependencies:** in a fullstack project the frontend talks to better-auth

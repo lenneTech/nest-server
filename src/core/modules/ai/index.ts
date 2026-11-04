@@ -57,6 +57,7 @@ export * from './models/core-ai-tool-grant.model.js';
 export * from './models/core-ai-mode.model.js';
 export * from './models/core-ai-tool-policy.model.js';
 export * from './models/core-ai-settings.model.js';
+export * from './models/core-ai-status.model.js';
 export * from './models/core-ai-user-setting.model.js';
 export * from './models/core-ai-response.model.js';
 export * from './models/core-ai-usage-info.model.js';

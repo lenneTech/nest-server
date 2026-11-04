@@ -283,7 +283,11 @@ The reliable tells are narrower:
 cross-references every `overrides:` entry against a live `pnpm audit` report and reports four
 classes: **TOO LOW** (the override resolves and still delivers a version the advisory covers — modes
 1 and 2 above), **NOT MATCHING** (the selector no longer reaches the path it was written for), plus
-**NO FIX** and **UNUSED** as warnings. It runs inside `check`, `check:fix`, `check:naf` and
+**NO FIX** and **UNUSED** as warnings. UNUSED means the entry changes nothing in the resolved tree:
+its package left the lockfile, the parent of a `parent>pkg` key did (since 12.3.1 — before, the
+package alone was looked up, so `archiver-utils>glob@<14.0.2` outlived archiver-utils while glob
+stayed through other parents), or no edge resolves to its fixed target any more, i.e. the selector
+matches nothing. It runs inside `check`, `check:fix`, `check:naf` and
 `check:raw`, and in CI on both `build.yml` and `publish.yml`. The three tells above are still how you
 *read* a report by hand; the guard is what makes sure somebody does. `--audit-file` and
 `--advisory-file` make a run reproducible offline, and CI passes `--audit-file` so the

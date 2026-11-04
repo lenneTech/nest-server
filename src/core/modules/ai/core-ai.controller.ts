@@ -1,4 +1,4 @@
-import { Body, Controller, Delete, Get, Inject, Param, Post, Put, Query, Res } from '@nestjs/common';
+import { Body, Controller, Delete, Get, Inject, Optional, Param, Post, Put, Query, Res } from '@nestjs/common';
 import type { Response } from 'express';
 
 import { RESTServiceOptions } from '../../common/decorators/rest-service-options.decorator.js';
@@ -6,6 +6,7 @@ import { Roles } from '../../common/decorators/roles.decorator.js';
 import { RoleEnum } from '../../common/enums/role.enum.js';
 import type { ServiceOptions } from '../../common/interfaces/service-options.interface.js';
 import { RequestContext } from '../../common/services/request-context.service.js';
+import { AI_MCP_ENABLED } from './core-ai.constants.js';
 import { CoreAiBudgetLimitCreateInput } from './inputs/core-ai-budget-limit-create.input.js';
 import { CoreAiBudgetLimitInput } from './inputs/core-ai-budget-limit.input.js';
 import { CoreAiConnectionCreateInput } from './inputs/core-ai-connection-create.input.js';
@@ -31,6 +32,7 @@ import { CoreAiPrompt } from './models/core-ai-prompt.model.js';
 import { CoreAiSlot } from './models/core-ai-slot.model.js';
 import { CoreAiResponse } from './models/core-ai-response.model.js';
 import { CoreAiSettings } from './models/core-ai-settings.model.js';
+import { CoreAiStatus } from './models/core-ai-status.model.js';
 import { CoreAiUsageInfo } from './models/core-ai-usage-info.model.js';
 import { CoreAiBudgetService } from './services/core-ai-budget.service.js';
 import { CoreAiConnectionPreferenceService } from './services/core-ai-connection-preference.service.js';
@@ -48,6 +50,7 @@ import { CoreAiService } from './services/core-ai.service.js';
 /**
  * REST controller for AI prompts and connection management.
  *
+ * - `GET /ai/status`: everyone, also without a session.
  * - `POST /ai/prompt`: any authenticated user.
  * - `/ai/connections*`: admin only.
  *
@@ -76,6 +79,22 @@ export class CoreAiController {
    */
   @Inject(CoreAiUserSettingService)
   protected readonly userSettingService: CoreAiUserSettingService;
+
+  /** Whether the MCP endpoint is registered (`ai.mcp`, 12.3.1+). A property for the same reason as the settings. */
+  @Optional()
+  @Inject(AI_MCP_ENABLED)
+  protected readonly mcpEnabled?: boolean;
+
+  /**
+   * What the AI module offers on this server (12.3.1+). Public on purpose: a frontend asks before anybody signs in,
+   * to decide whether it shows the assistant at all. The route exists only while the module is registered, so a
+   * `404` is the answer "AI is off"; the body names no user data.
+   */
+  @Get('status')
+  @Roles(RoleEnum.S_EVERYONE)
+  async status(): Promise<CoreAiStatus> {
+    return { mcp: this.mcpEnabled === true };
+  }
 
   /**
    * Send a prompt to the AI assistant.
