@@ -699,6 +699,21 @@ them:
 
 Without multi-tenancy, tool roles are compared with `user.roles` exactly as before.
 
+## Is the assistant available? (`GET /ai/status`, 12.3.1+)
+
+A frontend asks before anybody signs in, to decide whether it shows the assistant at all:
+
+| Server                        | Answer                           |
+| ----------------------------- | -------------------------------- |
+| `ai` configured, `ai.mcp` off | `200 { "mcp": false }`           |
+| `ai` configured, `ai.mcp` on  | `200 { "mcp": true }`            |
+| no `ai` (or `enabled: false`) | `404` — the route does not exist |
+
+The route is public (`@Roles(S_EVERYONE)`): no session, token or cookie is needed, and the body names no user data.
+`404` is the signal "AI is off" on purpose — a server without the module, also one older than 12.3.1, answers it the
+same way, so a client needs no second rule. Every other `/ai` route keeps its roles. A project controller extending
+`CoreAiController` inherits the route; `mcp` comes from what `CoreAiModule.forRoot()` registered (`AI_MCP_ENABLED`).
+
 ## MCP server (`ai.mcp: true`)
 
 The `AiToolRegistry` also feeds a real **MCP server** at `POST/GET/DELETE /ai/mcp`

@@ -33,8 +33,10 @@
  *                  at all (`patched_versions: <0.0.0`). No target can help;
  *                  drop the root dependency or document the residual risk.
  *                  Reported, not failed — there is no green to reach.
- *   ! UNUSED       an override for a package that is not in the lockfile. Dead
- *                  weight that survives long after the dependency is gone.
+ *   ! UNUSED       an override that changes nothing in the resolved tree: its
+ *                  package, or the parent a scoped key names, left the lockfile,
+ *                  or no edge resolves to its fixed target any more. Dead weight
+ *                  that survives long after the dependency is gone.
  *                  Reported, not failed — a pre-emptive pin is legitimate.
  *
  * Advisories WITHOUT an override are deliberately not reported: `pnpm audit`
@@ -441,12 +443,27 @@ if (overrideCount === 0 && suppressed.length === 0) {
  * package names.
  */
 function targetPackage(key) {
-  const last = key
-    .split(/(?<![@<>=\s])>/)
-    .pop()
-    .trim();
-  const at = last.indexOf('@', last.startsWith('@') ? 1 : 0);
-  return at === -1 ? last : last.slice(0, at);
+  return packageName(overrideSegments(key).pop());
+}
+
+/**
+ * The parents a scoped key names (`bar>@scope/foo` → `['bar']`), without their selectors. Empty for an unscoped
+ * key. The override applies only below them, so a parent that left the tree leaves the override with nothing to do
+ * — while the target package, pulled in by somebody else, still makes it look alive.
+ */
+function overrideParents(key) {
+  return overrideSegments(key).slice(0, -1).map(packageName);
+}
+
+/** The `>`-separated segments of a key, split only where `>` separates package names (see `targetPackage()`). */
+function overrideSegments(key) {
+  return key.split(/(?<![@<>=\s])>/).map((segment) => segment.trim());
+}
+
+/** A segment without its version selector (`@scope/foo@<2` → `@scope/foo`). */
+function packageName(segment) {
+  const at = segment.indexOf('@', segment.startsWith('@') ? 1 : 0);
+  return at === -1 ? segment : segment.slice(0, at);
 }
 
 // ---------------------------------------------------------------------------
@@ -1036,14 +1053,45 @@ function resolvedVersions(name) {
  * advisory lists no range for the package (fail-closed, as above).
  */
 function dependentsOf(name, ranges = []) {
+  const { edges, scanned } = edgesInto(name);
+  const parents = new Set();
+  for (const edge of edges) {
+    if (!pullsAffectedVersion(edge.version, ranges)) {
+      continue;
+    }
+    parents.add(
+      edge.workspace
+        ? // The workspace package itself, named by its path as the lockfile spells it.
+          `the workspace package '${edge.parent}'`
+        : // VERSION KEPT. Only the `(peer)(peer)` suffix is cut. Comparing by
+          // NAME alone was a second shape of the same blind spot: two versions
+          // of one consumer both pulling the vulnerable package, with only one
+          // of them assessed, passed — and which one won depended on the order
+          // the lockfile happened to list them in.
+          edge.parent.replace(/\(.*$/, ''),
+    );
+  }
+  return { parents: [...parents], scanned };
+}
+
+/**
+ * Every edge into `name`, from both halves of the lockfile (see `dependentsOf()` for what counts as an edge):
+ * `parent` is the importer path or the snapshot key as the lockfile spells it, `version` the version the edge
+ * resolves to (null when it cannot be read). `scanned` is false when neither half exists — "nothing pulls it"
+ * and "nothing was read" must stay apart.
+ */
+function edgesInto(name) {
   const DEPENDENCY_SECTIONS = new Set(['dependencies', 'devDependencies', 'optionalDependencies']);
   const halves = [
     { edge: 6, header: /^importers:\s*$/m, key: 2, section: 4, workspace: true },
     { edge: 6, header: /^snapshots:\s*$/m, key: 2, section: 4, workspace: false },
   ];
 
-  const parents = new Set();
+  const edges = [];
   let scanned = false;
+  if (!lockText) {
+    return { edges, scanned };
+  }
 
   for (const half of halves) {
     const at = lockText.search(half.header);
@@ -1087,25 +1135,19 @@ function dependentsOf(name, ranges = []) {
         if (target.name !== name) {
           continue;
         }
-        if (!pullsAffectedVersion(target.version, ranges)) {
-          continue;
-        }
-        parents.add(
-          half.workspace
-            ? // The workspace package itself, named by its path as the lockfile spells it.
-              `the workspace package '${current}'`
-            : // VERSION KEPT. Only the `(peer)(peer)` suffix is cut. Comparing by
-              // NAME alone was a second shape of the same blind spot: two versions
-              // of one consumer both pulling the vulnerable package, with only one
-              // of them assessed, passed — and which one won depended on the order
-              // the lockfile happened to list them in.
-              current.replace(/\(.*$/, ''),
-        );
+        edges.push({ parent: current, version: target.version, workspace: half.workspace });
       }
     }
   }
 
-  return { parents: [...parents], scanned };
+  return { edges, scanned };
+}
+
+/** The package name of a snapshot key (`@scope/pkg@1.0.0(peer@2.0.0)` → `@scope/pkg`). */
+function snapshotName(key) {
+  const plain = key.replace(/\(.*$/, '');
+  const at = plain.lastIndexOf('@');
+  return at > 0 ? plain.slice(0, at) : plain;
 }
 
 /**
@@ -1518,8 +1560,53 @@ if (suppressed.length > 0) {
 }
 
 // ---------------------------------------------------------------------------
-// Overrides for packages that are not in the tree at all
+// Overrides that change nothing in the resolved tree
 // ---------------------------------------------------------------------------
+
+/**
+ * Why an override changes nothing in the resolved tree, or undefined while it may.
+ *
+ * Three ways to be dead weight. Until 12.3.1 only the first was seen, because the check asked for the TARGET
+ * package alone:
+ *
+ * 1. The package left the tree.
+ * 2. A scoped key's parent left it. `archiver-utils>glob@<14.0.2` outlived archiver-utils once nitropack moved to
+ *    archiver 8, and glob, still pulled in by others, kept the entry looking alive.
+ * 3. The selector matches nothing any more. A FIXED target makes this decidable from the lockfile: wherever the
+ *    override applies, the dependency resolves to exactly the target, so a tree in which no edge into the package
+ *    (below the parent, for a scoped key) resolves to the target is a tree the override never touched. The
+ *    converse does not hold — an edge can reach the target version on its own — so an edge AT the target keeps the
+ *    entry quiet, which is the right side to err on for a warning. A target that is not a plain version (a range,
+ *    `-`, `$name`, `npm:`) is not judged at all.
+ */
+function unusedReason(key, module, target, inTree) {
+  if (!inTree(module)) {
+    return `${module} is not in the tree`;
+  }
+  const parents = overrideParents(key);
+  const absent = parents.find((parent) => !inTree(parent));
+  if (absent) {
+    return `${absent} is not in the tree, so the override never applies`;
+  }
+  if (!/^\d+\.\d+\.\d+(?:-[0-9A-Za-z.-]+)?(?:\+[0-9A-Za-z.-]+)?$/.test(target)) {
+    return undefined;
+  }
+  const { edges, scanned } = edgesInto(module);
+  if (!scanned) {
+    return undefined;
+  }
+  const parent = parents.at(-1);
+  const relevant =
+    parent === undefined ? edges : edges.filter((edge) => !edge.workspace && snapshotName(edge.parent) === parent);
+  if (relevant.length === 0) {
+    return parent === undefined ? undefined : `${parent} no longer depends on ${module}, so the override never applies`;
+  }
+  if (relevant.some((edge) => edge.version === null || edge.version === target)) {
+    return undefined;
+  }
+  const versions = [...new Set(relevant.map((edge) => edge.version))].join(', ');
+  return `${parent === undefined ? '' : `${parent} → `}${module} resolves to ${versions}, never to ${target}, so the selector matches nothing any more`;
+}
 
 const unused = [];
 const lockPath = join(ROOT, 'pnpm-lock.yaml');
@@ -1531,14 +1618,19 @@ if (existsSync(lockPath)) {
   const raw = readFileSync(lockPath, 'utf8');
   const packagesAt = raw.search(/^packages:\s*$/m);
   const lock = packagesAt === -1 ? raw : raw.slice(packagesAt);
+  // Lockfile entries are keyed `/name@version` (v6+) or `name@version:` (v9+).
+  // A substring test would match `tar` inside `tar-stream`, so anchor on the
+  // delimiter that always follows the name.
+  const inTree = (name) => {
+    const escaped = name.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+    return new RegExp(`(^|[/'"\\s])${escaped}@`, 'm').test(lock);
+  };
   for (const key of Object.keys(overrides)) {
     const module = targetPackage(key);
-    // Lockfile entries are keyed `/name@version` (v6+) or `name@version:` (v9+).
-    // A substring test would match `tar` inside `tar-stream`, so anchor on the
-    // delimiter that always follows the name.
-    const escaped = module.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
-    if (!new RegExp(`(^|[/'"\\s])${escaped}@`, 'm').test(lock)) {
-      unused.push({ key, module, target: String(overrides[key]) });
+    const target = String(overrides[key]);
+    const reason = unusedReason(key, module, target, inTree);
+    if (reason) {
+      unused.push({ key, module, reason, target });
     }
   }
 }
@@ -1569,11 +1661,14 @@ if (noFix.length > 0) {
 }
 
 if (unused.length > 0) {
-  console.warn(`${TAG} WARN — ${unused.length} override(s) for packages absent from the lockfile:\n`);
+  console.warn(`${TAG} WARN — ${unused.length} override(s) that change nothing in the resolved tree:\n`);
   for (const entry of unused) {
-    console.warn(`  ! "${entry.key}": "${entry.target}" — ${entry.module} is not in the tree`);
+    console.warn(`  ! "${entry.key}": "${entry.target}" — ${entry.reason}`);
   }
-  console.warn('  A pre-emptive pin is legitimate; a leftover from a removed dependency is noise.\n');
+  console.warn(
+    '  A pre-emptive pin is legitimate; a leftover from a removed dependency, or a selector nothing\n' +
+      '  matches any more, is noise. Confirm with a resolve with and without the entry, then drop it.\n',
+  );
 }
 
 if (uncheckedSuppressions.length > 0) {

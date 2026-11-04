@@ -180,10 +180,10 @@ JWT-based authentication for existing projects:
 | Feature | Description |
 |---------|-------------|
 | **AI Module** | Prompt orchestrator (auto + plan mode), DB-backed LLM connections, tool registry |
-| **REST Endpoints** | `POST /ai/prompt`, `POST /ai/stream` (SSE); `GET/POST/PUT/DELETE /ai/connections*`, `/ai/connections/available`, `/ai/connections/select`, `/ai/connections/preferences*`, `/ai/conversations*`, `/ai/interactions*`, `/ai/budget-limits*`, `GET /ai/usage` |
+| **REST Endpoints** | `GET /ai/status` (public, `{ mcp }`; the route does not exist while the module is off, so it answers 404 — 12.3.1), `POST /ai/prompt`, `POST /ai/stream` (SSE); `GET/POST/PUT/DELETE /ai/connections*`, `/ai/connections/available`, `/ai/connections/select`, `/ai/connections/preferences*`, `/ai/conversations*`, `/ai/interactions*`, `/ai/budget-limits*`, `GET /ai/usage` |
 | **GraphQL Endpoints** | `aiPrompt`, `aiAvailableConnections`, `aiSetUserConnection`, connection/preference/conversation/interaction/budget queries + mutations, `aiUsage` |
 | **MCP Server** | Streamable HTTP at `POST/GET/DELETE /ai/mcp` (Bearer auth; with `ai.mcp.stateless` (12.3.0+) a server and transport per POST, no session, GET / DELETE 405, so any replica answers; `tools/call` runs the admin's tool policies, `authorize()` and the elicitation confirmation (12.3.0+) — refused for tools needing confirmation in stateless mode); a user the controller resolves itself (the OAuth access token, which only this controller accepts, after the guards ran without a user) gets `req.user` and the tenant the header names from an active membership only, through `CoreTenantGuard.resolveMembershipContext()` (11.43.3); with `ai.mcp.oauth` an OAuth 2.1 router (`/.well-known/*`, `/authorize`, `/token`, `/register`) that `CoreAiMcpOAuthInitializer` mounts during `app.init()` — an Express router behind the Nest middleware and routes, ahead of Nest's not-found handler, so guards and interceptors do not run for it; `/authorize` answers with a built-in consent page (the Better-Auth session from the middleware is the user; Allow is a CSRF-bound POST) |
-| **Permission Model** | `S_USER` for prompt/conversations/available/usage; `ADMIN` for connections/preferences/interactions/budgets; encrypted API keys never leave the server (`securityCheck` + `secretFields`); a prompt continues only the caller's own conversation — a foreign or unknown `conversationId` counts as none, admins included (`CoreAiService.scopeConversation()`, 12.3.0) |
+| **Permission Model** | `S_EVERYONE` for `GET /ai/status` only (no user data, no request input; API tokens refused as on every route without `@ApiTokenScopes()`); `S_USER` for prompt/conversations/available/usage; `ADMIN` for connections/preferences/interactions/budgets; encrypted API keys never leave the server (`securityCheck` + `secretFields`); a prompt continues only the caller's own conversation — a foreign or unknown `conversationId` counts as none, admins included (`CoreAiService.scopeConversation()`, 12.3.0) |
 
 ### Email & Templates
 
@@ -1703,7 +1703,7 @@ All security features are configured in `config.env.ts` under the `security` key
 |-------------|------|---------|-------------|
 | `security.responseModelInterceptor` | `boolean \| { debug }` | `true` | Plain → Model auto-conversion |
 | `security.translateResponseInterceptor` | `boolean` | `true` | Auto translation application |
-| `security.secretFields` | `string[]` | `['password', ...]` | Global secret field removal list |
+| `security.secretFields` | `string[]` | `['password', ...]` | Global secret field removal list, added to the defaults; each field is also stripped under its SQL column name (`password_reset_token`, 12.3.1) |
 | `security.checkSecurityInterceptor.removeSecretFields` | `boolean` | `true` | Fallback secret removal |
 
 ### Role Guard Bypass

@@ -404,6 +404,127 @@ describe('check-overrides — overrides for packages that left the tree', () => 
   });
 });
 
+describe('check-overrides — overrides whose package stays but whose path is gone', () => {
+  /**
+   * A v9 lockfile with `rimraf@6.1.3` depending on glob, plus `other@1.0.0` depending on glob as well — the
+   * second parent is what kept a dead scoped override looking alive. `parents` maps each snapshot key to the
+   * glob version its edge resolves to; `globs` lists the glob versions the tree carries.
+   */
+  function globLock(parents: Record<string, string>, globs: string[]) {
+    const packages = [...Object.keys(parents), ...globs.map((v) => `glob@${v}`)];
+    return [
+      "lockfileVersion: '9.0'",
+      '',
+      'importers:',
+      '',
+      '  .:',
+      '    dependencies:',
+      ...Object.keys(parents).flatMap((key) => {
+        const [name, version] = [key.slice(0, key.lastIndexOf('@')), key.slice(key.lastIndexOf('@') + 1)];
+        return [`      ${name}:`, `        specifier: ${version}`, `        version: ${version}`];
+      }),
+      '',
+      'packages:',
+      '',
+      ...packages.flatMap((key) => [`  ${key}:`, '    resolution: {integrity: sha512-x}', '']),
+      'snapshots:',
+      '',
+      ...globs.flatMap((v) => [`  glob@${v}: {}`, '']),
+      ...Object.entries(parents).flatMap(([key, glob]) => [
+        `  ${key}:`,
+        '    dependencies:',
+        `      glob: ${glob}`,
+        '',
+      ]),
+    ].join('\n');
+  }
+
+  /**
+   * @regression   12.3.1 — the UNUSED check asked for the TARGET package only. `archiver-utils>glob@<14.0.2`
+   *   outlived archiver-utils (nitropack moved to archiver 8) without a word, because glob, pulled in by other
+   *   parents, was still in the tree; the template's comment claimed the guard would report it.
+   * @seen-failing Replace the parent lookup in unusedReason() with `undefined` in scripts/check-overrides.mjs —
+   *   registered as mutation `check-overrides-unused-ignores-scoped-parent` in tests/regression-mutations.json.
+   */
+  it('reports a scoped override whose parent left the tree while the package stayed', () => {
+    const r = run({
+      lock: globLock({ 'other@1.0.0': '14.0.3' }, ['14.0.3']),
+      overrides: { 'archiver-utils>glob@<14.0.2': '14.0.3' },
+    });
+    expect(r.status, 'dead weight is a warning, not a failure').toBe(0);
+    expect(r.out, `got:\n${r.out}`).toMatch(/archiver-utils is not in the tree, so the override never applies/);
+  });
+
+  it('paired control: stays quiet while the parent pulls the package at the target', () => {
+    const r = run({
+      lock: globLock({ 'other@1.0.0': '13.0.0', 'rimraf@6.1.3': '14.0.3' }, ['13.0.0', '14.0.3']),
+      overrides: { 'rimraf>glob@<14.0.2': '14.0.3' },
+    });
+    expect(r.status, `expected a clean run, got:\n${r.out}`).toBe(0);
+    expect(r.out, `the guard must have reported, got:\n${r.out}`).toMatch(/override\(s\) checked/);
+    expect(r.out, `rimraf → glob resolves to the target, got:\n${r.out}`).not.toMatch(/change nothing/);
+  });
+
+  /**
+   * @regression   12.3.1 — an override counted as live while its package was in the tree, also when its selector
+   *   matched nothing any more: the parent asked for the patched major itself, so no edge resolved to the target.
+   * @seen-failing Treat any edge as proof of use in unusedReason() in scripts/check-overrides.mjs — registered as
+   *   mutation `check-overrides-unused-ignores-dead-selector` in tests/regression-mutations.json.
+   */
+  it('reports a scoped override when the parent resolves the package to another version', () => {
+    const r = run({
+      lock: globLock({ 'rimraf@6.1.3': '14.1.0' }, ['14.1.0']),
+      overrides: { 'rimraf>glob@<14.0.2': '14.0.3' },
+    });
+    expect(r.status, 'dead weight is a warning, not a failure').toBe(0);
+    expect(r.out, `got:\n${r.out}`).toMatch(/rimraf → glob resolves to 14\.1\.0, never to 14\.0\.3/);
+  });
+
+  it('reports an unscoped override whose selector no resolved version falls under any more', () => {
+    // The two-majors shape (`ws@>=7 <7.5.13` beside `ws@>=8 <8.22.0`): once nothing asks for ws 7, the first entry
+    // is dead, and ws itself — still in the tree at 8 — used to keep it looking alive.
+    const r = run({
+      lock: globLock({ 'other@1.0.0': '14.1.0' }, ['14.1.0']),
+      overrides: { 'glob@>=13.0.0 <13.0.6': '13.0.6' },
+    });
+    expect(r.out, `got:\n${r.out}`).toMatch(/glob resolves to 14\.1\.0, never to 13\.0\.6/);
+  });
+
+  it('paired control: stays quiet when one edge resolves to the target among others', () => {
+    const r = run({
+      lock: globLock({ 'other@1.0.0': '14.1.0', 'rimraf@6.1.3': '13.0.6' }, ['13.0.6', '14.1.0']),
+      overrides: { 'glob@>=13.0.0 <13.0.6': '13.0.6' },
+    });
+    expect(r.status, `expected a clean run, got:\n${r.out}`).toBe(0);
+    expect(r.out, `rimraf → glob resolves to the target, got:\n${r.out}`).not.toMatch(/change nothing/);
+  });
+
+  it('leaves a target that is not a plain version unjudged', () => {
+    // `-` removes a dependency, a range resolves to whatever matches: neither says where the override applied.
+    const r = run({
+      lock: globLock({ 'other@1.0.0': '14.1.0' }, ['14.1.0']),
+      overrides: { glob: '^14.0.0' },
+    });
+    expect(r.out, `a range target cannot be judged from versions, got:\n${r.out}`).not.toMatch(/change nothing/);
+  });
+
+  /**
+   * @regression   12.3.1 — a scoped override counted as live while its parent stayed in the tree but no longer
+   *   depended on the package at all.
+   * @seen-failing Return `undefined` for a parent without an edge into the package in unusedReason() in
+   *   scripts/check-overrides.mjs — registered as mutation `check-overrides-unused-ignores-dropped-edge` in
+   *   tests/regression-mutations.json.
+   */
+  it('reports a scoped override whose parent no longer depends on the package', () => {
+    const lock = globLock({ 'other@1.0.0': '14.0.3' }, ['14.0.3']).replace(
+      'packages:\n',
+      'packages:\n\n  rimraf@7.0.0:\n    resolution: {integrity: sha512-x}\n',
+    );
+    const r = run({ lock, overrides: { 'rimraf>glob@<14.0.2': '14.0.3' } });
+    expect(r.out, `got:\n${r.out}`).toMatch(/rimraf no longer depends on glob, so the override never applies/);
+  });
+});
+
 describe('check-overrides — override key shapes', () => {
   // pnpm keys carry an optional version selector and an optional parent path,
   // and a scoped name already contains the `@` that separates the selector.

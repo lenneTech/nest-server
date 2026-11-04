@@ -1065,15 +1065,20 @@ function buildPlugins(
       rpName: normalizedPasskey.rpName,
     };
 
-    // Add optional WebAuthn configuration if specified
+    // The plugin reads these three from `authenticatorSelection` only. Until 12.3.1 they were set at the top level and
+    // ignored, so `userVerification: 'required'` enforced nothing; the plugin's own defaults fill what is not set
+    const authenticatorSelection: Record<string, string> = {};
     if (normalizedPasskey.authenticatorAttachment) {
-      passkeyOptions.authenticatorAttachment = normalizedPasskey.authenticatorAttachment;
+      authenticatorSelection.authenticatorAttachment = normalizedPasskey.authenticatorAttachment;
     }
     if (normalizedPasskey.residentKey) {
-      passkeyOptions.residentKey = normalizedPasskey.residentKey;
+      authenticatorSelection.residentKey = normalizedPasskey.residentKey;
     }
     if (normalizedPasskey.userVerification) {
-      passkeyOptions.userVerification = normalizedPasskey.userVerification;
+      authenticatorSelection.userVerification = normalizedPasskey.userVerification;
+    }
+    if (Object.keys(authenticatorSelection).length > 0) {
+      passkeyOptions.authenticatorSelection = authenticatorSelection;
     }
     if (normalizedPasskey.webAuthnChallengeCookie) {
       // The plugin reads the name from `advanced`; a top-level option is ignored

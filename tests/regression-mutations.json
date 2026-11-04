@@ -1173,9 +1173,9 @@
       "id": "check-overrides-range-key-blind",
       "defect": "11.39.x — `targetPackage()` split an override key on `>` to strip the `parent>child` scope, but `>` is also the version operator. `\"ws@>=8.0.0 <8.21.0\"` resolved to `\"=8.0.0 <8.21.0\"`, so no advisory ever matched such a key: the TOO LOW and NOT MATCHING classes were unreachable for 10 of this repo's 17 overrides, while the run still closed with `ok — 17 override(s) checked ... none is failing` and printed 10 false UNUSED warnings. One-sided keys (`pkg@<X`) were unaffected, which is why the original suite — bare and one-sided keys only — stayed green.",
       "file": "scripts/check-overrides.mjs",
-      "after": "function targetPackage(key) {",
-      "find": "    .split(/(?<![@<>=\\s])>/)",
-      "replace": "    .split('>')",
+      "after": "function overrideSegments(key) {",
+      "find": "  return key.split(/(?<![@<>=\\s])>/)",
+      "replace": "  return key.split('>')",
       "specs": [
         "tests/unit/check-overrides.guard.spec.ts"
       ],
@@ -1665,6 +1665,61 @@
       "driverSpecific": false
     },
     {
+      "id": "check-overrides-unused-ignores-scoped-parent",
+      "defect": "12.3.1 — the UNUSED check in scripts/check-overrides.mjs looked at the target package only, so `archiver-utils>glob@<14.0.2` stayed silent after archiver-utils left the tree while other parents still pulled glob.",
+      "file": "scripts/check-overrides.mjs",
+      "find": "  const absent = parents.find((parent) => !inTree(parent));",
+      "replace": "  const absent = undefined;",
+      "specs": [
+        "tests/unit/check-overrides.guard.spec.ts"
+      ],
+      "driverSpecific": false
+    },
+    {
+      "id": "check-overrides-unused-ignores-dead-selector",
+      "defect": "12.3.1 — the UNUSED check in scripts/check-overrides.mjs counted an override as live while its package was in the tree, also when no edge resolved to its fixed target any more (the selector matched nothing).",
+      "file": "scripts/check-overrides.mjs",
+      "find": "  if (relevant.some((edge) => edge.version === null || edge.version === target)) {",
+      "replace": "  if (relevant.length > 0) {",
+      "specs": [
+        "tests/unit/check-overrides.guard.spec.ts"
+      ],
+      "driverSpecific": false
+    },
+    {
+      "id": "check-overrides-unused-ignores-dropped-edge",
+      "defect": "12.3.1 — the UNUSED check in scripts/check-overrides.mjs counted a scoped override as live while its parent stayed in the tree but no longer depended on the target package.",
+      "file": "scripts/check-overrides.mjs",
+      "find": "    return parent === undefined ? undefined : `${parent} no longer depends on ${module}, so the override never applies`;",
+      "replace": "    return undefined;",
+      "specs": [
+        "tests/unit/check-overrides.guard.spec.ts"
+      ],
+      "driverSpecific": false
+    },
+    {
+      "id": "secret-columns-not-stripped",
+      "defect": "12.3.1 — CheckSecurityInterceptor.removeSecrets() compared the camelCase secret names only, so a native SQL row (snake_case columns) returned by a route kept password_reset_token, verification_token, refresh_tokens, temp_tokens and api_key_encrypted.",
+      "file": "src/core/common/interceptors/check-security.interceptor.ts",
+      "find": "      keys.add(columnName(field));",
+      "replace": "      void columnName;",
+      "specs": [
+        "tests/unit/check-security-secret-columns.spec.ts"
+      ],
+      "driverSpecific": false
+    },
+    {
+      "id": "passkey-selection-top-level",
+      "defect": "12.3.1 — buildPlugins() handed `authenticatorAttachment`, `residentKey` and `userVerification` to the passkey plugin at the top level, where it never reads them, so `betterAuth.passkey.userVerification: 'required'` enforced nothing.",
+      "file": "src/core/modules/better-auth/better-auth.config.ts",
+      "find": "      passkeyOptions.authenticatorSelection = authenticatorSelection;",
+      "replace": "      Object.assign(passkeyOptions, authenticatorSelection);",
+      "specs": [
+        "tests/unit/better-auth-passkey-options.spec.ts"
+      ],
+      "driverSpecific": false
+    },
+    {
       "id": "legacy-issuer-index-drop-skipped",
       "defect": "11.41.8 — on better-auth 1.7.3+ the unique (issuer, accountId) index left behind by 1.7.0–1.7.2 refuses a second account whose ID another provider already uses; the boot must drop it.",
       "file": "src/core/modules/better-auth/core-better-auth.service.ts",
@@ -2098,8 +2153,8 @@
       "id": "unusable-fix-counts-fixed-edges",
       "defect": "The consumer-set check counts every parent of the affected package, whatever version it pulls. A subtree lifted to the fixed release then fails a correct declaration for good, because the lifted parent is counted as a consumer nobody assessed.",
       "file": "scripts/check-overrides.mjs",
-      "find": "        if (!pullsAffectedVersion(target.version, ranges)) {",
-      "replace": "        if (false) {",
+      "find": "    if (!pullsAffectedVersion(edge.version, ranges)) {",
+      "replace": "    if (false) {",
       "specs": [
         "tests/unit/check-overrides.guard.spec.ts"
       ],

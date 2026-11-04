@@ -6,7 +6,30 @@ import { getContextData } from '../helpers/context.helper.js';
 import { hasRestrictionsCheckedMarker } from '../decorators/restrictions-checked.marker.js';
 import { getStringIds } from '../helpers/db.helper.js';
 import { processDeep } from '../helpers/input.helper.js';
+import { columnName } from '../persistence/sql/sql-naming.js';
 import { ConfigService } from '../services/config.service.js';
+
+/**
+ * The keys a secret field can arrive under: its own name and its SQL column (12.3.1). A row read through
+ * `store.native()` / `store.raw()` carries snake_case columns (`password_reset_token`), and a route returning it
+ * unchanged handed every secret but `password` — the one spelled alike — to the client. `id` / `_id` keep their own
+ * spelling only (their column is `id`), and a name that is no identifier has no column.
+ */
+function secretFieldKeys(fields: string[]): Set<string> {
+  const keys = new Set<string>();
+  for (const field of fields) {
+    keys.add(field);
+    if (field === 'id' || field === '_id') {
+      continue;
+    }
+    try {
+      keys.add(columnName(field));
+    } catch {
+      // Not an identifier, so no column carries it
+    }
+  }
+  return keys;
+}
 
 /**
  * Verification of all outgoing data via securityCheck
@@ -137,6 +160,7 @@ export class CheckSecurityInterceptor implements NestInterceptor {
       return proto === null || proto === Object.prototype;
     };
     const visited = new WeakSet();
+    const secretKeys = secretFieldKeys(this.config.secretFields);
     const removeSecrets = (data: any) => {
       if (!this.config.removeSecretFields || !data || typeof data !== 'object') {
         return data;
@@ -155,7 +179,7 @@ export class CheckSecurityInterceptor implements NestInterceptor {
         return data;
       }
       visited.add(data);
-      for (const field of this.config.secretFields) {
+      for (const field of secretKeys) {
         if (field in data && data[field] !== undefined) {
           data[field] = undefined;
         }
@@ -163,7 +187,7 @@ export class CheckSecurityInterceptor implements NestInterceptor {
       // Recurse into nested plain objects
       for (const key of Object.keys(data)) {
         const value = data[key];
-        if (value && typeof value === 'object' && !this.config.secretFields.includes(key)) {
+        if (value && typeof value === 'object' && !secretKeys.has(key)) {
           removeSecrets(value);
         }
       }

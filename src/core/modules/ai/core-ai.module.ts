@@ -8,6 +8,7 @@ import { CoreAiMcpOAuthService } from './services/core-ai-mcp-oauth.service.js';
 import { CoreAiMcpService } from './services/core-ai-mcp.service.js';
 import { CorePersistenceModule } from '../../common/persistence/core-persistence.module.js';
 import {
+  AI_MCP_ENABLED,
   AI_MCP_OAUTH_CLIENT_MODEL,
   AI_MCP_OAUTH_CODE_MODEL,
   AI_MCP_OAUTH_REFRESH_TOKEN_MODEL,
@@ -274,6 +275,7 @@ export class CoreAiModule {
         AskUserQuestionAiTool,
         SearchToolsAiTool,
         LlmProviderFactory,
+        { provide: AI_MCP_ENABLED, useValue: options.mcpEnabled === true },
         { provide: AI_BUDGET_LIMIT_CLASS, useValue: CoreAiBudgetLimit },
         { provide: AI_CONNECTION_CLASS, useValue: CoreAiConnection },
         { provide: AI_CONNECTION_PREFERENCE_CLASS, useValue: CoreAiConnectionPreference },

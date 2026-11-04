@@ -92,4 +92,22 @@ minimumReleaseAge: 1440
 # Exact versions exempted from the hold-back. `pnpm audit --fix` writes a security fix here so it can
 # be installed the same day. Keep it empty otherwise: every entry names one exact version and goes dead
 # the moment that version stops resolving.
-minimumReleaseAgeExclude: []
+# 2026-11-04 (nest-server 12.3.1): better-auth 1.7.16, published 2026-11-03 21:24 UTC, closes the better-auth
+# advisories of that day (social sign-in e-mail treated as verified, passkey origin and user verification, e-mail
+# change links, …) and pins better-call 1.4.5. Its GHSA-23w8-wx9r-vm57 is not reachable through nest-server —
+# better-auth's handler builds a router around a per-request context for every request — so 1.4.5 is a second
+# layer there. Taken the same day on purpose; every version below
+# carries SLSA provenance from the projects' own GitHub Actions. Measured under pnpm 11.28.5: a frozen CI
+# install passes with them and fails with ERR_PNPM_MINIMUM_RELEASE_AGE_VIOLATION without one of them. Inert
+# from 2026-11-04 21:24 UTC on — drop the entries with the next maintenance.
+minimumReleaseAgeExclude:
+  - '@better-auth/core@1.7.16'
+  - '@better-auth/drizzle-adapter@1.7.16'
+  - '@better-auth/kysely-adapter@1.7.16'
+  - '@better-auth/memory-adapter@1.7.16'
+  - '@better-auth/mongo-adapter@1.7.16'
+  - '@better-auth/passkey@1.7.16'
+  - '@better-auth/prisma-adapter@1.7.16'
+  - '@better-auth/telemetry@1.7.16'
+  - better-auth@1.7.16
+  - better-call@1.4.5

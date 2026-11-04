@@ -106,3 +106,7 @@ export const AI_MCP_OAUTH_CODE_MODEL = 'AiMcpOAuthCode';
 export const AI_MCP_OAUTH_REFRESH_TOKEN_MODEL = 'AiMcpOAuthRefreshToken';
 /** How long an authorization code may be exchanged — checked on every read, not left to a TTL index. */
 export const AI_MCP_OAUTH_CODE_TTL_SECONDS = 600;
+
+// ---- module options ----
+/** Whether `CoreAiModule.forRoot()` registered the MCP endpoint (`ai.mcp`) — what `GET /ai/status` answers. */
+export const AI_MCP_ENABLED = 'AI_MCP_ENABLED';
