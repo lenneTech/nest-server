@@ -29,6 +29,9 @@ export class EmailService implements OnModuleDestroy {
   /** Once-per-process latch for the SMTP TLS warning — a per-send warning would be noise. */
   private smtpTlsWarningEmitted = false;
 
+  /** Once-per-process latch for a Reply-To that is not a string. */
+  private replyToWarningEmitted = false;
+
   /**
    * Inject services
    */
@@ -77,6 +80,31 @@ export class EmailService implements OnModuleDestroy {
     );
   }
 
+  /**
+   * The Reply-To of one mail (12.3.2+): the call's `replyTo`, else `email.defaultReplyTo`, else none. `false` (or an
+   * empty string) sends this mail without one. A value that is not a string is dropped with a warning instead of
+   * failing the mail: a misconfigured default must not stop password-reset or verification mail.
+   */
+  protected resolveReplyTo(replyTo: false | string | undefined): string | undefined {
+    if (replyTo === false) {
+      return undefined;
+    }
+    const value: unknown = replyTo ?? this.configService.getFastButReadOnly('email.defaultReplyTo');
+    if (value === undefined || value === null) {
+      return undefined;
+    }
+    if (typeof value === 'string') {
+      return value.trim() || undefined;
+    }
+    if (!this.replyToWarningEmitted) {
+      this.replyToWarningEmitted = true;
+      this.emailServiceLogger.warn(
+        `Reply-To ignored: expected an address string (email.defaultReplyTo / replyTo), got ${typeof value}.`,
+      );
+    }
+    return undefined;
+  }
+
   onModuleDestroy(): void {
     if (this.cachedTransporter) {
       this.cachedTransporter.close();
@@ -95,6 +123,8 @@ export class EmailService implements OnModuleDestroy {
       attachments?: Attachment[];
       html?: string;
       htmlTemplate?: string;
+      /** Reply-To of this mail; overrides `email.defaultReplyTo`, `false` sends it without one (12.3.2+) */
+      replyTo?: false | string;
       senderEmail?: string;
       senderName?: string;
       smtp?: MailTransportOptions;
@@ -190,11 +220,13 @@ export class EmailService implements OnModuleDestroy {
       this.cachedSmtpConfig = smtpKey;
     }
 
-    // Send mail
+    // Send mail; without a Reply-To the header is left out entirely
+    const replyTo = this.resolveReplyTo(config.replyTo);
     return this.cachedTransporter.sendMail({
       attachments,
       from: `"${senderName}" <${senderEmail}>`,
       html,
+      ...(replyTo ? { replyTo } : {}),
       subject,
       text,
       to: recipients,

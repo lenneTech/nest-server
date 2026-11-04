@@ -1,6 +1,6 @@
 # @lenne.tech/nest-server — Framework API Reference
 
-> Auto-generated from source code as of 2026-11-04 (v12.3.1)
+> Auto-generated from source code as of 2026-11-04 (v12.3.2)
 > File: `FRAMEWORK-API.md` — compact, machine-readable API surface for Claude Code
 
 ## CoreModule.forRoot()
@@ -27,7 +27,7 @@
   - `cronJobs?`: `Record<string, string | false | 0 | CronJobConfigWithTimeZone<null, null> | C...` — Cron jobs configuration object with the name of the cron job function as key
   - `database?`: `string | false | IDatabaseConfig` (default: `undefined (the `mongoose` configuration)`) — Data sources: where models are stored.
   - `debugProcessInput?`: `boolean` (default: `false`) — When true, logs a debug message when prepareInput() changes the input type during process().
-  - `email?`: `{ defaultSender?: { email?: string; name?: string; }; mailjet?: MailjetOption...` — SMTP and template configuration for sending emails
+  - `email?`: `{ defaultReplyTo?: string; defaultSender?: { email?: string; name?: string; }...` — SMTP and template configuration for sending emails
   - `env?`: `string` — Environment
   - `version?`: `string` — Semantic version of the running build (e.g. from package.json / meta.json).
   - `errorCode?`: `IErrorCode` — Configuration for the error code module
