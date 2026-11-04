@@ -1,6 +1,6 @@
 # @lenne.tech/nest-server — Framework API Reference
 
-> Auto-generated from source code as of 2026-10-29 (v11.43.5)
+> Auto-generated from source code as of 2026-11-03 (v11.43.6)
 > File: `FRAMEWORK-API.md` — compact, machine-readable API surface for Claude Code
 
 ## CoreModule.forRoot()
@@ -26,7 +26,7 @@
   - `cors?`: `boolean | ICorsConfig | undefined` (default: `undefined (enabled with auto-derived origins)`) — CORS (Cross-Origin Resource Sharing) configuration.
   - `cronJobs?`: `Record<string, string | false | 0 | CronJobConfigWithTimeZone<null, null> | C...` — Cron jobs configuration object with the name of the cron job function as key
   - `debugProcessInput?`: `boolean | undefined` (default: `false`) — When true, logs a debug message when prepareInput() changes the input type during process().
-  - `email?`: `{ defaultSender?: { email?: string; name?: string; }; mailjet?: MailjetOption...` — SMTP and template configuration for sending emails
+  - `email?`: `{ defaultReplyTo?: string; defaultSender?: { email?: string; name?: string; }...` — SMTP and template configuration for sending emails
   - `env?`: `string | undefined` — Environment
   - `version?`: `string | undefined` — Semantic version of the running build (e.g. from package.json / meta.json).
   - `errorCode?`: `IErrorCode | undefined` — Configuration for the error code module

@@ -23,6 +23,7 @@ import type { AddressInfo, Server } from 'node:net';
 import { createRequire } from 'node:module';
 import { afterEach, describe, expect, it } from 'vitest';
 
+import { getEnvironmentObject } from '../../src/core/common/helpers/config.helper';
 import { ConfigService } from '../../src/core/common/services/config.service';
 import { EmailService } from '../../src/core/common/services/email.service';
 import { TemplateService } from '../../src/core/common/services/template.service';
@@ -91,11 +92,12 @@ async function startSmtpServer(options: Record<string, unknown> = {}) {
 }
 
 /** EmailService with just the config it reads; templates are not used here (html/text given). */
-function emailService(): EmailService {
-  const config: Record<string, string> = {
+function emailService(extra: Record<string, unknown> = {}): EmailService {
+  const config: Record<string, unknown> = {
     'email.defaultSender.email': 'noreply@nest-server.test',
     'email.defaultSender.name': 'nest-server tests',
     env: 'local',
+    ...extra,
   };
   const configService = {
     get: (key: string) => config[key],
@@ -126,9 +128,9 @@ describe('EmailService — a real SMTP round trip', () => {
     }
   });
 
-  async function setUp(serverOptions: Record<string, unknown> = {}) {
+  async function setUp(serverOptions: Record<string, unknown> = {}, config: Record<string, unknown> = {}) {
     const smtp = await startSmtpServer(serverOptions);
-    const service = emailService();
+    const service = emailService(config);
     cleanups.push(smtp.close, () => service.onModuleDestroy());
     return { service, smtp };
   }
@@ -177,9 +179,7 @@ describe('EmailService — a real SMTP round trip', () => {
 
     await service.sendMail(RECIPIENT, 'stripped capability', { smtp: smtpOptions(smtp.port) as any, text: 'x' });
     expect(smtp.received).toHaveLength(1);
-    expect(smtp.received[0].session.secure, 'requireTLS must have upgraded despite the hidden capability').toBe(
-      true,
-    );
+    expect(smtp.received[0].session.secure, 'requireTLS must have upgraded despite the hidden capability').toBe(true);
   });
 
   it('with requireTLS, refuses a server that cannot do STARTTLS instead of sending in plaintext', async () => {
@@ -203,5 +203,69 @@ describe('EmailService — a real SMTP round trip', () => {
     });
     expect(smtp.received).toHaveLength(1);
     expect(smtp.received[0].session.secure).toBe(false);
+  });
+
+  describe('Reply-To (11.43.6)', () => {
+    /** The Reply-To header of the one message the server received, or undefined. */
+    function replyToHeader(raw: string): string | undefined {
+      return /^Reply-To: (.*)$/im.exec(raw.split(/\r?\n\r?\n/)[0])?.[1]?.trim();
+    }
+
+    it('puts email.defaultReplyTo on the wire', async () => {
+      const { service, smtp } = await setUp({}, { 'email.defaultReplyTo': 'support@nest-server.test' });
+
+      await service.sendMail(RECIPIENT, 'reply-to default', { smtp: smtpOptions(smtp.port) as any, text: 'x' });
+
+      expect(replyToHeader(smtp.received[0].raw)).toBe('support@nest-server.test');
+    });
+
+    it('paired control: sends no Reply-To header when none is configured', async () => {
+      const { service, smtp } = await setUp();
+
+      await service.sendMail(RECIPIENT, 'no reply-to', { smtp: smtpOptions(smtp.port) as any, text: 'x' });
+
+      expect(smtp.received).toHaveLength(1);
+      expect(replyToHeader(smtp.received[0].raw)).toBeUndefined();
+    });
+
+    it('lets a call override the default, with a display name', async () => {
+      const { service, smtp } = await setUp({}, { 'email.defaultReplyTo': 'support@nest-server.test' });
+
+      await service.sendMail(RECIPIENT, 'reply-to override', {
+        replyTo: '"Sales Team" <sales@nest-server.test>',
+        smtp: smtpOptions(smtp.port) as any,
+        text: 'x',
+      });
+
+      expect(replyToHeader(smtp.received[0].raw)).toBe('Sales Team <sales@nest-server.test>');
+    });
+
+    it('lets a call send without the default (replyTo: false)', async () => {
+      const { service, smtp } = await setUp({}, { 'email.defaultReplyTo': 'support@nest-server.test' });
+
+      await service.sendMail(RECIPIENT, 'no reply-to', {
+        replyTo: false,
+        smtp: smtpOptions(smtp.port) as any,
+        text: 'x',
+      });
+
+      expect(smtp.received).toHaveLength(1);
+      expect(replyToHeader(smtp.received[0].raw)).toBeUndefined();
+    });
+
+    it('still delivers when the configured default is not a string', async () => {
+      const { service, smtp } = await setUp({}, { 'email.defaultReplyTo': { email: 'support@nest-server.test' } });
+
+      await service.sendMail(RECIPIENT, 'bad reply-to config', { smtp: smtpOptions(smtp.port) as any, text: 'x' });
+
+      expect(smtp.received).toHaveLength(1);
+      expect(replyToHeader(smtp.received[0].raw)).toBeUndefined();
+    });
+
+    it('is set through NSC__EMAIL__DEFAULT_REPLY_TO', () => {
+      expect(
+        getEnvironmentObject({ processEnv: { NSC__EMAIL__DEFAULT_REPLY_TO: 'support@nest-server.test' } }),
+      ).toEqual({ email: { defaultReplyTo: 'support@nest-server.test' } });
+    });
   });
 });

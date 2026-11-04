@@ -2511,6 +2511,17 @@ export interface IServerOptions {
    */
   email?: {
     /**
+     * Default Reply-To of every mail `EmailService.sendMail()` sends (11.43.6+): where a recipient's answer goes when it
+     * should not reach the sender address, e.g. a shared support mailbox. An address, or `"Name" <address>`.
+     *
+     * Absent (the default) → no Reply-To header, exactly as before. A call overrides it with `replyTo`, and
+     * `replyTo: false` sends that one mail without it. Set it through `NSC__EMAIL__DEFAULT_REPLY_TO`. Applies to the
+     * SMTP path (nodemailer, `email.smtp`): Brevo and Mailjet templates carry their own reply-to.
+     * @default undefined
+     */
+    defaultReplyTo?: string;
+
+    /**
      * Data for default sender
      */
     defaultSender?: {
