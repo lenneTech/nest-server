@@ -303,6 +303,14 @@ describe('CoreSystemSetupService boot report', () => {
     expect(logs.warnings()).toEqual([]);
   });
 
+  it('names an all-digit ENV password (a number) instead of crashing the boot', async () => {
+    const { service } = serviceWith({ env: 'production', initialAdmin: { email: 'admin@test.com', password: 12345678 } });
+    const warn = vi.spyOn(Logger.prototype, 'warn').mockImplementation(() => undefined);
+    vi.spyOn(Logger.prototype, 'error').mockImplementation(() => undefined);
+    await expect((service as any).createInitialAdminFromConfig()).resolves.toBeUndefined();
+    expect(warn.mock.calls.map(([message]) => String(message))).toEqual([expect.stringContaining('not a string')]);
+  });
+
   it('still reports an initialAdmin that cannot be used', async () => {
     const logs = logsOf(serviceWith({ env: 'production', initialAdmin: { email: 'not-an-email', password: 'x' } }).service);
     await logs.run();

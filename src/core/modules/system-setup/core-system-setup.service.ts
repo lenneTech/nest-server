@@ -208,8 +208,17 @@ export class CoreSystemSetupService implements OnApplicationBootstrap {
       return skip(`Invalid initialAdmin email format: "${initialAdmin.email}". Auto-creation skipped.`);
     }
 
+    // An all-digit NSC__SYSTEM_SETUP__INITIAL_ADMIN__PASSWORD arrives as a NUMBER (getEnvironmentObject() converts
+    // numeric strings), and `.trim()` on it used to throw at boot. Name the cause instead.
+    if (typeof initialAdmin.password !== 'string') {
+      return skip(
+        `initialAdmin password is a ${typeof initialAdmin.password}, not a string (an all-digit ENV value is ` +
+          'converted to a number). Auto-creation skipped.',
+      );
+    }
+
     // Validate password is not empty/whitespace
-    if (typeof initialAdmin.password !== 'string' || !initialAdmin.password.trim()) {
+    if (!initialAdmin.password.trim()) {
       return skip('Empty initialAdmin password. Auto-creation skipped.');
     }
 
