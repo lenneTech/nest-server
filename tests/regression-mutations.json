@@ -6238,6 +6238,17 @@
         "tests/unit/redact-secrets.spec.ts"
       ],
       "driverSpecific": false
+    },
+    {
+      "id": "config-service-redact-ignores-secret-fields",
+      "defect": "12.5.0 review — ConfigService.getRedactedConfig() must mask the project's security.secretFields, also for a name no key pattern matches; the Hub config panel answers through @Res(), so no response interceptor strips them behind it.",
+      "file": "src/core/common/services/config.service.ts",
+      "find": "      ...(Array.isArray(projectSecretFields) ? projectSecretFields : []),\n",
+      "replace": "",
+      "specs": [
+        "tests/unit/redact-secrets.spec.ts"
+      ],
+      "driverSpecific": false
     }
   ]
 }

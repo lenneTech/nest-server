@@ -188,11 +188,19 @@ describe('isConfigEndpointEnabled()', () => {
 });
 
 describe('configEndpointResponse() and ConfigService.getRedactedConfig()', () => {
+  /**
+   * @regression   12.5.0 review — getRedactedConfig() must mask the project's `security.secretFields`, also for a name
+   *   no key pattern matches: the Hub config panel answers through `@Res()`, so no response interceptor strips them.
+   * @seen-failing Drop the project's secretFields from ConfigService.redact() in
+   *   src/core/common/services/config.service.ts — registered as mutation `config-service-redact-ignores-secret-fields`
+   *   in tests/regression-mutations.json.
+   */
   it('answers the redacted configuration where the endpoint is open', () => {
-    ConfigService.setConfig({ ...SECRETS, env: 'e2e', security: { secretFields: ['customSecret'] } } as any, {
+    // `crmLogin` matches no key pattern: only the project's secretFields can mask it
+    ConfigService.setConfig({ ...SECRETS, env: 'e2e', security: { secretFields: ['crmLogin'] } } as any, {
       reInit: true,
     });
-    ConfigService.mergeConfig({ customSecret: 'SECRET-project-field' } as any);
+    ConfigService.mergeConfig({ crmLogin: 'SECRET-project-field' } as any);
 
     const body = configEndpointResponse();
     expect(JSON.stringify(body)).not.toContain('SECRET-');
