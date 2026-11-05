@@ -277,6 +277,7 @@ export * from './core/modules/permissions/permissions-scanner.js';
 export * from './core/modules/system-setup/core-system-setup.controller.js';
 export * from './core/modules/system-setup/core-system-setup.module.js';
 export * from './core/modules/system-setup/core-system-setup.service.js';
+export * from './core/modules/system-setup/system-setup-http-init.helper.js';
 
 // =====================================================================================================================
 // Core - Modules - Sync (offline sync)

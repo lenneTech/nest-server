@@ -15,6 +15,7 @@ import { CoreAuthController } from '../../src/core/modules/auth/core-auth.contro
 import { CoreBetterAuthController } from '../../src/core/modules/better-auth/core-better-auth.controller';
 import { CoreBetterAuthService } from '../../src/core/modules/better-auth/core-better-auth.service';
 import { CoreHubController } from '../../src/core/modules/hub/core-hub.controller';
+import { CoreSystemSetupController } from '../../src/core/modules/system-setup/core-system-setup.controller';
 
 import type { Provider, Type } from '@nestjs/common';
 import type { OpenAPIObject, OperationObject } from '@nestjs/swagger';
@@ -115,6 +116,27 @@ describe('legacy auth REST endpoints', () => {
       (await documentOf([CoreAuthController], { auth: { legacyEndpoints: { enabled: true } } })).paths,
     );
     legacyPaths.forEach((path) => expect(paths, path).toContain(path));
+  });
+});
+
+describe('system setup init', () => {
+  it('is left out where systemSetup.httpInit keeps it closed (a deployed environment by default, 12.4.0+)', async () => {
+    for (const config of [{ env: 'production' }, { env: 'develop' }, { env: 'local', systemSetup: { httpInit: false } }]) {
+      const paths = Object.keys((await documentOf([CoreSystemSetupController], config as Partial<IServerOptions>)).paths);
+      expect(paths, JSON.stringify(config)).not.toContain('/system-setup/init');
+      expect(paths, JSON.stringify(config)).toContain('/system-setup/status');
+    }
+  });
+
+  it('is documented where the init is open', async () => {
+    for (const config of [
+      { env: 'local' },
+      { env: 'production', systemSetup: { httpInit: true } },
+      { env: 'production', systemSetup: { httpInit: { token: 'setup-token-0123456789' } } },
+    ]) {
+      const paths = Object.keys((await documentOf([CoreSystemSetupController], config as Partial<IServerOptions>)).paths);
+      expect(paths, JSON.stringify(config)).toContain('/system-setup/init');
+    }
   });
 });
 

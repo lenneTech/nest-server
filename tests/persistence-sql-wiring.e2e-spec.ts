@@ -237,6 +237,9 @@ describe('SQL data source wired through CoreModule (e2e)', () => {
           graphQl: { driver: { introspection: true }, maxComplexity: 1000 },
           mongoose: { uri: deriveTestDbUri('sql-wiring') },
           port: 0,
+          // `test` is a deployed environment, where POST /system-setup/init is closed by default (12.4.0); the setup
+          // cases below drive it over HTTP, so they open it the documented way
+          systemSetup: { httpInit: true },
         } as any),
         WiringFeatureModule,
       ],
@@ -768,6 +771,8 @@ describe('SQL data source boot check (e2e)', () => {
             graphQl: { driver: { introspection: true }, maxComplexity: 1000 },
             mongoose: { uri: deriveTestDbUri(`sql-wiring-setup-${Date.now()}`) },
             port: 0,
+            // `test` is deployed: the HTTP init is closed there by default since 12.4.0, and this case drives it
+            systemSetup: { httpInit: true },
           } as any),
           SetupUsersModule,
         ],

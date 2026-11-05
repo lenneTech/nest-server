@@ -3611,7 +3611,10 @@ export interface IServerOptions {
    *
    * Auto-creation via config/ENV (no REST call needed):
    * - `{ initialAdmin: { email: '...', password: '...' } }`
-   * - `NSC__systemSetup__initialAdmin__email` + `NSC__systemSetup__initialAdmin__password`
+   * - `NSC__SYSTEM_SETUP__INITIAL_ADMIN__EMAIL` + `NSC__SYSTEM_SETUP__INITIAL_ADMIN__PASSWORD`
+   *
+   * The anonymous `POST /system-setup/init` is open only in `local`, `ci` and `e2e` unless `httpInit` opens it
+   * (12.4.0+, see {@link ISystemSetup.httpInit}).
    *
    * @since 11.14.0
    *
@@ -4049,20 +4052,71 @@ export interface ISystemSetup {
   enabled?: boolean;
 
   /**
+   * Whether the anonymous `POST /system-setup/init` may create the first administrator.
+   *
+   * Fail-closed outside the local environments: whoever reaches an API without users through that route becomes its
+   * administrator, so a deployment provisions the first admin through {@link initialAdmin} and opens the HTTP route
+   * only on purpose.
+   *
+   * | Value | `local` / `ci` / `e2e` | every other environment (`develop`, `test`, `production`, …) |
+   * |-------|------------------------|---------------------------------------------------------------|
+   * | not set | open | **closed** (403 `LTNS_0053`) |
+   * | `true` | open | open, without a token |
+   * | `{ token: '<at least 16 characters>' }` | open, token required | open, token required |
+   * | `false` / `{ enabled: false, … }` | closed | closed |
+   *
+   * The token is sent in the `X-System-Setup-Token` header; a missing or wrong one answers 403 `LTNS_0054`. An object
+   * whose token is missing, empty, shorter than 16 characters or not a string keeps the route CLOSED and logs an
+   * error at boot — `{ token: process.env.SETUP_TOKEN }` with the variable unset must not open it. A value that is
+   * neither a boolean nor an object (the string `'true'` from `NEST_SERVER_CONFIG`) counts as not set.
+   *
+   * Environment variables: `NSC__SYSTEM_SETUP__HTTP_INIT=true`, or `NSC__SYSTEM_SETUP__HTTP_INIT__TOKEN=<secret>` (a
+   * token of digits only is converted to a number by the environment reader and refused; set one of the two, not
+   * both).
+   *
+   * `GET /system-setup/status` reports the result as `httpInitEnabled` / `httpInitTokenRequired`.
+   *
+   * @default undefined (open only in `local`, `ci` and `e2e`)
+   * @since 12.4.0
+   */
+  httpInit?: boolean | ISystemSetupHttpInit;
+
+  /**
    * Pre-configured initial admin credentials for automatic creation on server start.
    *
    * When set, the service will automatically create the initial admin user
    * during application bootstrap if zero users exist. This is useful for
    * automated deployments (Docker, CI/CD) where no manual REST call is possible.
+   * It is not affected by {@link httpInit}.
    *
-   * Can be provided via environment variables:
-   * - `NSC__systemSetup__initialAdmin__email`
-   * - `NSC__systemSetup__initialAdmin__password`
-   * - `NSC__systemSetup__initialAdmin__name` (optional)
+   * Can be provided via environment variables (SCREAMING_SNAKE segments — a camelCase segment such as
+   * `NSC__systemSetup__…` is NOT read, the boot warns about it):
+   * - `NSC__SYSTEM_SETUP__INITIAL_ADMIN__EMAIL`
+   * - `NSC__SYSTEM_SETUP__INITIAL_ADMIN__PASSWORD`
+   * - `NSC__SYSTEM_SETUP__INITIAL_ADMIN__NAME` (optional)
    *
    * Security: Same zero-user guard applies - only works when no users exist.
    */
   initialAdmin?: ISystemSetupInitialAdmin;
+}
+
+/**
+ * Object form of {@link ISystemSetup.httpInit}: the HTTP init, protected by a setup token
+ *
+ * @since 12.4.0
+ */
+export interface ISystemSetupHttpInit {
+  /**
+   * `false` keeps the HTTP init closed while the token stays configured
+   * @default true
+   */
+  enabled?: boolean;
+
+  /**
+   * The secret `POST /system-setup/init` must carry in the `X-System-Setup-Token` header. At least 16 characters;
+   * a missing, shorter or non-string value keeps the HTTP init closed.
+   */
+  token?: string;
 }
 
 /**
