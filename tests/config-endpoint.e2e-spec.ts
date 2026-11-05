@@ -62,7 +62,8 @@ async function bootConfigApp(suffix: string, overrides: { configEndpoint?: boole
       env: overrides.env,
       hub: false,
       mongoose: { ...envConfig.mongoose, uri: deriveTestDbUri(`config-${suffix}`) },
-      plantedSecrets: PLANTED,
+      // Under a neutral key on purpose: below a secret-named key the masker masks everything
+      planted: PLANTED,
       // The administrator is created through the HTTP init, which a deployed environment opens only on purpose
       systemSetup: { httpInit: true },
     },
@@ -178,7 +179,8 @@ describe('GET /config in a deployed environment opened with configEndpoint: true
     ]) {
       expect(body).not.toContain(secret);
     }
-    expect(res.plantedSecrets.connection.url).toContain('db.internal:5432');
+    expect(res.planted.connection.url).toContain('db.internal:5432');
+    expect(res.planted.apiKey).toBe('***');
   });
 });
 
@@ -186,7 +188,7 @@ describe('GET /config in a local environment closed with configEndpoint: false',
   let setup: IConfigApp;
 
   beforeAll(async () => {
-    setup = await bootConfigApp('local-off', { configEndpoint: false, env: 'e2e' });
+    setup = await bootConfigApp('off', { configEndpoint: false, env: 'e2e' });
   });
 
   afterAll(async () => {
