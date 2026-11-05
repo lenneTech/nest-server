@@ -38,8 +38,14 @@ const SECRET_KEY_PATTERN =
  */
 const URL_KEY_PATTERN = /(url|uri|endpoint|webhook)$/i;
 
-/** `scheme://authority` and whatever follows (path, query, fragment) */
-const URI_PARTS_PATTERN = /^([a-z][a-z0-9+.-]*:\/\/[^/?#\s]*)(.*)$/is;
+/** `scheme://authority` and whatever follows (path, query, fragment). The authority may hold spaces (a password can) */
+const URI_PARTS_PATTERN = /^([a-z][a-z0-9+.-]*:\/\/[^/?#]*)(.*)$/is;
+
+/**
+ * The whole user info of an authority, up to its LAST `@`: under a URL-named key a token is often the user itself
+ * (`https://<pat>@github.com`, `https://<key>@o0.ingest.sentry.io`), so not only a password goes.
+ */
+const URI_USERINFO_PATTERN = /^([a-z][a-z0-9+.-]*:\/\/).*@/is;
 
 /**
  * Value-shape heuristic: a connection URI carrying `scheme://user:password@host`.
@@ -48,10 +54,12 @@ const URI_PARTS_PATTERN = /^([a-z][a-z0-9+.-]*:\/\/[^/?#\s]*)(.*)$/is;
  * `redis://:password@host` is the canonical Redis URL (Redis < 6 has no username, and
  * `redis-cli -u`, Heroku Redis and ElastiCache AUTH all emit it).
  *
- * Still safe against false positives: the password group cannot contain `/`, and the `@`
- * must follow it immediately — so `http://host:8080/x@y` does not match.
+ * The user may contain `@` (a mail login is an e-mail address: `smtps://noreply@example.com:pw@smtp.example.com`) and
+ * the password `@` or spaces (`pg`, ioredis and the MongoDB driver accept them unencoded): the password runs to the LAST
+ * `@` before the path, query or end. Still safe against false positives: `http://host:8080/x@y`,
+ * `https://user@host:443/p` and `https://host/?a=b@c` do not match — the `@` must sit inside the authority.
  */
-const URI_CREDENTIAL_PATTERN = /^([a-z][a-z0-9+.-]*:\/\/[^/@:\s]*:)([^@/\s]+)(@)/i;
+const URI_CREDENTIAL_PATTERN = /^([a-z][a-z0-9+.-]*:\/\/[^/?#:]*:)([^/?#]*)(@[^@/?#]*)(?=[/?#]|$)/i;
 
 /**
  * A query parameter of a URI-shaped value (`?password=…`, `&sslpassword=…`, `&token=…`). Its value is masked when
@@ -103,14 +111,15 @@ function isSecretKey(key: string, extra: Set<string>): boolean {
 }
 
 /**
- * A URI-shaped value of a URL-named key: the user-info password masked, everything after the authority replaced
+ * A URI-shaped value of a URL-named key: scheme, host and port stay; the whole user info and everything after the
+ * authority are replaced
  */
 function redactUrl(value: string): string {
   const parts = value.match(URI_PARTS_PATTERN);
   if (!parts) {
     return redactString(value);
   }
-  const authority = parts[1].replace(URI_CREDENTIAL_PATTERN, `$1${REDACTED_VALUE}$3`);
+  const authority = parts[1].replace(URI_USERINFO_PATTERN, `$1${REDACTED_VALUE}@`);
   return parts[2] && parts[2] !== '/' ? `${authority}/${REDACTED_VALUE}` : `${authority}${parts[2]}`;
 }
 

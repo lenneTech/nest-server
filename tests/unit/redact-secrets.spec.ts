@@ -125,6 +125,45 @@ describe('redactSecrets()', () => {
     expect(out.link).toContain(`token=${REDACTED_VALUE}`);
   });
 
+  /**
+   * @regression   12.5.0 review — the credential pattern needed exactly one `@` and no space: a mail login that is an
+   *   e-mail address showed the whole SMTP password, a password holding `@` or a space showed part of it.
+   * @seen-failing Restore the old URI_CREDENTIAL_PATTERN (`[^/@:\s]*:` user, `[^@/\s]+` password, bare `@`) in
+   *   src/core/common/helpers/redact-secrets.helper.ts — registered as mutation
+   *   `redact-secrets-uri-credentials-at-sign` in tests/regression-mutations.json.
+   */
+  it('masks the password of a URI whose login is an e-mail address or whose password holds @ or spaces', () => {
+    const out = redactSecrets({
+      connection: 'mongodb://app:my SECRET-space pass@mongo.internal/db',
+      link: 'postgres://app:Xy7@SECRET-at@db.internal:5432/app',
+      smtp: 'smtps://noreply@example.com:SECRET-smtp@smtp.example.com:465',
+    });
+    expect(JSON.stringify(out)).not.toContain('SECRET-');
+    expect(out.smtp).toBe(`smtps://noreply@example.com:${REDACTED_VALUE}@smtp.example.com:465`);
+    expect(out.link).toBe(`postgres://app:${REDACTED_VALUE}@db.internal:5432/app`);
+    // No credentials, no change: the `@` must sit inside the authority
+    const plain = { a: 'http://host:8080/x@y', b: 'https://user@host:443/p', c: 'https://host/?a=b@c' };
+    expect(redactSecrets(plain)).toEqual(plain);
+  });
+
+  /**
+   * @regression   12.5.0 review — under a URL-named key a token is often the URI USER (`https://<pat>@github.com`),
+   *   which a password-only rule leaves in plain text.
+   * @seen-failing Mask only the password instead of the whole user info in redactUrl() of
+   *   src/core/common/helpers/redact-secrets.helper.ts — registered as mutation `redact-secrets-url-userinfo-kept` in
+   *   tests/regression-mutations.json.
+   */
+  it('drops the whole user info of an address under a URL-named key', () => {
+    const out = redactSecrets({
+      github: { apiUrl: 'https://SECRET-pat:x-oauth-basic@api.github.com' },
+      repoUrl: 'https://SECRET-pat@github.com/org/repo.git',
+      sentry: { ingestUri: 'https://SECRET-key@o0.ingest.sentry.io/1' },
+    });
+    expect(JSON.stringify(out)).not.toContain('SECRET-');
+    expect(out.repoUrl).toBe(`https://${REDACTED_VALUE}@github.com/${REDACTED_VALUE}`);
+    expect(out.github.apiUrl).toBe(`https://${REDACTED_VALUE}@api.github.com`);
+  });
+
   it('masks the password of a connection URI and keeps the rest', () => {
     const out = redactSecrets({ link: 'mongodb://user:SECRET-pw@host:27017/db' });
     expect(out.link).toBe(`mongodb://user:${REDACTED_VALUE}@host:27017/db`);

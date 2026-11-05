@@ -6249,6 +6249,28 @@
         "tests/unit/redact-secrets.spec.ts"
       ],
       "driverSpecific": false
+    },
+    {
+      "id": "redact-secrets-uri-credentials-at-sign",
+      "defect": "12.5.0 review — the URI credential pattern needed exactly one `@` and no space: a mail login that is an e-mail address showed the whole SMTP password, a password holding `@` or a space showed part of it.",
+      "file": "src/core/common/helpers/redact-secrets.helper.ts",
+      "find": "const URI_CREDENTIAL_PATTERN = /^([a-z][a-z0-9+.-]*:\\/\\/[^/?#:]*:)([^/?#]*)(@[^@/?#]*)(?=[/?#]|$)/i;\n",
+      "replace": "const URI_CREDENTIAL_PATTERN = /^([a-z][a-z0-9+.-]*:\\/\\/[^/@:\\s]*:)([^@/\\s]+)(@)/i;\n",
+      "specs": [
+        "tests/unit/redact-secrets.spec.ts"
+      ],
+      "driverSpecific": false
+    },
+    {
+      "id": "redact-secrets-url-userinfo-kept",
+      "defect": "12.5.0 review — under a URL-named key a token is often the URI user (https://<pat>@github.com); masking only a password left it in plain text.",
+      "file": "src/core/common/helpers/redact-secrets.helper.ts",
+      "find": "  const authority = parts[1].replace(URI_USERINFO_PATTERN, `$1${REDACTED_VALUE}@`);\n",
+      "replace": "  const authority = parts[1].replace(URI_CREDENTIAL_PATTERN, `$1${REDACTED_VALUE}$3`);\n",
+      "specs": [
+        "tests/unit/redact-secrets.spec.ts"
+      ],
+      "driverSpecific": false
     }
   ]
 }
