@@ -65,10 +65,11 @@ describe('maskConfigDeep', () => {
   });
 
   it('does not mistake a path segment containing @ for credentials', () => {
-    const out = maskConfigDeep({ service: { endpoint: 'http://host:8080/path@version' } });
+    // A key that does not name an address (`url`, `uri`, `endpoint`, `webhook`): those lose their path since 12.5.0.
+    const out = maskConfigDeep({ service: { docs: 'http://host:8080/path@version' } });
 
     // The password group cannot span a `/`, so this must pass through untouched.
-    expect(out.service.endpoint).toBe('http://host:8080/path@version');
+    expect(out.service.docs).toBe('http://host:8080/path@version');
   });
 
   it('masks an S3 access key id, not only the secret access key', () => {

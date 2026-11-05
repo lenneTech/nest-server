@@ -18,15 +18,28 @@
 /**
  * Key-name heuristics that mark a value as secret. Matched case-insensitively against each key.
  *
- * `access[-_]?key` also covers `accessKeyId`: the trailing `(^|[^a-z])key([^a-z]|$)` alternative
- * does NOT, because the `i` flag makes `[^a-z]` reject an uppercase letter, so `…sKeyI…` fails it.
- * `s3.secretAccessKey` was already caught by `secret`; the ID was not.
+ * A SUPERSET of the pattern the nest-server-starter used before 12.5.0 (`token`, `pass$`, `key$`, `salt`, `dsn`, …), so
+ * a project that swaps its own masker for this one loses nothing. Compound names are what makes that matter:
+ * `\btoken\b` misses `botToken` and `GITHUB_TOKEN` (letters and `_` are both word characters, so there is no boundary
+ * inside them), `\bpass\b` misses `smtpPass`, and `(^|[^a-z])key…` misses `signingKey` (the `i` flag makes `[^a-z]`
+ * reject the uppercase `K`). Hence the unanchored `token`, `pass$` and `key$`.
  *
- * `dsn` (a Sentry-style DSN carries its key as the URI user) and `salt` came from the template the
- * nest-server-starter used before 12.5.0.
+ * `access[-_]?key` covers `accessKeyId`, which neither `key$` nor the bounded `key` alternative reaches. The cost of
+ * the broad forms is a few masked non-secrets (`passkey`, `tokenExpiresInMinutes`): the module errs towards masking,
+ * and booleans below such a key stay visible.
  */
 const SECRET_KEY_PATTERN =
-  /secret|passwd|password|passphrase|credential|api[-_]?key|access[-_]?key|access[-_]?token|refresh[-_]?token|private[-_]?key|encryption|\btoken\b|\bpass\b|dsn|salt|(^|[^a-z])key([^a-z]|$)/i;
+  /secret|passwd|password|passphrase|credential|api[-_]?key|access[-_]?key|private[-_]?key|encryption|token|\bpass\b|pass$|dsn|salt|key$|(^|[^a-z])key([^a-z]|$)/i;
+
+/**
+ * Keys whose value is an address that can carry a secret in its PATH (a Slack or Teams webhook,
+ * `https://hooks.slack.com/services/T…/B…/<secret>`) or anywhere in its query. Such a value keeps scheme, host and port —
+ * what an operator needs to tell where it points — and loses the rest.
+ */
+const URL_KEY_PATTERN = /(url|uri|endpoint|webhook)$/i;
+
+/** `scheme://authority` and whatever follows (path, query, fragment) */
+const URI_PARTS_PATTERN = /^([a-z][a-z0-9+.-]*:\/\/[^/?#\s]*)(.*)$/is;
 
 /**
  * Value-shape heuristic: a connection URI carrying `scheme://user:password@host`.
@@ -82,11 +95,23 @@ export const FRAMEWORK_SECRET_FIELDS: readonly string[] = [
  */
 export function redactSecrets<T>(value: T, extraSecretKeys: readonly string[] = []): T {
   const extra = new Set(extraSecretKeys.filter((key) => typeof key === 'string').map((key) => key.toLowerCase()));
-  return redactValue(value, false, extra) as T;
+  return redactValue(value, false, extra, '') as T;
 }
 
 function isSecretKey(key: string, extra: Set<string>): boolean {
   return extra.has(key.toLowerCase()) || SECRET_KEY_PATTERN.test(key);
+}
+
+/**
+ * A URI-shaped value of a URL-named key: the user-info password masked, everything after the authority replaced
+ */
+function redactUrl(value: string): string {
+  const parts = value.match(URI_PARTS_PATTERN);
+  if (!parts) {
+    return redactString(value);
+  }
+  const authority = parts[1].replace(URI_CREDENTIAL_PATTERN, `$1${REDACTED_VALUE}$3`);
+  return parts[2] && parts[2] !== '/' ? `${authority}/${REDACTED_VALUE}` : `${authority}${parts[2]}`;
 }
 
 function redactString(value: string): string {
@@ -107,7 +132,7 @@ function safeDecode(value: string): string {
   }
 }
 
-function redactValue(value: unknown, underSecretKey: boolean, extra: Set<string>): unknown {
+function redactValue(value: unknown, underSecretKey: boolean, extra: Set<string>, key: string): unknown {
   if (value === null || value === undefined) {
     return value;
   }
@@ -117,7 +142,10 @@ function redactValue(value: unknown, underSecretKey: boolean, extra: Set<string>
     if (underSecretKey) {
       return typeof value === 'boolean' ? value : REDACTED_VALUE;
     }
-    return typeof value === 'string' ? redactString(value) : value;
+    if (typeof value !== 'string') {
+      return value;
+    }
+    return URL_KEY_PATTERN.test(key) ? redactUrl(value) : redactString(value);
   }
 
   // Non-plain objects (Date, Buffer) are kept as they are — cloning would lose their type, and they carry no framework
@@ -127,12 +155,12 @@ function redactValue(value: unknown, underSecretKey: boolean, extra: Set<string>
   }
 
   if (Array.isArray(value)) {
-    return value.map((item) => redactValue(item, underSecretKey, extra));
+    return value.map((item) => redactValue(item, underSecretKey, extra, key));
   }
 
   const out: Record<string, unknown> = {};
-  for (const [key, item] of Object.entries(value as Record<string, unknown>)) {
-    out[key] = redactValue(item, underSecretKey || isSecretKey(key, extra), extra);
+  for (const [childKey, item] of Object.entries(value as Record<string, unknown>)) {
+    out[childKey] = redactValue(item, underSecretKey || isSecretKey(childKey, extra), extra, childKey);
   }
   return out;
 }

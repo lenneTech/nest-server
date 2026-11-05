@@ -48,7 +48,48 @@ describe('redactSecrets()', () => {
     expect(out).toContain('public-client-id');
     expect(out).toContain('smtp.test.com');
     expect(out).toContain('db.internal:5432');
-    expect(out).toContain('authSource=admin');
+    expect(out).toContain('mongo.internal:27017');
+  });
+
+  /**
+   * @regression   12.5.0 review — the pattern missed compound and camelCase names that the starter's masker caught
+   *   (`botToken`, `GITHUB_TOKEN`, `smtpPass`, `signingKey`): `\btoken\b` finds no word boundary inside them.
+   * @seen-failing Restore the bounded `\btoken\b` / `\bpass\b` pattern without `token`, `pass$` and `key$` in
+   *   SECRET_KEY_PATTERN of src/core/common/helpers/redact-secrets.helper.ts — registered as mutation
+   *   `redact-secrets-compound-keys` in tests/regression-mutations.json.
+   */
+  it('masks compound and camelCase secret names the starter template masked', () => {
+    const out = redactSecrets({
+      DB_PASS: 'SECRET-db-pass',
+      GITHUB_TOKEN: 'SECRET-gh',
+      api_token: 'SECRET-api-token',
+      botToken: 'SECRET-bot',
+      hmacKey: 'SECRET-hmac',
+      redis: { keyPrefix: 'app-prefix' },
+      signingKey: 'SECRET-signing',
+      smtpPass: 'SECRET-smtp',
+    });
+    expect(JSON.stringify(out)).not.toContain('SECRET-');
+    expect(out.redis.keyPrefix).toBe('app-prefix');
+  });
+
+  /**
+   * @regression   12.5.0 review — a webhook URL carries its secret in the PATH, where neither the user-info nor the
+   *   query-parameter rule reaches it.
+   * @seen-failing Treat URL-named keys like any other string in redactValue() of
+   *   src/core/common/helpers/redact-secrets.helper.ts — registered as mutation `redact-secrets-url-path-kept` in
+   *   tests/regression-mutations.json.
+   */
+  it('keeps only scheme, host and port of an address under a URL-named key', () => {
+    const out = redactSecrets({
+      baseUrl: 'https://api.example.com',
+      notifications: { slackWebhookUrl: 'https://hooks.slack.com/services/T00/B00/SECRET-hook' },
+      s3: { endpoint: 'https://minio.internal:9000/bucket?X-Amz-Signature=SECRET-sig' },
+    });
+    expect(JSON.stringify(out)).not.toContain('SECRET-');
+    expect(out.baseUrl).toBe('https://api.example.com');
+    expect(out.notifications.slackWebhookUrl).toBe(`https://hooks.slack.com/${REDACTED_VALUE}`);
+    expect(out.s3.endpoint).toBe(`https://minio.internal:9000/${REDACTED_VALUE}`);
   });
 
   /**
@@ -77,11 +118,11 @@ describe('redactSecrets()', () => {
    */
   it('masks secret-named query parameters of a URI, whatever its key is called', () => {
     const out = redactSecrets({
-      endpoint: 'https://api.test.com/v1?token=SECRET-1&page=2&api_key=SECRET-2&sslpassword=SECRET-3',
+      link: 'https://api.test.com/v1?token=SECRET-1&page=2&api_key=SECRET-2&sslpassword=SECRET-3&auth_token=SECRET-4',
     });
-    expect(out.endpoint).not.toContain('SECRET-');
-    expect(out.endpoint).toContain('page=2');
-    expect(out.endpoint).toContain(`token=${REDACTED_VALUE}`);
+    expect(out.link).not.toContain('SECRET-');
+    expect(out.link).toContain('page=2');
+    expect(out.link).toContain(`token=${REDACTED_VALUE}`);
   });
 
   it('masks the password of a connection URI and keeps the rest', () => {

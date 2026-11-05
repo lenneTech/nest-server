@@ -6154,8 +6154,8 @@
       "id": "redact-secrets-nested-under-secret-key",
       "defect": "12.5.0 — below a secret-named key (`credentials`, `emailAndPassword`) every value must be masked; a nested object must not be a way around the mask.",
       "file": "src/core/common/helpers/redact-secrets.helper.ts",
-      "find": "    out[key] = redactValue(item, underSecretKey || isSecretKey(key, extra), extra);\n",
-      "replace": "    out[key] = redactValue(item, isSecretKey(key, extra), extra);\n",
+      "find": "    out[childKey] = redactValue(item, underSecretKey || isSecretKey(childKey, extra), extra, childKey);\n",
+      "replace": "    out[childKey] = redactValue(item, isSecretKey(childKey, extra), extra, childKey);\n",
       "specs": [
         "tests/unit/redact-secrets.spec.ts"
       ],
@@ -6214,6 +6214,28 @@
       "replace": "  if (false && !isConfigEndpointEnabled(ConfigService.configFastButReadOnly)) {\n",
       "specs": [
         "tests/config-endpoint.e2e-spec.ts"
+      ],
+      "driverSpecific": false
+    },
+    {
+      "id": "redact-secrets-compound-keys",
+      "defect": "12.5.0 review — the key pattern missed compound and camelCase names (botToken, GITHUB_TOKEN, smtpPass, signingKey) that the masker the starter used before caught; a project swapping its masker for the core one would have served them in plain text.",
+      "file": "src/core/common/helpers/redact-secrets.helper.ts",
+      "find": "  /secret|passwd|password|passphrase|credential|api[-_]?key|access[-_]?key|private[-_]?key|encryption|token|\\bpass\\b|pass$|dsn|salt|key$|(^|[^a-z])key([^a-z]|$)/i;\n",
+      "replace": "  /secret|passwd|password|passphrase|credential|api[-_]?key|access[-_]?key|access[-_]?token|refresh[-_]?token|private[-_]?key|encryption|\\btoken\\b|\\bpass\\b|dsn|salt|(^|[^a-z])key([^a-z]|$)/i;\n",
+      "specs": [
+        "tests/unit/redact-secrets.spec.ts"
+      ],
+      "driverSpecific": false
+    },
+    {
+      "id": "redact-secrets-url-path-kept",
+      "defect": "12.5.0 review — a webhook URL carries its secret in the path, which neither the user-info nor the query-parameter rule reaches; a URL-named key must keep only scheme, host and port.",
+      "file": "src/core/common/helpers/redact-secrets.helper.ts",
+      "find": "    return URL_KEY_PATTERN.test(key) ? redactUrl(value) : redactString(value);\n",
+      "replace": "    return redactString(value);\n",
+      "specs": [
+        "tests/unit/redact-secrets.spec.ts"
       ],
       "driverSpecific": false
     }
