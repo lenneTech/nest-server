@@ -22,6 +22,8 @@ import { CoreBetterAuthService } from '../../modules/better-auth/core-better-aut
 import { CoreHubActionsController } from '../../modules/hub/core-hub-actions.controller.js';
 import { CoreHubController } from '../../modules/hub/core-hub.controller.js';
 import { isHubEnabled, normalizeHubConfig } from '../../modules/hub/hub-config.helper.js';
+import { CoreSystemSetupController } from '../../modules/system-setup/core-system-setup.controller.js';
+import { resolveSystemSetupHttpInit } from '../../modules/system-setup/system-setup-http-init.helper.js';
 import { SKIP_TENANT_CHECK_KEY } from '../../modules/tenant/core-tenant.decorators.js';
 import { API_METHODS_KEY } from '../decorators/api-methods.decorator.js';
 import { mergeRolesMetadata } from '../../modules/tenant/core-tenant.helpers.js';
@@ -418,6 +420,11 @@ function isSwitchedOffOperation(reference: IHandlerReference, method: string, av
     HUB_AVAILABILITY[handlerName]
   ) {
     return !HUB_AVAILABILITY[handlerName](availability, availability.hub);
+  }
+  // The anonymous init answers LTNS_0053 to everybody where `systemSetup.httpInit` keeps it closed (12.4.0+)
+  if (extendsClass(controller, CoreSystemSetupController) && handlerName === 'createInitialAdmin') {
+    const { env, systemSetup } = availability.config;
+    return !resolveSystemSetupHttpInit(systemSetup?.httpInit, env ?? process.env.NODE_ENV).enabled;
   }
   return false;
 }
