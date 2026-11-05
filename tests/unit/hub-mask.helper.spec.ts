@@ -48,20 +48,36 @@ describe('maskConfigDeep', () => {
     expect(out.mongoose.uri).toContain('host:27017');
   });
 
-  // Regression: the userinfo USER part used to be `+` (at least one character), so the
-  // password-only form fell straight through and printed verbatim in the Hub config panel.
-  // That is the canonical Redis URL — Redis < 6 has no username, and `redis-cli -u`,
-  // Heroku Redis and ElastiCache AUTH all emit it — and `redis.url` only became a config
-  // option in 11.33.0, which is why no existing example covered it.
+  /**
+   * @regression   11.33.0 — the userinfo USER part of the URI credential pattern was `+` (at least one character), so
+   *   the password-only form fell straight through and printed verbatim in the Hub config panel. That is the
+   *   canonical Redis URL — Redis < 6 has no username, and `redis-cli -u`, Heroku Redis and ElastiCache AUTH all emit
+   *   it. The key is deliberately NOT URL-named: since 12.5.0 a `url` / `uri` key drops the whole user info in
+   *   `redactUrl()`, which never reaches the credential pattern, so a `redis.url` case cannot fail for this defect.
+   * @seen-failing Make the user part of URI_CREDENTIAL_PATTERN `+` instead of `*` in
+   *   src/core/common/helpers/redact-secrets.helper.ts — registered as mutation `redact-secrets-uri-password-only`
+   *   in tests/regression-mutations.json.
+   */
+  it.each([
+    ['redis://:s3cr3t@redis.internal:6379', 'redis://:***@redis.internal:6379'],
+    ['rediss://:s3cr3t@redis.internal:6380/0', 'rediss://:***@redis.internal:6380/0'],
+    ['amqp://:s3cr3t@broker:5672', 'amqp://:***@broker:5672'],
+  ])('masks a password-only connection URI under any key (%s)', (connection, expected) => {
+    const out = maskConfigDeep({ queue: { connection } });
+
+    expect(out.queue.connection).toBe(expected);
+  });
+
+  // The same URIs under a URL-named key take the `redactUrl()` path: the whole user info goes
   it.each([
     'redis://:s3cr3t@redis.internal:6379',
     'rediss://:s3cr3t@redis.internal:6380/0',
     'amqp://:s3cr3t@broker:5672',
-  ])('masks a password-only connection URI (%s)', (url) => {
+  ])('masks a password-only connection URI under a URL-named key (%s)', (url) => {
     const out = maskConfigDeep({ redis: { url } });
 
     expect(out.redis.url).not.toContain('s3cr3t');
-    expect(out.redis.url).toContain('@');
+    expect(out.redis.url).toContain('***@');
   });
 
   it('does not mistake a path segment containing @ for credentials', () => {

@@ -6262,6 +6262,17 @@
       "driverSpecific": false
     },
     {
+      "id": "redact-secrets-uri-password-only",
+      "defect": "11.33.0 — the user part of the URI credential pattern needed at least one character, so the password-only form (`redis://:pw@host`, the canonical Redis URL) printed its password in the Hub config panel. Re-pinned in the 12.5.0 release review: its test had moved behind the URL-key path and could no longer fail.",
+      "file": "src/core/common/helpers/redact-secrets.helper.ts",
+      "find": "const URI_CREDENTIAL_PATTERN = /^([a-z][a-z0-9+.-]*:\\/\\/[^/?#:]*:)",
+      "replace": "const URI_CREDENTIAL_PATTERN = /^([a-z][a-z0-9+.-]*:\\/\\/[^/?#:]+:)",
+      "specs": [
+        "tests/unit/hub-mask.helper.spec.ts"
+      ],
+      "driverSpecific": false
+    },
+    {
       "id": "redact-secrets-url-userinfo-kept",
       "defect": "12.5.0 review — under a URL-named key a token is often the URI user (https://<pat>@github.com); masking only a password left it in plain text.",
       "file": "src/core/common/helpers/redact-secrets.helper.ts",
