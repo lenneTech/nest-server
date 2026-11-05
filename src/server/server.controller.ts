@@ -1,6 +1,6 @@
 import { Controller, Get, Render } from '@nestjs/common';
 
-import { ConfigService, RoleEnum, Roles } from '../index.js';
+import { ConfigService, configEndpointResponse, RoleEnum, Roles } from '../index.js';
 
 @Controller()
 @Roles(RoleEnum.ADMIN)
@@ -16,9 +16,14 @@ export class ServerController {
     };
   }
 
+  /**
+   * The configuration with every secret masked, and only where `configEndpoint` opens the route (by default in
+   * `local`, `ci` and `e2e`; 404 elsewhere). It used to return the configuration verbatim — database URI, auth
+   * secrets, mail password — to every administrator.
+   */
   @Get('config')
   @Roles(RoleEnum.ADMIN)
   config() {
-    return JSON.parse(JSON.stringify(this.configService.configFastButReadOnly));
+    return configEndpointResponse();
   }
 }

@@ -520,6 +520,23 @@ describe('ServerModule (e2e)', () => {
   });
 
   /**
+   * @regression   12.5.0 — `GET /config` returned the configuration verbatim to every administrator: database URI,
+   *   JWT and Better-Auth secrets, mail password.
+   * @seen-failing Return the unredacted configuration from ConfigService.getRedactedConfig() in
+   *   src/core/common/services/config.service.ts — registered as mutation `config-endpoint-unredacted-http` in
+   *   tests/regression-mutations.json.
+   */
+  it('get config returns no secret in plain text', async () => {
+    const res: any = await testHelper.rest('/config', { token: gToken });
+    const body = JSON.stringify(res);
+    const secrets = [envConfig.jwt?.secret, envConfig.jwt?.refresh?.secret, (envConfig.betterAuth as any)?.secret];
+    for (const secret of secrets.filter((value): value is string => typeof value === 'string' && value.length > 3)) {
+      expect(body).not.toContain(secret);
+    }
+    expect(res.jwt.secret).toBe('***');
+  });
+
+  /**
    * Get user
    */
   it('getUser', async () => {

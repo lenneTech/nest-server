@@ -6149,6 +6149,73 @@
         "tests/stories/system-setup-http-init.e2e-spec.ts"
       ],
       "driverSpecific": false
+    },
+    {
+      "id": "redact-secrets-nested-under-secret-key",
+      "defect": "12.5.0 — below a secret-named key (`credentials`, `emailAndPassword`) every value must be masked; a nested object must not be a way around the mask.",
+      "file": "src/core/common/helpers/redact-secrets.helper.ts",
+      "find": "    out[key] = redactValue(item, underSecretKey || isSecretKey(key, extra), extra);\n",
+      "replace": "    out[key] = redactValue(item, isSecretKey(key, extra), extra);\n",
+      "specs": [
+        "tests/unit/redact-secrets.spec.ts"
+      ],
+      "driverSpecific": false
+    },
+    {
+      "id": "redact-secrets-uri-query-param",
+      "defect": "12.5.0 — a PostgreSQL or MongoDB URL can carry its password as a query parameter (`?password=`, `&sslpassword=`); secret-named parameters must be masked whatever the key holding the URI is called.",
+      "file": "src/core/common/helpers/redact-secrets.helper.ts",
+      "find": "  return withoutUserPassword.replace(URI_QUERY_PARAM_PATTERN, (match, separator: string, name: string) =>\n",
+      "replace": "  return withoutUserPassword || withoutUserPassword.replace(URI_QUERY_PARAM_PATTERN, (match, separator: string, name: string) =>\n",
+      "specs": [
+        "tests/unit/redact-secrets.spec.ts"
+      ],
+      "driverSpecific": false
+    },
+    {
+      "id": "config-endpoint-open-by-default",
+      "defect": "12.5.0 — GET /config answered in every environment; outside local, ci and e2e it is now closed unless configEndpoint opens it.",
+      "file": "src/core/common/helpers/config-endpoint.helper.ts",
+      "find": "  return isLocalEnv(config?.env ?? process.env.NODE_ENV);\n",
+      "replace": "  return isLocalEnv(config?.env ?? process.env.NODE_ENV) || true;\n",
+      "specs": [
+        "tests/unit/redact-secrets.spec.ts"
+      ],
+      "driverSpecific": false
+    },
+    {
+      "id": "config-service-merge-property-drops-value",
+      "defect": "12.5.0 (pre-existing) — the instance ConfigService#mergeProperty(key, value, options) forwarded `options` in place of `value`, so the call merged nothing.",
+      "file": "src/core/common/services/config.service.ts",
+      "find": "    return ConfigService.mergeProperty(key, value, options);\n",
+      "replace": "    return ConfigService.mergeProperty(key, options);\n",
+      "specs": [
+        "tests/unit/config-service-merge-property.spec.ts"
+      ],
+      "driverSpecific": false
+    },
+    {
+      "id": "config-endpoint-unredacted-http",
+      "defect": "12.5.0 — GET /config returned the configuration verbatim to every administrator: database URI, JWT and Better-Auth secrets, mail password. Proven over HTTP.",
+      "file": "src/core/common/services/config.service.ts",
+      "find": "    return ConfigService.redact(ConfigService.configFastButReadOnly ?? {});\n",
+      "replace": "    return JSON.parse(JSON.stringify(ConfigService.configFastButReadOnly ?? {}));\n",
+      "specs": [
+        "tests/server.e2e-spec.ts",
+        "tests/config-endpoint.e2e-spec.ts"
+      ],
+      "driverSpecific": false
+    },
+    {
+      "id": "config-endpoint-gate-removed-http",
+      "defect": "12.5.0 — configEndpointResponse() must answer 404 where configEndpoint keeps GET /config closed. Proven over HTTP.",
+      "file": "src/core/common/helpers/config-endpoint.helper.ts",
+      "find": "  if (!isConfigEndpointEnabled(ConfigService.configFastButReadOnly)) {\n",
+      "replace": "  if (false && !isConfigEndpointEnabled(ConfigService.configFastButReadOnly)) {\n",
+      "specs": [
+        "tests/config-endpoint.e2e-spec.ts"
+      ],
+      "driverSpecific": false
     }
   ]
 }

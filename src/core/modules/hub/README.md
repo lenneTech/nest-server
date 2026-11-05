@@ -123,7 +123,9 @@ Every action writes an audit line: `[HUB-ACTION] <action> by user <id>`.
   The messages are centralized in `hub-action-messages.ts` (`HubActionMessage`) so the wording stays
   consistent and reviewable in one place.
 - **CSP**: strict per-request nonce; no `unsafe-inline`; `X-Frame-Options: DENY`; `no-store`.
-- **Secrets**: the config viewer deep-clones and masks by key pattern + `security.secretFields`.
+- **Secrets**: the config viewer deep-clones and masks by key pattern + `security.secretFields` — since 12.5.0
+  through the framework-wide `redactSecrets()` / `ConfigService.getRedactedConfig()`, the same view `GET /config`
+  serves (`configEndpointResponse()`).
 - **Interceptor safety**: sidecars return pre-serialized JSON strings, so the global response
   interceptors never walk/mutate live config.
 - **Mailbox guard**: `mode: 'capture'` throws at startup in any **reachable** environment (anything

@@ -7,6 +7,7 @@ import { merge } from '../helpers/config.helper.js';
 // restricted.decorator, which reaches back here via core-tenant.helpers — that cycle is what the
 // extraction removed. See clone.helper's docblock.
 import { clone, deepFreeze } from '../helpers/clone.helper.js';
+import { FRAMEWORK_SECRET_FIELDS, redactSecrets } from '../helpers/redact-secrets.helper.js';
 import { IServerOptions } from '../interfaces/server-options.interface.js';
 
 /**
@@ -65,6 +66,7 @@ export class ConfigService {
    * aid, and an opt-in since 12.0.0 like it always was for `setConfig()` / `mergeConfig()`. As the default it
    * wrote every secret in the config (JWT and Better-Auth secrets, database and Redis URIs, API keys) to
    * stdout whenever `CoreModule.forRoot()` ran a second time in one process: tests, scripts, a second app.
+   * Since 12.5.0 the printed configuration is redacted (`redactSecrets()`).
    */
   constructor(
     configObject?: Partial<IServerOptions> & { [key: string]: any },
@@ -138,6 +140,40 @@ export class ConfigService {
    */
   static get configFastButReadOnly() {
     return ConfigService._frozenConfigSubject$.getValue();
+  }
+
+  /**
+   * The configuration with every secret masked — the view to show anybody, an administrator included
+   * (`GET /config` via `configEndpointResponse()`, the Hub config panel).
+   *
+   * A deep copy, masked by {@link redactSecrets}: key patterns, credentials in connection URIs, nested values,
+   * plus the framework's secret fields and the project's `security.secretFields`. The live configuration is never
+   * touched.
+   *
+   * @since 12.5.0
+   */
+  getRedactedConfig(): Record<string, unknown> {
+    return ConfigService.getRedactedConfig();
+  }
+
+  /**
+   * The configuration with every secret masked (see the instance method)
+   *
+   * @since 12.5.0
+   */
+  static getRedactedConfig(): Record<string, unknown> {
+    return ConfigService.redact(ConfigService.configFastButReadOnly ?? {});
+  }
+
+  /**
+   * Mask a configuration object with the framework's rules and the project's `security.secretFields`
+   */
+  protected static redact(config: Record<string, any>): Record<string, unknown> {
+    const projectSecretFields = config?.security?.secretFields;
+    return redactSecrets(config, [
+      ...FRAMEWORK_SECRET_FIELDS,
+      ...(Array.isArray(projectSecretFields) ? projectSecretFields : []),
+    ]) as Record<string, unknown>;
   }
 
   /**
@@ -280,7 +316,8 @@ export class ConfigService {
 
     // Warn if requested
     if (config.warn) {
-      console.warn(`ConfigService ${activity}`, JSON.stringify(merged, null, 2));
+      // Redacted: this goes to stdout, and the merged configuration holds every secret of the deployment
+      console.warn(`ConfigService ${activity}`, JSON.stringify(ConfigService.redact(merged), null, 2));
     }
 
     // Return configuration
@@ -291,7 +328,7 @@ export class ConfigService {
    * Merge config property and set in ConfigService
    */
   mergeProperty(key: string, value: any, options?: { warn?: boolean }) {
-    return ConfigService.mergeProperty(key, options);
+    return ConfigService.mergeProperty(key, value, options);
   }
 
   /**
@@ -372,7 +409,8 @@ export class ConfigService {
 
       // Warn if requested
       if (config.warn && !firstInitialization) {
-        console.warn('ConfigService reinitialized', JSON.stringify(configObject, null, 2));
+        // Redacted: this goes to stdout, and the configuration holds every secret of the deployment
+        console.warn('ConfigService reinitialized', JSON.stringify(ConfigService.redact(configObject || {}), null, 2));
       }
     }
 

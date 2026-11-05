@@ -2604,6 +2604,26 @@ export interface IServerOptions {
   compression?: boolean | compression.CompressionOptions;
 
   /**
+   * Whether a project's `GET /config` may answer (12.5.0+). The route lives in project code (the starter's
+   * `ServerController`) and asks `configEndpointResponse()`, which decides with `isConfigEndpointEnabled()`.
+   *
+   * | Value | `local` / `ci` / `e2e` | every other environment (`develop`, `test`, `production`, …) |
+   * |-------|------------------------|---------------------------------------------------------------|
+   * | not set | answers | **404** |
+   * | `true` | answers | answers |
+   * | `false` | 404 | 404 |
+   *
+   * The answer is ALWAYS the redacted configuration (`ConfigService.getRedactedConfig()`): before 12.5.0 the
+   * starter's endpoint returned the database URI, the auth secrets and the mail password to every administrator,
+   * and a project created before the starter redacted kept doing so. A value that is not a boolean counts as not
+   * set. Environment variable: `NSC__CONFIG_ENDPOINT=true`.
+   *
+   * @default undefined (answers only in `local`, `ci` and `e2e`)
+   * @since 12.5.0
+   */
+  configEndpoint?: boolean;
+
+  /**
    * Cookie configuration for authentication handling.
    *
    * Controls whether session cookies are set on authentication responses and
