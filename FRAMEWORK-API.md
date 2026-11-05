@@ -1,6 +1,6 @@
 # @lenne.tech/nest-server — Framework API Reference
 
-> Auto-generated from source code as of 2026-11-05 (v12.4.0)
+> Auto-generated from source code as of 2026-11-05 (v12.5.0)
 > File: `FRAMEWORK-API.md` — compact, machine-readable API surface for Claude Code
 
 ## CoreModule.forRoot()
@@ -22,6 +22,7 @@
   - `bodyParser?`: `IBodyParserConfig` — Size limits for request bodies.
   - `brevo?`: `{ apiKey: string; exclude?: RegExp; maxRetries?: number; sender: { email: str...` — Configuration for Brevo
   - `compression?`: `boolean | compression.CompressionOptions` — Whether to use the compression middleware package to enable gzip compression.
+  - `configEndpoint?`: `boolean` (default: `undefined (answers only in `local`, `ci` and `e2e`)`) — Whether a project's `GET /config` may answer (12.5.0+). The route lives in project code (the starter's
   - `cookies?`: `boolean | ICookiesConfig` (default: `true`) — Cookie configuration for authentication handling.
   - `cors?`: `boolean | ICorsConfig` (default: `undefined (enabled with auto-derived origins)`) — CORS (Cross-Origin Resource Sharing) configuration.
   - `cronJobs?`: `Record<string, string | false | 0 | CronJobConfigWithTimeZone<null, null> | C...` — Cron jobs configuration object with the name of the cron job function as key
