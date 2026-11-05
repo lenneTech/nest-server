@@ -35,6 +35,7 @@ import envConfig from '../../src/config.env';
 import { Any } from '../../src/core/common/scalars/any.scalar';
 import { DateScalar } from '../../src/core/common/scalars/date.scalar';
 import { JSON as JSONScalar } from '../../src/core/common/scalars/json.scalar';
+import { ConfigService } from '../../src/core/common/services/config.service';
 import { CoreAuthService } from '../../src/core/modules/auth/services/core-auth.service';
 import { CoreBetterAuthUserMapper } from '../../src/core/modules/better-auth/core-better-auth-user.mapper';
 import { CronJobs } from '../../src/server/common/services/cron-jobs.service';
@@ -72,6 +73,9 @@ async function bootSetupApp(suffix: string, overrides: { env: string; systemSetu
     },
     sql,
   );
+  // The ConfigService is static, and a second CoreModule.forRoot() in one process MERGES into the previous
+  // configuration: a token or an initialAdmin of an earlier describe would survive into this boot. Replace it.
+  ConfigService.setConfig(config as any, { reInit: true });
 
   @Module({
     controllers: [ServerController, AuthController],
