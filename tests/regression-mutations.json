@@ -6149,6 +6149,128 @@
         "tests/stories/system-setup-http-init.e2e-spec.ts"
       ],
       "driverSpecific": false
+    },
+    {
+      "id": "redact-secrets-nested-under-secret-key",
+      "defect": "12.5.0 — below a secret-named key (`credentials`, `emailAndPassword`) every value must be masked; a nested object must not be a way around the mask.",
+      "file": "src/core/common/helpers/redact-secrets.helper.ts",
+      "find": "    out[childKey] = redactValue(item, underSecretKey || isSecretKey(childKey, extra), extra, childKey);\n",
+      "replace": "    out[childKey] = redactValue(item, isSecretKey(childKey, extra), extra, childKey);\n",
+      "specs": [
+        "tests/unit/redact-secrets.spec.ts"
+      ],
+      "driverSpecific": false
+    },
+    {
+      "id": "redact-secrets-uri-query-param",
+      "defect": "12.5.0 — a PostgreSQL or MongoDB URL can carry its password as a query parameter (`?password=`, `&sslpassword=`); secret-named parameters must be masked whatever the key holding the URI is called.",
+      "file": "src/core/common/helpers/redact-secrets.helper.ts",
+      "find": "  return withoutUserPassword.replace(URI_QUERY_PARAM_PATTERN, (match, separator: string, name: string) =>\n",
+      "replace": "  return withoutUserPassword || withoutUserPassword.replace(URI_QUERY_PARAM_PATTERN, (match, separator: string, name: string) =>\n",
+      "specs": [
+        "tests/unit/redact-secrets.spec.ts"
+      ],
+      "driverSpecific": false
+    },
+    {
+      "id": "config-endpoint-open-by-default",
+      "defect": "12.5.0 — GET /config answered in every environment; outside local, ci and e2e it is now closed unless configEndpoint opens it.",
+      "file": "src/core/common/helpers/config-endpoint.helper.ts",
+      "find": "  return isLocalEnv(config?.env ?? process.env.NODE_ENV);\n",
+      "replace": "  return isLocalEnv(config?.env ?? process.env.NODE_ENV) || true;\n",
+      "specs": [
+        "tests/unit/redact-secrets.spec.ts"
+      ],
+      "driverSpecific": false
+    },
+    {
+      "id": "config-service-merge-property-drops-value",
+      "defect": "12.5.0 (pre-existing) — the instance ConfigService#mergeProperty(key, value, options) forwarded `options` in place of `value`, so the call merged nothing.",
+      "file": "src/core/common/services/config.service.ts",
+      "find": "    return ConfigService.mergeProperty(key, value, options);\n",
+      "replace": "    return ConfigService.mergeProperty(key, options);\n",
+      "specs": [
+        "tests/unit/config-service-merge-property.spec.ts"
+      ],
+      "driverSpecific": false
+    },
+    {
+      "id": "config-endpoint-unredacted-http",
+      "defect": "12.5.0 — GET /config returned the configuration verbatim to every administrator: database URI, JWT and Better-Auth secrets, mail password. Proven over HTTP.",
+      "file": "src/core/common/services/config.service.ts",
+      "find": "    return ConfigService.redact(ConfigService.configFastButReadOnly ?? {});\n",
+      "replace": "    return JSON.parse(JSON.stringify(ConfigService.configFastButReadOnly ?? {}));\n",
+      "specs": [
+        "tests/server.e2e-spec.ts",
+        "tests/config-endpoint.e2e-spec.ts"
+      ],
+      "driverSpecific": false
+    },
+    {
+      "id": "config-endpoint-gate-removed-http",
+      "defect": "12.5.0 — configEndpointResponse() must answer 404 where configEndpoint keeps GET /config closed. Proven over HTTP.",
+      "file": "src/core/common/helpers/config-endpoint.helper.ts",
+      "find": "  if (!isConfigEndpointEnabled(ConfigService.configFastButReadOnly)) {\n",
+      "replace": "  if (false && !isConfigEndpointEnabled(ConfigService.configFastButReadOnly)) {\n",
+      "specs": [
+        "tests/config-endpoint.e2e-spec.ts"
+      ],
+      "driverSpecific": false
+    },
+    {
+      "id": "redact-secrets-compound-keys",
+      "defect": "12.5.0 review — the key pattern missed compound and camelCase names (botToken, GITHUB_TOKEN, smtpPass, signingKey) that the masker the starter used before caught; a project swapping its masker for the core one would have served them in plain text.",
+      "file": "src/core/common/helpers/redact-secrets.helper.ts",
+      "find": "  /secret|passwd|password|passphrase|credential|api[-_]?key|access[-_]?key|private[-_]?key|encryption|token|\\bpass\\b|pass$|dsn|salt|key$|(^|[^a-z])key([^a-z]|$)/i;\n",
+      "replace": "  /secret|passwd|password|passphrase|credential|api[-_]?key|access[-_]?key|access[-_]?token|refresh[-_]?token|private[-_]?key|encryption|\\btoken\\b|\\bpass\\b|dsn|salt|(^|[^a-z])key([^a-z]|$)/i;\n",
+      "specs": [
+        "tests/unit/redact-secrets.spec.ts"
+      ],
+      "driverSpecific": false
+    },
+    {
+      "id": "redact-secrets-url-path-kept",
+      "defect": "12.5.0 review — a webhook URL carries its secret in the path, which neither the user-info nor the query-parameter rule reaches; a URL-named key must keep only scheme, host and port.",
+      "file": "src/core/common/helpers/redact-secrets.helper.ts",
+      "find": "    return URL_KEY_PATTERN.test(key) ? redactUrl(value) : redactString(value);\n",
+      "replace": "    return redactString(value);\n",
+      "specs": [
+        "tests/unit/redact-secrets.spec.ts"
+      ],
+      "driverSpecific": false
+    },
+    {
+      "id": "config-service-redact-ignores-secret-fields",
+      "defect": "12.5.0 review — ConfigService.getRedactedConfig() must mask the project's security.secretFields, also for a name no key pattern matches; the Hub config panel answers through @Res(), so no response interceptor strips them behind it.",
+      "file": "src/core/common/services/config.service.ts",
+      "find": "      ...(Array.isArray(projectSecretFields) ? projectSecretFields : []),\n",
+      "replace": "",
+      "specs": [
+        "tests/unit/redact-secrets.spec.ts"
+      ],
+      "driverSpecific": false
+    },
+    {
+      "id": "redact-secrets-uri-credentials-at-sign",
+      "defect": "12.5.0 review — the URI credential pattern needed exactly one `@` and no space: a mail login that is an e-mail address showed the whole SMTP password, a password holding `@` or a space showed part of it.",
+      "file": "src/core/common/helpers/redact-secrets.helper.ts",
+      "find": "const URI_CREDENTIAL_PATTERN = /^([a-z][a-z0-9+.-]*:\\/\\/[^/?#:]*:)([^/?#]*)(@[^@/?#]*)(?=[/?#]|$)/i;\n",
+      "replace": "const URI_CREDENTIAL_PATTERN = /^([a-z][a-z0-9+.-]*:\\/\\/[^/@:\\s]*:)([^@/\\s]+)(@)/i;\n",
+      "specs": [
+        "tests/unit/redact-secrets.spec.ts"
+      ],
+      "driverSpecific": false
+    },
+    {
+      "id": "redact-secrets-url-userinfo-kept",
+      "defect": "12.5.0 review — under a URL-named key a token is often the URI user (https://<pat>@github.com); masking only a password left it in plain text.",
+      "file": "src/core/common/helpers/redact-secrets.helper.ts",
+      "find": "  const authority = parts[1].replace(URI_USERINFO_PATTERN, `$1${REDACTED_VALUE}@`);\n",
+      "replace": "  const authority = parts[1].replace(URI_CREDENTIAL_PATTERN, `$1${REDACTED_VALUE}$3`);\n",
+      "specs": [
+        "tests/unit/redact-secrets.spec.ts"
+      ],
+      "driverSpecific": false
     }
   ]
 }

@@ -7,24 +7,9 @@ import { ConfigService } from '../../common/services/config.service.js';
 
 import { HUB_CONFIG } from './hub.constants.js';
 import { HUB_PANEL_GROUPS, HUB_PANELS } from './hub-nav.js';
-import { maskConfigDeep } from './helpers/hub-mask.helper.js';
 import { CoreHubSourcesService } from './services/core-hub-sources.service.js';
 import { HubDashboardData, HubDiagnosticsData, HubSessionData } from './interfaces/hub-panels.interface.js';
 import type { ResolvedHubConfig } from './interfaces/hub-config.interface.js';
-
-/**
- * Framework-default secret field names (see CheckSecurityInterceptor). Union with the pattern-based
- * masking in {@link maskConfigDeep} and the project's `security.secretFields`.
- */
-const FRAMEWORK_SECRET_FIELDS = [
-  'password',
-  'verificationToken',
-  'passwordResetToken',
-  'passwordResetTokenExpiresAt',
-  'refreshTokens',
-  'tempTokens',
-  'apiKeyEncrypted',
-];
 
 const MONGO_STATES: Record<number, string> = {
   0: 'disconnected',
@@ -92,13 +77,12 @@ export class CoreHubService {
   }
 
   /**
-   * The full server config with all secrets masked. Deep-cloned first (never mutate the live config),
-   * then masked by key heuristics + the framework/project secret-field lists.
+   * The full server config with all secrets masked — the same view `GET /config` serves
+   * (`ConfigService.getRedactedConfig()`): deep-cloned first, then masked by key heuristics + the framework/project
+   * secret-field lists.
    */
   getConfigMasked(): Record<string, unknown> {
-    const raw = this.configService.configFastButReadOnly as Record<string, unknown>;
-    const projectSecretFields = this.configService.get<string[]>('security.secretFields', []) ?? [];
-    return maskConfigDeep(raw, [...FRAMEWORK_SECRET_FIELDS, ...projectSecretFields]);
+    return this.configService.getRedactedConfig();
   }
 
   /** The resolved Hub config (for controller/actions/gating decisions). */
