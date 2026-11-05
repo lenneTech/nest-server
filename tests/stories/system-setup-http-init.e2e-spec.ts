@@ -20,6 +20,8 @@
  * project), because each needs the zero-user state of a fresh deployment. The deployed environments are `develop`
  * and `test` — both deployed stages in starter-based projects — rather than `production`, whose own guards (mail
  * transport, cookie and secret checks) would refuse this suite's configuration for reasons unrelated to the setup.
+ * For the same reason the Hub is off: the e2e configuration captures mail there, which `develop` refuses. Each boot
+ * also REPLACES the static ConfigService configuration, since a second CoreModule.forRoot() would merge into it.
  * The unit spec tests/unit/system-setup-http-init.spec.ts covers `production`, `staging` and unknown names.
  */
 
@@ -68,6 +70,9 @@ async function bootSetupApp(suffix: string, overrides: { env: string; systemSetu
     {
       ...envConfig,
       env: overrides.env,
+      // The e2e configuration captures mail in the Hub, which CoreHubModule refuses in a deployed environment such
+      // as `develop`; the setup story does not need the Hub at all
+      hub: false,
       mongoose: { ...envConfig.mongoose, uri: deriveTestDbUri(`setup-${suffix}`) },
       systemSetup: overrides.systemSetup ?? {},
     },
