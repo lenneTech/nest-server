@@ -637,6 +637,33 @@ export const LtnsErrors = {
     },
   },
 
+  /**
+   * `POST /system-setup/init` is closed in this environment (12.4.0+): by default it is open only in `local`, `ci`
+   * and `e2e`. A deployment provisions its first admin through `systemSetup.initialAdmin`, or opens the HTTP init
+   * explicitly with `systemSetup.httpInit`.
+   */
+  SYSTEM_SETUP_HTTP_INIT_DISABLED: {
+    code: 'LTNS_0053',
+    message: 'Initial admin setup over HTTP is not enabled in this environment',
+    translations: {
+      de: 'Die Ersteinrichtung über die Oberfläche ist in dieser Umgebung nicht freigegeben.',
+      en: 'Initial admin setup over HTTP is not enabled in this environment.',
+    },
+  },
+
+  /**
+   * `POST /system-setup/init` requires the setup token (`systemSetup.httpInit.token`) in the `X-System-Setup-Token`
+   * header, and the request sent none or a different one (12.4.0+).
+   */
+  SYSTEM_SETUP_TOKEN_INVALID: {
+    code: 'LTNS_0054',
+    message: 'Missing or invalid system setup token',
+    translations: {
+      de: 'Der Einrichtungs-Token fehlt oder ist falsch.',
+      en: 'The system setup token is missing or invalid.',
+    },
+  },
+
   // =====================================================
   // AI Errors (LTNS_0600-LTNS_0699)
   // =====================================================
