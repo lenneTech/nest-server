@@ -6337,6 +6337,72 @@
         "tests/unit/check-vendor-lint.spec.ts"
       ],
       "driverSpecific": false
+    },
+    {
+      "id": "system-setup-role-written-after-user",
+      "defect": "DEV-4050 — the initial admin's role was written in a separate step after createUser, linkAccount and the sync; a process killed in between left a user without the admin role, and the setup refused for good.",
+      "file": "src/core/modules/system-setup/core-system-setup.service.ts",
+      "find": "          roles: [RoleEnum.ADMIN],\n        },\n",
+      "replace": "        },\n",
+      "specs": [
+        "tests/unit/system-setup-interrupted.spec.ts"
+      ],
+      "driverSpecific": false
+    },
+    {
+      "id": "system-setup-boot-skips-interrupted-setup",
+      "defect": "DEV-4050 — with users present the boot returned before looking at them, so a setup killed after createUser was never finished and the deployment kept no way in.",
+      "file": "src/core/modules/system-setup/core-system-setup.service.ts",
+      "find": "      if (status.betterAuthEnabled && (await this.resumeInterruptedInitialAdmin(initialAdmin)) === 'claimed') {\n",
+      "replace": "      if (false) {\n",
+      "specs": [
+        "tests/unit/system-setup-interrupted.spec.ts"
+      ],
+      "driverSpecific": false
+    },
+    {
+      "id": "system-setup-resume-trusts-any-password",
+      "defect": "DEV-4050 — the configured password is the evidence that a credential account came from the setup; without the check a user who signed up with the administrator's address would be made administrator at the next boot.",
+      "file": "src/core/modules/system-setup/core-system-setup.service.ts",
+      "find": "    if (!(await context.password.verify({ hash: account.password, password: normalizedPassword }))) {\n",
+      "replace": "    if (false) {\n",
+      "specs": [
+        "tests/unit/system-setup-interrupted.spec.ts"
+      ],
+      "driverSpecific": false
+    },
+    {
+      "id": "system-setup-resume-ignores-existing-admin",
+      "defect": "DEV-4050 — a user without role and without account is a setup leftover only while the deployment has no administrator; promoting it otherwise grants administration nobody decided on.",
+      "file": "src/core/modules/system-setup/core-system-setup.service.ts",
+      "find": "      if (!isAdmin && (await this.hasAdmin())) {\n        return undefined;\n      }\n",
+      "replace": "",
+      "specs": [
+        "tests/unit/system-setup-interrupted.spec.ts"
+      ],
+      "driverSpecific": false
+    },
+    {
+      "id": "system-setup-resume-gives-up-on-held-claim",
+      "defect": "DEV-4050 — a process restarted within five minutes of the crash finds the dead attempt's claim still held; without a retry the deployment stays without a way in until the next deploy.",
+      "file": "src/core/modules/system-setup/core-system-setup.service.ts",
+      "find": "        this.scheduleInterruptedSetupRetry(initialAdmin);\n",
+      "replace": "",
+      "specs": [
+        "tests/unit/system-setup-interrupted.spec.ts"
+      ],
+      "driverSpecific": false
+    },
+    {
+      "id": "system-setup-resume-overwrites-legacy-password",
+      "defect": "DEV-4050 review — a Legacy-Auth administrator without a Better-Auth account looks like the administrator a killed setup leaves; finishing it gave it the configured password and synced that over its own legacy password.",
+      "file": "src/core/modules/system-setup/core-system-setup.service.ts",
+      "find": "      return (await this.hasLegacyPassword(found.user, email))\n        ? undefined\n        : { iamUser: found.user, linkCredential: true };\n",
+      "replace": "      return { iamUser: found.user, linkCredential: true };\n",
+      "specs": [
+        "tests/unit/system-setup-interrupted.spec.ts"
+      ],
+      "driverSpecific": false
     }
   ]
 }
