@@ -24,7 +24,14 @@ import type { IBetterAuth } from '../../common/interfaces/server-options.interfa
  * - session: custom response format with mapped user
  * - features: nest-server's own feature report
  */
-export const CONTROLLER_HANDLED_PATHS = ['/features', '/sign-in/email', '/sign-up/email', '/sign-out', '/session'];
+export const CONTROLLER_HANDLED_PATHS = [
+  '/features',
+  '/sign-in/email',
+  '/sign-up/email',
+  '/sign-out',
+  '/session',
+  '/resend-verification-email',
+];
 
 /**
  * Routes Better-Auth guards with a session check in the HANDLER instead of a session middleware: the

@@ -551,11 +551,12 @@ export interface IBetterAuthEmailVerificationConfig {
    * When not set, the verification link points directly to the backend
    * endpoint which handles verification and redirects.
    *
-   * Since 11.38.0 the generated link carries the recipient's address as well —
-   * `{callbackURL}?token=<token>&email=<address>`. The verification page needs it to offer
-   * "send a new email" once the token has expired, and it cannot recover the address itself:
-   * that value lives inside the token's JWT payload, and reading it there would mean rendering
-   * data from an unverified signature.
+   * Since 12.6.0 the link carries the token only, and sealed — `{callbackURL}?token=<sealed>`: no `email`
+   * parameter, and the token is encrypted, because Better-Auth's own token is a readable JWT with the
+   * address in it. Pass the token on unchanged: `GET /iam/verify-email?token=…` opens it, and for an expired
+   * link `POST /iam/resend-verification-email` with `{ token }` sends a new mail and answers the address
+   * masked (`GET /iam/features` → `resendVerificationByToken`). From 11.38.0 to 12.5.x the link carried
+   * `&email=<address>`.
    *
    * @default undefined (backend-handled verification)
    * @since 11.13.0
