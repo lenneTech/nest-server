@@ -162,10 +162,18 @@ describe('IAM WebSocket handshake and session lifecycle (e2e)', () => {
     expect(socket.closes[0].code).not.toBe(1000);
   });
 
+  /**
+   * @regression   11.43.7 (backport of 12.6.1) — routes forwarded to Better-Auth answered with the opaque session token
+   *   in the body; get-session carried it as `session.token` in every mode.
+   * @seen-failing Send Better-Auth's response without presentSessionTokens() in sendBetterAuthResponse() in
+   *   src/core/modules/better-auth/core-better-auth.service.ts — registered as mutation
+   *   `get-session-hands-out-session-token` in tests/regression-mutations.json.
+   */
   it('signs a session out for real: the token no longer authenticates afterwards', async () => {
     const token = await signIn('revoke');
     const before: any = await testHelper.rest('/iam/get-session', { headers: { Authorization: `Bearer ${token}` } });
-    expect(before?.session?.token, 'the token authenticates before the sign-out').toBe(token);
+    expect(before?.session?.userId, 'the token authenticates before the sign-out').toBeTruthy();
+    expect(before?.session?.token, 'get-session does not hand out the session token (11.43.7)').toBeUndefined();
 
     await testHelper.rest('/iam/sign-out', { method: 'POST', statusCode: 201, token });
 
