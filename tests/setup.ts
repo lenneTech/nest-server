@@ -7,8 +7,11 @@
  *    deprecation warnings. Several tests verify backward compatibility of the deprecated
  *    long-form enum API (`tests/unified-field-enum*.e2e-spec.ts`) and therefore use
  *    `enum: { enum: X }` on purpose — many define the inputs at module level, so the warning
- *    is emitted at import time, before any `beforeEach` could intercept it. Only this exact
- *    framework message is filtered; every other `console.warn` is passed through unchanged.
+ *    is emitted at import time, before any `beforeEach` could intercept it. Also filtered: the
+ *    notice `getEnvironmentConfig()` prints once per module instance when vitest's `NODE_ENV=test`
+ *    meets a configuration without a `test` block (12.7.0) — this repository has none on purpose, and
+ *    every spec file re-imports the config in its own module graph. Only these exact framework
+ *    messages are filtered; every other `console.warn` is passed through unchanged.
  *    A direct assignment (not `vi.spyOn`) is used on purpose so a global `vi.restoreAllMocks()`
  *    never removes this filter.
  *
@@ -55,6 +58,9 @@ const originalConsoleWarn = console.warn.bind(console);
 
 console.warn = (...args: unknown[]): void => {
   if (typeof args[0] === 'string' && args[0].includes('[@UnifiedField] Deprecated long-form')) {
+    return;
+  }
+  if (typeof args[0] === 'string' && args[0].startsWith("NODE_ENV='test' has no block in the configuration; ")) {
     return;
   }
   originalConsoleWarn(...args);
