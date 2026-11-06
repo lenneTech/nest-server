@@ -328,10 +328,6 @@ migration history — see `src/core/modules/migrate/README.md`.
 
 **Key areas:** JWT, MongoDB, GraphQL, email, security, betterAuth
 
-**`NODE_ENV` must name a block (12.7.0):** `getEnvironmentConfig()` throws on an empty `NODE_ENV` and on one without a
-block in `config.env.ts` — before, both silently got the `local` block, which opens every local-only switch on a
-deployed stage. Unset still means `local`; `NODE_ENV=test` under a test runner keeps the `local` block with a warning.
-
 ## Debugging & Troubleshooting
 
 | Issue | Solution |
