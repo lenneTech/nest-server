@@ -6688,6 +6688,17 @@
         "tests/session-token-exposure.e2e-spec.ts"
       ],
       "driverSpecific": false
+    },
+    {
+      "id": "session-lookup-includes-expired-rows",
+      "defect": "12.6.2 (DEV-4109 review) — sessionTokenOfUser() listed every session row of the user; the adapter caps that at 100 rows, oldest first, and MongoDB keeps expired rows, so a user with 100 old rows could no longer end a current session by id.",
+      "file": "src/core/modules/better-auth/core-better-auth.service.ts",
+      "find": "      const sessions: unknown = await context?.internalAdapter?.listSessions?.(userId, { onlyActiveSessions: true });\n",
+      "replace": "      const sessions: unknown = await context?.internalAdapter?.listSessions?.(userId);\n",
+      "specs": [
+        "tests/unit/better-auth-session-token-presentation.spec.ts"
+      ],
+      "driverSpecific": false
     }
   ]
 }
