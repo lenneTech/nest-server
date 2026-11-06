@@ -119,7 +119,8 @@ authentication and separate app and API origins the request is credentialed, and
 refuses `*` there — uploads failed in the browser although the server answered 201. The origins now
 come from `buildCorsConfig()` (`appUrl`, `baseUrl`, `cors.allowedOrigins`, `cors.allowAll`), the same
 decision REST, GraphQL and Better-Auth make; `tus.allowedOrigins` overrides. Without credentialed CORS
-(cookies off, or no origin resolvable) the tus default `*` stays.
+(no origin resolvable) the tus default `*` stays. Since 12.7.0 JWT mode (`cookies: false`) gets the origin list as
+well.
 
 The preflight (`OPTIONS`) is answered by Nest's CORS layer and was never affected — test an
 **authenticated** request with an `Origin` header when checking this.

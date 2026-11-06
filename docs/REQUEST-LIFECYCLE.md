@@ -329,7 +329,8 @@ The following diagram shows the exact order of execution from HTTP request to re
   |      - gzip response compression                        |
   |                                                         |
   |  0c. CORS  [if not disabled]                            |
-  |      - credentials: true when cookies enabled           |
+  |      - credentials: true for the resolved origins       |
+  |        (JWT mode too, since 12.7.0)                     |
   |      - Origins from appUrl/baseUrl/cors.allowedOrigins  |
   |      - Propagated to BetterAuth trustedOrigins          |
   |                                                         |
@@ -531,7 +532,12 @@ CORS headers are configured based on the unified `cors` config (since v11.25.0).
 ```typescript
 // main.ts — uses helpers from cookies.helper.ts
 if (!isCorsDisabled(envConfig.cors)) {
-  server.enableCors({ credentials: cookiesEnabled, origin: resolvedOrigins });
+  const corsOptions = buildCorsConfig(envConfig); // credentials + resolved origins, in both cookie modes (12.7.0+)
+  if (Object.keys(corsOptions).length > 0) {
+    server.enableCors(corsOptions);
+  } else if (!isCookiesEnabled(envConfig.cookies)) {
+    server.enableCors(); // JWT mode with no origin resolvable: `*` without credentials
+  }
 }
 ```
 
@@ -696,9 +702,11 @@ If authentication succeeds, `req.user` is set with the authenticated user (inclu
 > Before, two-factor verify, passkey verify, OTP / magic-link sign-in and `get-session` answered with the
 > opaque session token in the body, also in cookie mode. The session token is recognised by the session
 > cookie the response sets (under the name the instance gives it), by `session.token`, or — for a top-level
-> token neither identifies, as a signed-in user's second factor returns — by a session-store lookup. A JWT
-> (`/token`), arrays (`list-sessions`) and other plugins' tokens are left alone. See
-> `.claude/rules/better-auth.md` §7 "Forwarded responses".
+> token neither identifies, as a signed-in user's second factor returns — by a session-store lookup. Since
+> 12.7.0 a session record loses its `token` also inside an array (`list-sessions` names sessions by `id`;
+> `POST /revoke-session` takes `{ sessionId }`, resolved by the API middleware among the caller's own
+> sessions). A JWT (`/token`) and other plugins' tokens are left alone. See `.claude/rules/better-auth.md` §7
+> "Forwarded responses".
 
 #### 2b. SecurityHeadersMiddleware
 

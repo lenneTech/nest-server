@@ -307,7 +307,8 @@ describe('Swagger helper', () => {
     beforeAll(async () => {
       const moduleRef = await Test.createTestingModule({ imports: [SwaggerTestModule] }).compile();
       served = moduleRef.createNestApplication();
-      setupSwagger(served, { ...options, jsonDocumentUrl: '/docs-json' });
+      // `swagger: true` because the unit runner is no local environment (12.7.0: off by default outside local/ci/e2e)
+      setupSwagger(served, { ...options, jsonDocumentUrl: '/docs-json' }, { swagger: true });
       await served.init();
     });
 

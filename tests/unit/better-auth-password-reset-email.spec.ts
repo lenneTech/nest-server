@@ -1,6 +1,4 @@
 import { createHash } from 'node:crypto';
-import { tmpdir } from 'node:os';
-import { join } from 'node:path';
 /**
  * `CoreBetterAuthEmailVerificationService.sendPasswordResetEmail()` — the delivery half of the
  * native password-reset flow, and the documented override point for projects.
@@ -14,13 +12,10 @@ import { join } from 'node:path';
  */
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
-import { getEnvironmentConfig } from '../../src/core/common/helpers/config.helper';
 import { CoreBetterAuthEmailVerificationService } from '../../src/core/modules/better-auth/core-better-auth-email-verification.service';
 import { captureExpectedLogs } from '../helpers/expected-log-output';
 
 const USER = { email: 'reset.user@test.com', id: 'u1', name: 'Reset User' };
-/** No .env is read: getEnvironmentConfig() must not pull a developer's local file into this process */
-const MISSING_ENV_FILE = join(tmpdir(), 'nest-server-dev-4056-no-env-file');
 const RESET_URL = 'https://api.test.local/iam/reset-password/JnQ2K8xL5pR7wT1vB4hZ9mCd';
 
 /**
@@ -302,21 +297,21 @@ describe('sendPasswordResetEmail', () => {
     );
 
     /**
-     * @regression   DEV-4056 follow-up — getEnvironmentConfig() answers a NODE_ENV without a configuration key with the
+     * @regression   DEV-4056 follow-up — getEnvironmentConfig() answered a NODE_ENV without a configuration key with the
      *   `local` block, so a deployed stage started with NODE_ENV=development, dev or staging in a project that defines
      *   none of them ran with `env: 'local'` and printed live verification and reset links into its log pipeline.
+     *   getEnvironmentConfig() refuses that NODE_ENV since 12.7.0 (DEV-4061), but `NSC__ENV`, `NEST_SERVER_CONFIG` or a
+     *   project's own loader still produce a local `env` on a deployed stage, so the line keeps its own check.
      * @seen-failing Drop the NODE_ENV check from logAuthUrlForDevelopment() in
      *   src/core/modules/better-auth/core-better-auth-email-verification.service.ts — registered as mutation
      *   `auth-url-log-trusts-local-fallback` in tests/regression-mutations.json.
      */
     it.each(['development', 'dev', 'staging'])(
-      'prints nothing when NODE_ENV=%s fell back to the local configuration',
+      'prints nothing when NODE_ENV=%s runs on the local configuration',
       async (nodeEnv) => {
         vi.stubEnv('NODE_ENV', nodeEnv);
-        const resolved = getEnvironmentConfig({ config: { local: { env: 'local' } }, envPath: MISSING_ENV_FILE });
-        // The fallback this case is about: the deployed stage now claims to be local
-        expect(resolved.env).toBe('local');
-        const { service } = createService({ env: resolved.env });
+        // The state this case is about: a deployed stage whose configuration claims to be local
+        const { service } = createService({ env: 'local' });
 
         await service.sendPasswordResetEmail({ token: 't', url: RESET_URL, user: USER });
 

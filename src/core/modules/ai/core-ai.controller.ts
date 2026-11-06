@@ -1,4 +1,5 @@
 import { Body, Controller, Delete, Get, Inject, Optional, Param, Post, Put, Query, Res } from '@nestjs/common';
+import { ApiQuery } from '@nestjs/swagger';
 import type { Response } from 'express';
 
 import { RESTServiceOptions } from '../../common/decorators/rest-service-options.decorator.js';
@@ -580,11 +581,25 @@ export class CoreAiController {
   // User-facing user prompts ("Vorlagen") — own / tenant / global
   // ===================================================================================================================
 
-  /** List user prompts visible to the current user (own + tenant + global). */
+  /**
+   * List user prompts visible to the current user (own + tenant + global). Enabled ones only — what the chat offers;
+   * `?includeDisabled=true` lists disabled ones too, for the management screen (12.7.0).
+   */
   @Get('prompts')
   @Roles(RoleEnum.S_USER)
-  async findPrompts(@RESTServiceOptions() serviceOptions: ServiceOptions): Promise<CoreAiPrompt[]> {
-    return this.promptService.listVisible(serviceOptions);
+  @ApiQuery({
+    description: 'Also list disabled prompts (for managing them); default: enabled prompts only',
+    name: 'includeDisabled',
+    required: false,
+    type: Boolean,
+  })
+  async findPrompts(
+    @RESTServiceOptions() serviceOptions: ServiceOptions,
+    @Query('includeDisabled') includeDisabled?: string,
+  ): Promise<CoreAiPrompt[]> {
+    return this.promptService.listVisible(serviceOptions, {
+      includeDisabled: includeDisabled === 'true' || includeDisabled === '1',
+    });
   }
 
   /** Create a user prompt for the current user / tenant (global requires admin). */

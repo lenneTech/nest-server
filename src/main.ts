@@ -84,8 +84,9 @@ async function bootstrap() {
   // Three cases:
   // 1. CORS explicitly disabled (`cors: false` or `cors.enabled: false`) → skip `enableCors()`
   //    entirely. No CORS headers emitted. Same-origin requests still work.
-  // 2. Origins resolvable (appUrl/baseUrl/allowedOrigins or allowAll) → use the computed options.
-  // 3. Cookies disabled → permissive `enableCors()` without credentials (backward-compatible).
+  // 2. Origins resolvable (appUrl/baseUrl/allowedOrigins or allowAll) → use the computed options,
+  //    with credentials — in JWT mode (`cookies: false`) too since 12.7.0.
+  // 3. Cookies disabled and no origin resolvable → permissive `enableCors()` without credentials.
   if (isCorsDisabled(envConfig.cors)) {
     // Case 1 — CORS explicitly disabled. Do nothing.
   } else {

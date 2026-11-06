@@ -162,6 +162,37 @@ export class CoreBetterAuthApiMiddleware implements NestMiddleware {
   }
 
   /**
+   * `POST /revoke-session` with `{ sessionId }` (12.7.0): `list-sessions` hands out session ids and no tokens, so a
+   * client names the session to end by its id. Better-Auth's route takes `{ token }` only; this looks the token up among
+   * the sessions of the signed-in user ({@link CoreBetterAuthService.sessionTokenOfUser}) and puts it into the body.
+   *
+   * An id that is unknown or belongs to another user becomes an empty token: Better-Auth then revokes nothing and
+   * answers as it does for a foreign token, so the answer says nothing about other users' sessions. A body that
+   * already carries a `token` is left as it is (revoking by token keeps working).
+   */
+  protected async resolveRevokeSessionId(req: Request, relativePath: string): Promise<void> {
+    if (req.method !== 'POST' || normalizeIamRoutePath(relativePath) !== '/revoke-session') {
+      return;
+    }
+    const body = req.body as Record<string, unknown> | undefined;
+    const sessionId = body?.sessionId;
+    if (!body || typeof sessionId !== 'string' || !sessionId || (typeof body.token === 'string' && body.token)) {
+      return;
+    }
+    const caller = req as unknown as {
+      betterAuthSession?: { user?: { id?: unknown } };
+      betterAuthUser?: { id?: unknown };
+    };
+    const userId = caller.betterAuthSession?.user?.id ?? caller.betterAuthUser?.id;
+    const token =
+      typeof userId === 'string' && userId
+        ? await this.betterAuthService.sessionTokenOfUser(userId, sessionId)
+        : undefined;
+    const { sessionId: _sessionId, ...rest } = body;
+    req.body = { ...rest, token: token ?? '' };
+  }
+
+  /**
    * Brings every other password a native route carries (see {@link PASSWORD_FIELD_PATHS}) to the shape the
    * stored credential was written in. Matched like {@link normalizeResetPassword}: exact, after trimming a
    * trailing slash and lower-casing.
@@ -365,6 +396,8 @@ export class CoreBetterAuthApiMiddleware implements NestMiddleware {
       const resetPassword = this.normalizeResetPassword(req, relativePath);
       // …and every password a non-reset native route carries (2FA, change-password, delete-user, …).
       this.normalizeNativePasswords(req, relativePath);
+      // `list-sessions` hands out ids, no tokens: revoke-session takes the id (12.7.0)
+      await this.resolveRevokeSessionId(req, relativePath);
 
       // Convert Express request to Web Standard Request with proper cookie signing
       const webRequest = await toWebRequest(req, {

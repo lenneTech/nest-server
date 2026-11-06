@@ -1,6 +1,6 @@
 # @lenne.tech/nest-server — Framework API Reference
 
-> Auto-generated from source code as of 2026-11-06 (v12.6.1)
+> Auto-generated from source code as of 2026-11-06 (v12.7.0)
 > File: `FRAMEWORK-API.md` — compact, machine-readable API surface for Claude Code
 
 ## CoreModule.forRoot()
@@ -54,6 +54,7 @@
   - `shutdownDelayMs?`: `number` (default: `0 (no delay)`) — Delay in milliseconds between receiving a shutdown signal and starting the
   - `staticAssets?`: `{ options?: ServeStaticOptions; path?: string; }` — Configuration for useStaticAssets
   - `sync?`: `boolean | ISync` — Offline sync (`docs/offline-sync-protocol.md`): `GET/POST /sync/{model}` for the models whose service carries
+  - `swagger?`: `boolean` (default: `undefined (served only in `local`, `ci` and `e2e`)`) — Whether `setupSwagger()` serves the API documentation (12.7.0+), decided by `isSwaggerEnabled()`.
   - `systemSetup?`: `ISystemSetup` — System setup configuration for initial admin creation.
   - `templates?`: `{ engine?: string; path?: string; }` — Templates
   - `trustProxy?`: `string | number | boolean | string[]` (default: `false (Express default — the forwarded chain is not trusted)`) — Express `trust proxy` setting — how far up the `X-Forwarded-For` chain this app believes.

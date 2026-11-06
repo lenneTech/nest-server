@@ -1515,6 +1515,45 @@ describe('AI module (e2e)', () => {
     expect(denied.errors).toBeDefined();
   });
 
+  /**
+   * @regression   12.7.0 (DEV-4126) — GET /ai/prompts filtered disabled prompts for every caller, so the management
+   *   screen lost a prompt saved with "enabled" off: it could no longer be edited or deleted.
+   * @seen-failing Ignore `includeDisabled` in listVisible() in src/core/modules/ai/services/core-ai-prompt.service.ts —
+   *   registered as mutation `prompt-management-list-hides-disabled` in tests/regression-mutations.json.
+   */
+  it('lists a disabled prompt for management (includeDisabled), not for the chat, and not for another user', async () => {
+    const name = `disabled-prompt-${Date.now()}`;
+    const created = await request(app.getHttpServer())
+      .post('/ai/prompts')
+      .set('Authorization', `Bearer ${httpRegularToken}`)
+      .send({ content: 'switched off', enabled: false, name });
+    expect(created.status, JSON.stringify(created.body)).toBeLessThan(300);
+
+    const names = (res: request.Response) => (res.body as { name: string }[]).map((prompt) => prompt.name);
+    const chat = await request(app.getHttpServer())
+      .get('/ai/prompts')
+      .set('Authorization', `Bearer ${httpRegularToken}`)
+      .expect(200);
+    const management = await request(app.getHttpServer())
+      .get('/ai/prompts?includeDisabled=true')
+      .set('Authorization', `Bearer ${httpRegularToken}`)
+      .expect(200);
+    const stranger = await request(app.getHttpServer())
+      .get('/ai/prompts?includeDisabled=true')
+      .set('Authorization', `Bearer ${httpAdminToken}`)
+      .expect(200);
+
+    expect(names(chat), 'the chat offers enabled prompts only').not.toContain(name);
+    expect(names(management), 'the management list shows the disabled prompt').toContain(name);
+    expect(names(stranger), "another user does not see someone else's own prompt").not.toContain(name);
+
+    const gql = await testHelper.graphQl(
+      { arguments: { includeDisabled: true }, fields: ['name', 'enabled'], name: 'findAiPrompts', type: TestGraphQLType.QUERY },
+      { token: httpRegularToken },
+    );
+    expect((gql as { name: string }[]).map((prompt) => prompt.name)).toContain(name);
+  });
+
   // ===================================================================================================================
   // Slots — tenant-scoping + listEffective + reset
   // ===================================================================================================================
