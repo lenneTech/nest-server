@@ -161,7 +161,10 @@ ai: {
   permissions.
 - **User prompts ("Vorlagen"):** users author re-usable short prompts for themselves
   (private) or their tenant (public) via `aiPrompts` (`/ai/prompts`, `useLtAiPrompts`).
-  Inserted into the chat input by a picker.
+  Inserted into the chat input by a picker. The list answers ENABLED prompts only — what the
+  picker offers; a management screen asks `GET /ai/prompts?includeDisabled=true` (GraphQL
+  `findAiPrompts(includeDisabled: true)`, 12.7.0), or a prompt saved with "enabled" off
+  disappears from it.
 - **Placeholders:** `{{placeholder}}` tokens in both system slots AND user prompts are
   resolved at run time by `CoreAiPlaceholderRegistry`. The current list is served via
   `GET /ai/placeholders` (`useLtAiPlaceholders`) — your slot/prompt editors should render

@@ -6776,6 +6776,28 @@
         "tests/session-token-exposure.e2e-spec.ts"
       ],
       "driverSpecific": false
+    },
+    {
+      "id": "prompt-list-ignores-include-disabled",
+      "defect": "12.7.0 (DEV-4126) — GET /ai/prompts filtered disabled prompts for every caller, so the management screen lost a prompt saved with \"enabled\" off; it could no longer be edited or deleted.",
+      "file": "src/core/modules/ai/services/core-ai-prompt.service.ts",
+      "find": "        options.includeDisabled === true ? { $or: or } : { $or: or, enabled: { $ne: false } };\n",
+      "replace": "        { $or: or, enabled: { $ne: false } };\n",
+      "specs": [
+        "tests/unit/ai-prompt-list-visible.spec.ts"
+      ],
+      "driverSpecific": false
+    },
+    {
+      "id": "prompt-management-list-hides-disabled",
+      "defect": "12.7.0 (DEV-4126) — GET /ai/prompts filtered disabled prompts for every caller, so the management screen lost a prompt saved with \"enabled\" off; it could no longer be edited or deleted.",
+      "file": "src/core/modules/ai/services/core-ai-prompt.service.ts",
+      "find": "        options.includeDisabled === true ? { $or: or } : { $or: or, enabled: { $ne: false } };\n",
+      "replace": "        { $or: or, enabled: { $ne: false } };\n",
+      "specs": [
+        "tests/ai.e2e-spec.ts"
+      ],
+      "driverSpecific": false
     }
   ]
 }
