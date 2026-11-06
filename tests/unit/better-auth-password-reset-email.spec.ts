@@ -1,3 +1,4 @@
+import { createHash } from 'node:crypto';
 /**
  * `CoreBetterAuthEmailVerificationService.sendPasswordResetEmail()` — the delivery half of the
  * native password-reset flow, and the documented override point for projects.
@@ -228,6 +229,9 @@ describe('sendPasswordResetEmail', () => {
       expect(line).toBeDefined();
       expect(line).not.toContain(USER.email);
       expect(line).toContain(EXPECTED_LINK);
+      // The key a parallel test computes from its own address to find its line (the sealed token reveals nothing)
+      const userKey = createHash('sha256').update(USER.email.trim().toLowerCase()).digest('hex').slice(0, 16);
+      expect(line).toContain(`, UserKey: ${userKey}, URL: `);
     });
 
     it('prints nothing in a staging deployment', async () => {

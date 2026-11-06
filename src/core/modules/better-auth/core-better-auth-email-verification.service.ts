@@ -1004,7 +1004,12 @@ export class CoreBetterAuthEmailVerificationService {
    * laptops, and a hard floor keeps it from being the thing that reopens a deployment.
    *
    * The address is masked (PII, and the rest of this file already masks it); the URL is printed in
-   * full because following it without a mail server is the whole point locally.
+   * full because following it without a mail server is the whole point locally. `UserKey` tells a
+   * test which line is its own when many runs sign up in parallel: the first 16 hex characters of
+   * SHA-256 over the trimmed, lower-cased address, so a helper that knows its test address computes
+   * the same key. It replaces reading the address from the token's JWT payload, which the sealed
+   * verification token (DEV-4056) no longer allows. Format:
+   * `[<LABEL>] User: <masked>, UserKey: <16 hex>, URL: <url>`.
    *
    * `console.log` rather than the NestJS logger, deliberately and for two reasons: the logger
    * buffers, which makes interception unreliable under Vitest, and a logger call would route the
@@ -1022,8 +1027,9 @@ export class CoreBetterAuthEmailVerificationService {
     if (!isLocalEnv(env) && optIn !== '1') {
       return;
     }
+    const userKey = createHash('sha256').update(email.trim().toLowerCase()).digest('hex').slice(0, 16);
     // oxlint-disable-next-line no-console
-    console.log(`[${label}] User: ${this.maskEmail(email)}, URL: ${url}`);
+    console.log(`[${label}] User: ${maskEmail(email)}, UserKey: ${userKey}, URL: ${url}`);
   }
 
   protected getAppName(): string {
