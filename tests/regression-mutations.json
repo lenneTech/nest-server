@@ -6798,6 +6798,28 @@
         "tests/ai.e2e-spec.ts"
       ],
       "driverSpecific": false
+    },
+    {
+      "id": "rotated-session-token-kept",
+      "defect": "12.7.1 (DEV-4129) — the first verify-totp while enabling 2FA rotates the session (new cookie set, old session deleted) and answered with the OLD token; neither the cookie nor the session store recognised it, so the replaced session token still reached the body.",
+      "file": "src/core/modules/better-auth/core-better-auth-session-token.helper.ts",
+      "find": "  const rotatedFrom = !!topToken && !isJwtShaped(topToken) && !!cookieToken && topToken !== cookieToken;\n",
+      "replace": "  const rotatedFrom = false;\n",
+      "specs": [
+        "tests/unit/better-auth-session-token-presentation.spec.ts"
+      ],
+      "driverSpecific": false
+    },
+    {
+      "id": "enable-2fa-hands-out-replaced-token",
+      "defect": "12.7.1 (DEV-4129) — the first verify-totp while enabling 2FA rotates the session (new cookie set, old session deleted) and answered with the OLD token; neither the cookie nor the session store recognised it, so the replaced session token still reached the body.",
+      "file": "src/core/modules/better-auth/core-better-auth-session-token.helper.ts",
+      "find": "  const rotatedFrom = !!topToken && !isJwtShaped(topToken) && !!cookieToken && topToken !== cookieToken;\n",
+      "replace": "  const rotatedFrom = false;\n",
+      "specs": [
+        "tests/session-token-exposure.e2e-spec.ts"
+      ],
+      "driverSpecific": false
     }
   ]
 }

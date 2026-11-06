@@ -215,6 +215,41 @@ describe('presentSessionTokens()', () => {
   });
 });
 
+describe('a response that rotated the session (12.7.1, DEV-4129)', () => {
+  const OLD_SESSION_TOKEN = 'Old0Session0Token0Deleted0By0Enable';
+
+  /**
+   * @regression   12.7.1 (DEV-4129) — the first verify-totp while enabling 2FA creates a new session, sets its cookie,
+   *   deletes the old one and answers with the OLD token. Neither the cookie nor the session store recognised it, so
+   *   the token of the replaced session still reached the body.
+   * @seen-failing Never treat a token next to a newly set session cookie as rotated in presentSessionTokens() in
+   *   src/core/modules/better-auth/core-better-auth-session-token.helper.ts — registered as mutation
+   *   `rotated-session-token-kept` in tests/regression-mutations.json.
+   */
+  it('drops the token of the replaced session in cookie mode', async () => {
+    const { options } = policy(false);
+    const presented = await presentSessionTokens(
+      betterAuthResponse({ token: OLD_SESSION_TOKEN, user: USER }, { setsSession: true }),
+      options,
+    );
+
+    expect(await presented.json()).toEqual({ user: USER });
+    expect(sessionTokenFromSetCookie(presented, COOKIE)).toBe(SESSION_TOKEN);
+  });
+
+  it('presents the JWT of the NEW session where the body carries a token', async () => {
+    const { options, resolveJwt } = policy(true);
+    const presented = await presentSessionTokens(
+      betterAuthResponse({ token: OLD_SESSION_TOKEN, user: USER }, { setsSession: true }),
+      options,
+    );
+
+    expect(await presented.json()).toEqual({ token: JWT, user: USER });
+    expect(resolveJwt).toHaveBeenCalledWith(SESSION_TOKEN);
+    expect(resolveJwt).not.toHaveBeenCalledWith(OLD_SESSION_TOKEN);
+  });
+});
+
 describe('session records (list-sessions), 12.7.0', () => {
   const SESSIONS = [
     { expiresAt: '2026-11-13T00:00:00.000Z', id: 's1', token: SESSION_TOKEN, userId: 'u1' },
