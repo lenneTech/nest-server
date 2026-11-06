@@ -359,6 +359,26 @@ describe('revoke-session by id (DEV-4109)', () => {
     expect(await lookup('u1', 's9')).toBeUndefined();
     expect(await lookup('u1', 'unknown')).toBeUndefined();
   });
+
+  /**
+   * @regression   12.7.1 (DEV-4109 review) — the lookup listed ALL session rows of the user. Better-Auth's adapter caps
+   *   that at 100 rows, oldest first, and MongoDB never removes an expired session row: a user with 100 old rows could
+   *   no longer end a current session by id (Better-Auth answered 200, the session stayed valid).
+   * @seen-failing List sessions without `onlyActiveSessions` in sessionTokenOfUser() in
+   *   src/core/modules/better-auth/core-better-auth.service.ts — registered as mutation
+   *   `session-lookup-includes-expired-rows` in tests/regression-mutations.json.
+   */
+  it('looks the id up among the ACTIVE sessions — the list list-sessions shows', async () => {
+    const listSessions = vi.fn(async () => [{ id: 's1', token: 'tok-1', userId: 'u1' }]);
+    const service = {
+      getInstance: () => ({ $context: Promise.resolve({ internalAdapter: { listSessions } }) }),
+      logger: { debug: vi.fn() },
+    };
+
+    await CoreBetterAuthService.prototype.sessionTokenOfUser.call(service as any, 'u1', 's1');
+
+    expect(listSessions).toHaveBeenCalledWith('u1', { onlyActiveSessions: true });
+  });
 });
 
 describe('CoreBetterAuthService.sendBetterAuthResponse()', () => {
