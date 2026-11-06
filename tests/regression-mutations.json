@@ -6699,6 +6699,28 @@
         "tests/unit/swagger-switch.spec.ts"
       ],
       "driverSpecific": false
+    },
+    {
+      "id": "cors-jwt-mode-wildcard",
+      "defect": "12.7.0 — in JWT mode (cookies: false) buildCorsConfig() answered {}, so CORS fell back to Access-Control-Allow-Origin: * without credentials, which browsers refuse on the credentialed requests a JWT-mode client makes (credentials: 'include', the 2FA sign-in through the session cookie and /iam/token).",
+      "file": "src/core/common/helpers/cookies.helper.ts",
+      "find": "  if (isCorsDisabled(options?.cors)) {\n    return {};\n  }\n\n  const corsObj = typeof options?.cors === 'object' ? options.cors : {};\n",
+      "replace": "  if (isCorsDisabled(options?.cors)) {\n    return {};\n  }\n\n  if (!isCookiesEnabled(options?.cookies)) {\n    return {};\n  }\n\n  const corsObj = typeof options?.cors === 'object' ? options.cors : {};\n",
+      "specs": [
+        "tests/unit/cookies-cors-config.spec.ts"
+      ],
+      "driverSpecific": false
+    },
+    {
+      "id": "cors-jwt-mode-cross-origin-sign-in",
+      "defect": "12.7.0 — in JWT mode (cookies: false) buildCorsConfig() answered {}, so CORS fell back to Access-Control-Allow-Origin: * without credentials, which browsers refuse on the credentialed requests a JWT-mode client makes (credentials: 'include', the 2FA sign-in through the session cookie and /iam/token).",
+      "file": "src/core/common/helpers/cookies.helper.ts",
+      "find": "  if (isCorsDisabled(options?.cors)) {\n    return {};\n  }\n\n  const corsObj = typeof options?.cors === 'object' ? options.cors : {};\n",
+      "replace": "  if (isCorsDisabled(options?.cors)) {\n    return {};\n  }\n\n  if (!isCookiesEnabled(options?.cookies)) {\n    return {};\n  }\n\n  const corsObj = typeof options?.cors === 'object' ? options.cors : {};\n",
+      "specs": [
+        "tests/cors-jwt-mode.e2e-spec.ts"
+      ],
+      "driverSpecific": false
     }
   ]
 }

@@ -545,11 +545,18 @@ export function resolveServerUrls(input: {
  *
  * Resolution priority:
  * 1. CORS disabled → empty object (no CORS)
- * 2. Cookies disabled → empty object (no credentials needed, handled by simple enableCors())
- * 3. `cors.allowAll` → `{ credentials: true, origin: true }` (mirror request origin)
- * 4. `cors.allowedOrigins` + resolved `appUrl`/`baseUrl` → deduplicated origin list
- * 5. Only resolved `appUrl`/`baseUrl` → those origins
- * 6. Nothing configured → `{}` (no credentialed CORS — caller decides fallback)
+ * 2. `cors.allowAll` → `{ credentials: true, origin: true }` (mirror request origin)
+ * 3. `cors.allowedOrigins` + resolved `appUrl`/`baseUrl` → deduplicated origin list
+ * 4. Only resolved `appUrl`/`baseUrl` → those origins
+ * 5. Nothing configured → `{}` (no credentialed CORS — caller decides fallback)
+ *
+ * The same in JWT mode (`cookies: false`) since 12.7.0. Until then it answered `{}` there, and callers fell back to
+ * `enableCors()` without credentials (`Access-Control-Allow-Origin: *`). A browser refuses `*` on a credentialed
+ * request, and JWT mode still makes them: the stack's client sends `credentials: 'include'`, and after a second
+ * factor it turns the session cookie Better-Auth set into a JWT through `/iam/token` — so a split app/API deployment
+ * in JWT mode could not finish a 2FA sign-in. Credentialed CORS answers only the listed origins — the ones cookie
+ * mode already trusts; it lets them READ credentialed responses and grants nothing to any other origin (CORS
+ * decides who may read, not what a browser sends; cookie requests from other sites are bounded by `SameSite=Lax`).
  *
  * `appUrl`/`baseUrl` are resolved via {@link resolveServerUrls}, the same function BetterAuth
  * uses, so all three CORS layers (GraphQL, REST, BetterAuth `trustedOrigins`) agree.
@@ -559,7 +566,7 @@ export function resolveServerUrls(input: {
  * - `main.ts` reference implementation for REST (Express) CORS
  *
  * Security notes:
- * - When no origins are resolvable AND cookies are enabled, the function returns `{}` rather
+ * - When no origins are resolvable, the function returns `{}` rather
  *   than `{ credentials: true, origin: true }`. Returning open CORS with credentials would
  *   allow any website to make credentialed requests. Callers should either configure
  *   `appUrl`/`baseUrl`/`allowedOrigins`, enable `cors.allowAll` explicitly (for development),
@@ -577,10 +584,6 @@ export function resolveServerUrls(input: {
  */
 export function buildCorsConfig(options: Partial<IServerOptions>): Record<string, unknown> {
   if (isCorsDisabled(options?.cors)) {
-    return {};
-  }
-
-  if (!isCookiesEnabled(options?.cookies)) {
     return {};
   }
 
