@@ -1698,8 +1698,10 @@ export interface IApiTokens {
  *
  * When cookies are enabled, the server:
  * - Loads `cookie-parser` middleware
- * - Sets `credentials: true` in CORS configuration
  * - Sets signed httpOnly session cookies on authentication responses
+ *
+ * CORS answers the resolved origins with `credentials: true` in BOTH modes since 12.7.0 (`buildCorsConfig()`);
+ * until then JWT mode got `*` without credentials.
  *
  * JWT authentication via `Authorization: Bearer` header works independently
  * of the cookie configuration — it is always available regardless of this setting.
@@ -1741,8 +1743,8 @@ export interface ICookiesConfig {
  * - `{ allowedOrigins: [...] }`: Additional origins beyond `appUrl`/`baseUrl`
  * - `{ allowAll: true }`: Allow all origins (mirrors request origin — NOT recommended for production)
  *
- * When cookies are enabled (default), CORS automatically includes `credentials: true`.
- * Browsers reject `Access-Control-Allow-Origin: *` with credentials, so origins must
+ * CORS includes `credentials: true` for the resolved origins — with cookies and, since 12.7.0, in JWT mode
+ * (`cookies: false`) too. Browsers reject `Access-Control-Allow-Origin: *` with credentials, so origins must
  * be explicitly listed or `allowAll` must be set (which mirrors the request origin).
  *
  * @default undefined (enabled, origins auto-derived from appUrl/baseUrl)
@@ -4205,8 +4207,8 @@ export interface ITusConfig {
    *
    * Unset, they come from the API's own CORS configuration — `buildCorsConfig()`, the function REST,
    * GraphQL and Better-Auth share (`appUrl`, `baseUrl`, `cors.allowedOrigins`, `cors.allowAll`).
-   * Without credentialed CORS configured (cookies off, or no origin resolvable) the tus server keeps
-   * its own default, `*`.
+   * Without credentialed CORS configured (no origin resolvable) the tus server keeps its own default,
+   * `*`. Since 12.7.0 JWT mode (`cookies: false`) gets the origin list too.
    *
    * The wildcard is what broke browser uploads with cookie authentication and separate app/API
    * origins before 11.42.1: a credentialed response with `Access-Control-Allow-Origin: *` is refused

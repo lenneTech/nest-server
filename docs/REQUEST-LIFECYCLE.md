@@ -329,7 +329,8 @@ The following diagram shows the exact order of execution from HTTP request to re
   |      - gzip response compression                        |
   |                                                         |
   |  0c. CORS  [if not disabled]                            |
-  |      - credentials: true when cookies enabled           |
+  |      - credentials: true for the resolved origins       |
+  |        (JWT mode too, since 12.7.0)                     |
   |      - Origins from appUrl/baseUrl/cors.allowedOrigins  |
   |      - Propagated to BetterAuth trustedOrigins          |
   |                                                         |
@@ -531,7 +532,12 @@ CORS headers are configured based on the unified `cors` config (since v11.25.0).
 ```typescript
 // main.ts — uses helpers from cookies.helper.ts
 if (!isCorsDisabled(envConfig.cors)) {
-  server.enableCors({ credentials: cookiesEnabled, origin: resolvedOrigins });
+  const corsOptions = buildCorsConfig(envConfig); // credentials + resolved origins, in both cookie modes (12.7.0+)
+  if (Object.keys(corsOptions).length > 0) {
+    server.enableCors(corsOptions);
+  } else if (!isCookiesEnabled(envConfig.cookies)) {
+    server.enableCors(); // JWT mode with no origin resolvable: `*` without credentials
+  }
 }
 ```
 
