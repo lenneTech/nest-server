@@ -2416,7 +2416,7 @@
       "id": "auth-url-log-on-deployed-stage",
       "defect": "11.42.12 — logAuthUrlForDevelopment() printed verification and password-reset links (live bearer tokens) whenever the environment was not production-like. isProductionLikeEnv() names only `production` and `staging`, so the deployed `develop` and `test` stages of a starter-based project wrote live reset links into their log pipeline, and log access alone was enough to take over an account. Removing the local-environment allowlist restores exactly that gate.",
       "file": "src/core/modules/better-auth/core-better-auth-email-verification.service.ts",
-      "find": "    if (!isLocalEnv(env) && optIn !== '1') {\n      return;\n    }\n",
+      "find": "    if (!isLocalEnv(env)) {\n      return;\n    }\n",
       "replace": "",
       "specs": [
         "tests/unit/better-auth-password-reset-email.spec.ts"
@@ -6477,6 +6477,17 @@
       "replace": "",
       "specs": [
         "tests/stories/better-auth-email-verification.story.test.ts"
+      ],
+      "driverSpecific": false
+    },
+    {
+      "id": "auth-url-log-opt-in-on-deployed-stage",
+      "defect": "DEV-4056 — LT_LOG_AUTH_URLS=1 printed verification and reset links (live tokens) and the address pseudonym in every environment but production and staging, so a deployed develop, test or development stage with the variable set wrote them into its log pipeline.",
+      "file": "src/core/modules/better-auth/core-better-auth-email-verification.service.ts",
+      "find": "    if (!isLocalEnv(env)) {\n      return;\n    }\n",
+      "replace": "    if (!isLocalEnv(env) && process.env.LT_LOG_AUTH_URLS !== '1') {\n      return;\n    }\n",
+      "specs": [
+        "tests/unit/better-auth-password-reset-email.spec.ts"
       ],
       "driverSpecific": false
     }

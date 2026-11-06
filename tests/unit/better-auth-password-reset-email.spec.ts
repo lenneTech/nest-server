@@ -270,15 +270,33 @@ describe('sendPasswordResetEmail', () => {
       expect(logSpy.mock.calls.map(c => String(c[0])).find(l => l.includes('[PASSWORD RESET]'))).toBeDefined();
     });
 
-    it('prints the link in another environment when LT_LOG_AUTH_URLS=1 opts in', async () => {
-      process.env.LT_LOG_AUTH_URLS = '1';
-      const { service } = createService({ env: 'development' });
+    /**
+     * @regression   DEV-4056 — `LT_LOG_AUTH_URLS=1` printed the line in every environment but `production` and
+     *   `staging`, so a deployed `develop`, `test` or `development` stage with the variable set wrote live tokens and the
+     *   address pseudonym (`UserKey`) into its log pipeline.
+     * @seen-failing Honour LT_LOG_AUTH_URLS=1 outside the local environments again in logAuthUrlForDevelopment() in
+     *   src/core/modules/better-auth/core-better-auth-email-verification.service.ts — registered as mutation
+     *   `auth-url-log-opt-in-on-deployed-stage` in tests/regression-mutations.json.
+     */
+    it.each(['develop', 'test', 'development', 'qa', 'production', 'staging'])(
+      'prints nothing on the %s stage even when LT_LOG_AUTH_URLS=1',
+      async (env) => {
+        process.env.LT_LOG_AUTH_URLS = '1';
+        const { service } = createService({ env });
+
+        await service.sendPasswordResetEmail({ token: 't', url: RESET_URL, user: USER });
+
+        expect(logSpy.mock.calls.map(c => String(c[0])).find(l => l.includes('[PASSWORD RESET]'))).toBeUndefined();
+      },
+    );
+
+    it('prints nothing in local when LT_LOG_AUTH_URLS=0', async () => {
+      process.env.LT_LOG_AUTH_URLS = '0';
+      const { service } = createService({ env: 'local' });
 
       await service.sendPasswordResetEmail({ token: 't', url: RESET_URL, user: USER });
 
-      const line = logSpy.mock.calls.map(c => String(c[0])).find(l => l.includes('[PASSWORD RESET]'));
-      expect(line).toBeDefined();
-      expect(line).not.toContain(USER.email);
+      expect(logSpy.mock.calls.map(c => String(c[0])).find(l => l.includes('[PASSWORD RESET]'))).toBeUndefined();
     });
 
     it.each(['production', 'staging'])('prints nothing in %s even when LT_LOG_AUTH_URLS=1', async (env) => {

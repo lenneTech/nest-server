@@ -998,10 +998,11 @@ export class CoreBetterAuthEmailVerificationService {
    * passed it and wrote live reset links into their log pipeline, where log access alone was
    * enough to take over an account.
    *
-   * `LT_LOG_AUTH_URLS=1` opts in for another environment that runs on a developer machine (this
-   * repository's own `development`, for one); `LT_LOG_AUTH_URLS=0` suppresses it everywhere. A
-   * production-like environment never prints, whatever the variable says: the opt-in exists for
-   * laptops, and a hard floor keeps it from being the thing that reopens a deployment.
+   * Nothing opens it elsewhere (12.6.0): until then `LT_LOG_AUTH_URLS=1` printed it in any
+   * environment but `production` and `staging`, and an environment name says nothing reliable about
+   * whether it is a laptop — `development` names a deployed stage as often as a machine. A live token
+   * and the line's `UserKey` (a pseudonym of the address) must never reach a deployment's logs.
+   * `LT_LOG_AUTH_URLS=0` still suppresses the line in the local environments.
    *
    * The address is masked (PII, and the rest of this file already masks it); the URL is printed in
    * full because following it without a mail server is the whole point locally. `UserKey` tells a
@@ -1016,15 +1017,11 @@ export class CoreBetterAuthEmailVerificationService {
    * token into `HubLogBufferService`'s ring buffer, which is readable over HTTP by any ADMIN.
    */
   protected logAuthUrlForDevelopment(label: string, email: string, url: string): void {
-    const optIn = process.env.LT_LOG_AUTH_URLS;
-    if (optIn === '0') {
+    if (process.env.LT_LOG_AUTH_URLS === '0') {
       return;
     }
     const env = this.configService?.getFastButReadOnly<string>('env') ?? process.env.NODE_ENV;
-    if (isProductionLikeEnv(env)) {
-      return;
-    }
-    if (!isLocalEnv(env) && optIn !== '1') {
+    if (!isLocalEnv(env)) {
       return;
     }
     const userKey = createHash('sha256').update(email.trim().toLowerCase()).digest('hex').slice(0, 16);
