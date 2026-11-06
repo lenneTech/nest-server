@@ -1014,18 +1014,6 @@
       "driverSpecific": false
     },
     {
-      "id": "verification-link-omits-email",
-      "defect": "11.38.0 — the email-verification link carried only the token. That is sufficient while the token is valid and useless once it is not: the verification page shipped by nuxt-base-starter gates its \"send a new email\" button on `route.query.email`, so an expired link produced a correct explanation and no way to act on it. The page cannot recover the address itself — it lives in the token's JWT payload, and reading it there would mean rendering data from an unverified signature. The dead end was reached by exactly the people who needed the button.",
-      "file": "src/core/modules/better-auth/core-better-auth-email-verification.service.ts",
-      "after": "  protected buildFrontendVerificationUrl(token: string, email?: string): string {",
-      "find": "    if (email) {\n      url += `&email=${encodeURIComponent(email)}`;\n    }",
-      "replace": "",
-      "specs": [
-        "tests/unit/verification-link.spec.ts"
-      ],
-      "driverSpecific": false
-    },
-    {
       "id": "smtp-secure-ignores-port",
       "defect": "11.38.0 — the production SMTP profile paired the default port 587 with `secure` resolving to true unless explicitly disabled. `secure` means implicit TLS, which only port 465 speaks; 587 opens in plaintext and upgrades via STARTTLS. Nodemailer therefore sent a TLS ClientHello to a server answering with an SMTP greeting and OpenSSL reported `wrong version number`. A deployment that configured only host and credentials could send NO mail at all — invisibly, because authentication mail is deliberately not awaited, so the API answered 200 while every password-reset message died in transport. Found on a production deployment, not by a test.",
       "file": "src/core/common/helpers/config.helper.ts",
@@ -6401,6 +6389,61 @@
       "replace": "      return { iamUser: found.user, linkCredential: true };\n",
       "specs": [
         "tests/unit/system-setup-interrupted.spec.ts"
+      ],
+      "driverSpecific": false
+    },
+    {
+      "id": "verification-link-carries-email",
+      "defect": "DEV-4056 — the verification link carried the address (`&email=`), so it stood in the mail, in the browser history and in the access logs of the app. Replaces `verification-link-omits-email` (11.38.0): an expired link is now recovered with the token alone (POST /iam/resend-verification-email).",
+      "file": "src/core/modules/better-auth/core-better-auth-email-verification.service.ts",
+      "find": "    return `${baseUrl}${separator}token=${encodeURIComponent(token)}`;\n",
+      "replace": "    return `${baseUrl}${separator}token=${encodeURIComponent(token)}&email=${encodeURIComponent(String(arguments[1] ?? ''))}`;\n",
+      "specs": [
+        "tests/unit/verification-link.spec.ts"
+      ],
+      "driverSpecific": false
+    },
+    {
+      "id": "resend-verification-trusts-unsigned-token",
+      "defect": "DEV-4056 — the resend endpoint mails the address in the token; read without Better-Auth's signature, anybody could have a verification mail sent to any address.",
+      "file": "src/core/modules/better-auth/core-better-auth-email-verification.service.ts",
+      "find": "      ({ payload } = await jwtVerify(token, new TextEncoder().encode(secret), { algorithms: ['HS256'] }));\n",
+      "replace": "      payload = JSON.parse(Buffer.from(token.split('.')[1] ?? '', 'base64url').toString() || '{}');\n",
+      "specs": [
+        "tests/unit/better-auth-resend-verification.spec.ts"
+      ],
+      "driverSpecific": false
+    },
+    {
+      "id": "resend-verification-for-email-change",
+      "defect": "DEV-4056 — a token of an address change (`updateTo`) belongs to its own confirmation flow; a plain verification mail for its old address would verify the address the user is leaving.",
+      "file": "src/core/modules/better-auth/core-better-auth-email-verification.service.ts",
+      "find": "    if (!claims.updateTo) {\n",
+      "replace": "    if (true) {\n",
+      "specs": [
+        "tests/unit/better-auth-resend-verification.spec.ts"
+      ],
+      "driverSpecific": false
+    },
+    {
+      "id": "resend-verification-no-token-limit",
+      "defect": "DEV-4056 — without a limit per token, whoever holds one link can have the mailbox it names flooded.",
+      "file": "src/core/modules/better-auth/core-better-auth-email-verification.service.ts",
+      "find": "    if (perToken.count > this.resendByTokenMaxPerToken) {\n",
+      "replace": "    if (false) {\n",
+      "specs": [
+        "tests/unit/better-auth-resend-verification.spec.ts"
+      ],
+      "driverSpecific": false
+    },
+    {
+      "id": "resend-verification-no-ip-limit",
+      "defect": "DEV-4056 — the per-token limit alone lets one client try any number of different tokens.",
+      "file": "src/core/modules/better-auth/core-better-auth-email-verification.service.ts",
+      "find": "    if (perAddress.count > this.resendByTokenMaxPerIp) {\n",
+      "replace": "    if (false) {\n",
+      "specs": [
+        "tests/unit/better-auth-resend-verification.spec.ts"
       ],
       "driverSpecific": false
     }

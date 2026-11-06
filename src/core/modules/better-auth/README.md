@@ -557,6 +557,23 @@ in to their account, and what the recipient enters there lands with them (login 
 signs in once, as in Better-Auth's own default. Switch it on (`emailVerification: { autoSignInAfterVerification: true }`)
 only where a verification link reaches nobody but its owner.
 
+**The link carries the token only, and an expired link is recovered with it (DEV-4056).** The verification link
+(`callbackURL`) ends in `?token=…`. Until then it also carried the address (`&email=`), so the page could offer "send a
+new email", and the address stood in the mail, the browser history and the access logs. A page now sends the token
+of the link, expired or not, to `POST /iam/resend-verification-email` (`{ "token": "…" }`):
+
+- the server checks Better-Auth's signature (an expired token is fine, a forged one sends nothing) and has
+  Better-Auth's own `sendVerificationEmail` send a new mail to the address in the token, which goes out only to an
+  existing, unverified account; the resend cooldown applies on top, and the token of an address change sends nothing;
+- the answer is always `200 { "email": "k***@example.com", "success": true }` — the masked address of the token, or
+  `null` for an invalid token — whether the account exists, is verified, or a mail went out;
+- it never verifies, signs in or creates a session;
+- 3 requests per token and 10 per client address an hour (counted for invalid tokens too, before the token is read);
+  past that `429 LTNS_0020`. Shared across replicas through Redis when `redis` is configured.
+
+`GET /iam/features` reports `resendVerificationByToken: true` while email verification is enabled, so a page can fall
+back to asking for the address against an older server.
+
 ### Sign-Up Checks (v11.13.0+)
 
 Sign-up validation is **enabled by default** requiring `termsAndPrivacyAccepted: true`.

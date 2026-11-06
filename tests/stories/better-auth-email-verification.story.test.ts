@@ -17,6 +17,7 @@
 
 import { Test, TestingModule } from '@nestjs/testing';
 import { PubSub } from 'graphql-subscriptions';
+import { SignJWT } from 'jose';
 import { vi } from 'vitest';
 
 import {
@@ -656,6 +657,92 @@ describe('Story: BetterAuth Email Verification and Sign-Up Checks', () => {
         method: 'GET',
         statusCode: 401,
       });
+    });
+  });
+
+  // ===================================================================================================================
+  // Resend by token (DEV-4056): the page asks for a new mail with the token of the link, never with the address.
+  // tests/unit/better-auth-resend-verification.spec.ts covers every refusal; these cases prove the route on the
+  // assembled server: reached through the controller (not forwarded to Better-Auth), the answer shape for a token
+  // Better-Auth signed and for an invalid one, validation and the per-token limit.
+  // ===================================================================================================================
+
+  describe('POST /iam/resend-verification-email (DEV-4056)', () => {
+    /** A verification token as Better-Auth signs it, with the application's own secret */
+    const signedToken = async (email: string) => {
+      const { secret } = await betterAuthService.getInstance().$context;
+      return new SignJWT({ email })
+        .setProtectedHeader({ alg: 'HS256' })
+        .setIssuedAt()
+        .setExpirationTime('1h')
+        .sign(new TextEncoder().encode(secret));
+    };
+
+    it('reports the endpoint in the feature flags', async () => {
+      if (!isBetterAuthEnabled) {
+        return;
+      }
+
+      const response = await testHelper.rest('/iam/features', { method: 'GET', statusCode: 200 });
+
+      expect(typeof response.resendVerificationByToken).toBe('boolean');
+      expect(response.resendVerificationByToken).toBe(emailVerificationService.isEnabled());
+    });
+
+    it('answers a token Better-Auth signed with the masked address of the token only', async () => {
+      if (!isBetterAuthEnabled) {
+        return;
+      }
+      const email = `resend-${Date.now()}@test.com`;
+
+      const response = await testHelper.rest('/iam/resend-verification-email', {
+        method: 'POST',
+        payload: { token: await signedToken(email) },
+        statusCode: 200,
+      });
+
+      expect(response).toEqual({ email: 'r***@test.com', success: true });
+      expect(JSON.stringify(response)).not.toContain(email);
+    });
+
+    it('answers an invalid token the same way, without an address', async () => {
+      if (!isBetterAuthEnabled) {
+        return;
+      }
+
+      const response = await testHelper.rest('/iam/resend-verification-email', {
+        method: 'POST',
+        payload: { token: 'not-a-verification-token' },
+        statusCode: 200,
+      });
+
+      expect(response).toEqual({ email: null, success: true });
+    });
+
+    it('refuses a request without a token', async () => {
+      if (!isBetterAuthEnabled) {
+        return;
+      }
+
+      await testHelper.rest('/iam/resend-verification-email', { method: 'POST', payload: {}, statusCode: 400 });
+    });
+
+    it('refuses the fourth request for one token with 429', async () => {
+      if (!isBetterAuthEnabled) {
+        return;
+      }
+      const token = await signedToken(`resend-limit-${Date.now()}@test.com`);
+      for (let attempt = 1; attempt <= 3; attempt++) {
+        await testHelper.rest('/iam/resend-verification-email', { method: 'POST', payload: { token }, statusCode: 200 });
+      }
+
+      const refused = await testHelper.rest('/iam/resend-verification-email', {
+        method: 'POST',
+        payload: { token },
+        statusCode: 429,
+      });
+
+      expect(JSON.stringify(refused)).toContain('LTNS_0020');
     });
   });
 

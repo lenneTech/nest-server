@@ -1,5 +1,7 @@
-import { Inject, Injectable, Logger, Optional } from '@nestjs/common';
-import { randomUUID } from 'node:crypto';
+import { HttpException, HttpStatus, Inject, Injectable, Logger, Optional } from '@nestjs/common';
+import { jwtVerify } from 'jose';
+import { JWTExpired } from 'jose/errors';
+import { createHash, randomUUID } from 'node:crypto';
 import ejs from 'ejs';
 import * as fs from 'fs';
 import * as path from 'path';
@@ -10,6 +12,12 @@ import { IBetterAuthEmailVerificationConfig } from '../../common/interfaces/serv
 import { BrevoService } from '../../common/services/brevo.service.js';
 import { ConfigService } from '../../common/services/config.service.js';
 import { CoreRedisService } from '../../common/services/core-redis.service.js';
+import {
+  InMemoryRateLimitStore,
+  type RateLimitStore,
+  RedisRateLimitStore,
+} from '../../common/services/rate-limit-store.js';
+import { ErrorCode } from '../error-code/error-codes.js';
 import { EmailService } from '../../common/services/email.service.js';
 import { TemplateService } from '../../common/services/template.service.js';
 import { AuthEmailCallbackOptions, formatProjectName } from './better-auth.config.js';
@@ -226,7 +234,7 @@ export class CoreBetterAuthEmailVerificationService {
     try {
       // Override URL if callbackURL is configured (frontend-based verification)
       if (this.config.callbackURL) {
-        url = this.buildFrontendVerificationUrl(token, user.email);
+        url = this.buildFrontendVerificationUrl(token);
       }
 
       this.logAuthUrlForDevelopment('EMAIL VERIFICATION', user.email, url);
@@ -728,7 +736,7 @@ export class CoreBetterAuthEmailVerificationService {
    * @param token - The verification token from Better-Auth
    * @returns The full frontend URL with token query parameter
    */
-  protected buildFrontendVerificationUrl(token: string, email?: string): string {
+  protected buildFrontendVerificationUrl(token: string): string {
     let baseUrl = this.config.callbackURL!;
 
     // Resolve relative paths against appUrl
@@ -737,30 +745,142 @@ export class CoreBetterAuthEmailVerificationService {
       baseUrl = `${appUrl.replace(/\/$/, '')}${baseUrl}`;
     }
 
-    // Append token as query parameter
+    // The token only. Until DEV-4056 the address travelled alongside it (`&email=`), so the page could offer "send a
+    // new email" for an expired link — and it stood in the mail, in the browser history and in every access log the
+    // app keeps. The page now asks for a new mail WITH the token (POST /iam/resend-verification-email): the server
+    // reads the address from the token itself and answers with a masked form, so the address never leaves it.
     const separator = baseUrl.includes('?') ? '&' : '?';
-    let url = `${baseUrl}${separator}token=${encodeURIComponent(token)}`;
+    return `${baseUrl}${separator}token=${encodeURIComponent(token)}`;
+  }
 
-    // The address travels alongside the token so the page can offer "send a new email" when the
-    // token turns out to be expired — which is the ONLY moment that button matters, and precisely
-    // the moment the page has nothing else to work with. The verification page shipped by
-    // nuxt-base-starter gates that button on `route.query.email`, so without this the user is told
-    // correctly what went wrong and left with no way to fix it.
-    //
-    // The frontend cannot recover the address itself. It is inside the token's JWT payload, and
-    // reading it there would mean trusting an unverified signature for display — not a pattern to
-    // put in a starter.
-    //
-    // The cost, stated plainly: the address appears in the URL, so it reaches browser history and
-    // any access log the app keeps. It is the recipient's OWN address, arriving in their own
-    // mailbox next to a token that is far more sensitive, so this widens nothing that the link did
-    // not already carry. Encoded, because a `+` in an address (Gmail tags, and therefore most test
-    // addresses) would otherwise arrive as a space.
-    if (email) {
-      url += `&email=${encodeURIComponent(email)}`;
+  // ===================================================================================================================
+  // Resend by token (POST /iam/resend-verification-email)
+  // ===================================================================================================================
+
+  /** Requests one token may make per {@link resendByTokenWindowSeconds} — counted whether the token is valid or not */
+  protected readonly resendByTokenMaxPerToken = 3;
+
+  /** Requests one client address may make per {@link resendByTokenWindowSeconds} */
+  protected readonly resendByTokenMaxPerIp = 10;
+
+  protected readonly resendByTokenWindowSeconds = 3600;
+
+  /** The counters behind both limits: shared through Redis when configured, process-local otherwise */
+  protected resendByTokenStore?: RateLimitStore;
+
+  /**
+   * Send a new verification mail for the address a verification token belongs to — the token of an EXPIRED link
+   * included, which is the case this exists for. The caller types nothing, and the address never leaves the server:
+   * the answer carries it masked ({@link maskEmailForDisplay}).
+   *
+   * - The token must carry Better-Auth's signature (HS256 with its secret). A forged or garbled token sends nothing.
+   * - A new mail goes out only through Better-Auth's own `sendVerificationEmail`, which sends to an existing,
+   *   unverified account and to nothing else; the per-address cooldown of {@link sendVerificationEmail} applies on
+   *   top. A token of an address change (`updateTo`) sends nothing.
+   * - The answer is the same whatever happened: `{ email: <masked address of the token>, success: true }`, `email`
+   *   null for an invalid token. Whoever holds a valid token received it at that address, so the masked form tells
+   *   them nothing new, and nothing in the answer says whether an account exists, is verified, or was mailed.
+   * - It never verifies, signs in or creates a session.
+   *
+   * @throws HttpException 429 `RATE_LIMIT_EXCEEDED` past {@link resendByTokenMaxPerToken} requests for one token or
+   *   {@link resendByTokenMaxPerIp} for one client address within the window — checked before the token is read, so
+   *   the limit says nothing about it either
+   */
+  async resendVerificationByToken(
+    authInstance:
+      | null
+      | undefined
+      | {
+          $context: Promise<{ secret: string }>;
+          // Better-Auth's own endpoint function; typed loosely because its declared type is an overload set
+          api: { sendVerificationEmail: (request: { body: { email: string } }) => Promise<unknown> };
+        },
+    token: unknown,
+    clientAddress: string | undefined,
+  ): Promise<{ email: null | string; success: true }> {
+    const tokenValue = typeof token === 'string' ? token : '';
+    await this.assertResendByTokenAllowed(tokenValue, clientAddress);
+
+    if (!authInstance || !tokenValue) {
+      return { email: null, success: true };
+    }
+    const claims = await this.readVerificationTokenClaims((await authInstance.$context).secret, tokenValue);
+    if (!claims) {
+      return { email: null, success: true };
     }
 
-    return url;
+    if (!claims.updateTo) {
+      try {
+        await authInstance.api.sendVerificationEmail({ body: { email: claims.email } });
+      } catch (error) {
+        // The answer must not differ: a failed send (verification switched off, an SMTP outage) is logged, not told
+        this.logger.debug(
+          `Resend by token for ${maskEmail(claims.email)} sent nothing: ${
+            error instanceof Error ? error.message : 'Unknown error'
+          }`,
+        );
+      }
+    }
+    return { email: this.maskEmailForDisplay(claims.email), success: true };
+  }
+
+  /**
+   * Count the request against the per-token and the per-address limit, and refuse it past either. The token is
+   * counted by its hash, so the counter key does not hold a credential.
+   */
+  protected async assertResendByTokenAllowed(token: string, clientAddress: string | undefined): Promise<void> {
+    this.resendByTokenStore ??= this.coreRedisService?.enabled
+      ? new RedisRateLimitStore(this.coreRedisService, 'email-verification-resend')
+      : new InMemoryRateLimitStore(10_000);
+    const window = this.resendByTokenWindowSeconds;
+    const tokenKey = createHash('sha256').update(token).digest('hex');
+    const perToken = await this.resendByTokenStore.hit(`token:${tokenKey}`, window);
+    if (perToken.count > this.resendByTokenMaxPerToken) {
+      throw new HttpException(ErrorCode.RATE_LIMIT_EXCEEDED, HttpStatus.TOO_MANY_REQUESTS);
+    }
+    const perAddress = await this.resendByTokenStore.hit(`ip:${clientAddress || 'unknown'}`, window);
+    if (perAddress.count > this.resendByTokenMaxPerIp) {
+      throw new HttpException(ErrorCode.RATE_LIMIT_EXCEEDED, HttpStatus.TOO_MANY_REQUESTS);
+    }
+  }
+
+  /**
+   * The claims of a verification token Better-Auth signed (`createEmailVerificationToken`: HS256 with its secret,
+   * `{ email, updateTo?, userId? }`), expired or not. `undefined` for anything without a valid signature.
+   */
+  protected async readVerificationTokenClaims(
+    secret: string,
+    token: string,
+  ): Promise<undefined | { email: string; updateTo?: string }> {
+    let payload: Record<string, unknown>;
+    try {
+      ({ payload } = await jwtVerify(token, new TextEncoder().encode(secret), { algorithms: ['HS256'] }));
+    } catch (error) {
+      // jose checks the signature before the expiry, so an expired token carries its verified claims
+      if (!(error instanceof JWTExpired)) {
+        return undefined;
+      }
+      payload = error.payload;
+    }
+    if (typeof payload.email !== 'string' || !payload.email.includes('@')) {
+      return undefined;
+    }
+    return {
+      email: payload.email,
+      updateTo: typeof payload.updateTo === 'string' && payload.updateTo ? payload.updateTo : undefined,
+    };
+  }
+
+  /**
+   * The address as the page may show it: the first character, `***`, the domain — `k***@lenne.tech`. Enough to
+   * recognise one's own mailbox, not enough to learn an address.
+   */
+  protected maskEmailForDisplay(email: string): string {
+    const at = email.lastIndexOf('@');
+    if (at < 1) {
+      return '***';
+    }
+    return `${email[0]}***${email.slice(at)}`;
   }
 
   /**

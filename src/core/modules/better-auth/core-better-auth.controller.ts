@@ -147,6 +147,31 @@ export class CoreBetterAuthSignInInput {
 }
 
 /**
+ * Input of `POST /iam/resend-verification-email`: the token of a verification link, an expired one included
+ */
+export class CoreBetterAuthResendVerificationInput {
+  @ApiProperty({ description: 'The token of the verification link, also when it has expired' })
+  @IsNotEmpty()
+  @IsString()
+  token: string;
+}
+
+/**
+ * Answer of `POST /iam/resend-verification-email` — the same whatever happened, so it says nothing about the account
+ */
+export class CoreBetterAuthResendVerificationResponse {
+  @ApiProperty({
+    description: 'The address the token belongs to, masked (k***@example.com); null for an invalid token',
+    nullable: true,
+    type: String,
+  })
+  email: null | string;
+
+  @ApiProperty({ description: 'Always true' })
+  success: boolean;
+}
+
+/**
  * Sign-up input DTO
  */
 export class CoreBetterAuthSignUpInput {
@@ -321,6 +346,8 @@ export class CoreBetterAuthController {
       jwt: this.betterAuthService.isJwtEnabled(),
       passkey: this.betterAuthService.isPasskeyEnabled(),
       resendCooldownSeconds: this.emailVerificationService?.getConfig()?.resendCooldownSeconds ?? 60,
+      // POST /iam/resend-verification-email: a page may offer "send a new email" with the token of the link alone
+      resendVerificationByToken: this.emailVerificationService?.isEnabled() ?? false,
       signUpChecks: this.signUpValidator?.isEnabled() ?? false,
       signUpEnabled: this.betterAuthService.isSignUpEnabled(),
       socialProviders: this.betterAuthService.getEnabledSocialProviders(),
@@ -730,6 +757,40 @@ export class CoreBetterAuthController {
    *
    * @see README.md "Architecture: Why Custom Controllers?"
    */
+  /**
+   * Send a new verification mail for the token of a verification link — an expired one is the case this exists for.
+   * The address never travels: the server reads it from the token, and the answer carries it masked.
+   *
+   * Never verifies, signs in or creates a session. The answer is the same whether the account exists, is already
+   * verified, or a mail went out; see `CoreBetterAuthEmailVerificationService.resendVerificationByToken()` for the
+   * checks and the rate limits (429 `LTNS_0020`).
+   */
+  @ApiBody({ type: CoreBetterAuthResendVerificationInput })
+  @ApiOkResponse({
+    description: 'Always the same answer; email is the masked address of the token, or null for an invalid token',
+    type: CoreBetterAuthResendVerificationResponse,
+  })
+  @ApiOperation({
+    description: 'Send a new verification email for the token of a verification link, also an expired one',
+    summary: 'Resend Verification Email by Token',
+  })
+  @HttpCode(HttpStatus.OK)
+  @Post('resend-verification-email')
+  @Roles(RoleEnum.S_EVERYONE)
+  async resendVerificationEmail(
+    @Req() req: Request,
+    @Body() input: CoreBetterAuthResendVerificationInput,
+  ): Promise<CoreBetterAuthResendVerificationResponse> {
+    if (!this.emailVerificationService) {
+      return { email: null, success: true };
+    }
+    return this.emailVerificationService.resendVerificationByToken(
+      this.betterAuthService.getInstance(),
+      input?.token,
+      req.ip,
+    );
+  }
+
   @ApiOkResponse({ description: 'Signed out successfully', type: CoreBetterAuthResponse })
   @ApiOperation({ description: 'Sign out from Better-Auth', summary: 'Sign Out' })
   @Post('sign-out')
