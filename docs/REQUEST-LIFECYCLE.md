@@ -696,9 +696,11 @@ If authentication succeeds, `req.user` is set with the authenticated user (inclu
 > Before, two-factor verify, passkey verify, OTP / magic-link sign-in and `get-session` answered with the
 > opaque session token in the body, also in cookie mode. The session token is recognised by the session
 > cookie the response sets (under the name the instance gives it), by `session.token`, or — for a top-level
-> token neither identifies, as a signed-in user's second factor returns — by a session-store lookup. A JWT
-> (`/token`), arrays (`list-sessions`) and other plugins' tokens are left alone. See
-> `.claude/rules/better-auth.md` §7 "Forwarded responses".
+> token neither identifies, as a signed-in user's second factor returns — by a session-store lookup. Since
+> 12.7.0 a session record loses its `token` also inside an array (`list-sessions` names sessions by `id`;
+> `POST /revoke-session` takes `{ sessionId }`, resolved by the API middleware among the caller's own
+> sessions). A JWT (`/token`) and other plugins' tokens are left alone. See `.claude/rules/better-auth.md` §7
+> "Forwarded responses".
 
 #### 2b. SecurityHeadersMiddleware
 

@@ -6721,6 +6721,61 @@
         "tests/cors-jwt-mode.e2e-spec.ts"
       ],
       "driverSpecific": false
+    },
+    {
+      "id": "session-list-tokens-kept",
+      "defect": "12.7.0 (DEV-4109) — list-sessions answered every session of the user with its token, the bearer credential of every device the user is signed in on, readable by any script on the page.",
+      "file": "src/core/modules/better-auth/core-better-auth-session-token.helper.ts",
+      "find": "  if (Array.isArray(body)) {\n",
+      "replace": "  if (false) {\n",
+      "specs": [
+        "tests/unit/better-auth-session-token-presentation.spec.ts"
+      ],
+      "driverSpecific": false
+    },
+    {
+      "id": "revoke-session-id-not-resolved",
+      "defect": "12.7.0 (DEV-4109) — with list-sessions handing out ids only, a session can be revoked only by its id; Better-Auth takes a token, so the middleware resolves the id among the caller's own sessions.",
+      "file": "src/core/modules/better-auth/core-better-auth-api.middleware.ts",
+      "find": "    req.body = { ...rest, token: token ?? '' };\n",
+      "replace": "    req.body = body;\n",
+      "specs": [
+        "tests/unit/better-auth-session-token-presentation.spec.ts"
+      ],
+      "driverSpecific": false
+    },
+    {
+      "id": "session-id-of-other-user-resolved",
+      "defect": "12.7.0 (DEV-4109) — the id lookup for revoke-session must stay inside the caller's own sessions, or a session id would be enough to end another user's session.",
+      "file": "src/core/modules/better-auth/core-better-auth.service.ts",
+      "find": "          String(session?.id) === sessionId && String(session?.userId) === String(userId),\n",
+      "replace": "          String(session?.id) === sessionId,\n",
+      "specs": [
+        "tests/unit/better-auth-session-token-presentation.spec.ts"
+      ],
+      "driverSpecific": false
+    },
+    {
+      "id": "list-sessions-hands-out-tokens",
+      "defect": "12.7.0 (DEV-4109) — list-sessions answered every session of the user with its token, the bearer credential of every device the user is signed in on, readable by any script on the page.",
+      "file": "src/core/modules/better-auth/core-better-auth-session-token.helper.ts",
+      "find": "  if (Array.isArray(body)) {\n",
+      "replace": "  if (false) {\n",
+      "specs": [
+        "tests/session-token-exposure.e2e-spec.ts"
+      ],
+      "driverSpecific": false
+    },
+    {
+      "id": "revoke-session-id-not-wired",
+      "defect": "12.7.0 (DEV-4109) — with list-sessions handing out ids only, a session can be revoked only by its id; Better-Auth takes a token, so the middleware resolves the id among the caller's own sessions.",
+      "file": "src/core/modules/better-auth/core-better-auth-api.middleware.ts",
+      "find": "      await this.resolveRevokeSessionId(req, relativePath);\n",
+      "replace": "",
+      "specs": [
+        "tests/session-token-exposure.e2e-spec.ts"
+      ],
+      "driverSpecific": false
     }
   ]
 }

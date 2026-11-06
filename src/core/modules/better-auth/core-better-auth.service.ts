@@ -1072,6 +1072,33 @@ export class CoreBetterAuthService implements OnApplicationBootstrap, OnModuleDe
   }
 
   /**
+   * The token of the session `sessionId` — only when that session belongs to `userId` (12.7.0).
+   *
+   * `list-sessions` hands out session ids, no tokens, so a client revokes a session by its id; the API middleware asks
+   * this to turn `POST /revoke-session { sessionId }` into the `{ token }` Better-Auth expects. Asked through
+   * Better-Auth's own adapter (`internalAdapter.listSessions()`), so it reads wherever Better-Auth keeps its sessions.
+   *
+   * @returns the token, or `undefined` for an unknown id, a session of another user, or a failed lookup
+   */
+  async sessionTokenOfUser(userId: string, sessionId: string): Promise<string | undefined> {
+    if (!userId || !sessionId) {
+      return undefined;
+    }
+    try {
+      const context = await (this.getInstance() as { $context?: Promise<any> } | null)?.$context;
+      const sessions: unknown = await context?.internalAdapter?.listSessions?.(userId);
+      const match = (Array.isArray(sessions) ? sessions : []).find(
+        (session: { id?: unknown; userId?: unknown }) =>
+          String(session?.id) === sessionId && String(session?.userId) === String(userId),
+      );
+      return typeof match?.token === 'string' && match.token ? match.token : undefined;
+    } catch (error) {
+      this.logger.debug(`sessionTokenOfUser error: ${error instanceof Error ? error.message : 'Unknown error'}`);
+      return undefined;
+    }
+  }
+
+  /**
    * Revokes a specific session (logout for that session)
    *
    * This should be called when a user wants to log out from a specific device/session.
