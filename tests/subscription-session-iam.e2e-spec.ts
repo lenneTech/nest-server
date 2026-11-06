@@ -173,7 +173,8 @@ describe('IAM WebSocket handshake and session lifecycle (e2e)', () => {
   it('signs a session out for real: the token no longer authenticates afterwards', async () => {
     const token = await signIn('revoke');
     const before: any = await testHelper.rest('/iam/get-session', { headers: { Authorization: `Bearer ${token}` } });
-    expect(before?.session?.token, 'the token authenticates before the sign-out').toBe(token);
+    expect(before?.session?.userId, 'the token authenticates before the sign-out').toBeTruthy();
+    expect(before?.session?.token, 'get-session does not hand out the session token (12.6.1)').toBeUndefined();
 
     await testHelper.rest('/iam/sign-out', { method: 'POST', statusCode: 201, token });
 
