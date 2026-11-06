@@ -6633,6 +6633,39 @@
         "tests/unit/better-auth-session-token-presentation.spec.ts"
       ],
       "driverSpecific": false
+    },
+    {
+      "id": "env-config-unknown-node-env-runs-local",
+      "defect": "DEV-4061 — getEnvironmentConfig() answered a NODE_ENV without a block with the local block, so a deployed stage started with NODE_ENV=development, dev or staging ran with env: 'local': dummy secrets, the anonymous system setup and every other local-only switch open, and no required-secret check.",
+      "file": "src/core/common/helpers/config.helper.ts",
+      "find": "  throw new Error(\n    `NODE_ENV='${requested}' has no block in the configuration (known: ${known}). Add a block for it, or set NODE_ENV ` +\n      'to one of the known environments. Prefer the block: other libraries read NODE_ENV themselves.',\n  );\n",
+      "replace": "  return { env: requested, envConfig: config.local || {} };\n",
+      "specs": [
+        "tests/unit/environment-config-node-env.spec.ts"
+      ],
+      "driverSpecific": false
+    },
+    {
+      "id": "env-config-empty-node-env-runs-local",
+      "defect": "DEV-4061 — `'' || 'local'` turned an empty NODE_ENV into local; NODE_ENV=${NODE_ENV} in a compose file passes exactly that when the host does not set the variable.",
+      "file": "src/core/common/helpers/config.helper.ts",
+      "find": "  if (requested === undefined) {\n",
+      "replace": "  if (!requested) {\n",
+      "specs": [
+        "tests/unit/environment-config-node-env.spec.ts"
+      ],
+      "driverSpecific": false
+    },
+    {
+      "id": "env-config-test-fallback-outside-runner",
+      "defect": "DEV-4061 — the NODE_ENV=test exception exists for test runners; without its runner condition a deployed test stage of a project without a test block runs on the local block again.",
+      "file": "src/core/common/helpers/config.helper.ts",
+      "find": "  if (requested === 'test' && (process.env['VITEST'] || process.env['JEST_WORKER_ID'])) {\n",
+      "replace": "  if (requested === 'test') {\n",
+      "specs": [
+        "tests/unit/environment-config-node-env.spec.ts"
+      ],
+      "driverSpecific": false
     }
   ]
 }
