@@ -6429,7 +6429,7 @@
       "id": "resend-verification-no-token-limit",
       "defect": "DEV-4056 — without a limit per token, whoever holds one link can have the mailbox it names flooded.",
       "file": "src/core/modules/better-auth/core-better-auth-email-verification.service.ts",
-      "find": "    if (perToken.count > this.resendByTokenMaxPerToken) {\n",
+      "find": "    if (perToken.count > this.resendByTokenMaxPerToken && !perToken.overflow) {\n",
       "replace": "    if (false) {\n",
       "specs": [
         "tests/unit/better-auth-resend-verification.spec.ts"
@@ -6451,8 +6451,41 @@
       "id": "resend-verification-ip-limit-counts-valid-tokens",
       "defect": "DEV-4056 review — behind a reverse proxy without trustProxy every client has the proxy's address; counting valid tokens per address let ten junk requests lock the resend for every user for the hour.",
       "file": "src/core/modules/better-auth/core-better-auth-email-verification.service.ts",
-      "find": "    await this.assertResendTokenLimit(tokenValue);\n",
-      "replace": "    await this.assertResendTokenLimit(tokenValue);\n    await this.assertResendAddressLimit(clientAddress);\n",
+      "find": "    await this.assertResendTokenLimit(claims.email);\n",
+      "replace": "    await this.assertResendTokenLimit(claims.email);\n    await this.assertResendAddressLimit(clientAddress);\n",
+      "specs": [
+        "tests/unit/better-auth-resend-verification.spec.ts"
+      ],
+      "driverSpecific": false
+    },
+    {
+      "id": "resend-verification-junk-fills-token-counters",
+      "defect": "DEV-4056 release review — every resend request was counted under its token before the token was checked, so about ten thousand junk tokens from one anonymous client filled the counter store and put every real token into an overflow bucket already past its limit: 429 for every user while the flood went on.",
+      "file": "src/core/modules/better-auth/core-better-auth-email-verification.service.ts",
+      "find": "    const tokenValue = typeof token === 'string' ? token : '';\n",
+      "replace": "    const tokenValue = typeof token === 'string' ? token : '';\n    await this.assertResendTokenLimit(tokenValue);\n",
+      "specs": [
+        "tests/unit/better-auth-resend-verification.spec.ts"
+      ],
+      "driverSpecific": false
+    },
+    {
+      "id": "resend-verification-limits-share-a-store",
+      "defect": "DEV-4056 release review — with one store for both resend limits, a flood of invalid tokens from many addresses fills the store with address counters until every valid token lands in an overflow bucket already past its limit.",
+      "file": "src/core/modules/better-auth/core-better-auth-email-verification.service.ts",
+      "find": "    if (scope === 'token') {\n      this.resendByTokenStore ??= create('email-verification-resend-token');\n      return this.resendByTokenStore;\n    }\n",
+      "replace": "",
+      "specs": [
+        "tests/unit/better-auth-resend-verification.spec.ts"
+      ],
+      "driverSpecific": false
+    },
+    {
+      "id": "resend-verification-overflow-refuses-valid-token",
+      "defect": "DEV-4056 release review — valid tokens cost one sign-up each, so an attacker could sign up ten thousand addresses of their own and replay the links to fill the store of valid-token counters; every other user's resend then landed in an overflow bucket past its limit and was refused.",
+      "file": "src/core/modules/better-auth/core-better-auth-email-verification.service.ts",
+      "find": "    if (perToken.count > this.resendByTokenMaxPerToken && !perToken.overflow) {\n",
+      "replace": "    if (perToken.count > this.resendByTokenMaxPerToken) {\n",
       "specs": [
         "tests/unit/better-auth-resend-verification.spec.ts"
       ],
@@ -6495,8 +6528,19 @@
       "id": "auth-url-log-trusts-local-fallback",
       "defect": "DEV-4056 follow-up — getEnvironmentConfig() answers a NODE_ENV without a configuration key with the local block, so a deployed stage started with NODE_ENV=development, dev or staging ran with env: 'local' and printed live verification and reset links.",
       "file": "src/core/modules/better-auth/core-better-auth-email-verification.service.ts",
-      "find": "    const nodeEnv = process.env.NODE_ENV;\n    if (nodeEnv && !isLocalEnv(nodeEnv)) {\n      return;\n    }\n",
+      "find": "    const nodeEnv = process.env.NODE_ENV;\n    if (nodeEnv !== undefined && !isLocalEnv(nodeEnv)) {\n      return;\n    }\n",
       "replace": "",
+      "specs": [
+        "tests/unit/better-auth-password-reset-email.spec.ts"
+      ],
+      "driverSpecific": false
+    },
+    {
+      "id": "auth-url-log-empty-node-env",
+      "defect": "DEV-4056 release review — an empty NODE_ENV is read as local by getEnvironmentConfig(), and the auth-link log gate tested the raw NODE_ENV for truthiness, so a deployed stage with NODE_ENV=${NODE_ENV} on a host without the variable printed live verification and reset links.",
+      "file": "src/core/modules/better-auth/core-better-auth-email-verification.service.ts",
+      "find": "    if (nodeEnv !== undefined && !isLocalEnv(nodeEnv)) {\n",
+      "replace": "    if (nodeEnv && !isLocalEnv(nodeEnv)) {\n",
       "specs": [
         "tests/unit/better-auth-password-reset-email.spec.ts"
       ],

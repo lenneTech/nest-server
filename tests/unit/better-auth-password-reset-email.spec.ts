@@ -324,6 +324,23 @@ describe('sendPasswordResetEmail', () => {
       },
     );
 
+    /**
+     * @regression   DEV-4056 release review — `'' || 'local'` reads an empty NODE_ENV as local, so a deployed stage
+     *   started with `NODE_ENV=${NODE_ENV}` on a host without the variable ran with `env: 'local'`, and the check of
+     *   the raw NODE_ENV tested it for truthiness: the links were printed.
+     * @seen-failing Test the raw NODE_ENV for truthiness again in logAuthUrlForDevelopment() in
+     *   src/core/modules/better-auth/core-better-auth-email-verification.service.ts — registered as mutation
+     *   `auth-url-log-empty-node-env` in tests/regression-mutations.json.
+     */
+    it.each(['', '   '])('prints nothing when NODE_ENV is set but empty (%j)', async (nodeEnv) => {
+      vi.stubEnv('NODE_ENV', nodeEnv);
+      const { service } = createService({ env: 'local' });
+
+      await service.sendPasswordResetEmail({ token: 't', url: RESET_URL, user: USER });
+
+      expect(logSpy.mock.calls.map(c => String(c[0])).find(l => l.includes('[PASSWORD RESET]'))).toBeUndefined();
+    });
+
     it('prints the link when NODE_ENV is not set, the local default', async () => {
       vi.stubEnv('NODE_ENV', undefined);
       const { service } = createService({ env: 'local' });

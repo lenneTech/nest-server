@@ -572,10 +572,14 @@ still works. A page passes the token on unchanged, and for an expired link sends
 - the answer is always `200 { "email": "k***@example.com", "success": true }` — the masked address of the token, or
   `null` for an invalid token — whether the account exists, is verified, or a mail went out;
 - it never verifies, signs in or creates a session;
-- 3 requests per token an hour, counted before the token is read (invalid ones too), and 10 invalid tokens per client
-  address an hour; past either `429 LTNS_0020`. Valid tokens are not counted per address: behind a proxy without
-  `trustProxy` every client shares the proxy's address, and junk from anyone must not lock out everyone's resend.
-  Shared across replicas through Redis when `redis` is configured.
+- 3 requests an hour with valid links for one address (sealed or plain, older or newer, they count together), and 10
+  invalid tokens per client address an hour; past either `429 LTNS_0020`. The token is checked first: an invalid one
+  is counted only per client address, a valid one only per address it names, each in a counter store of its own. Junk
+  therefore never reaches the counters of real tokens, and behind a proxy without `trustProxy`, where every client
+  shares the proxy's address, it can only lock out more junk. Once the store of valid-token counters is full (someone
+  signed up thousands of addresses and replays their links), a valid token is answered rather than refused for
+  traffic that is not its own; the per-address cooldown of the verification mail still bounds what goes out. Shared
+  across replicas through Redis when `redis` is configured.
 
 `GET /iam/features` reports `resendVerificationByToken: true` while email verification is enabled, so a page can fall
 back to asking for the address against an older server.

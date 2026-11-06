@@ -760,7 +760,10 @@ export class CoreBetterAuthEmailVerificationService {
   // Resend by token (POST /iam/resend-verification-email)
   // ===================================================================================================================
 
-  /** Requests one token may make per {@link resendByTokenWindowSeconds} — counted whether the token is valid or not */
+  /**
+   * Requests with a VALID token for one address per {@link resendByTokenWindowSeconds}, counted under the address the
+   * token names: the sealed and the plain form of a link, and every other link for that address, share the counter
+   */
   protected readonly resendByTokenMaxPerToken = 3;
 
   /**
@@ -772,8 +775,19 @@ export class CoreBetterAuthEmailVerificationService {
 
   protected readonly resendByTokenWindowSeconds = 3600;
 
-  /** The counters behind both limits: shared through Redis when configured, process-local otherwise */
+  /**
+   * Keys each resend counter store holds before new keys fold into its shared overflow buckets (see
+   * `InMemoryRateLimitStore` / `RedisRateLimitStore`)
+   */
+  protected readonly resendLimitStoreCapacity: number = 10_000;
+
+  /**
+   * The counters behind the two limits, one store each, shared through Redis when configured and process-local
+   * otherwise. Separate on purpose: invalid tokens cost nothing to make, and in a shared store a flood of them fills
+   * the capacity until every valid token lands in an overflow bucket that is already past its limit.
+   */
   protected resendByTokenStore?: RateLimitStore;
+  protected resendByAddressStore?: RateLimitStore;
 
   /**
    * Send a new verification mail for the address a verification token belongs to — the token of an EXPIRED link
@@ -791,9 +805,10 @@ export class CoreBetterAuthEmailVerificationService {
    *   them nothing new, and nothing in the answer says whether an account exists, is verified, or was mailed.
    * - It never verifies, signs in or creates a session.
    *
-   * @throws HttpException 429 `RATE_LIMIT_EXCEEDED` past {@link resendByTokenMaxPerToken} requests for one token
-   *   (checked before the token is read, valid or not, so the limit says nothing about it) or past
-   *   {@link resendByTokenMaxPerIp} invalid tokens from one client address within the window
+   * @throws HttpException 429 `RATE_LIMIT_EXCEEDED` past {@link resendByTokenMaxPerToken} requests with valid tokens
+   *   for one address or past {@link resendByTokenMaxPerIp} invalid tokens from one client address within the window.
+   *   The token is checked first: an invalid one is counted only per client address, so junk never creates a counter
+   *   in the store valid tokens use (the answer already says it is invalid, so the order tells nobody anything more)
    */
   async resendVerificationByToken(
     authInstance:
@@ -808,7 +823,6 @@ export class CoreBetterAuthEmailVerificationService {
     clientAddress: string | undefined,
   ): Promise<{ email: null | string; success: true }> {
     const tokenValue = typeof token === 'string' ? token : '';
-    await this.assertResendTokenLimit(tokenValue);
 
     let claims: undefined | { email: string; updateTo?: string };
     if (authInstance && tokenValue) {
@@ -822,6 +836,7 @@ export class CoreBetterAuthEmailVerificationService {
       await this.assertResendAddressLimit(clientAddress);
       return { email: null, success: true };
     }
+    await this.assertResendTokenLimit(claims.email);
 
     if (!claims.updateTo) {
       try {
@@ -838,19 +853,32 @@ export class CoreBetterAuthEmailVerificationService {
     return { email: this.maskEmailForDisplay(claims.email), success: true };
   }
 
-  /** The counters behind both resend limits, created on first use */
-  protected resendLimitStore(): RateLimitStore {
-    this.resendByTokenStore ??= this.coreRedisService?.enabled
-      ? new RedisRateLimitStore(this.coreRedisService, 'email-verification-resend')
-      : new InMemoryRateLimitStore(10_000);
-    return this.resendByTokenStore;
+  /** The counter store of one resend limit, created on first use */
+  protected resendLimitStore(scope: 'address' | 'token'): RateLimitStore {
+    const create = (namespace: string): RateLimitStore =>
+      this.coreRedisService?.enabled
+        ? new RedisRateLimitStore(this.coreRedisService, namespace, this.resendLimitStoreCapacity)
+        : new InMemoryRateLimitStore(this.resendLimitStoreCapacity);
+    if (scope === 'token') {
+      this.resendByTokenStore ??= create('email-verification-resend-token');
+      return this.resendByTokenStore;
+    }
+    this.resendByAddressStore ??= create('email-verification-resend-address');
+    return this.resendByAddressStore;
   }
 
-  /** Count the request against its token, by the token's hash (the counter key holds no credential) */
-  protected async assertResendTokenLimit(token: string): Promise<void> {
-    const tokenKey = createHash('sha256').update(token).digest('hex');
-    const perToken = await this.resendLimitStore().hit(`token:${tokenKey}`, this.resendByTokenWindowSeconds);
-    if (perToken.count > this.resendByTokenMaxPerToken) {
+  /**
+   * Count a request with a valid token against the address it names, by the address's hash (no PII in the key).
+   *
+   * A count from a shared overflow bucket (the store is full) never refuses: valid tokens cost a sign-up each, so an
+   * attacker who signs up ten thousand addresses of their own and replays the links could otherwise fill the store
+   * and push every other user's resend into a bucket past its limit. Mail volume stays bounded without it — the
+   * per-address cooldown of {@link sendVerificationEmail} applies to every resend.
+   */
+  protected async assertResendTokenLimit(email: string): Promise<void> {
+    const tokenKey = createHash('sha256').update(email.trim().toLowerCase()).digest('hex');
+    const perToken = await this.resendLimitStore('token').hit(`token:${tokenKey}`, this.resendByTokenWindowSeconds);
+    if (perToken.count > this.resendByTokenMaxPerToken && !perToken.overflow) {
       throw new HttpException(ErrorCode.RATE_LIMIT_EXCEEDED, HttpStatus.TOO_MANY_REQUESTS);
     }
   }
@@ -858,7 +886,7 @@ export class CoreBetterAuthEmailVerificationService {
   /** Count an invalid token against the client address it came from */
   protected async assertResendAddressLimit(clientAddress: string | undefined): Promise<void> {
     const key = `ip:${clientAddress || 'unknown'}`;
-    const perAddress = await this.resendLimitStore().hit(key, this.resendByTokenWindowSeconds);
+    const perAddress = await this.resendLimitStore('address').hit(key, this.resendByTokenWindowSeconds);
     if (perAddress.count > this.resendByTokenMaxPerIp) {
       throw new HttpException(ErrorCode.RATE_LIMIT_EXCEEDED, HttpStatus.TOO_MANY_REQUESTS);
     }
@@ -1006,8 +1034,9 @@ export class CoreBetterAuthEmailVerificationService {
    *
    * The process's own `NODE_ENV` must agree (12.6.0): `getEnvironmentConfig()` answers a `NODE_ENV` without a
    * configuration key (`development`, `dev`, `staging` in a project that defines none of them) with the `local`
-   * block, whose `env` then claims `local` on a deployed stage. So the line needs both a local `env` and a
-   * `NODE_ENV` that is unset (the `local` default) or itself `local`, `ci` or `e2e`.
+   * block, whose `env` then claims `local` on a deployed stage, and so does an EMPTY `NODE_ENV` (`'' || 'local'`). So
+   * the line needs both a local `env` and a `NODE_ENV` that is unset (not empty: the `local` default) or itself
+   * `local`, `ci` or `e2e`.
    *
    * The address is masked (PII, and the rest of this file already masks it); the URL is printed in
    * full because following it without a mail server is the whole point locally. `UserKey` tells a
@@ -1029,8 +1058,10 @@ export class CoreBetterAuthEmailVerificationService {
     if (!isLocalEnv(env)) {
       return;
     }
+    // `!== undefined`, not truthiness: an empty NODE_ENV (`NODE_ENV=${NODE_ENV}` in a compose file on a host without
+    // the variable) is read as `local` by getEnvironmentConfig(), and `isLocalEnv('')` is false
     const nodeEnv = process.env.NODE_ENV;
-    if (nodeEnv && !isLocalEnv(nodeEnv)) {
+    if (nodeEnv !== undefined && !isLocalEnv(nodeEnv)) {
       return;
     }
     const userKey = createHash('sha256').update(email.trim().toLowerCase()).digest('hex').slice(0, 16);

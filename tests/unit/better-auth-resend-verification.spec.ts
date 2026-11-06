@@ -44,6 +44,11 @@ function betterAuth(send: (request: { body: { email: string } }) => Promise<unkn
   return { instance: { $context: Promise.resolve({ secret: SECRET }), api: { sendVerificationEmail } }, sendVerificationEmail };
 }
 
+/** Counter stores of five keys each, so a test can fill them past capacity with a few hundred requests */
+class SmallResendStores extends CoreBetterAuthEmailVerificationService {
+  protected override readonly resendLimitStoreCapacity = 5;
+}
+
 async function statusOf(promise: Promise<unknown>): Promise<number | undefined> {
   try {
     await promise;
@@ -175,24 +180,61 @@ describe('resendVerificationByToken() — who gets a new mail', () => {
 describe('resendVerificationByToken() — rate limits', () => {
   /**
    * @regression   DEV-4056 — without a limit per token, whoever holds one link can have the mailbox it names flooded
-   *   (the per-address cooldown is per replica without Redis), and the limit is counted for invalid tokens too, so it
-   *   says nothing about whether a token is valid.
-   * @seen-failing Drop the per-token check in assertResendByTokenAllowed() in
+   *   (the per-address cooldown is per replica without Redis). Every valid link for one address counts together —
+   *   sealed or plain, older or newer — so switching links does not multiply the limit.
+   * @seen-failing Drop the per-token check in assertResendTokenLimit() in
    *   src/core/modules/better-auth/core-better-auth-email-verification.service.ts — registered as mutation
    *   `resend-verification-no-token-limit` in tests/regression-mutations.json.
    */
-  it('refuses the fourth request for one token within the window, whether the token is valid or not', async () => {
-    for (const token of [await verificationToken({ email: EMAIL }), 'garbage-token']) {
-      const { instance } = betterAuth();
-      const verification = service();
-      for (let attempt = 1; attempt <= 3; attempt++) {
-        await verification.resendVerificationByToken(instance, token, `198.51.100.${attempt}`);
-      }
-
-      expect(await statusOf(verification.resendVerificationByToken(instance, token, '198.51.100.9'))).toBe(
-        HttpStatus.TOO_MANY_REQUESTS,
-      );
+  it('refuses the fourth request with valid links for one address within the window, whichever link', async () => {
+    const { instance, sendVerificationEmail } = betterAuth();
+    const verification = service();
+    const plain = await verificationToken({ email: EMAIL });
+    const sealed = await sealVerificationToken(SECRET, plain);
+    const newerLink = await verificationToken({ email: EMAIL.toUpperCase() }, { expiresInSeconds: 7200 });
+    for (const [attempt, token] of [plain, sealed, newerLink].entries()) {
+      await verification.resendVerificationByToken(instance, token, `198.51.100.${attempt + 1}`);
     }
+
+    expect(await statusOf(verification.resendVerificationByToken(instance, sealed, '198.51.100.9'))).toBe(
+      HttpStatus.TOO_MANY_REQUESTS,
+    );
+    expect(sendVerificationEmail).toHaveBeenCalledTimes(3);
+  });
+
+  /**
+   * @regression   DEV-4056 release review — every request was counted under its token BEFORE the token was checked, in
+   *   one store with the address counters. A store holds a fixed number of keys and folds the rest into 64 shared
+   *   buckets, so about ten thousand junk tokens from one anonymous client put every real token into a bucket already
+   *   past its limit: the resend answered 429 for every user while the flood went on. A real token must keep a counter
+   *   of its own however much junk arrives — answered three times, refused the fourth.
+   * @seen-failing Count the token before checking it again (call assertResendTokenLimit(tokenValue) first) in
+   *   resendVerificationByToken() in src/core/modules/better-auth/core-better-auth-email-verification.service.ts —
+   *   registered as mutation `resend-verification-junk-fills-token-counters`; and give both limits one store —
+   *   mutation `resend-verification-limits-share-a-store`, both in tests/regression-mutations.json.
+   */
+  it('keeps its own counter for an expired sealed link after a flood of junk tokens', async () => {
+    const { instance, sendVerificationEmail } = betterAuth();
+    const verification = new SmallResendStores({ getFastButReadOnly: () => undefined } as never);
+    // Far past the capacity, each from its own address. Past capacity the address counters share overflow buckets, so
+    // some junk requests are refused themselves; that is fine, only the real token's answer matters here
+    for (let junk = 0; junk < 640; junk++) {
+      await statusOf(verification.resendVerificationByToken(instance, `junk-token-${junk}`, `10.${junk >> 8}.${junk & 255}.1`));
+    }
+    // The case the endpoint exists for: the sealed link of a mail whose token has expired
+    const expired = await sealVerificationToken(SECRET, await verificationToken({ email: EMAIL }, { expiresInSeconds: -60 }));
+
+    for (let attempt = 1; attempt <= 3; attempt++) {
+      await expect(verification.resendVerificationByToken(instance, expired, '203.0.113.50')).resolves.toEqual({
+        email: 'k***@lenne.tech',
+        success: true,
+      });
+    }
+    expect(sendVerificationEmail).toHaveBeenCalledTimes(3);
+    // Its own counter, not a shared overflow bucket (which would no longer refuse): the fourth is refused
+    expect(await statusOf(verification.resendVerificationByToken(instance, expired, '203.0.113.50'))).toBe(
+      HttpStatus.TOO_MANY_REQUESTS,
+    );
   });
 
   /**
@@ -238,7 +280,33 @@ describe('resendVerificationByToken() — rate limits', () => {
     expect(sendVerificationEmail).toHaveBeenCalledTimes(3);
   });
 
-  it('checks the limit before the token, so a refused request reaches Better-Auth not at all', async () => {
+  /**
+   * @regression   DEV-4056 release review — valid tokens cost one sign-up each, so an attacker could sign up ten
+   *   thousand addresses of their own, replay those links every hour and fill the store of valid-token counters: every
+   *   other user's resend then landed in an overflow bucket past its limit and was refused.
+   * @seen-failing Refuse a count from a shared overflow bucket again in assertResendTokenLimit() in
+   *   src/core/modules/better-auth/core-better-auth-email-verification.service.ts — registered as mutation
+   *   `resend-verification-overflow-refuses-valid-token` in tests/regression-mutations.json.
+   */
+  it('still answers a user whose counter only fits an overflow bucket after signed links filled the store', async () => {
+    const { instance } = betterAuth();
+    const verification = new SmallResendStores({ getFastButReadOnly: () => undefined } as never);
+    // The attacker's own signed links, far past the capacity, so every overflow bucket is past the limit
+    for (let other = 0; other < 640; other++) {
+      const own = await verificationToken({ email: `catch-all-${other}@attacker.test` });
+      await statusOf(verification.resendVerificationByToken(instance, own, '198.51.100.66'));
+    }
+    const expired = await sealVerificationToken(SECRET, await verificationToken({ email: EMAIL }, { expiresInSeconds: -60 }));
+
+    for (let attempt = 1; attempt <= 3; attempt++) {
+      await expect(verification.resendVerificationByToken(instance, expired, '203.0.113.51')).resolves.toEqual({
+        email: 'k***@lenne.tech',
+        success: true,
+      });
+    }
+  });
+
+  it('checks the limit before sending, so a refused request reaches Better-Auth not at all', async () => {
     const { instance, sendVerificationEmail } = betterAuth();
     const verification = service();
     const token = await verificationToken({ email: EMAIL });
