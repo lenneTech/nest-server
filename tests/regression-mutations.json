@@ -6600,6 +6600,39 @@
         "tests/stories/better-auth-plugins.story.test.ts"
       ],
       "driverSpecific": false
+    },
+    {
+      "id": "session-token-without-cookie-kept",
+      "defect": "12.6.1 review — a signed-in user verifying a second factor gets { token: <the session they hold>, user } with no session cookie, so a policy that recognised the session token only by the cookie it sets or by session.token let the live session token reach the body.",
+      "file": "src/core/modules/better-auth/core-better-auth-session-token.helper.ts",
+      "find": "      (await isLiveSessionToken(topToken, options.isSessionToken)));\n",
+      "replace": "      false);\n",
+      "specs": [
+        "tests/unit/better-auth-session-token-presentation.spec.ts"
+      ],
+      "driverSpecific": false
+    },
+    {
+      "id": "session-lookup-not-wired",
+      "defect": "12.6.1 review — the service built the token policy without a session lookup, so the second factor of a signed-in user (no cookie set) still carried the live session token in cookie mode.",
+      "file": "src/core/modules/better-auth/core-better-auth.service.ts",
+      "find": "      isSessionToken: async (token) => !!(await this.getSessionByToken(token))?.session,\n",
+      "replace": "",
+      "specs": [
+        "tests/unit/better-auth-session-token-presentation.spec.ts"
+      ],
+      "driverSpecific": false
+    },
+    {
+      "id": "session-cookie-name-not-from-instance",
+      "defect": "12.6.1 review — with advanced.useSecureCookies (or a renamed session cookie) Better-Auth sets __Secure-iam.session_token; a policy matching the configured name found no session cookie, so a passkey sign-in in token-in-body mode got no JWT.",
+      "file": "src/core/modules/better-auth/core-better-auth.service.ts",
+      "find": "      const name = context?.authCookies?.sessionToken?.name;\n",
+      "replace": "      const name = undefined;\n",
+      "specs": [
+        "tests/unit/better-auth-session-token-presentation.spec.ts"
+      ],
+      "driverSpecific": false
     }
   ]
 }

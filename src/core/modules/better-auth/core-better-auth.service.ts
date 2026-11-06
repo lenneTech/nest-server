@@ -828,10 +828,29 @@ export class CoreBetterAuthService implements OnApplicationBootstrap, OnModuleDe
   async presentSessionTokens(response: globalThis.Response): Promise<globalThis.Response> {
     const cookiesConfig = ConfigService.configFastButReadOnly?.cookies as boolean | ICookiesConfig | undefined;
     return presentSessionTokens(response, {
-      cookieName: this.getSessionCookieName(),
+      cookieName: await this.sessionCookieNameOfInstance(),
+      isSessionToken: async (token) => !!(await this.getSessionByToken(token))?.session,
       resolveJwt: (sessionToken) => this.resolveJwtToken(sessionToken),
       tokenInBody: !isCookiesEnabled(cookiesConfig) || isExposeTokenInBodyEnabled(cookiesConfig),
     });
+  }
+
+  /**
+   * The session cookie's name as the running Better-Auth instance sets it — `__Secure-` prefixed under
+   * `advanced.useSecureCookies`, renamed under `advanced.cookies.session_token.name` — falling back to
+   * {@link getSessionCookieName} when the instance cannot say.
+   */
+  protected async sessionCookieNameOfInstance(): Promise<string> {
+    try {
+      const context = await (this.getInstance() as { $context?: Promise<any> } | null)?.$context;
+      const name = context?.authCookies?.sessionToken?.name;
+      if (typeof name === 'string' && name) {
+        return name;
+      }
+    } catch {
+      // The configured name below is what the framework writes itself
+    }
+    return this.getSessionCookieName();
   }
 
   /**

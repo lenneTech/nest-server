@@ -4,8 +4,15 @@ import { isJwtShaped } from './core-better-auth-token.helper.js';
  * How a response Better-Auth produced itself may carry the session token (see {@link presentSessionTokens}).
  */
 export interface SessionTokenPresentation {
-  /** Name of the session cookie Better-Auth sets (`<prefix>.session_token`) */
+  /** Name of the session cookie Better-Auth sets (`<prefix>.session_token`, `__Secure-` prefixed with secure cookies) */
   cookieName: string;
+  /**
+   * Whether a value is the token of a live session — asked only for a top-level `token` the response does not
+   * already identify as the session token (no session cookie set, no `session.token`). A signed-in user verifying a
+   * second factor gets the token of the session they already hold, with no cookie; without this check that token
+   * would pass as another plugin's value.
+   */
+  isSessionToken?: (token: string) => Promise<boolean>;
   /**
    * Turns an opaque session token into what the body should carry instead — a JWT when the JWT plugin is on
    * (`CoreBetterAuthService.resolveJwtToken()`), the token itself when it is off, `undefined` when a conversion failed
@@ -89,7 +96,11 @@ export async function presentSessionTokens(
   const cookieToken = sessionTokenFromSetCookie(response, options.cookieName);
   const topToken = typeof record.token === 'string' && record.token ? record.token : undefined;
   const topIsSessionToken =
-    !!topToken && !isJwtShaped(topToken) && (topToken === cookieToken || topToken === sessionFieldToken);
+    !!topToken &&
+    !isJwtShaped(topToken) &&
+    (topToken === cookieToken ||
+      topToken === sessionFieldToken ||
+      (await isLiveSessionToken(topToken, options.isSessionToken)));
 
   if (!topIsSessionToken && !sessionFieldToken) {
     return response;
@@ -128,4 +139,19 @@ export async function presentSessionTokens(
     headers.append('set-cookie', cookie);
   }
   return new Response(JSON.stringify(next), { headers, status: response.status, statusText: response.statusText });
+}
+
+/** Asks {@link SessionTokenPresentation.isSessionToken}; a lookup that fails cannot vouch for anything */
+async function isLiveSessionToken(
+  token: string,
+  isSessionToken: SessionTokenPresentation['isSessionToken'],
+): Promise<boolean> {
+  if (!isSessionToken) {
+    return false;
+  }
+  try {
+    return (await isSessionToken(token)) === true;
+  } catch {
+    return false;
+  }
 }

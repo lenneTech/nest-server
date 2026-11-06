@@ -21,22 +21,31 @@ import {
 } from '../../src/core/modules/better-auth/core-better-auth-session-token.helper';
 
 const COOKIE = 'iam.session_token';
+const SECURE_COOKIE = '__Secure-iam.session_token';
 const SESSION_TOKEN = 'Xq3vS9kLm2Pz8RtYw4Bn6Cd1Fg5Hj7Ka';
 const JWT = 'eyJhbGciOiJFZERTQSJ9.eyJzdWIiOiJ1MSJ9.c2lnbmF0dXJl';
 const USER = { email: 'two.factor@test.com', id: 'u1' };
 
 /** A JSON response as Better-Auth's handler answers, optionally setting the session cookie */
-function betterAuthResponse(body: unknown, options: { setsSession?: boolean; status?: number } = {}): Response {
+function betterAuthResponse(
+  body: unknown,
+  options: { cookieName?: string; setsSession?: boolean; status?: number } = {},
+): Response {
   const headers = new Headers({ 'content-type': 'application/json' });
   if (options.setsSession) {
-    headers.append('set-cookie', `${COOKIE}=${encodeURIComponent(`${SESSION_TOKEN}.c2lnbmF0dXJl`)}; Path=/; HttpOnly`);
+    headers.append(
+      'set-cookie',
+      `${options.cookieName ?? COOKIE}=${encodeURIComponent(`${SESSION_TOKEN}.c2lnbmF0dXJl`)}; Path=/; HttpOnly`,
+    );
   }
   headers.append('set-cookie', 'iam.dont_remember=; Max-Age=0; Path=/');
   return new Response(JSON.stringify(body), { headers, status: options.status ?? 200 });
 }
 
+/** The policy as the service builds it; SESSION_TOKEN is the one live session */
 function policy(tokenInBody: boolean, resolveJwt = vi.fn(async (_token: string) => JWT)) {
-  return { options: { cookieName: COOKIE, resolveJwt, tokenInBody }, resolveJwt };
+  const isSessionToken = vi.fn(async (token: string) => token === SESSION_TOKEN);
+  return { isSessionToken, options: { cookieName: COOKIE, isSessionToken, resolveJwt, tokenInBody }, resolveJwt };
 }
 
 describe('presentSessionTokens()', () => {
@@ -83,6 +92,30 @@ describe('presentSessionTokens()', () => {
       expect(await passkey.json()).toEqual({ session: { id: 's1', userId: 'u1' } });
       expect(await getSession.json()).toEqual({ session: { id: 's1' }, user: USER });
     });
+
+    /**
+     * @regression   12.6.1 review — a SIGNED-IN user verifying a second factor (step-up, adding an authenticator next to
+     *   e-mail OTP) gets `{ token: <the session they hold>, user }` with NO session cookie, so neither the cookie nor
+     *   `session.token` identified it and the live session token reached the body again.
+     * @seen-failing Recognise the session token by cookie and `session.token` only in presentSessionTokens() in
+     *   src/core/modules/better-auth/core-better-auth-session-token.helper.ts — registered as mutation
+     *   `session-token-without-cookie-kept` in tests/regression-mutations.json.
+     */
+    it('drops the token of the session a signed-in user already holds, which a second factor returns without a cookie', async () => {
+      const { isSessionToken, options } = policy(false);
+      const presented = await presentSessionTokens(betterAuthResponse({ token: SESSION_TOKEN, user: USER }), options);
+
+      expect(await presented.json()).toEqual({ user: USER });
+      expect(isSessionToken).toHaveBeenCalledWith(SESSION_TOKEN);
+    });
+
+    it('asks the session store only when the response does not already name the session token', async () => {
+      const { isSessionToken, options } = policy(false);
+      await presentSessionTokens(betterAuthResponse({ token: SESSION_TOKEN, user: USER }, { setsSession: true }), options);
+      await presentSessionTokens(betterAuthResponse({ token: JWT }), options);
+
+      expect(isSessionToken).not.toHaveBeenCalled();
+    });
   });
 
   describe('token in the body (cookies disabled or exposeTokenInBody): a JWT, as sign-in hands out', () => {
@@ -102,6 +135,13 @@ describe('presentSessionTokens()', () => {
 
       expect(await presented.json()).toEqual({ token: JWT, user: USER });
       expect(resolveJwt).toHaveBeenCalledWith(SESSION_TOKEN);
+    });
+
+    it('turns the token of a signed-in user’s second factor, which sets no cookie, into the JWT', async () => {
+      const { options } = policy(true);
+      const presented = await presentSessionTokens(betterAuthResponse({ token: SESSION_TOKEN, user: USER }), options);
+
+      expect(await presented.json()).toEqual({ token: JWT, user: USER });
     });
 
     it('gives a passkey verification, which answers { session } only, the JWT of the session it created', async () => {
@@ -152,6 +192,16 @@ describe('presentSessionTokens()', () => {
       expect(await presentSessionTokens(response, options)).toBe(response);
     });
 
+    it('a token the session store cannot vouch for, because the lookup failed', async () => {
+      const response = betterAuthResponse({ token: SESSION_TOKEN, user: USER });
+      const { options } = policy(false);
+      options.isSessionToken = vi.fn(async () => {
+        throw new Error('store unavailable');
+      });
+
+      expect(await presentSessionTokens(response, options)).toBe(response);
+    });
+
     it('a response that is no JSON', async () => {
       const response = new Response('<html></html>', { headers: { 'content-type': 'text/html' } });
       const { options } = policy(false);
@@ -184,11 +234,18 @@ describe('CoreBetterAuthService.sendBetterAuthResponse()', () => {
     return { body, headers, res };
   }
 
-  function service() {
+  /** The service's own policy methods on a stand-in instance whose session cookie is `cookieName` */
+  function service(cookieName = COOKIE) {
     return {
+      getInstance: () => ({ $context: Promise.resolve({ authCookies: { sessionToken: { name: cookieName } } }) }),
+      getSessionByToken: vi.fn(async (token: string) => ({
+        session: token === SESSION_TOKEN ? { id: 's1', token, userId: 'u1' } : null,
+        user: null,
+      })),
       getSessionCookieName: () => COOKIE,
       presentSessionTokens: CoreBetterAuthService.prototype.presentSessionTokens,
       resolveJwtToken: vi.fn(async (token: string) => (token === SESSION_TOKEN ? JWT : token)),
+      sessionCookieNameOfInstance: (CoreBetterAuthService.prototype as any).sessionCookieNameOfInstance,
     };
   }
 
@@ -227,6 +284,47 @@ describe('CoreBetterAuthService.sendBetterAuthResponse()', () => {
     );
 
     expect(body()).toEqual({ token: JWT, user: USER });
+  });
+
+  /**
+   * @regression   12.6.1 review — the service must hand the policy a session lookup; without one, the second factor of a
+   *   signed-in user (no cookie set) still carries the live session token in cookie mode.
+   * @seen-failing Build the policy without `isSessionToken` in presentSessionTokens() in
+   *   src/core/modules/better-auth/core-better-auth.service.ts — registered as mutation `session-lookup-not-wired` in
+   *   tests/regression-mutations.json.
+   */
+  it('sends a signed-in user’s second factor, which sets no cookie, without the session token in cookie mode', async () => {
+    ConfigService.setConfig({ ...(previous as object), cookies: true } as any, { reInit: true, warn: false });
+    const { body, res } = expressResponse();
+
+    await CoreBetterAuthService.prototype.sendBetterAuthResponse.call(
+      service(),
+      res as any,
+      betterAuthResponse({ token: SESSION_TOKEN, user: USER }),
+    );
+
+    expect(body()).toEqual({ user: USER });
+  });
+
+  /**
+   * @regression   12.6.1 review — with `advanced.useSecureCookies` (or a renamed session cookie) Better-Auth sets
+   *   `__Secure-iam.session_token`; a policy matching the configured name found no session cookie, so a passkey
+   *   sign-in in token-in-body mode got no JWT.
+   * @seen-failing Ignore the instance's cookie name in sessionCookieNameOfInstance() in
+   *   src/core/modules/better-auth/core-better-auth.service.ts — registered as mutation
+   *   `session-cookie-name-not-from-instance` in tests/regression-mutations.json.
+   */
+  it('recognises the session cookie under the name the instance sets (__Secure- prefix)', async () => {
+    ConfigService.setConfig({ ...(previous as object), cookies: false } as any, { reInit: true, warn: false });
+    const { body, res } = expressResponse();
+
+    await CoreBetterAuthService.prototype.sendBetterAuthResponse.call(
+      service(SECURE_COOKIE),
+      res as any,
+      betterAuthResponse({ session: { id: 's1', token: SESSION_TOKEN } }, { cookieName: SECURE_COOKIE, setsSession: true }),
+    );
+
+    expect(body()).toEqual({ session: { id: 's1' }, token: JWT });
   });
 });
 
