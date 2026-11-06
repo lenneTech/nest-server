@@ -114,10 +114,13 @@ jobs:
       # here.
       #
       # Checked out here rather than assumed present: a hosted runner has nothing but this repo.
+      # Maintenance line `release/12.6.x`: the starter's main moves on to 12.7, so the 12.6 tarball is gated
+      # against the starter state that last consumed a 12.6 release.
       - name: Check out the consumer project (nest-server-starter)
         uses: actions/checkout@v7
         with:
           path: consumer/nest-server-starter
+          ref: v12.6.1
           repository: lenneTech/nest-server-starter
 
       # The core as a vendor-mode project lints it: with this checkout's .oxlintrc.json and .oxlintignore, in the vendor
@@ -140,9 +143,13 @@ jobs:
       - name: PostgreSQL-only consumer (the tarball installed without MongoDB's libraries)
         run: node scripts/check-without-mongodb.mjs --package
 
+      # Maintenance line `release/12.6.x`: publish under the dist-tag `latest-12.6`, never `latest` — that stays on the
+      # newest minor (12.7.0+). Without it this release would become the version every plain
+      # `npm install @lenne.tech/nest-server` resolves to, moving new installs back to 12.6.
       - uses: JS-DevTools/npm-publish@v4
         with:
           access: public
+          tag: latest-12.6
           token: ${{ secrets.NPM_TOKEN }}
 
       # A hosted runner is thrown away after the job, so this is a no-op there.

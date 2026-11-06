@@ -14,6 +14,7 @@ import { join } from 'node:path';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 
 import { ConfigService } from '../../src/core/common/services/config.service';
+import { CoreBetterAuthApiMiddleware } from '../../src/core/modules/better-auth/core-better-auth-api.middleware';
 import { CoreBetterAuthService } from '../../src/core/modules/better-auth/core-better-auth.service';
 import {
   presentSessionTokens,
@@ -111,7 +112,10 @@ describe('presentSessionTokens()', () => {
 
     it('asks the session store only when the response does not already name the session token', async () => {
       const { isSessionToken, options } = policy(false);
-      await presentSessionTokens(betterAuthResponse({ token: SESSION_TOKEN, user: USER }, { setsSession: true }), options);
+      await presentSessionTokens(
+        betterAuthResponse({ token: SESSION_TOKEN, user: USER }, { setsSession: true }),
+        options,
+      );
       await presentSessionTokens(betterAuthResponse({ token: JWT }), options);
 
       expect(isSessionToken).not.toHaveBeenCalled();
@@ -184,7 +188,7 @@ describe('presentSessionTokens()', () => {
       ['a JWT that /token hands out on purpose', betterAuthResponse({ token: JWT })],
       ['another plugin’s token that is no session token', betterAuthResponse({ token: 'one-time-1234567890' })],
       ['an error response', betterAuthResponse({ token: SESSION_TOKEN }, { setsSession: true, status: 401 })],
-      ['a list (list-sessions)', betterAuthResponse([{ token: SESSION_TOKEN }])],
+      ['a list without session records', betterAuthResponse([{ token: 'one-time-1234567890' }, 'x'])],
       ['a body without any token', betterAuthResponse({ status: true })],
     ])('%s', async (_case, response) => {
       const { options } = policy(false);
@@ -208,6 +212,137 @@ describe('presentSessionTokens()', () => {
 
       expect(await presentSessionTokens(response, options)).toBe(response);
     });
+  });
+});
+
+describe('session records (list-sessions), 12.6.2', () => {
+  const SESSIONS = [
+    { expiresAt: '2026-11-13T00:00:00.000Z', id: 's1', token: SESSION_TOKEN, userId: 'u1' },
+    { expiresAt: '2026-11-13T00:00:00.000Z', id: 's2', token: 'Other0Session0Token0Of0The0User0', userId: 'u1' },
+  ];
+
+  /**
+   * @regression   12.6.2 (DEV-4109) — `list-sessions` answered every session of the user with its token, so any script
+   *   on the page could read the bearer credential of every device the user is signed in on.
+   * @seen-failing Leave arrays untouched in presentSessionTokens() in
+   *   src/core/modules/better-auth/core-better-auth-session-token.helper.ts — registered as mutation
+   *   `session-list-tokens-kept` in tests/regression-mutations.json.
+   */
+  it.each([
+    ['cookie mode', false],
+    ['token in body', true],
+  ])('drops the token of every listed session in %s and keeps the id', async (_mode, tokenInBody) => {
+    const { options, resolveJwt } = policy(tokenInBody);
+    const presented = await presentSessionTokens(betterAuthResponse(SESSIONS), options);
+
+    expect(await presented.json()).toEqual([
+      { expiresAt: '2026-11-13T00:00:00.000Z', id: 's1', userId: 'u1' },
+      { expiresAt: '2026-11-13T00:00:00.000Z', id: 's2', userId: 'u1' },
+    ]);
+    expect(resolveJwt).not.toHaveBeenCalled();
+  });
+
+  it('drops the token of a body that is itself a session record', async () => {
+    const { options } = policy(false);
+    const presented = await presentSessionTokens(betterAuthResponse(SESSIONS[0]), options);
+
+    expect(await presented.json()).toEqual({ expiresAt: '2026-11-13T00:00:00.000Z', id: 's1', userId: 'u1' });
+  });
+});
+
+describe('revoke-session by id (DEV-4109)', () => {
+  function middleware(
+    sessionTokenOfUser = vi.fn(async (_userId: string, id: string) => (id === 's2' ? 'tok-2' : undefined)),
+  ) {
+    const service = { sessionTokenOfUser };
+    return { mw: new CoreBetterAuthApiMiddleware(service as any) as any, sessionTokenOfUser };
+  }
+  const request = (body: unknown, method = 'POST') =>
+    ({ betterAuthSession: { user: { id: 'u1' } }, body, method }) as any;
+
+  /**
+   * @regression   12.6.2 (DEV-4109) — once list-sessions hands out ids only, a client can revoke a session only by its
+   *   id; Better-Auth's route takes a token, so the middleware must resolve the id among the caller's own sessions.
+   * @seen-failing Leave the body unchanged in resolveRevokeSessionId() in
+   *   src/core/modules/better-auth/core-better-auth-api.middleware.ts — registered as mutation
+   *   `revoke-session-id-not-resolved` in tests/regression-mutations.json.
+   */
+  it('turns { sessionId } into the token of that session of the signed-in user', async () => {
+    const { mw, sessionTokenOfUser } = middleware();
+    const req = request({ sessionId: 's2' });
+    await mw.resolveRevokeSessionId(req, '/revoke-session');
+
+    expect(req.body).toEqual({ token: 'tok-2' });
+    expect(sessionTokenOfUser).toHaveBeenCalledWith('u1', 's2');
+  });
+
+  it('turns an id it cannot resolve into an empty token, so Better-Auth revokes nothing', async () => {
+    const { mw } = middleware();
+    const req = request({ sessionId: 's-of-someone-else' });
+    await mw.resolveRevokeSessionId(req, '/revoke-session');
+
+    expect(req.body).toEqual({ token: '' });
+  });
+
+  it('leaves a body with a token, another route and another method alone', async () => {
+    const { mw, sessionTokenOfUser } = middleware();
+    const withToken = request({ sessionId: 's2', token: 'given' });
+    const otherRoute = request({ sessionId: 's2' });
+    const get = request({ sessionId: 's2' }, 'GET');
+    await mw.resolveRevokeSessionId(withToken, '/revoke-session');
+    await mw.resolveRevokeSessionId(otherRoute, '/revoke-sessions');
+    await mw.resolveRevokeSessionId(get, '/revoke-session');
+
+    expect(withToken.body).toEqual({ sessionId: 's2', token: 'given' });
+    expect(otherRoute.body).toEqual({ sessionId: 's2' });
+    expect(get.body).toEqual({ sessionId: 's2' });
+    expect(sessionTokenOfUser).not.toHaveBeenCalled();
+  });
+
+  /**
+   * @regression   12.6.2 (DEV-4109) — the id lookup must stay inside the caller's own sessions, or a session id would
+   *   be enough to end another user's session.
+   * @seen-failing Drop the owner comparison in sessionTokenOfUser() in
+   *   src/core/modules/better-auth/core-better-auth.service.ts — registered as mutation
+   *   `session-id-of-other-user-resolved` in tests/regression-mutations.json.
+   */
+  it('resolves only sessions of the given user', async () => {
+    const sessions = [
+      { id: 's1', token: 'tok-1', userId: 'u1' },
+      { id: 's9', token: 'tok-9', userId: 'u9' },
+    ];
+    const service = {
+      getInstance: () => ({
+        $context: Promise.resolve({ internalAdapter: { listSessions: vi.fn(async () => sessions) } }),
+      }),
+      logger: { debug: vi.fn() },
+    };
+    const lookup = (userId: string, id: string) =>
+      CoreBetterAuthService.prototype.sessionTokenOfUser.call(service as any, userId, id);
+
+    expect(await lookup('u1', 's1')).toBe('tok-1');
+    expect(await lookup('u1', 's9')).toBeUndefined();
+    expect(await lookup('u1', 'unknown')).toBeUndefined();
+  });
+
+  /**
+   * @regression   12.6.2 (DEV-4109 review) — the lookup listed ALL session rows of the user. Better-Auth's adapter caps
+   *   that at 100 rows, oldest first, and MongoDB never removes an expired session row: a user with 100 old rows could
+   *   no longer end a current session by id (Better-Auth answered 200, the session stayed valid).
+   * @seen-failing List sessions without `onlyActiveSessions` in sessionTokenOfUser() in
+   *   src/core/modules/better-auth/core-better-auth.service.ts — registered as mutation
+   *   `session-lookup-includes-expired-rows` in tests/regression-mutations.json.
+   */
+  it('looks the id up among the ACTIVE sessions — the list list-sessions shows', async () => {
+    const listSessions = vi.fn(async () => [{ id: 's1', token: 'tok-1', userId: 'u1' }]);
+    const service = {
+      getInstance: () => ({ $context: Promise.resolve({ internalAdapter: { listSessions } }) }),
+      logger: { debug: vi.fn() },
+    };
+
+    await CoreBetterAuthService.prototype.sessionTokenOfUser.call(service as any, 'u1', 's1');
+
+    expect(listSessions).toHaveBeenCalledWith('u1', { onlyActiveSessions: true });
   });
 });
 
@@ -321,7 +456,10 @@ describe('CoreBetterAuthService.sendBetterAuthResponse()', () => {
     await CoreBetterAuthService.prototype.sendBetterAuthResponse.call(
       service(SECURE_COOKIE),
       res as any,
-      betterAuthResponse({ session: { id: 's1', token: SESSION_TOKEN } }, { cookieName: SECURE_COOKIE, setsSession: true }),
+      betterAuthResponse(
+        { session: { id: 's1', token: SESSION_TOKEN } },
+        { cookieName: SECURE_COOKIE, setsSession: true },
+      ),
     );
 
     expect(body()).toEqual({ session: { id: 's1' }, token: JWT });
