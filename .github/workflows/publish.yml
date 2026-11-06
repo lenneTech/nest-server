@@ -120,6 +120,11 @@ jobs:
           path: consumer/nest-server-starter
           repository: lenneTech/nest-server-starter
 
+      # The core as a vendor-mode project lints it: with this checkout's .oxlintrc.json and .oxlintignore, in the vendor
+      # layout. The build workflow runs the same gate against the starter's main on GitHub.
+      - name: Vendor lint (the core with the starter's oxlint configuration)
+        run: node scripts/check-vendor-lint.mjs --starter="$GITHUB_WORKSPACE/consumer/nest-server-starter"
+
       # `--fast` = the consumer's typecheck + build + full test suite. Deliberately NOT the
       # starter's whole `check`: that also runs the starter's own `pnpm audit`, `format:check` and
       # `lint`, none of which say anything about OUR tarball — and a fresh advisory in one of the

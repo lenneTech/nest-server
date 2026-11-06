@@ -177,6 +177,10 @@ pnpm run check:esm      # Compiles what a vendor project receives as a "type": "
                         # imports EVERY module — the proof that the core runs as ESM. Catches a
                         # named import Node cannot see in a CJS package, a type imported as a value,
                         # a missing `.js`; see .claude/rules/architecture.md → "Module Format"
+pnpm run check:vendor-lint # The core in the vendor layout, linted with nest-server-starter's .oxlintrc.json
+                        # (main on GitHub, or --starter=<path>), type-aware, warnings fail. A vendor
+                        # project lints with the STARTER's file: an exception only .oxlintrc.json here
+                        # has is green in `lint` and a warning there. Unreachable: skipped locally, red in CI
 pnpm run check:without-mongodb # dist/ with mongoose, @nestjs/mongoose and mongodb unresolvable: loads, boots on
                         # PostgreSQL, CRUD, Better-Auth sign-up/in, file storage. `:package` installs the packed
                         # tarball into a project WITHOUT them (publish path). See .claude/rules/persistence.md
