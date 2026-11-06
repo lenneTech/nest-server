@@ -6429,7 +6429,7 @@
       "id": "resend-verification-no-token-limit",
       "defect": "DEV-4056 — without a limit per token, whoever holds one link can have the mailbox it names flooded.",
       "file": "src/core/modules/better-auth/core-better-auth-email-verification.service.ts",
-      "find": "    if (perToken.count > this.resendByTokenMaxPerToken) {\n",
+      "find": "    if (perToken.count > this.resendByTokenMaxPerToken && !perToken.overflow) {\n",
       "replace": "    if (false) {\n",
       "specs": [
         "tests/unit/better-auth-resend-verification.spec.ts"
@@ -6475,6 +6475,17 @@
       "file": "src/core/modules/better-auth/core-better-auth-email-verification.service.ts",
       "find": "    if (scope === 'token') {\n      this.resendByTokenStore ??= create('email-verification-resend-token');\n      return this.resendByTokenStore;\n    }\n",
       "replace": "",
+      "specs": [
+        "tests/unit/better-auth-resend-verification.spec.ts"
+      ],
+      "driverSpecific": false
+    },
+    {
+      "id": "resend-verification-overflow-refuses-valid-token",
+      "defect": "DEV-4056 release review — valid tokens cost one sign-up each, so an attacker could sign up ten thousand addresses of their own and replay the links to fill the store of valid-token counters; every other user's resend then landed in an overflow bucket past its limit and was refused.",
+      "file": "src/core/modules/better-auth/core-better-auth-email-verification.service.ts",
+      "find": "    if (perToken.count > this.resendByTokenMaxPerToken && !perToken.overflow) {\n",
+      "replace": "    if (perToken.count > this.resendByTokenMaxPerToken) {\n",
       "specs": [
         "tests/unit/better-auth-resend-verification.spec.ts"
       ],

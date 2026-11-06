@@ -59,6 +59,12 @@ export interface RateLimitStoreHit {
   count: number;
   /** Seconds until the window resets */
   resetIn: number;
+  /**
+   * `true` when the key did not fit into the store and {@link count} is that of a shared overflow bucket — i.e. it
+   * counts other clients too. A caller for whom refusing a stranger's share is worse than not counting may let such a
+   * hit through; most limiters must not, or filling the keyspace would switch them off.
+   */
+  overflow?: boolean;
 }
 
 /**
@@ -198,11 +204,11 @@ export class InMemoryRateLimitStore implements RateLimitStore {
 
     if (!entry || now >= entry.resetTime) {
       this.overflow.set(slot, { count: 1, resetTime: now + windowSeconds * 1000 });
-      return { count: 1, resetIn: windowSeconds };
+      return { count: 1, overflow: true, resetIn: windowSeconds };
     }
 
     entry.count++;
-    return { count: entry.count, resetIn: Math.ceil((entry.resetTime - now) / 1000) };
+    return { count: entry.count, overflow: true, resetIn: Math.ceil((entry.resetTime - now) / 1000) };
   }
 
   size(): number {
@@ -382,7 +388,7 @@ export class RedisRateLimitStore implements RateLimitStore {
               'over, so they may be limited earlier than their own traffic warrants. Existing limits are unaffected.',
           );
         }
-        return { count, resetIn: ttl };
+        return overflow ? { count, overflow: true, resetIn: ttl } : { count, resetIn: ttl };
       },
       () => this.fallback.hit(key, windowSeconds),
     );

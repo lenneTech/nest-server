@@ -85,6 +85,18 @@ describe('InMemoryRateLimitStore', () => {
     expect(store.size()).toBeLessThanOrEqual(5);
   });
 
+  it('marks a count from a shared overflow bucket, and only that', async () => {
+    // A caller may decide differently for a count that includes strangers (the resend-by-token
+    // limit lets a valid token through instead of refusing it for someone else's traffic).
+    expect((await store.hit('own-0', 60)).overflow).toBeUndefined();
+    for (let i = 1; i < 5; i++) {
+      await store.hit(`own-${i}`, 60);
+    }
+
+    expect(await store.hit('did-not-fit', 60)).toMatchObject({ count: 1, overflow: true });
+    expect((await store.hit('own-0', 60)).overflow).toBeUndefined();
+  });
+
   it('never evicts a LIVE counter to make room', async () => {
     // Evicting the entries closest to expiry looks like sensible cache behavior and is the
     // opposite of what a rate limiter needs: those are ACTIVE counters, so dropping them resets

@@ -867,11 +867,18 @@ export class CoreBetterAuthEmailVerificationService {
     return this.resendByAddressStore;
   }
 
-  /** Count a request with a valid token against the address it names, by the address's hash (no PII in the key) */
+  /**
+   * Count a request with a valid token against the address it names, by the address's hash (no PII in the key).
+   *
+   * A count from a shared overflow bucket (the store is full) never refuses: valid tokens cost a sign-up each, so an
+   * attacker who signs up ten thousand addresses of their own and replays the links could otherwise fill the store
+   * and push every other user's resend into a bucket past its limit. Mail volume stays bounded without it — the
+   * per-address cooldown of {@link sendVerificationEmail} applies to every resend.
+   */
   protected async assertResendTokenLimit(email: string): Promise<void> {
     const tokenKey = createHash('sha256').update(email.trim().toLowerCase()).digest('hex');
     const perToken = await this.resendLimitStore('token').hit(`token:${tokenKey}`, this.resendByTokenWindowSeconds);
-    if (perToken.count > this.resendByTokenMaxPerToken) {
+    if (perToken.count > this.resendByTokenMaxPerToken && !perToken.overflow) {
       throw new HttpException(ErrorCode.RATE_LIMIT_EXCEEDED, HttpStatus.TOO_MANY_REQUESTS);
     }
   }
