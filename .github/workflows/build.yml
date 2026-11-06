@@ -92,6 +92,12 @@ jobs:
       - name: Optimize and check
         run: pnpm run prepublishOnly
 
+      # A vendor-mode project lints the copied core with nest-server-starter's .oxlintrc.json, not with ours. An
+      # exception that exists only here is green above and a warning in every vendor project (smoke test 2026-11-05).
+      # Reads the starter's configuration from its main branch; unreachable fails here because CI is set.
+      - name: Vendor lint (the core with the starter's oxlint configuration)
+        run: pnpm run check:vendor-lint
+
       # Compiles with SWC to CommonJS and loads every module under Node's CJS loader.
       # This is the ONLY step that can catch a temporal-dead-zone crash from an import
       # cycle: `nest build` uses tsc, and vitest runs SWC through Vite's module runner,

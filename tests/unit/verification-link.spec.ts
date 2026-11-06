@@ -3,30 +3,22 @@ import { describe, expect, it } from 'vitest';
 import { CoreBetterAuthEmailVerificationService } from '../../src/core/modules/better-auth/core-better-auth-email-verification.service';
 
 /**
- * The link in the email-verification mail, and specifically the one thing it used to leave out.
+ * The link in the email-verification mail carries the token and nothing else.
  *
- * `buildFrontendVerificationUrl` carried only the token. That is enough while the token is valid
- * and useless the moment it is not: the verification page shipped by nuxt-base-starter gates its
- * "send a new email" button on `route.query.email`, so an expired link produced a correct
- * explanation and no way to act on it — a dead end reached exactly by the people who most need the
- * button.
- *
- * The page cannot recover the address on its own. It sits in the token's JWT payload, and reading
- * it there would mean displaying data from an unverified signature.
+ * From 11.38.0 to DEV-4056 it carried the address too (`&email=`), so the verification page could offer "send a new
+ * email" for an expired link. That put a personal address into the mail's URL, the browser history and every access
+ * log the app keeps. The page now asks for a new mail with the token alone (`POST /iam/resend-verification-email`,
+ * tests/unit/better-auth-resend-verification.spec.ts): the server reads the address from the token and answers it
+ * masked, so the expired link stays recoverable without the address ever being in a URL.
  *
  * The existing coverage in `tests/stories/better-auth-email-verification.story.test.ts` sits behind
- * `if (config.callbackURL)`, so it asserts nothing when that config is absent. These cases are
- * unconditional on purpose.
- *
- * @regression   11.38.0 — the verification link omitted the address, so the resend button could
- *   never render and an expired link was unrecoverable from the page it landed on.
- * @seen-failing Registered mutation `verification-link-omits-email` in
- *   tests/regression-mutations.json — drops the address from the URL again.
+ * `if (config.callbackURL)`, so it asserts nothing when that config is absent. These cases are unconditional on purpose.
  */
 describe('CoreBetterAuthEmailVerificationService.buildFrontendVerificationUrl', () => {
   /**
-   * Reaches the protected builder with a hand-built config. The method is `protected` because a
-   * project may override it, so the test calls it the way a subclass would.
+   * Reaches the protected builder with a hand-built config. The method is `protected` because a project may override
+   * it, so the test calls it the way a subclass would — the second argument is what a caller of the 11.38.0 signature
+   * still passes.
    */
   const build = (options: { appUrl?: string; callbackURL: string; email?: string; token?: string }): string => {
     const service = Object.create(CoreBetterAuthEmailVerificationService.prototype) as any;
@@ -38,53 +30,41 @@ describe('CoreBetterAuthEmailVerificationService.buildFrontendVerificationUrl', 
     return service.buildFrontendVerificationUrl(options.token ?? 'tok-123', options.email);
   };
 
-  it('carries the address alongside the token', () => {
+  /**
+   * @regression   DEV-4056 — the link carried the address (`&email=`), so it stood in the mail, in the browser history
+   *   and in the access logs of the app.
+   * @seen-failing Append the second argument as `&email=` in buildFrontendVerificationUrl() in
+   *   src/core/modules/better-auth/core-better-auth-email-verification.service.ts — registered as mutation
+   *   `verification-link-carries-email` in tests/regression-mutations.json.
+   */
+  it('carries the token and no address, even when a caller passes one', () => {
     const url = build({
       appUrl: 'https://example.com',
       callbackURL: '/auth/verify-email',
       email: 'someone@test.com',
     });
 
-    expect(url).toBe('https://example.com/auth/verify-email?token=tok-123&email=someone%40test.com');
-  });
-
-  it('encodes a "+" in the address instead of turning it into a space', () => {
-    // Gmail tags — and therefore most test addresses. Unencoded, `+` decodes to a space on the
-    // page and the resend call then fails for an address that does exist.
-    const url = build({
-      appUrl: 'https://example.com',
-      callbackURL: '/auth/verify-email',
-      email: 'kai+iam@test.com',
-    });
-
-    expect(url).toContain('email=kai%2Biam%40test.com');
-    expect(url).not.toContain('kai+iam');
-  });
-
-  it('omits the parameter entirely when no address is given', () => {
-    // An overriding subclass may still call the single-argument form. It must produce a working
-    // link, not one ending in `&email=undefined`.
-    const url = build({ appUrl: 'https://example.com', callbackURL: '/auth/verify-email' });
-
     expect(url).toBe('https://example.com/auth/verify-email?token=tok-123');
-    // Specifically the PARAMETER — the path itself is spelled `verify-email`, so a bare substring
-    // check would pass for the wrong reason.
+    // Specifically the PARAMETER and the address — the path itself is spelled `verify-email`
     expect(url).not.toContain('email=');
-    expect(url).not.toContain('undefined');
+    expect(url).not.toContain('someone');
+  });
+
+  it('encodes the token', () => {
+    const url = build({ appUrl: 'https://example.com', callbackURL: '/auth/verify-email', token: 'a+b/c=' });
+
+    expect(url).toBe('https://example.com/auth/verify-email?token=a%2Bb%2Fc%3D');
   });
 
   it('uses & when the configured callbackURL already carries a query', () => {
-    const url = build({
-      callbackURL: 'https://example.com/verify?lang=de',
-      email: 'someone@test.com',
-    });
+    const url = build({ callbackURL: 'https://example.com/verify?lang=de' });
 
-    expect(url).toBe('https://example.com/verify?lang=de&token=tok-123&email=someone%40test.com');
+    expect(url).toBe('https://example.com/verify?lang=de&token=tok-123');
   });
 
   it('resolves a relative callbackURL against the app URL', () => {
-    const url = build({ appUrl: 'https://example.com/', callbackURL: '/auth/verify-email', email: 'a@test.com' });
+    const url = build({ appUrl: 'https://example.com/', callbackURL: '/auth/verify-email' });
 
-    expect(url).toBe('https://example.com/auth/verify-email?token=tok-123&email=a%40test.com');
+    expect(url).toBe('https://example.com/auth/verify-email?token=tok-123');
   });
 });

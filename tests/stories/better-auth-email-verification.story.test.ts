@@ -17,6 +17,7 @@
 
 import { Test, TestingModule } from '@nestjs/testing';
 import { PubSub } from 'graphql-subscriptions';
+import { SignJWT } from 'jose';
 import { vi } from 'vitest';
 
 import {
@@ -28,6 +29,7 @@ import {
   TestHelper,
 } from '../../src';
 import envConfig from '../../src/config.env';
+import { sealVerificationToken } from '../../src/core/modules/better-auth/core-better-auth-verification-link.helper';
 import { ServerModule } from '../../src/server/server.module';
 import { type IamTestDb, openIamTestDb } from '../helpers/iam-test-db';
 
@@ -660,6 +662,143 @@ describe('Story: BetterAuth Email Verification and Sign-Up Checks', () => {
   });
 
   // ===================================================================================================================
+  // Resend by token (DEV-4056): the page asks for a new mail with the token of the link, never with the address.
+  // tests/unit/better-auth-resend-verification.spec.ts covers every refusal; these cases prove the route on the
+  // assembled server: reached through the controller (not forwarded to Better-Auth), the answer shape for a token
+  // Better-Auth signed and for an invalid one, validation and the per-token limit.
+  // ===================================================================================================================
+
+  describe('POST /iam/resend-verification-email (DEV-4056)', () => {
+    /** A verification token as Better-Auth signs it, with the application's own secret */
+    const signedToken = async (email: string) => {
+      const { secret } = await betterAuthService.getInstance().$context;
+      return new SignJWT({ email })
+        .setProtectedHeader({ alg: 'HS256' })
+        .setIssuedAt()
+        .setExpirationTime('1h')
+        .sign(new TextEncoder().encode(secret));
+    };
+
+    it('reports the endpoint in the feature flags', async () => {
+      if (!isBetterAuthEnabled) {
+        return;
+      }
+
+      const response = await testHelper.rest('/iam/features', { method: 'GET', statusCode: 200 });
+
+      expect(typeof response.resendVerificationByToken).toBe('boolean');
+      expect(response.resendVerificationByToken).toBe(emailVerificationService.isEnabled());
+    });
+
+    it('answers a token Better-Auth signed with the masked address of the token only', async () => {
+      if (!isBetterAuthEnabled) {
+        return;
+      }
+      const email = `resend-${Date.now()}@test.com`;
+
+      const response = await testHelper.rest('/iam/resend-verification-email', {
+        method: 'POST',
+        payload: { token: await signedToken(email) },
+        statusCode: 200,
+      });
+
+      expect(response).toEqual({ email: 'r***@test.com', success: true });
+      expect(JSON.stringify(response)).not.toContain(email);
+    });
+
+    it('answers an invalid token the same way, without an address', async () => {
+      if (!isBetterAuthEnabled) {
+        return;
+      }
+
+      const response = await testHelper.rest('/iam/resend-verification-email', {
+        method: 'POST',
+        payload: { token: 'not-a-verification-token' },
+        statusCode: 200,
+      });
+
+      expect(response).toEqual({ email: null, success: true });
+    });
+
+    it('refuses a request without a token', async () => {
+      if (!isBetterAuthEnabled) {
+        return;
+      }
+
+      await testHelper.rest('/iam/resend-verification-email', { method: 'POST', payload: {}, statusCode: 400 });
+    });
+
+    /** A Better-Auth verification token for a planted, unverified user, as its own createEmailVerificationToken signs it */
+    const plantedUserToken = async (label: string, secret?: string) => {
+      const email = `verify-${label}-${Date.now()}@test.com`;
+      testEmails.push(email);
+      const userId = await iamDb.insertUser({ createdAt: new Date(), email, emailVerified: false, name: 'Verify', roles: [] });
+      const signingSecret = secret ?? (await betterAuthService.getInstance().$context).secret;
+      const token = await new SignJWT({ email, userId })
+        .setProtectedHeader({ alg: 'HS256' })
+        .setIssuedAt()
+        .setExpirationTime('1h')
+        .sign(new TextEncoder().encode(signingSecret));
+      return { email, token };
+    };
+
+    /**
+     * @regression   DEV-4056 review — the link carries Better-Auth's token sealed. Not opened before Better-Auth sees it,
+     *   GET /verify-email hands Better-Auth a value it never signed, and no account can be verified at all.
+     * @seen-failing Drop the openVerificationLinkToken() call from use() in
+     *   src/core/modules/better-auth/core-better-auth-api.middleware.ts — registered as mutation
+     *   `verification-link-not-opened` in tests/regression-mutations.json.
+     */
+    it('verifies through the sealed token of a link, and through the plain token of an older mail', async () => {
+      if (!isBetterAuthEnabled) {
+        return;
+      }
+      const { secret } = await betterAuthService.getInstance().$context;
+
+      const sealed = await plantedUserToken('sealed');
+      await testHelper.rest(`/iam/verify-email?token=${await sealVerificationToken(secret, sealed.token)}`, {
+        method: 'GET',
+        statusCode: 200,
+      });
+      const plain = await plantedUserToken('plain');
+      await testHelper.rest(`/iam/verify-email?token=${plain.token}`, { method: 'GET', statusCode: 200 });
+
+      expect((await iamDb.findUser({ email: sealed.email })).emailVerified).toBe(true);
+      expect((await iamDb.findUser({ email: plain.email })).emailVerified).toBe(true);
+    });
+
+    it('answers a seal that does not open with this secret like any invalid token', async () => {
+      if (!isBetterAuthEnabled) {
+        return;
+      }
+      const planted = await plantedUserToken('foreign-seal');
+      const foreign = await sealVerificationToken('another-secret-0123456789abcdef-xyz', planted.token);
+
+      await testHelper.rest(`/iam/verify-email?token=${foreign}`, { method: 'GET', statusCode: 401 });
+
+      expect((await iamDb.findUser({ email: planted.email })).emailVerified).toBeFalsy();
+    });
+
+    it('refuses the fourth request for one token with 429', async () => {
+      if (!isBetterAuthEnabled) {
+        return;
+      }
+      const token = await signedToken(`resend-limit-${Date.now()}@test.com`);
+      for (let attempt = 1; attempt <= 3; attempt++) {
+        await testHelper.rest('/iam/resend-verification-email', { method: 'POST', payload: { token }, statusCode: 200 });
+      }
+
+      const refused = await testHelper.rest('/iam/resend-verification-email', {
+        method: 'POST',
+        payload: { token },
+        statusCode: 429,
+      });
+
+      expect(JSON.stringify(refused)).toContain('LTNS_0020');
+    });
+  });
+
+  // ===================================================================================================================
   // Redirect Flow Tests
   //
   // Two cases lived here and asserted NOTHING: both were wrapped in `if (config.callbackURL)`, and
@@ -667,8 +806,7 @@ describe('Story: BetterAuth Email Verification and Sign-Up Checks', () => {
   // bodies never executed. They were green for their whole life without checking anything.
   //
   // `tests/unit/verification-link.spec.ts` now covers `buildFrontendVerificationUrl()`
-  // UNCONDITIONALLY — five cases including the `&email=` parameter, the `+` encoding and the
-  // omitted-address fallback — so deleting them loses no coverage and removes two false positives
-  // from the report.
+  // UNCONDITIONALLY — the token-only link, its encoding, a query in `callbackURL` and a relative
+  // `callbackURL` — so deleting them loses no coverage and removes two false positives from the report.
   // ===================================================================================================================
 });

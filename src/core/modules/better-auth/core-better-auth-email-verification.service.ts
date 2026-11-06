@@ -1,18 +1,27 @@
-import { Inject, Injectable, Logger, Optional } from '@nestjs/common';
-import { randomUUID } from 'node:crypto';
+import { HttpException, HttpStatus, Inject, Injectable, Logger, Optional } from '@nestjs/common';
+import { jwtVerify } from 'jose';
+import { JWTExpired } from 'jose/errors';
+import { createHash, randomUUID } from 'node:crypto';
 import ejs from 'ejs';
 import * as fs from 'fs';
 import * as path from 'path';
 
-import { isLocalEnv, isProductionLikeEnv, resolveAppUrlFromConfig } from '../../common/helpers/cookies.helper.js';
+import { isLocalEnv, resolveAppUrlFromConfig } from '../../common/helpers/cookies.helper.js';
 import { maskEmail } from '../../common/helpers/logging.helper.js';
 import { IBetterAuthEmailVerificationConfig } from '../../common/interfaces/server-options.interface.js';
 import { BrevoService } from '../../common/services/brevo.service.js';
 import { ConfigService } from '../../common/services/config.service.js';
 import { CoreRedisService } from '../../common/services/core-redis.service.js';
+import {
+  InMemoryRateLimitStore,
+  type RateLimitStore,
+  RedisRateLimitStore,
+} from '../../common/services/rate-limit-store.js';
+import { ErrorCode } from '../error-code/error-codes.js';
 import { EmailService } from '../../common/services/email.service.js';
 import { TemplateService } from '../../common/services/template.service.js';
 import { AuthEmailCallbackOptions, formatProjectName } from './better-auth.config.js';
+import { openVerificationToken } from './core-better-auth-verification-link.helper.js';
 import { callerDirectory } from '../../common/helpers/module-location.helper.js';
 
 /**
@@ -226,7 +235,7 @@ export class CoreBetterAuthEmailVerificationService {
     try {
       // Override URL if callbackURL is configured (frontend-based verification)
       if (this.config.callbackURL) {
-        url = this.buildFrontendVerificationUrl(token, user.email);
+        url = this.buildFrontendVerificationUrl(token);
       }
 
       this.logAuthUrlForDevelopment('EMAIL VERIFICATION', user.email, url);
@@ -728,7 +737,7 @@ export class CoreBetterAuthEmailVerificationService {
    * @param token - The verification token from Better-Auth
    * @returns The full frontend URL with token query parameter
    */
-  protected buildFrontendVerificationUrl(token: string, email?: string): string {
+  protected buildFrontendVerificationUrl(token: string): string {
     let baseUrl = this.config.callbackURL!;
 
     // Resolve relative paths against appUrl
@@ -737,30 +746,189 @@ export class CoreBetterAuthEmailVerificationService {
       baseUrl = `${appUrl.replace(/\/$/, '')}${baseUrl}`;
     }
 
-    // Append token as query parameter
+    // The token only — and the token arrives here SEALED (CoreBetterAuthModule's mail callback,
+    // core-better-auth-verification-link.helper.ts), because Better-Auth's own token is a readable JWT with the address
+    // in it. Until DEV-4056 the address also travelled as `&email=`, so the page could offer "send a new email" for an
+    // expired link; it stood in the mail, in the browser history and in every access log the app keeps. The page now
+    // asks for a new mail WITH the token (POST /iam/resend-verification-email): the server opens it, reads the address
+    // and answers with a masked form, so the address never leaves it.
     const separator = baseUrl.includes('?') ? '&' : '?';
-    let url = `${baseUrl}${separator}token=${encodeURIComponent(token)}`;
+    return `${baseUrl}${separator}token=${encodeURIComponent(token)}`;
+  }
 
-    // The address travels alongside the token so the page can offer "send a new email" when the
-    // token turns out to be expired — which is the ONLY moment that button matters, and precisely
-    // the moment the page has nothing else to work with. The verification page shipped by
-    // nuxt-base-starter gates that button on `route.query.email`, so without this the user is told
-    // correctly what went wrong and left with no way to fix it.
-    //
-    // The frontend cannot recover the address itself. It is inside the token's JWT payload, and
-    // reading it there would mean trusting an unverified signature for display — not a pattern to
-    // put in a starter.
-    //
-    // The cost, stated plainly: the address appears in the URL, so it reaches browser history and
-    // any access log the app keeps. It is the recipient's OWN address, arriving in their own
-    // mailbox next to a token that is far more sensitive, so this widens nothing that the link did
-    // not already carry. Encoded, because a `+` in an address (Gmail tags, and therefore most test
-    // addresses) would otherwise arrive as a space.
-    if (email) {
-      url += `&email=${encodeURIComponent(email)}`;
+  // ===================================================================================================================
+  // Resend by token (POST /iam/resend-verification-email)
+  // ===================================================================================================================
+
+  /**
+   * Requests with a VALID token for one address per {@link resendByTokenWindowSeconds}, counted under the address the
+   * token names: the sealed and the plain form of a link, and every other link for that address, share the counter
+   */
+  protected readonly resendByTokenMaxPerToken = 3;
+
+  /**
+   * Requests with an INVALID token one client address may make per {@link resendByTokenWindowSeconds}. Valid tokens
+   * are not counted here: behind a reverse proxy without `trustProxy` every client has the proxy's address, and a
+   * bucket shared by everyone would let one anonymous caller lock the resend for all users with ten junk requests.
+   */
+  protected readonly resendByTokenMaxPerIp = 10;
+
+  protected readonly resendByTokenWindowSeconds = 3600;
+
+  /**
+   * Keys each resend counter store holds before new keys fold into its shared overflow buckets (see
+   * `InMemoryRateLimitStore` / `RedisRateLimitStore`)
+   */
+  protected readonly resendLimitStoreCapacity: number = 10_000;
+
+  /**
+   * The counters behind the two limits, one store each, shared through Redis when configured and process-local
+   * otherwise. Separate on purpose: invalid tokens cost nothing to make, and in a shared store a flood of them fills
+   * the capacity until every valid token lands in an overflow bucket that is already past its limit.
+   */
+  protected resendByTokenStore?: RateLimitStore;
+  protected resendByAddressStore?: RateLimitStore;
+
+  /**
+   * Send a new verification mail for the address a verification token belongs to — the token of an EXPIRED link
+   * included, which is the case this exists for. The caller types nothing, and the address never leaves the server:
+   * the answer carries it masked ({@link maskEmailForDisplay}).
+   *
+   * - The token is the one the link carries: sealed (core-better-auth-verification-link.helper.ts), or plain from a
+   *   link mailed before the seal. It must carry Better-Auth's signature (HS256 with its secret) once opened; a forged
+   *   or garbled token sends nothing.
+   * - A new mail goes out only through Better-Auth's own `sendVerificationEmail`, which sends to an existing,
+   *   unverified account and to nothing else; the per-address cooldown of {@link sendVerificationEmail} applies on
+   *   top. A token of an address change (`updateTo`) sends nothing.
+   * - The answer is the same whatever happened: `{ email: <masked address of the token>, success: true }`, `email`
+   *   null for an invalid token. Whoever holds a valid token received it at that address, so the masked form tells
+   *   them nothing new, and nothing in the answer says whether an account exists, is verified, or was mailed.
+   * - It never verifies, signs in or creates a session.
+   *
+   * @throws HttpException 429 `RATE_LIMIT_EXCEEDED` past {@link resendByTokenMaxPerToken} requests with valid tokens
+   *   for one address or past {@link resendByTokenMaxPerIp} invalid tokens from one client address within the window.
+   *   The token is checked first: an invalid one is counted only per client address, so junk never creates a counter
+   *   in the store valid tokens use (the answer already says it is invalid, so the order tells nobody anything more)
+   */
+  async resendVerificationByToken(
+    authInstance:
+      | null
+      | undefined
+      | {
+          $context: Promise<{ secret: string }>;
+          // Better-Auth's own endpoint function; typed loosely because its declared type is an overload set
+          api: { sendVerificationEmail: (request: { body: { email: string } }) => Promise<unknown> };
+        },
+    token: unknown,
+    clientAddress: string | undefined,
+  ): Promise<{ email: null | string; success: true }> {
+    const tokenValue = typeof token === 'string' ? token : '';
+
+    let claims: undefined | { email: string; updateTo?: string };
+    if (authInstance && tokenValue) {
+      const { secret } = await authInstance.$context;
+      const opened = await openVerificationToken(secret, tokenValue);
+      claims = opened ? await this.readVerificationTokenClaims(secret, opened) : undefined;
     }
+    if (!claims) {
+      // The answer already says the token is invalid (`email: null`), so counting only these per address tells
+      // nobody anything more, and a valid token cannot be locked out by a stranger behind the same proxy
+      await this.assertResendAddressLimit(clientAddress);
+      return { email: null, success: true };
+    }
+    await this.assertResendTokenLimit(claims.email);
 
-    return url;
+    if (!claims.updateTo) {
+      try {
+        await authInstance.api.sendVerificationEmail({ body: { email: claims.email } });
+      } catch (error) {
+        // The answer must not differ: a failed send (verification switched off, an SMTP outage) is logged, not told
+        this.logger.debug(
+          `Resend by token for ${maskEmail(claims.email)} sent nothing: ${
+            error instanceof Error ? error.message : 'Unknown error'
+          }`,
+        );
+      }
+    }
+    return { email: this.maskEmailForDisplay(claims.email), success: true };
+  }
+
+  /** The counter store of one resend limit, created on first use */
+  protected resendLimitStore(scope: 'address' | 'token'): RateLimitStore {
+    const create = (namespace: string): RateLimitStore =>
+      this.coreRedisService?.enabled
+        ? new RedisRateLimitStore(this.coreRedisService, namespace, this.resendLimitStoreCapacity)
+        : new InMemoryRateLimitStore(this.resendLimitStoreCapacity);
+    if (scope === 'token') {
+      this.resendByTokenStore ??= create('email-verification-resend-token');
+      return this.resendByTokenStore;
+    }
+    this.resendByAddressStore ??= create('email-verification-resend-address');
+    return this.resendByAddressStore;
+  }
+
+  /**
+   * Count a request with a valid token against the address it names, by the address's hash (no PII in the key).
+   *
+   * A count from a shared overflow bucket (the store is full) never refuses: valid tokens cost a sign-up each, so an
+   * attacker who signs up ten thousand addresses of their own and replays the links could otherwise fill the store
+   * and push every other user's resend into a bucket past its limit. Mail volume stays bounded without it — the
+   * per-address cooldown of {@link sendVerificationEmail} applies to every resend.
+   */
+  protected async assertResendTokenLimit(email: string): Promise<void> {
+    const tokenKey = createHash('sha256').update(email.trim().toLowerCase()).digest('hex');
+    const perToken = await this.resendLimitStore('token').hit(`token:${tokenKey}`, this.resendByTokenWindowSeconds);
+    if (perToken.count > this.resendByTokenMaxPerToken && !perToken.overflow) {
+      throw new HttpException(ErrorCode.RATE_LIMIT_EXCEEDED, HttpStatus.TOO_MANY_REQUESTS);
+    }
+  }
+
+  /** Count an invalid token against the client address it came from */
+  protected async assertResendAddressLimit(clientAddress: string | undefined): Promise<void> {
+    const key = `ip:${clientAddress || 'unknown'}`;
+    const perAddress = await this.resendLimitStore('address').hit(key, this.resendByTokenWindowSeconds);
+    if (perAddress.count > this.resendByTokenMaxPerIp) {
+      throw new HttpException(ErrorCode.RATE_LIMIT_EXCEEDED, HttpStatus.TOO_MANY_REQUESTS);
+    }
+  }
+
+  /**
+   * The claims of a verification token Better-Auth signed (`createEmailVerificationToken`: HS256 with its secret,
+   * `{ email, updateTo?, userId? }`), expired or not. `undefined` for anything without a valid signature.
+   */
+  protected async readVerificationTokenClaims(
+    secret: string,
+    token: string,
+  ): Promise<undefined | { email: string; updateTo?: string }> {
+    let payload: Record<string, unknown>;
+    try {
+      ({ payload } = await jwtVerify(token, new TextEncoder().encode(secret), { algorithms: ['HS256'] }));
+    } catch (error) {
+      // jose checks the signature before the expiry, so an expired token carries its verified claims
+      if (!(error instanceof JWTExpired)) {
+        return undefined;
+      }
+      payload = error.payload;
+    }
+    if (typeof payload.email !== 'string' || !payload.email.includes('@')) {
+      return undefined;
+    }
+    return {
+      email: payload.email,
+      updateTo: typeof payload.updateTo === 'string' && payload.updateTo ? payload.updateTo : undefined,
+    };
+  }
+
+  /**
+   * The address as the page may show it: the first character, `***`, the domain — `k***@lenne.tech`. Enough to
+   * recognise one's own mailbox, not enough to learn an address.
+   */
+  protected maskEmailForDisplay(email: string): string {
+    const at = email.lastIndexOf('@');
+    if (at < 1) {
+      return '***';
+    }
+    return `${email[0]}***${email.slice(at)}`;
   }
 
   /**
@@ -858,32 +1026,47 @@ export class CoreBetterAuthEmailVerificationService {
    * passed it and wrote live reset links into their log pipeline, where log access alone was
    * enough to take over an account.
    *
-   * `LT_LOG_AUTH_URLS=1` opts in for another environment that runs on a developer machine (this
-   * repository's own `development`, for one); `LT_LOG_AUTH_URLS=0` suppresses it everywhere. A
-   * production-like environment never prints, whatever the variable says: the opt-in exists for
-   * laptops, and a hard floor keeps it from being the thing that reopens a deployment.
+   * Nothing opens it elsewhere (12.6.0): until then `LT_LOG_AUTH_URLS=1` printed it in any
+   * environment but `production` and `staging`, and an environment name says nothing reliable about
+   * whether it is a laptop — `development` names a deployed stage as often as a machine. A live token
+   * and the line's `UserKey` (a pseudonym of the address) must never reach a deployment's logs.
+   * `LT_LOG_AUTH_URLS=0` still suppresses the line in the local environments.
+   *
+   * The process's own `NODE_ENV` must agree (12.6.0): `getEnvironmentConfig()` answers a `NODE_ENV` without a
+   * configuration key (`development`, `dev`, `staging` in a project that defines none of them) with the `local`
+   * block, whose `env` then claims `local` on a deployed stage, and so does an EMPTY `NODE_ENV` (`'' || 'local'`). So
+   * the line needs both a local `env` and a `NODE_ENV` that is unset (not empty: the `local` default) or itself
+   * `local`, `ci` or `e2e`.
    *
    * The address is masked (PII, and the rest of this file already masks it); the URL is printed in
-   * full because following it without a mail server is the whole point locally.
+   * full because following it without a mail server is the whole point locally. `UserKey` tells a
+   * test which line is its own when many runs sign up in parallel: the first 16 hex characters of
+   * SHA-256 over the trimmed, lower-cased address, so a helper that knows its test address computes
+   * the same key. It replaces reading the address from the token's JWT payload, which the sealed
+   * verification token (DEV-4056) no longer allows. Format:
+   * `[<LABEL>] User: <masked>, UserKey: <16 hex>, URL: <url>`.
    *
    * `console.log` rather than the NestJS logger, deliberately and for two reasons: the logger
    * buffers, which makes interception unreliable under Vitest, and a logger call would route the
    * token into `HubLogBufferService`'s ring buffer, which is readable over HTTP by any ADMIN.
    */
   protected logAuthUrlForDevelopment(label: string, email: string, url: string): void {
-    const optIn = process.env.LT_LOG_AUTH_URLS;
-    if (optIn === '0') {
+    if (process.env.LT_LOG_AUTH_URLS === '0') {
       return;
     }
     const env = this.configService?.getFastButReadOnly<string>('env') ?? process.env.NODE_ENV;
-    if (isProductionLikeEnv(env)) {
+    if (!isLocalEnv(env)) {
       return;
     }
-    if (!isLocalEnv(env) && optIn !== '1') {
+    // `!== undefined`, not truthiness: an empty NODE_ENV (`NODE_ENV=${NODE_ENV}` in a compose file on a host without
+    // the variable) is read as `local` by getEnvironmentConfig(), and `isLocalEnv('')` is false
+    const nodeEnv = process.env.NODE_ENV;
+    if (nodeEnv !== undefined && !isLocalEnv(nodeEnv)) {
       return;
     }
+    const userKey = createHash('sha256').update(email.trim().toLowerCase()).digest('hex').slice(0, 16);
     // oxlint-disable-next-line no-console
-    console.log(`[${label}] User: ${this.maskEmail(email)}, URL: ${url}`);
+    console.log(`[${label}] User: ${maskEmail(email)}, UserKey: ${userKey}, URL: ${url}`);
   }
 
   protected getAppName(): string {

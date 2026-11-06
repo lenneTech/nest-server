@@ -12,6 +12,9 @@
   "rules": {
     "eqeqeq": "warn",
     "no-console": ["warn", { "allow": ["warn", "error", "info", "debug", "trace", "time", "timeEnd", "group", "groupEnd"] }],
+    // A vendor-mode project lints the copied src/core with nest-server-starter's .oxlintrc.json, not with this file.
+    // An exception here that touches src/core (this allow list, the src/** override below) must be mirrored there in
+    // the same release; `pnpm run check:vendor-lint` fails until it is.
     "no-underscore-dangle": ["warn", {
       "allow": [
         "$__",

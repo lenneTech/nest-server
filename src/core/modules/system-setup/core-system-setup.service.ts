@@ -1,7 +1,7 @@
 import { randomUUID } from 'node:crypto';
 import { hostname } from 'node:os';
 
-import { ForbiddenException, Injectable, Logger, OnApplicationBootstrap } from '@nestjs/common';
+import { ForbiddenException, Injectable, Logger, OnApplicationBootstrap, OnApplicationShutdown } from '@nestjs/common';
 import { InjectConnection } from '../../common/persistence/mongo/mongoose-compat.js';
 import { isEmail } from 'class-validator';
 import type { Collection } from 'mongodb';
@@ -14,6 +14,7 @@ import {
   SYSTEM_SETUP_LOCK_KEY,
   systemSetupMongoLocks,
 } from '../../common/persistence/infrastructure-locks.js';
+import { RoleEnum } from '../../common/enums/role.enum.js';
 import type { LockStore } from '../../common/persistence/lock-store.interface.js';
 import { isLocalEnv } from '../../common/helpers/cookies.helper.js';
 import type { ISystemSetupInitialAdmin } from '../../common/interfaces/server-options.interface.js';
@@ -47,6 +48,15 @@ const SETUP_LOCK_COLLECTION = SYSTEM_SETUP_LOCK_COLLECTION;
  * claimer does not lock the deployment out for good.
  */
 const INITIAL_ADMIN_CLAIM_STALE_AFTER_MS = SYSTEM_SETUP_CLAIM_STALE_AFTER_MS;
+
+/** How long after the claim goes stale the boot looks at an interrupted setup again (see scheduleInterruptedSetupRetry) */
+const INTERRUPTED_SETUP_RETRY_MARGIN_MS = 5_000;
+
+/** An initial admin a killed setup left behind, and whether its credential account is still missing */
+interface IInterruptedInitialAdmin {
+  iamUser: { email?: string; id: string; name?: string };
+  linkCredential: boolean;
+}
 
 /**
  * Input for creating the initial admin user
@@ -105,10 +115,15 @@ export interface SystemSetupStatus {
  * - Once any user exists, the init endpoint is permanently locked
  * - Race conditions handled by an atomic claim shared by both entry points
  * - A creation that fails after the user was created removes that user again, so `needsSetup` stays true
+ * - The admin role is written together with the user, and a setup that was killed halfway (no rollback ran) is
+ *   finished at the next boot for the address `initialAdmin` names ({@link resumeInterruptedInitialAdmin})
  */
 @Injectable()
-export class CoreSystemSetupService implements OnApplicationBootstrap {
+export class CoreSystemSetupService implements OnApplicationBootstrap, OnApplicationShutdown {
   private readonly logger = new Logger(CoreSystemSetupService.name);
+
+  /** The one planned retry of an interrupted setup whose claim was still held (see scheduleInterruptedSetupRetry) */
+  private interruptedSetupRetry?: ReturnType<typeof setTimeout>;
 
   /** Who holds the claim: one owner per instance, so a second concurrent claim of the same process is refused too */
   private readonly claimOwner = `${hostname()}:${process.pid}:${randomUUID()}`;
@@ -132,6 +147,12 @@ export class CoreSystemSetupService implements OnApplicationBootstrap {
     await this.reportSetupReachability();
   }
 
+  /** Cancel a planned retry of an interrupted setup, so a closing application leaves no timer behind */
+  onApplicationShutdown(): void {
+    clearTimeout(this.interruptedSetupRetry);
+    this.interruptedSetupRetry = undefined;
+  }
+
   /**
    * Create the initial admin from `systemSetup.initialAdmin` when zero users exist (the boot half of
    * {@link onApplicationBootstrap}). Not gated by `systemSetup.httpInit`: it is the deployment's own configuration,
@@ -145,6 +166,11 @@ export class CoreSystemSetupService implements OnApplicationBootstrap {
 
     const status = await this.getSetupStatus();
     if (!status.needsSetup) {
+      // Users exist. One of them may be the initial admin of a setup that was killed halfway (SIGKILL, OOM): no
+      // rollback ran, so it has no login account or no admin role, and the setup refuses from now on. Finish it.
+      if (status.betterAuthEnabled && (await this.resumeInterruptedInitialAdmin(initialAdmin)) === 'claimed') {
+        this.scheduleInterruptedSetupRetry(initialAdmin);
+      }
       return;
     }
 
@@ -374,6 +400,260 @@ export class CoreSystemSetupService implements OnApplicationBootstrap {
   }
 
   /**
+   * Everything the initial admin needs after its user exists: the credential account (unless it has one), the link
+   * to the app user, the admin role, the legacy password. {@link createInitialAdmin} runs it for a new user,
+   * {@link resumeInterruptedInitialAdmin} for one a killed setup left behind — so both finish the same way.
+   *
+   * Throws on the first failure; the caller decides what to undo.
+   */
+  protected async finishInitialAdmin(
+    context: {
+      internalAdapter: { linkAccount(account: Record<string, unknown>): Promise<unknown> };
+      password: { hash(password: string): Promise<string> };
+    },
+    iamUser: { email?: string; id: string; name?: string },
+    input: SystemSetupInitInput,
+    normalizedPassword: string,
+    options: { linkCredential: boolean },
+  ): Promise<void> {
+    if (options.linkCredential) {
+      // Hash password and create credential account
+      const hashedPassword = await context.password.hash(normalizedPassword);
+      // better-auth 1.7.0–1.7.2 key accounts by (issuer, accountId) and require the issuer;
+      // credential accounts carry a synthetic one, always derived via the helper, never a
+      // hand-written literal. better-auth 1.7.3+ went back to (providerId, accountId) and knows no
+      // issuer field, so the helper answers `undefined` there and nothing is written.
+      //
+      // The parameter type above is structural, so a vendored core compiled against better-auth 1.7.0–1.7.2 (whose
+      // own type requires `issuer`, which a conditional spread reads as optional) builds as well.
+      const credentialIssuer = legacyCredentialAccountIssuer();
+      await context.internalAdapter.linkAccount({
+        accountId: iamUser.id,
+        ...(credentialIssuer ? { issuer: credentialIssuer } : {}),
+        password: hashedPassword,
+        providerId: 'credential',
+        userId: iamUser.id,
+      });
+    }
+
+    // Sync to nest-server users collection
+    const syncedUser = await this.userMapper.linkOrCreateUser({
+      email: iamUser.email,
+      emailVerified: true,
+      id: iamUser.id,
+      name: iamUser.name,
+    });
+
+    if (!syncedUser) {
+      throw new Error('Failed to sync user to nest-server collection');
+    }
+
+    // Set admin role directly — the framework's own decision, as system work. createUser already wrote it for a new
+    // user; this write is what gives it to the leftover of an older setup, and keeps it when the sync touched the row.
+    const sql = getBetterAuthSqlStore();
+    if (sql) {
+      await sql.updateUserAsSystem(String(syncedUser._id), { roles: [RoleEnum.ADMIN] });
+    } else {
+      await this.connection
+        .collection('users')
+        .updateOne({ _id: syncedUser._id }, { $set: { roles: [RoleEnum.ADMIN], updatedAt: new Date() } });
+    }
+
+    // Sync password to Legacy Auth for backwards compatibility
+    await this.userMapper.syncPasswordToLegacy(iamUser.id, input.email, input.password);
+  }
+
+  /**
+   * Whether any user holds the admin role, wherever the `users` table lives (see {@link countUsers})
+   */
+  protected async hasAdmin(): Promise<boolean> {
+    const store = getBetterAuthSqlStore()?.users ?? (await getPersistenceRuntime()?.iamStorage())?.users;
+    const admins = store
+      ? await store.count({ roles: RoleEnum.ADMIN })
+      : await this.connection.collection('users').countDocuments({ roles: RoleEnum.ADMIN });
+    return admins > 0;
+  }
+
+  /**
+   * The initial admin a killed setup left behind for `email`, or `undefined` when the user with that address is
+   * anything else. A user qualifies only where nothing but the setup can have produced its state:
+   *
+   * - an administrator without any account: killed between createUser (which writes the role) and linkAccount;
+   * - no administrator in the system, and the user has no account: the same, from a setup before the role moved into
+   *   createUser;
+   * - no administrator in the system, and the user's only account is a credential account with the configured
+   *   password: killed between linkAccount and the role update of such a setup. The password is the evidence — a
+   *   user who signed up with the administrator's address has a password of their own.
+   *
+   * A social account, a second account, another password or a legacy password ({@link hasLegacyPassword}) never
+   * qualifies, and a finished setup (administrator with an account) is answered without comparing the password.
+   */
+  protected async findInterruptedInitialAdmin(
+    context: {
+      internalAdapter: {
+        findUserByEmail(
+          email: string,
+          options: { includeAccounts: boolean },
+        ): Promise<null | {
+          accounts: Array<{ password?: null | string; providerId: string }>;
+          user: { email?: string; id: string; name?: string; roles?: unknown };
+        }>;
+      };
+      password: { verify(data: { hash: string; password: string }): Promise<boolean> };
+    },
+    email: string,
+    normalizedPassword: string,
+  ): Promise<IInterruptedInitialAdmin | undefined> {
+    const found = await context.internalAdapter.findUserByEmail(email, { includeAccounts: true });
+    if (!found?.user) {
+      return undefined;
+    }
+    const isAdmin = Array.isArray(found.user.roles) && found.user.roles.includes(RoleEnum.ADMIN);
+    const accounts = found.accounts ?? [];
+
+    if (accounts.length === 0) {
+      if (!isAdmin && (await this.hasAdmin())) {
+        return undefined;
+      }
+      return (await this.hasLegacyPassword(found.user, email))
+        ? undefined
+        : { iamUser: found.user, linkCredential: true };
+    }
+
+    if (isAdmin || accounts.length !== 1) {
+      return undefined;
+    }
+    const [account] = accounts;
+    if (account.providerId !== 'credential' || !account.password) {
+      return undefined;
+    }
+    if (!(await context.password.verify({ hash: account.password, password: normalizedPassword }))) {
+      return undefined;
+    }
+    if (await this.hasAdmin()) {
+      return undefined;
+    }
+    return (await this.hasLegacyPassword(found.user, email))
+      ? undefined
+      : { iamUser: found.user, linkCredential: false };
+  }
+
+  /**
+   * Whether the app user behind `iamUser` carries a legacy password (`users.password`). A killed setup never has one:
+   * syncing it is the last step of {@link finishInitialAdmin}, and neither createUser nor the sync writes it. So a user
+   * with one did not come from the setup — typically a Legacy-Auth administrator who has not signed in through IAM
+   * yet, who has no Better-Auth account either. Finishing such a user would replace their own password with the
+   * configured one.
+   */
+  protected async hasLegacyPassword(iamUser: { email?: string; id: string }, email: string): Promise<boolean> {
+    const store = getBetterAuthSqlStore()?.users ?? (await getPersistenceRuntime()?.iamStorage())?.users;
+    const row = store
+      ? await store.findById(iamUser.id, { select: ['password'] })
+      : await this.connection
+          .collection('users')
+          .findOne({ email: iamUser.email ?? email }, { projection: { password: 1 } });
+    return typeof row?.password === 'string' && row.password.length > 0;
+  }
+
+  /**
+   * Finish the initial admin a killed setup left behind (see {@link findInterruptedInitialAdmin}) for the address and
+   * password `systemSetup.initialAdmin` configures — the boot path only. The anonymous `POST /system-setup/init` never
+   * gets here: once users exist it refuses, as before, because finishing would set a password on an existing account.
+   *
+   * Runs under the same claim as {@link createInitialAdmin}, so of N booting replicas one finishes it. Never throws: a
+   * failure is logged and the user is kept (it existed before this call), so the next boot can try again.
+   *
+   * @returns `'claimed'` when the claim is held (by the killed attempt, until it goes stale), `'none'` when there is
+   *   nothing to finish
+   */
+  protected async resumeInterruptedInitialAdmin(
+    initialAdmin: ISystemSetupInitialAdmin,
+  ): Promise<'claimed' | 'done' | 'failed' | 'none'> {
+    const authInstance = this.betterAuthService.getInstance();
+    if (!authInstance) {
+      return 'none';
+    }
+    const input: SystemSetupInitInput = {
+      email: initialAdmin.email,
+      name: initialAdmin.name,
+      password: initialAdmin.password,
+    };
+    let claimed = false;
+    try {
+      const context = await authInstance.$context;
+      const normalizedPassword = this.userMapper.normalizePasswordForIam(input.password);
+      if (!(await this.findInterruptedInitialAdmin(context, input.email, normalizedPassword))) {
+        return 'none';
+      }
+      if (!(await this.claimInitialAdminSetup())) {
+        return 'claimed';
+      }
+      claimed = true;
+
+      // Look again under the claim: another replica may have finished it in between
+      const interrupted = await this.findInterruptedInitialAdmin(context, input.email, normalizedPassword);
+      if (!interrupted) {
+        await this.releaseInitialAdminSetupClaim();
+        return 'none';
+      }
+      await this.finishInitialAdmin(context, interrupted.iamUser, input, normalizedPassword, {
+        linkCredential: interrupted.linkCredential,
+      });
+      this.logger.warn(
+        `Finished an interrupted initial-admin setup for ${input.email}: the previous attempt was stopped before ` +
+          `it completed (${interrupted.linkCredential ? 'no login account' : 'no admin role'}).`,
+      );
+      return 'done';
+    } catch (error) {
+      if (claimed) {
+        await this.releaseInitialAdminSetupClaim();
+      }
+      this.logger.error(
+        `Finishing the interrupted initial-admin setup for ${input.email} failed ` +
+          `(${error instanceof Error ? error.message : 'Unknown error'}); the next start tries again.`,
+      );
+      return 'failed';
+    }
+  }
+
+  /**
+   * Try an interrupted setup once more after the claim of the killed attempt has gone stale. A process restarted
+   * within that window (the usual case after an OOM kill) finds the claim held, and without this retry the deployment
+   * would stay without a way in until the next deploy. One retry, cancelled at shutdown.
+   */
+  protected scheduleInterruptedSetupRetry(initialAdmin: ISystemSetupInitialAdmin): void {
+    const delayMs = INITIAL_ADMIN_CLAIM_STALE_AFTER_MS + INTERRUPTED_SETUP_RETRY_MARGIN_MS;
+    this.logger.warn(
+      `An interrupted initial-admin setup for ${initialAdmin.email} was found, but the claim of the previous attempt ` +
+        `is still held; trying again in ${Math.ceil(delayMs / 60_000)} minutes.`,
+    );
+    clearTimeout(this.interruptedSetupRetry);
+    this.interruptedSetupRetry = setTimeout(() => {
+      this.interruptedSetupRetry = undefined;
+      // Cannot reject: retryInterruptedInitialAdmin() catches everything it awaits.
+      void this.retryInterruptedInitialAdmin(initialAdmin);
+    }, delayMs);
+    this.interruptedSetupRetry.unref?.();
+  }
+
+  /** The retry {@link scheduleInterruptedSetupRetry} planned; names how to clear the claim when it is still held */
+  protected async retryInterruptedInitialAdmin(initialAdmin: ISystemSetupInitialAdmin): Promise<void> {
+    try {
+      if ((await this.resumeInterruptedInitialAdmin(initialAdmin)) === 'claimed') {
+        const claim = await this.setupClaimLocation();
+        this.logger.error(
+          `The interrupted initial-admin setup for ${initialAdmin.email} is still blocked by the claim in ` +
+            `${claim.where}. If no other instance is setting up, ${claim.remedy} and restart.`,
+        );
+      }
+    } catch (error) {
+      this.logger.error(
+        `Retrying the interrupted initial-admin setup failed: ${error instanceof Error ? error.message : 'Unknown error'}`,
+      );
+    }
+  }
+
+  /**
    * Remove the user a failed {@link createInitialAdmin} had already created: Better-Auth's sessions and accounts and
    * the `users` row, which Better-Auth and the user model share. Without it the deployment keeps a user without the
    * admin role, `needsSetup` turns false and init stays refused for good.
@@ -531,11 +811,18 @@ export class CoreSystemSetupService implements OnApplicationBootstrap {
       // FORBIDDEN/validation_context_missing and no initial admin is created. Fail-closed, but
       // opaque. A project using that hook must provision the first admin another way — see
       // migration-guides/11.36.x-to-11.37.0.md §7.
+      //
+      // The admin role is part of this write (`roles` is a Better-Auth field of the shared users row; `input: false`
+      // binds only the API, not the internal adapter). Written in a separate step after it, a process killed in
+      // between (SIGKILL, OOM) left a user without the role: users existed, `needsSetup` was false, and the
+      // deployment had no administrator and no way to one. Now the worst a killed setup leaves is an administrator
+      // without a login account, which the next boot finishes (resumeInterruptedInitialAdmin).
       const iamUser = await context.internalAdapter.createUser(
         {
           email: input.email,
           emailVerified: true,
           name: input.name || input.email.split('@')[0],
+          roles: [RoleEnum.ADMIN],
         },
         { method: 'admin' },
       );
@@ -545,49 +832,7 @@ export class CoreSystemSetupService implements OnApplicationBootstrap {
       }
       createdIamUserId = iamUser.id;
 
-      // Hash password and create credential account
-      const hashedPassword = await context.password.hash(normalizedPassword);
-      // better-auth 1.7.0–1.7.2 key accounts by (issuer, accountId) and require the issuer;
-      // credential accounts carry a synthetic one, always derived via the helper, never a
-      // hand-written literal. better-auth 1.7.3+ went back to (providerId, accountId) and knows no
-      // issuer field, so the helper answers `undefined` there and nothing is written.
-      //
-      // Cast to the adapter's OWN parameter type: against better-auth 1.7.0–1.7.2 that type requires
-      // `issuer`, and a conditional spread reads as optional — a vendored core compiled against
-      // those versions would otherwise not build.
-      const credentialIssuer = legacyCredentialAccountIssuer();
-      await context.internalAdapter.linkAccount({
-        accountId: iamUser.id,
-        ...(credentialIssuer ? { issuer: credentialIssuer } : {}),
-        password: hashedPassword,
-        providerId: 'credential',
-        userId: iamUser.id,
-      } as Parameters<typeof context.internalAdapter.linkAccount>[0]);
-
-      // Sync to nest-server users collection
-      const syncedUser = await this.userMapper.linkOrCreateUser({
-        email: iamUser.email,
-        emailVerified: true,
-        id: iamUser.id,
-        name: iamUser.name,
-      });
-
-      if (!syncedUser) {
-        throw new Error('Failed to sync user to nest-server collection');
-      }
-
-      // Set admin role directly — the framework's own decision, as system work
-      const sql = getBetterAuthSqlStore();
-      if (sql) {
-        await sql.updateUserAsSystem(String(syncedUser._id), { roles: ['admin'] });
-      } else {
-        await this.connection
-          .collection('users')
-          .updateOne({ _id: syncedUser._id }, { $set: { roles: ['admin'], updatedAt: new Date() } });
-      }
-
-      // Sync password to Legacy Auth for backwards compatibility
-      await this.userMapper.syncPasswordToLegacy(iamUser.id, input.email, input.password);
+      await this.finishInitialAdmin(context, iamUser, input, normalizedPassword, { linkCredential: true });
 
       this.logger.log(`Initial admin user created: ${input.email}`);
 

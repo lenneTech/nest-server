@@ -131,6 +131,8 @@ function classify(cmd) {
   if (c.includes('audit')) return { fatal: true, kind: 'audit', label: 'audit' };
   if (c.includes('format:check') || c.includes('oxfmt') || c.includes('prettier'))
     return { fatal: true, kind: 'format', label: 'format' };
+  // Before the generic lint match, so the report names the vendor gate instead of a second "lint" step.
+  if (c.includes('vendor-lint')) return { fatal: true, kind: 'lint', label: 'vendor-lint' };
   if (c.includes('lint')) return { fatal: true, kind: 'lint', label: 'lint' };
   if (/(^|&|\s)(pnpm\s+)?test(:|\s|$)|vitest|jest|test:unit|test:ci/.test(c))
     return { fatal: true, kind: 'test', label: 'test' };

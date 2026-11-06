@@ -412,6 +412,87 @@ describe('Story: System Setup - Auto-Creation via Config', () => {
     expect(result).toBeDefined();
     expect(result.message).toContain('LTNS_0050');
   });
+
+  // A setup killed halfway (SIGKILL, OOM) runs no rollback. These cases plant the state such a kill leaves with the
+  // application's own Better-Auth, then boot again — the unit cases (tests/unit/system-setup-interrupted.spec.ts)
+  // cover every refusal; this proves the finishing on the real database, MongoDB and PostgreSQL alike.
+  describe('Interrupted initial admin (DEV-4050)', () => {
+    const betterAuthContext = async () => app.get(CoreBetterAuthService).getInstance().$context;
+
+    /** The next start of the instance: the killed attempt's claim has gone stale by then */
+    const bootAgain = async () => {
+      await iamDb.clearSetupClaim();
+      await app.get(CoreSystemSetupService).onApplicationBootstrap();
+    };
+
+    /** A user as the setup's createUser writes it, without anything that followed */
+    const plantSetupUser = async (fields: Record<string, unknown>) => {
+      await iamDb.deleteUsers({ email: AUTO_ADMIN_EMAIL });
+      const context = await betterAuthContext();
+      return context.internalAdapter.createUser(
+        { email: AUTO_ADMIN_EMAIL, emailVerified: true, name: AUTO_ADMIN_NAME, ...fields },
+        { method: 'admin' },
+      );
+    };
+
+    /** The credential account the setup's linkAccount writes, for `password` */
+    const plantCredential = async (userId: string, password: string) => {
+      const context = await betterAuthContext();
+      const hash = await context.password.hash(app.get(CoreBetterAuthUserMapper).normalizePasswordForIam(password));
+      await context.internalAdapter.linkAccount({ accountId: userId, password: hash, providerId: 'credential', userId });
+    };
+
+    it('finishes an administrator the setup left without a login account', async () => {
+      const planted = await plantSetupUser({ roles: ['admin'] });
+      expect(await iamDb.credentialAccount(planted.id)).toBeFalsy();
+
+      await bootAgain();
+
+      const user = await iamDb.findUser({ email: AUTO_ADMIN_EMAIL });
+      expect(user.roles).toContain('admin');
+      expect(await iamDb.credentialAccount(user.id)).toBeTruthy();
+      const signIn = await testHelper.rest('/iam/sign-in/email', {
+        method: 'POST',
+        payload: { email: AUTO_ADMIN_EMAIL, password: AUTO_ADMIN_PASSWORD },
+        statusCode: 200,
+      });
+      expect(signIn.token || signIn.user).toBeDefined();
+    });
+
+    it('gives the role to the leftover of an older setup that has the configured password', async () => {
+      const planted = await plantSetupUser({});
+      await plantCredential(planted.id, AUTO_ADMIN_PASSWORD);
+      expect((await iamDb.findUser({ email: AUTO_ADMIN_EMAIL })).roles ?? []).not.toContain('admin');
+
+      await bootAgain();
+
+      expect((await iamDb.findUser({ email: AUTO_ADMIN_EMAIL })).roles).toContain('admin');
+    });
+
+    it('leaves a legacy administrator without an IAM account alone', async () => {
+      await iamDb.deleteUsers({ email: AUTO_ADMIN_EMAIL });
+      const userId = await iamDb.insertUser({
+        createdAt: new Date(),
+        email: AUTO_ADMIN_EMAIL,
+        password: 'own-legacy-password-hash',
+        roles: ['admin'],
+      });
+
+      await bootAgain();
+
+      expect(await iamDb.credentialAccount(userId)).toBeFalsy();
+      expect((await iamDb.findUser({ email: AUTO_ADMIN_EMAIL })).password).toBe('own-legacy-password-hash');
+    });
+
+    it('leaves a user with another password without the role', async () => {
+      const planted = await plantSetupUser({});
+      await plantCredential(planted.id, 'SomebodyElse123!');
+
+      await bootAgain();
+
+      expect((await iamDb.findUser({ email: AUTO_ADMIN_EMAIL })).roles ?? []).not.toContain('admin');
+    });
+  });
 });
 
 // =============================================================================

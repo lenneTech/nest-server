@@ -557,6 +557,33 @@ in to their account, and what the recipient enters there lands with them (login 
 signs in once, as in Better-Auth's own default. Switch it on (`emailVerification: { autoSignInAfterVerification: true }`)
 only where a verification link reaches nobody but its owner.
 
+**The link carries the token only, sealed, and an expired link is recovered with it (12.6.0).** The verification link
+ends in `?token=…`. Until then it also carried the address (`&email=`), so the page could offer "send a new email", and
+the address stood in the mail, the browser history and the access logs. Better-Auth's own token is a signed but
+readable JWT with the address and the user id in it, so the link carries it encrypted (compact JWE, key derived from
+Better-Auth's secret, `core-better-auth-verification-link.helper.ts`): the API middleware opens it for
+`GET /iam/verify-email`, and Better-Auth verifies the token it signed. A plain token from a mail sent before the update
+still works. A page passes the token on unchanged, and for an expired link sends it to
+`POST /iam/resend-verification-email` (`{ "token": "…" }`):
+
+- the server checks Better-Auth's signature (an expired token is fine, a forged one sends nothing) and has
+  Better-Auth's own `sendVerificationEmail` send a new mail to the address in the token, which goes out only to an
+  existing, unverified account; the resend cooldown applies on top, and the token of an address change sends nothing;
+- the answer is always `200 { "email": "k***@example.com", "success": true }` — the masked address of the token, or
+  `null` for an invalid token — whether the account exists, is verified, or a mail went out;
+- it never verifies, signs in or creates a session;
+- 3 requests an hour with valid links for one address (sealed or plain, older or newer, they count together), and 10
+  invalid tokens per client address an hour; past either `429 LTNS_0020`. The token is checked first: an invalid one
+  is counted only per client address, a valid one only per address it names, each in a counter store of its own. Junk
+  therefore never reaches the counters of real tokens, and behind a proxy without `trustProxy`, where every client
+  shares the proxy's address, it can only lock out more junk. Once the store of valid-token counters is full (someone
+  signed up thousands of addresses and replays their links), a valid token is answered rather than refused for
+  traffic that is not its own; the per-address cooldown of the verification mail still bounds what goes out. Shared
+  across replicas through Redis when `redis` is configured.
+
+`GET /iam/features` reports `resendVerificationByToken: true` while email verification is enabled, so a page can fall
+back to asking for the address against an older server.
+
 ### Sign-Up Checks (v11.13.0+)
 
 Sign-up validation is **enabled by default** requiring `termsAndPrivacyAccepted: true`.

@@ -259,7 +259,8 @@ NEST_SERVER_CONFIG='{ "systemSetup": { "initialAdmin": { "email": "admin@example
 
 ### Security Best Practices
 
-1. **Remove credentials after first deployment** - Once the admin exists, the ENV vars are unused
+1. **Remove credentials after first deployment** - Once the admin exists, the ENV vars change nothing; the boot only
+   reads them to finish a setup that was killed halfway (see Security). Removing them closes that path too
 2. **Use secrets management** - Docker Secrets, Kubernetes Secrets, Vault, etc.
 3. **Never commit credentials** - Use `.env` files (gitignored) or external secret stores
 4. **Use strong passwords** - Minimum 8 characters, recommended 16+
@@ -277,10 +278,19 @@ NEST_SERVER_CONFIG='{ "systemSetup": { "initialAdmin": { "email": "admin@example
 3. **Rollback on failure (12.4.0)** - When a step after creating the user fails (account, sync, role),
    the user is removed again, so `needsSetup` stays `true` and the setup can be retried. Before,
    the deployment kept a user without the admin role and was locked for good
-4. **Race condition protection** - MongoDB unique email index prevents duplicates; auto-creation on
+4. **A killed setup is finished at the next boot** - A process killed halfway (SIGKILL, OOM) runs no rollback.
+   The admin role is therefore written together with the user, so the worst a kill leaves is an administrator
+   without a login account. With `initialAdmin` configured, the next boot finishes the setup for that address: it
+   adds the credential account with the configured password and sets the role. It also finishes the leftover of an
+   older setup (no role, no administrator in the system, and no account or only a credential account with the
+   configured password). A user with another password, a social account, a second account or a legacy password (`users.password`, e.g. a
+   Legacy-Auth administrator who has not signed in through IAM yet) is never touched. A
+   restart within five minutes of the kill finds the old claim still held and tries once more after it goes stale.
+   The anonymous HTTP init finishes nothing: once users exist it refuses, as before
+5. **Race condition protection** - MongoDB unique email index prevents duplicates; auto-creation on
    bootstrap is additionally claimed atomically via the `system-setup-locks` marker
-5. **Permanent lock** - Once any user exists, init returns 403
-6. **BetterAuth required** - Returns 403 if BetterAuth is not enabled
+6. **Permanent lock** - Once any user exists, init returns 403
+7. **BetterAuth required** - Returns 403 if BetterAuth is not enabled
 
 ### How It Bypasses disableSignUp
 
@@ -344,6 +354,12 @@ default since 12.4.0.
 the user stayed behind without the admin role. Since 12.4.0 such a user is removed again. On an older version, or if
 the server log says the partially created user "could not be removed", delete that user and its `account` rows and
 retry.
+
+**Cause (a killed setup):** the process was killed between creating the user and finishing it, so no rollback ran.
+With `systemSetup.initialAdmin` set to that address and password, restart the instance: the boot finishes the setup
+and logs `Finished an interrupted initial-admin setup`. A restart within five minutes of the kill logs that the
+claim is still held and retries on its own once it has gone stale. Without `initialAdmin` (the setup ran through the
+HTTP init), set it for one start, or delete the user and its `account` rows and run the init again.
 
 ### Init returns 403 "System setup not available"
 
