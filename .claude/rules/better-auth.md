@@ -425,6 +425,22 @@ Both are needed. `processCookies()` returns early once a session token is presen
 `processAuthResult()` — and every unit test of it — is **unreachable** from the path the fix
 repairs. Only the second row observes the defect the way a browser would.
 
+### Forwarded responses (12.6.1)
+
+The rule above was enforced on the framework's own routes only. Everything the API middleware or the controller's
+catch-all forwards to Better-Auth's handler — two-factor `verify-totp` / `verify-backup-code` / `verify-otp`, passkey
+verify, OTP and magic-link sign-in, `get-session` — went out as Better-Auth wrote it: `{ token: <session token>, user }`
+and `session.token`, in cookie mode too, where a frontend then stored the 7-day session token where scripts can read it.
+
+**Rule:** a response of Better-Auth's handler reaches the client only through
+`CoreBetterAuthService.sendBetterAuthResponse()`, which applies `presentSessionTokens()`
+(`core-better-auth-session-token.helper.ts`): cookie mode removes the session token (top-level `token` and
+`session.token`), token-in-body mode replaces it with the JWT sign-in hands out. It recognises the session token by the
+session cookie the response sets or by `session.token`, and leaves a JWT (`/token`), arrays (`list-sessions`) and other
+plugins' tokens alone. Never call `sendWebResponse()` for a forwarded response directly — pinned by
+`tests/unit/better-auth-session-token-presentation.spec.ts` (mutations `session-token-*`,
+`forwarded-session-token-not-presented`) and end to end on the second factor (`second-factor-hands-out-session-token`).
+
 ## 8. `issuer` follows the INSTALLED better-auth — and is never added to a READ
 
 better-auth 1.7.0–1.7.2 keyed accounts by `(issuer, accountId)`; 1.7.3 restored the 1.6 schema,
@@ -598,6 +614,7 @@ security rules on every database.
 | Guards | Maintain both RolesGuard and BetterAuthRolesGuard in sync |
 | DI Tokens | Import-free leaf file only — never in `*.module.ts` / `*.service.ts` (§6) |
 | Session cookie | Always the opaque session token — never the body JWT (§7) |
+| Forwarded responses | Better-Auth's own answers go through `sendBetterAuthResponse()` / `presentSessionTokens()`: no session token in a body in cookie mode, a JWT where the body carries one (§7) |
 | `account` reads / writes | Reads filter on `providerId` alone, never `issuer`. Writes set `issuer` only on better-auth 1.7.0–1.7.2, via the helper (§8) |
 | `openAPI()` plugin | Registered internally for `setupSwagger()`, kept off the router (`SERVER_ONLY`) unless the project registered it — never by a path check (§9) |
 | Request path under the base path | `CoreBetterAuthPathGuardMiddleware` refuses a non-canonical path first; checks match whole segments of the canonical path (§9) |

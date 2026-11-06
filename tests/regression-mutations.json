@@ -6545,6 +6545,61 @@
         "tests/unit/better-auth-password-reset-email.spec.ts"
       ],
       "driverSpecific": false
+    },
+    {
+      "id": "session-token-kept-in-cookie-mode",
+      "defect": "12.6.1 — two-factor verify and the other routes forwarded to Better-Auth answered { token: <session token>, user }, so in cookie mode the opaque session token reached the client, which must only ever see it as an httpOnly cookie.",
+      "file": "src/core/modules/better-auth/core-better-auth-session-token.helper.ts",
+      "find": "    if (topIsSessionToken) {\n      delete next.token;\n    }\n",
+      "replace": "",
+      "specs": [
+        "tests/unit/better-auth-session-token-presentation.spec.ts"
+      ],
+      "driverSpecific": false
+    },
+    {
+      "id": "session-field-token-kept",
+      "defect": "12.6.1 — passkey verify and get-session carry the session token as session.token, which reached scripts in cookie mode.",
+      "file": "src/core/modules/better-auth/core-better-auth-session-token.helper.ts",
+      "find": "    next.session = rest;\n",
+      "replace": "    next.session = session;\n",
+      "specs": [
+        "tests/unit/better-auth-session-token-presentation.spec.ts"
+      ],
+      "driverSpecific": false
+    },
+    {
+      "id": "session-token-not-converted-to-jwt",
+      "defect": "12.6.1 — where the body may carry a token, sign-in hands out a JWT (SEC-005); the forwarded second factor handed out the raw session token instead.",
+      "file": "src/core/modules/better-auth/core-better-auth-session-token.helper.ts",
+      "find": "        next.token = presented;\n",
+      "replace": "        next.token = source;\n",
+      "specs": [
+        "tests/unit/better-auth-session-token-presentation.spec.ts"
+      ],
+      "driverSpecific": false
+    },
+    {
+      "id": "forwarded-session-token-not-presented",
+      "defect": "12.6.1 — the API middleware and the controller's catch-all sent Better-Auth's response unchanged, so no forwarded route went through the token policy sign-in applies.",
+      "file": "src/core/modules/better-auth/core-better-auth.service.ts",
+      "find": "    await sendWebResponse(res, await this.presentSessionTokens(response));\n",
+      "replace": "    await sendWebResponse(res, response);\n",
+      "specs": [
+        "tests/unit/better-auth-session-token-presentation.spec.ts"
+      ],
+      "driverSpecific": false
+    },
+    {
+      "id": "second-factor-hands-out-session-token",
+      "defect": "12.6.1 — the API middleware and the controller's catch-all sent Better-Auth's response unchanged, so no forwarded route went through the token policy sign-in applies. Observed end to end on the second factor (exposeTokenInBody with the JWT plugin).",
+      "file": "src/core/modules/better-auth/core-better-auth.service.ts",
+      "find": "    await sendWebResponse(res, await this.presentSessionTokens(response));\n",
+      "replace": "    await sendWebResponse(res, response);\n",
+      "specs": [
+        "tests/stories/better-auth-plugins.story.test.ts"
+      ],
+      "driverSpecific": false
     }
   ]
 }

@@ -9,7 +9,7 @@ import { wrapBetterAuthErrorResponse } from './core-better-auth-error-codes.help
 import { isControllerHandledPath } from './core-better-auth-openapi.helper.js';
 import { runWithResetPassword } from './core-better-auth-password-reset.registry.js';
 import { CoreBetterAuthUserMapper } from './core-better-auth-user.mapper.js';
-import { extractSessionToken, sendWebResponse, signCookieValue, toWebRequest } from './core-better-auth-web.helper.js';
+import { extractSessionToken, signCookieValue, toWebRequest } from './core-better-auth-web.helper.js';
 import { CoreBetterAuthService } from './core-better-auth.service.js';
 import { openVerificationToken } from './core-better-auth-verification-link.helper.js';
 
@@ -458,7 +458,7 @@ export class CoreBetterAuthApiMiddleware implements NestMiddleware {
           this.logger.debug(`Stored challenge mapping with ID: ${challengeId.substring(0, 8)}...`);
 
           // Send the enhanced response
-          await sendWebResponse(res, enhancedResponse);
+          await this.betterAuthService.sendBetterAuthResponse(res, enhancedResponse);
 
           return;
         } else {
@@ -519,7 +519,7 @@ export class CoreBetterAuthApiMiddleware implements NestMiddleware {
               });
 
               this.logger.debug('Enriched passkey verify response with user data');
-              await sendWebResponse(res, enrichedResponse);
+              await this.betterAuthService.sendBetterAuthResponse(res, enrichedResponse);
               return;
             }
           }
@@ -537,8 +537,9 @@ export class CoreBetterAuthApiMiddleware implements NestMiddleware {
         return next();
       }
 
-      // Convert Web Standard Response to Express response using shared helper
-      await sendWebResponse(res, response);
+      // Convert Web Standard Response to Express response, through the token policy (12.6.1): a forwarded route must
+      // not hand out what the framework's own sign-in would not
+      await this.betterAuthService.sendBetterAuthResponse(res, response);
     } catch (error) {
       // A refused request (the password length policy) is an answer, not a handler failure. Nest's middleware
       // proxy hands a thrown exception to the exception filters, so it is rendered like the same refusal from a

@@ -47,7 +47,7 @@ import { CoreBetterAuthEmailVerificationService } from './core-better-auth-email
 import { CoreBetterAuthSignUpValidatorService } from './core-better-auth-signup-validator.service.js';
 import { isJwtShaped, isSessionToken } from './core-better-auth-token.helper.js';
 import { BetterAuthSessionUser, CoreBetterAuthUserMapper } from './core-better-auth-user.mapper.js';
-import { convertExpressHeaders, sendWebResponse, toWebRequest } from './core-better-auth-web.helper.js';
+import { convertExpressHeaders, toWebRequest } from './core-better-auth-web.helper.js';
 import { CoreBetterAuthService } from './core-better-auth.service.js';
 import { registerBetterAuthHandlerClass } from './core-better-auth.registry.js';
 
@@ -1154,7 +1154,8 @@ export class CoreBetterAuthController {
       this.logger.debug(`Better Auth handler response status: ${response.status}`);
 
       // Send the response back
-      await sendWebResponse(res, response);
+      // Through the token policy: a forwarded route must not hand out what sign-in would not (12.6.1)
+      await this.betterAuthService.sendBetterAuthResponse(res, response);
     } catch (error) {
       this.logger.error(`Better Auth handler error: ${error instanceof Error ? error.message : 'Unknown error'}`);
 

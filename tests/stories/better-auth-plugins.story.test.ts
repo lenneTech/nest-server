@@ -22,6 +22,7 @@ import * as OTPAuth from 'otpauth';
 
 import { CoreBetterAuthService, HttpExceptionLogFilter, TestGraphQLType, TestHelper } from '../../src';
 import envConfig from '../../src/config.env';
+import { isJwtShaped } from '../../src/core/modules/better-auth/core-better-auth-token.helper';
 import { ServerModule } from '../../src/server/server.module';
 import { type IamTestDb, openIamTestDb } from '../helpers/iam-test-db';
 
@@ -547,6 +548,11 @@ describe('Story: BetterAuth Plugins (2FA & Passkey)', () => {
      * @seen-failing Drop the normalizeNativePasswords() call from the request handler in
      *   src/core/modules/better-auth/core-better-auth-api.middleware.ts — registered as mutation
      *   `native-password-normalization-unwired` in tests/regression-mutations.json.
+     * @regression   12.6.1 — the forwarded second factor answered with the opaque session token in the body. Where the
+     *   body may carry a token (`exposeTokenInBody` with the JWT plugin, as here) it must be the JWT sign-in hands out.
+     * @seen-failing Send Better-Auth's response without presentSessionTokens() in sendBetterAuthResponse() in
+     *   src/core/modules/better-auth/core-better-auth.service.ts — registered as mutation
+     *   `second-factor-hands-out-session-token` in tests/regression-mutations.json.
      */
     it('should complete full 2FA setup and login flow', async () => {
       if (!isBetterAuthEnabled || !isTwoFactorEnabled || !e2eAuthToken) {
@@ -629,6 +635,9 @@ describe('Story: BetterAuth Plugins (2FA & Passkey)', () => {
         statusCode: 200,
       });
       expect(verifyResponse?.token || verifyResponse?.user?.id, 'the second factor completes the sign-in').toBeTruthy();
+      // What sign-in hands out (12.6.1): with exposeTokenInBody and the JWT plugin a JWT, never the session token
+      expect(isJwtShaped(verifyResponse?.token), 'the second factor hands out a JWT, not the session token').toBe(true);
+      expect(verifyResponse?.session?.token, 'no session token in the body').toBeUndefined();
     });
 
     it('should reject invalid TOTP codes during 2FA verification', async () => {
