@@ -6490,6 +6490,17 @@
         "tests/unit/better-auth-password-reset-email.spec.ts"
       ],
       "driverSpecific": false
+    },
+    {
+      "id": "auth-url-log-trusts-local-fallback",
+      "defect": "DEV-4056 follow-up — getEnvironmentConfig() answers a NODE_ENV without a configuration key with the local block, so a deployed stage started with NODE_ENV=development, dev or staging ran with env: 'local' and printed live verification and reset links.",
+      "file": "src/core/modules/better-auth/core-better-auth-email-verification.service.ts",
+      "find": "    const nodeEnv = process.env.NODE_ENV;\n    if (nodeEnv && !isLocalEnv(nodeEnv)) {\n      return;\n    }\n",
+      "replace": "",
+      "specs": [
+        "tests/unit/better-auth-password-reset-email.spec.ts"
+      ],
+      "driverSpecific": false
     }
   ]
 }
