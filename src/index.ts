@@ -57,6 +57,7 @@ export * from './core/common/helpers/redact-secrets.helper.js';
 export * from './core/common/helpers/register-enum.helper.js';
 export * from './core/common/helpers/scim.helper.js';
 export * from './core/common/helpers/service.helper.js';
+export * from './core/common/helpers/swagger-enabled.helper.js';
 export * from './core/common/helpers/swagger.helper.js';
 export * from './core/common/helpers/table.helper.js';
 export * from './core/common/inputs/combined-filter.input.js';

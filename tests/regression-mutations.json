@@ -6666,6 +6666,39 @@
         "tests/unit/environment-config-node-env.spec.ts"
       ],
       "driverSpecific": false
+    },
+    {
+      "id": "swagger-default-on-everywhere",
+      "defect": "12.7.0 (DEV-4086) — setupSwagger() served the API documentation on every stage, production included; an unset switch must mean off outside local/ci/e2e.",
+      "file": "src/core/common/helpers/swagger-enabled.helper.ts",
+      "find": "  return isLocalEnv(config?.env ?? process.env.NODE_ENV);\n",
+      "replace": "  return true;\n",
+      "specs": [
+        "tests/unit/swagger-switch.spec.ts"
+      ],
+      "driverSpecific": false
+    },
+    {
+      "id": "swagger-string-switches-on",
+      "defect": "12.7.0 (DEV-4086) — the switch may arrive as JSON (NEST_SERVER_CONFIG); the string 'false' is truthy and must count as not set rather than switch the documentation on.",
+      "file": "src/core/common/helpers/swagger-enabled.helper.ts",
+      "find": "  if (setting === true || setting === false) {\n    return setting;\n  }\n",
+      "replace": "  if (setting !== undefined && setting !== null) {\n    return !!setting;\n  }\n",
+      "specs": [
+        "tests/unit/swagger-switch.spec.ts"
+      ],
+      "driverSpecific": false
+    },
+    {
+      "id": "swagger-mounted-when-off",
+      "defect": "12.7.0 (DEV-4086) — setupSwagger() mounted /swagger, /api-docs-json and the API-token view whatever the switch said.",
+      "file": "src/core/common/helpers/swagger.helper.ts",
+      "find": "  if (!isSwaggerEnabled(config)) {\n",
+      "replace": "  if (false) {\n",
+      "specs": [
+        "tests/unit/swagger-switch.spec.ts"
+      ],
+      "driverSpecific": false
     }
   ]
 }
