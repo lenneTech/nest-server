@@ -64,12 +64,69 @@ export function loadLocalConfigFile(
   return loaded?.default ?? loaded;
 }
 
+/** Whether the test-runner fallback for `NODE_ENV=test` has been reported in this module instance */
+let testRunnerFallbackReported = false;
+
+/**
+ * The block of `config` that `NODE_ENV` selects — or a refusal.
+ *
+ * Until 12.7.0 a `NODE_ENV` without a block (and an empty one, via `'' || 'local'`) got the `local` block, whose
+ * `env` then claimed `local` on a deployed stage: public dummy secrets, the anonymous system setup, `GET /config`,
+ * the SSRF guard's private targets and the development MCP OAuth secret, all opened by a typo or a missing block.
+ * Now:
+ *
+ * - `NODE_ENV` unset → `defaultEnv` (`local`), as before.
+ * - `NODE_ENV` empty or blank → refused. `NODE_ENV=${NODE_ENV}` in a compose file passes `''` when the host does not
+ *   set the variable, and that must not read as "local".
+ * - `NODE_ENV` without a block → refused, naming the blocks that exist.
+ * - The one exception: `NODE_ENV=test` while a test runner is active (`VITEST` or `JEST_WORKER_ID`), because vitest
+ *   sets that value and many repositories have no `test` block. It keeps the `local` block, with one warning.
+ */
+function selectEnvironmentBlock(
+  config: Record<string, any>,
+  defaultEnv: string,
+  // `any`, not `Record<string, any>`: it is what getEnvironmentConfig() returns, and a project spreading that result
+  // (`{ ...envConfig, auth }`) loses every other field under the narrower type — a type break in consumer code
+): { env: string; envConfig: any } {
+  const requested = process.env['NODE_ENV'];
+  if (requested === undefined) {
+    return { env: defaultEnv, envConfig: config[defaultEnv] || config.local || {} };
+  }
+  const known = Object.keys(config).join(', ') || 'none';
+  if (requested.trim() === '') {
+    throw new Error(
+      `NODE_ENV is set but empty (known: ${known}). Set it to one of them, or unset it for local. ` +
+        'A compose file with NODE_ENV=${NODE_ENV} passes an empty value when the host does not set the variable.',
+    );
+  }
+  if (Object.hasOwn(config, requested) && config[requested]) {
+    return { env: requested, envConfig: config[requested] };
+  }
+  if (requested === 'test' && (process.env['VITEST'] || process.env['JEST_WORKER_ID'])) {
+    if (!testRunnerFallbackReported) {
+      testRunnerFallbackReported = true;
+      console.warn(
+        "NODE_ENV='test' has no block in the configuration; a test runner is active, so the local block is used. " +
+          'Add a test block to silence this.',
+      );
+    }
+    return { env: requested, envConfig: config.local || {} };
+  }
+  throw new Error(
+    `NODE_ENV='${requested}' has no block in the configuration (known: ${known}). Add a block for it, or set NODE_ENV ` +
+      'to one of the known environments. Prefer the block: other libraries read NODE_ENV themselves.',
+  );
+}
+
 /**
  * Get environment configuration (deeply merged into config object set via options)
  *
  * The configuration is extended via deep merge in the following order:
  * 1. config[env] (if set)
  * 2.
+ *
+ * `NODE_ENV` must name a block of `config` (12.7.0): an empty value or one without a block throws, except
+ * `NODE_ENV=test` under a test runner — see `selectEnvironmentBlock()`.
  *
  * @param options options for processing
  * @param options.config config object with different environments as main keys (see config.env.ts) to merge environment configurations into (default: {})
@@ -92,8 +149,7 @@ export function getEnvironmentConfig(options: { config?: Record<string, any>; de
     dotenv.config({ quiet: true });
   }
 
-  const env = process.env['NODE_ENV'] || defaultEnv;
-  const envConfig = config[env] || config.local || {};
+  const { env, envConfig } = selectEnvironmentBlock(config, defaultEnv);
 
   // Merge with localConfig (e.g. config.json)
   if (envConfig.loadLocalConfig) {

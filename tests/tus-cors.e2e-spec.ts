@@ -24,7 +24,8 @@ import { createFixtureDir, removeFixtureDir } from './helpers/tmp-fixtures';
  *
  * Since 11.42.1 the tus server takes its origins from `buildCorsConfig()`, the function REST, GraphQL
  * and Better-Auth already share; `tus.allowedOrigins` overrides. Without credentialed CORS configured
- * (cookies off, or no origin resolvable) the previous behaviour stays.
+ * (no origin resolvable — since 12.7.0 also in JWT mode, `cookies: false`, the origin list applies) the previous
+ * behaviour stays.
  *
  * @regression   11.42.1 — the tus handler answered a credentialed cross-origin request with
  *   `Access-Control-Allow-Origin: *`, which browsers refuse, so no browser upload with cookie
@@ -145,8 +146,21 @@ describe('TUS CORS with credentials (e2e)', () => {
     expect((await create(APP)).headers['access-control-allow-origin']).toBeUndefined();
   });
 
-  it('paired control: without cookies (no credentialed CORS) the previous wildcard stays', async () => {
+  it('JWT mode (cookies: false) mirrors the app origin as well, since 12.7.0', async () => {
     await start({ ...splitOrigins, cookies: false } as Partial<IServerOptions>);
+
+    expect((await create(APP)).headers['access-control-allow-origin']).toBe(APP);
+    expect((await create('https://anything.example')).headers['access-control-allow-origin']).toBeUndefined();
+  });
+
+  it('paired control: with no origin resolvable the previous wildcard stays', async () => {
+    await start({
+      ...splitOrigins,
+      appUrl: undefined,
+      baseUrl: undefined,
+      cookies: false,
+      env: 'production',
+    } as Partial<IServerOptions>);
 
     expect((await create(APP)).headers['access-control-allow-origin']).toBe('*');
   });

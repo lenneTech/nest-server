@@ -527,11 +527,22 @@ export class CoreAiResolver {
   // User-facing user prompts ("Vorlagen") — own / tenant / global
   // ===================================================================================================================
 
-  /** List user prompts visible to the current user (own + tenant + global). */
+  /**
+   * List user prompts visible to the current user (own + tenant + global). Enabled ones only — what the chat offers;
+   * `includeDisabled: true` lists disabled ones too, for the management screen (12.7.0).
+   */
   @Query(() => [CoreAiPrompt], { description: 'List AI user prompts visible to the current user' })
   @Roles(RoleEnum.S_USER)
-  async findAiPrompts(@GraphQLServiceOptions() serviceOptions: ServiceOptions): Promise<CoreAiPrompt[]> {
-    return this.promptService.listVisible(serviceOptions);
+  async findAiPrompts(
+    @GraphQLServiceOptions() serviceOptions: ServiceOptions,
+    @Args('includeDisabled', {
+      description: 'Also list disabled prompts (for managing them); default: enabled prompts only',
+      nullable: true,
+      type: () => Boolean,
+    })
+    includeDisabled?: boolean,
+  ): Promise<CoreAiPrompt[]> {
+    return this.promptService.listVisible(serviceOptions, { includeDisabled: includeDisabled === true });
   }
 
   /** Create a user prompt for the current user / tenant (global requires admin). */

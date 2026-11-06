@@ -123,8 +123,15 @@ export class CoreAiPromptService extends CrudService<CoreAiPrompt, CoreAiPromptC
   /**
    * List prompts visible to the current user: own + tenant prompts of the
    * user's tenant. Ordered by `order` asc then `name`.
+   *
+   * Only enabled prompts by default — what the chat offers. `includeDisabled: true` (12.7.0) lists disabled ones too,
+   * for the management screen: without it a prompt saved with "enabled" switched off disappeared from the list and
+   * could no longer be edited or deleted. Visibility is the same either way.
    */
-  async listVisible(serviceOptions: ServiceOptions = {}): Promise<CoreAiPrompt[]> {
+  async listVisible(
+    serviceOptions: ServiceOptions = {},
+    options: { includeDisabled?: boolean } = {},
+  ): Promise<CoreAiPrompt[]> {
     const user = serviceOptions?.currentUser;
     if (!user?.id) {
       return [];
@@ -135,10 +142,9 @@ export class CoreAiPromptService extends CrudService<CoreAiPrompt, CoreAiPromptC
       or.push({ scope: 'tenant', tenantId: String(tenantId) });
     }
     try {
-      const rows = (await this.dataStore.find(
-        { $or: or, enabled: { $ne: false } },
-        { sort: { order: 1, name: 1 } },
-      )) as CoreAiPrompt[];
+      const filter: Record<string, unknown> =
+        options.includeDisabled === true ? { $or: or } : { $or: or, enabled: { $ne: false } };
+      const rows = (await this.dataStore.find(filter, { sort: { order: 1, name: 1 } })) as CoreAiPrompt[];
       return rows || [];
     } catch (err) {
       this.logger.warn(`Failed to list prompts: ${(err as Error).message}`);

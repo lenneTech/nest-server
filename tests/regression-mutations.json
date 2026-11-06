@@ -6633,6 +6633,171 @@
         "tests/unit/better-auth-session-token-presentation.spec.ts"
       ],
       "driverSpecific": false
+    },
+    {
+      "id": "env-config-unknown-node-env-runs-local",
+      "defect": "DEV-4061 — getEnvironmentConfig() answered a NODE_ENV without a block with the local block, so a deployed stage started with NODE_ENV=development, dev or staging ran with env: 'local': dummy secrets, the anonymous system setup and every other local-only switch open, and no required-secret check.",
+      "file": "src/core/common/helpers/config.helper.ts",
+      "find": "  throw new Error(\n    `NODE_ENV='${requested}' has no block in the configuration (known: ${known}). Add a block for it, or set NODE_ENV ` +\n      'to one of the known environments. Prefer the block: other libraries read NODE_ENV themselves.',\n  );\n",
+      "replace": "  return { env: requested, envConfig: config.local || {} };\n",
+      "specs": [
+        "tests/unit/environment-config-node-env.spec.ts"
+      ],
+      "driverSpecific": false
+    },
+    {
+      "id": "env-config-empty-node-env-runs-local",
+      "defect": "DEV-4061 — `'' || 'local'` turned an empty NODE_ENV into local; NODE_ENV=${NODE_ENV} in a compose file passes exactly that when the host does not set the variable.",
+      "file": "src/core/common/helpers/config.helper.ts",
+      "find": "  if (requested === undefined) {\n",
+      "replace": "  if (!requested) {\n",
+      "specs": [
+        "tests/unit/environment-config-node-env.spec.ts"
+      ],
+      "driverSpecific": false
+    },
+    {
+      "id": "env-config-test-fallback-outside-runner",
+      "defect": "DEV-4061 — the NODE_ENV=test exception exists for test runners; without its runner condition a deployed test stage of a project without a test block runs on the local block again.",
+      "file": "src/core/common/helpers/config.helper.ts",
+      "find": "  if (requested === 'test' && (process.env['VITEST'] || process.env['JEST_WORKER_ID'])) {\n",
+      "replace": "  if (requested === 'test') {\n",
+      "specs": [
+        "tests/unit/environment-config-node-env.spec.ts"
+      ],
+      "driverSpecific": false
+    },
+    {
+      "id": "swagger-default-on-everywhere",
+      "defect": "12.7.0 (DEV-4086) — setupSwagger() served the API documentation on every stage, production included; an unset switch must mean off outside local/ci/e2e.",
+      "file": "src/core/common/helpers/swagger-enabled.helper.ts",
+      "find": "  return isLocalEnv(config?.env ?? process.env.NODE_ENV);\n",
+      "replace": "  return true;\n",
+      "specs": [
+        "tests/unit/swagger-switch.spec.ts"
+      ],
+      "driverSpecific": false
+    },
+    {
+      "id": "swagger-string-switches-on",
+      "defect": "12.7.0 (DEV-4086) — the switch may arrive as JSON (NEST_SERVER_CONFIG); the string 'false' is truthy and must count as not set rather than switch the documentation on.",
+      "file": "src/core/common/helpers/swagger-enabled.helper.ts",
+      "find": "  if (setting === true || setting === false) {\n    return setting;\n  }\n",
+      "replace": "  if (setting !== undefined && setting !== null) {\n    return !!setting;\n  }\n",
+      "specs": [
+        "tests/unit/swagger-switch.spec.ts"
+      ],
+      "driverSpecific": false
+    },
+    {
+      "id": "swagger-mounted-when-off",
+      "defect": "12.7.0 (DEV-4086) — setupSwagger() mounted /swagger, /api-docs-json and the API-token view whatever the switch said.",
+      "file": "src/core/common/helpers/swagger.helper.ts",
+      "find": "  if (!isSwaggerEnabled(config)) {\n",
+      "replace": "  if (false) {\n",
+      "specs": [
+        "tests/unit/swagger-switch.spec.ts"
+      ],
+      "driverSpecific": false
+    },
+    {
+      "id": "cors-jwt-mode-wildcard",
+      "defect": "12.7.0 — in JWT mode (cookies: false) buildCorsConfig() answered {}, so CORS fell back to Access-Control-Allow-Origin: * without credentials, which browsers refuse on the credentialed requests a JWT-mode client makes (credentials: 'include', the 2FA sign-in through the session cookie and /iam/token).",
+      "file": "src/core/common/helpers/cookies.helper.ts",
+      "find": "  if (isCorsDisabled(options?.cors)) {\n    return {};\n  }\n\n  const corsObj = typeof options?.cors === 'object' ? options.cors : {};\n",
+      "replace": "  if (isCorsDisabled(options?.cors)) {\n    return {};\n  }\n\n  if (!isCookiesEnabled(options?.cookies)) {\n    return {};\n  }\n\n  const corsObj = typeof options?.cors === 'object' ? options.cors : {};\n",
+      "specs": [
+        "tests/unit/cookies-cors-config.spec.ts"
+      ],
+      "driverSpecific": false
+    },
+    {
+      "id": "cors-jwt-mode-cross-origin-sign-in",
+      "defect": "12.7.0 — in JWT mode (cookies: false) buildCorsConfig() answered {}, so CORS fell back to Access-Control-Allow-Origin: * without credentials, which browsers refuse on the credentialed requests a JWT-mode client makes (credentials: 'include', the 2FA sign-in through the session cookie and /iam/token).",
+      "file": "src/core/common/helpers/cookies.helper.ts",
+      "find": "  if (isCorsDisabled(options?.cors)) {\n    return {};\n  }\n\n  const corsObj = typeof options?.cors === 'object' ? options.cors : {};\n",
+      "replace": "  if (isCorsDisabled(options?.cors)) {\n    return {};\n  }\n\n  if (!isCookiesEnabled(options?.cookies)) {\n    return {};\n  }\n\n  const corsObj = typeof options?.cors === 'object' ? options.cors : {};\n",
+      "specs": [
+        "tests/cors-jwt-mode.e2e-spec.ts"
+      ],
+      "driverSpecific": false
+    },
+    {
+      "id": "session-list-tokens-kept",
+      "defect": "12.7.0 (DEV-4109) — list-sessions answered every session of the user with its token, the bearer credential of every device the user is signed in on, readable by any script on the page.",
+      "file": "src/core/modules/better-auth/core-better-auth-session-token.helper.ts",
+      "find": "  if (Array.isArray(body)) {\n",
+      "replace": "  if (false) {\n",
+      "specs": [
+        "tests/unit/better-auth-session-token-presentation.spec.ts"
+      ],
+      "driverSpecific": false
+    },
+    {
+      "id": "revoke-session-id-not-resolved",
+      "defect": "12.7.0 (DEV-4109) — with list-sessions handing out ids only, a session can be revoked only by its id; Better-Auth takes a token, so the middleware resolves the id among the caller's own sessions.",
+      "file": "src/core/modules/better-auth/core-better-auth-api.middleware.ts",
+      "find": "    req.body = { ...rest, token: token ?? '' };\n",
+      "replace": "    req.body = body;\n",
+      "specs": [
+        "tests/unit/better-auth-session-token-presentation.spec.ts"
+      ],
+      "driverSpecific": false
+    },
+    {
+      "id": "session-id-of-other-user-resolved",
+      "defect": "12.7.0 (DEV-4109) — the id lookup for revoke-session must stay inside the caller's own sessions, or a session id would be enough to end another user's session.",
+      "file": "src/core/modules/better-auth/core-better-auth.service.ts",
+      "find": "          String(session?.id) === sessionId && String(session?.userId) === String(userId),\n",
+      "replace": "          String(session?.id) === sessionId,\n",
+      "specs": [
+        "tests/unit/better-auth-session-token-presentation.spec.ts"
+      ],
+      "driverSpecific": false
+    },
+    {
+      "id": "list-sessions-hands-out-tokens",
+      "defect": "12.7.0 (DEV-4109) — list-sessions answered every session of the user with its token, the bearer credential of every device the user is signed in on, readable by any script on the page.",
+      "file": "src/core/modules/better-auth/core-better-auth-session-token.helper.ts",
+      "find": "  if (Array.isArray(body)) {\n",
+      "replace": "  if (false) {\n",
+      "specs": [
+        "tests/session-token-exposure.e2e-spec.ts"
+      ],
+      "driverSpecific": false
+    },
+    {
+      "id": "revoke-session-id-not-wired",
+      "defect": "12.7.0 (DEV-4109) — with list-sessions handing out ids only, a session can be revoked only by its id; Better-Auth takes a token, so the middleware resolves the id among the caller's own sessions.",
+      "file": "src/core/modules/better-auth/core-better-auth-api.middleware.ts",
+      "find": "      await this.resolveRevokeSessionId(req, relativePath);\n",
+      "replace": "",
+      "specs": [
+        "tests/session-token-exposure.e2e-spec.ts"
+      ],
+      "driverSpecific": false
+    },
+    {
+      "id": "prompt-list-ignores-include-disabled",
+      "defect": "12.7.0 (DEV-4126) — GET /ai/prompts filtered disabled prompts for every caller, so the management screen lost a prompt saved with \"enabled\" off; it could no longer be edited or deleted.",
+      "file": "src/core/modules/ai/services/core-ai-prompt.service.ts",
+      "find": "        options.includeDisabled === true ? { $or: or } : { $or: or, enabled: { $ne: false } };\n",
+      "replace": "        { $or: or, enabled: { $ne: false } };\n",
+      "specs": [
+        "tests/unit/ai-prompt-list-visible.spec.ts"
+      ],
+      "driverSpecific": false
+    },
+    {
+      "id": "prompt-management-list-hides-disabled",
+      "defect": "12.7.0 (DEV-4126) — GET /ai/prompts filtered disabled prompts for every caller, so the management screen lost a prompt saved with \"enabled\" off; it could no longer be edited or deleted.",
+      "file": "src/core/modules/ai/services/core-ai-prompt.service.ts",
+      "find": "        options.includeDisabled === true ? { $or: or } : { $or: or, enabled: { $ne: false } };\n",
+      "replace": "        { $or: or, enabled: { $ne: false } };\n",
+      "specs": [
+        "tests/ai.e2e-spec.ts"
+      ],
+      "driverSpecific": false
     }
   ]
 }

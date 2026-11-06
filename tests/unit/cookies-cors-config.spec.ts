@@ -224,8 +224,36 @@ describe('CORS Configuration: buildCorsConfig', () => {
     expect(buildCorsConfig({ cors: { enabled: false } })).toEqual({});
   });
 
-  it('should return empty object when cookies are false', () => {
+  it('should return empty object when cookies are false and no origin is resolvable', () => {
     expect(buildCorsConfig({ cookies: false })).toEqual({});
+  });
+
+  /**
+   * @regression   12.7.0 — in JWT mode (`cookies: false`) buildCorsConfig() answered `{}`, so callers fell back to
+   *   `Access-Control-Allow-Origin: *` without credentials. Browsers refuse that on a credentialed request, and JWT
+   *   mode makes them (the client's `credentials: 'include'`, the 2FA sign-in through the session cookie and
+   *   `/iam/token`), so a split app/API deployment in JWT mode could not finish a 2FA sign-in.
+   * @seen-failing Return `{}` for disabled cookies again in buildCorsConfig() in
+   *   src/core/common/helpers/cookies.helper.ts — registered as mutation `cors-jwt-mode-wildcard` in
+   *   tests/regression-mutations.json.
+   */
+  it('answers the configured origins with credentials in JWT mode too (cookies: false)', () => {
+    expect(
+      buildCorsConfig({ appUrl: 'https://app.example.com', baseUrl: 'https://api.example.com', cookies: false }),
+    ).toEqual({ credentials: true, origin: ['https://app.example.com', 'https://api.example.com'] });
+    expect(
+      buildCorsConfig({
+        appUrl: 'https://app.example.com',
+        cookies: { enabled: false },
+        cors: { allowedOrigins: ['https://admin.example.com'] },
+      }),
+    ).toEqual({ credentials: true, origin: ['https://app.example.com', 'https://admin.example.com'] });
+  });
+
+  it('never mirrors a foreign origin in JWT mode unless allowAll says so', () => {
+    const cors = buildCorsConfig({ appUrl: 'https://app.example.com', cookies: false });
+    expect(cors.origin).not.toBe(true);
+    expect(cors.origin as string[]).not.toContain('https://evil.example.net');
   });
 
   it('should return origin: true when allowAll is true', () => {
@@ -279,8 +307,11 @@ describe('CORS Configuration: buildCorsConfig', () => {
     expect(buildCorsConfig({ cors: undefined })).toEqual({});
   });
 
-  it('should return empty object when cookies are disabled via object shorthand', () => {
-    expect(buildCorsConfig({ cookies: { enabled: false }, cors: { allowAll: true } })).toEqual({});
+  it('applies an explicit allowAll in JWT mode as in cookie mode (12.7.0)', () => {
+    expect(buildCorsConfig({ cookies: { enabled: false }, cors: { allowAll: true } })).toEqual({
+      credentials: true,
+      origin: true,
+    });
   });
 
   it('should handle cors: true (Boolean Shorthand) — falls through to no-origins case', () => {
