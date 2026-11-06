@@ -11,6 +11,7 @@ import { runWithResetPassword } from './core-better-auth-password-reset.registry
 import { CoreBetterAuthUserMapper } from './core-better-auth-user.mapper.js';
 import { extractSessionToken, sendWebResponse, signCookieValue, toWebRequest } from './core-better-auth-web.helper.js';
 import { CoreBetterAuthService } from './core-better-auth.service.js';
+import { openVerificationToken } from './core-better-auth-verification-link.helper.js';
 
 /**
  * Native Better-Auth routes that set a NEW password from a token or OTP, with the body
@@ -355,6 +356,10 @@ export class CoreBetterAuthApiMiddleware implements NestMiddleware {
         }
       }
 
+      // The verification link carries Better-Auth's token sealed (it is a readable JWT with the address in it);
+      // Better-Auth verifies the token it signed, so open it before the request is built.
+      await this.openVerificationLinkToken(req, relativePath);
+
       // Put a reset password into the shape sign-in expects BEFORE the body is
       // serialized, and keep the value for the legacy mirror below.
       const resetPassword = this.normalizeResetPassword(req, relativePath);
@@ -558,5 +563,33 @@ export class CoreBetterAuthApiMiddleware implements NestMiddleware {
         });
       }
     }
+  }
+
+  /**
+   * Replace the sealed token of a verification link (`GET /verify-email?token=…`) by the token Better-Auth signed, so
+   * Better-Auth verifies it unchanged (core-better-auth-verification-link.helper.ts). A plain token (a link mailed
+   * before the seal) and a value that does not open go on as they are: Better-Auth answers the latter like any
+   * invalid token.
+   */
+  protected async openVerificationLinkToken(req: Request, relativePath: string): Promise<void> {
+    if (relativePath !== '/verify-email') {
+      return;
+    }
+    const sealed = new URL(req.originalUrl || req.url, 'http://local').searchParams.get('token');
+    if (!sealed) {
+      return;
+    }
+    const secret = (await this.betterAuthService.getInstance()?.$context)?.secret;
+    const opened = secret ? await openVerificationToken(secret, sealed) : undefined;
+    if (!opened || opened === sealed) {
+      return;
+    }
+    const withToken = (url: string): string => {
+      const parsed = new URL(url, 'http://local');
+      parsed.searchParams.set('token', opened);
+      return `${parsed.pathname}${parsed.search}`;
+    };
+    req.originalUrl = withToken(req.originalUrl || req.url);
+    req.url = withToken(req.url);
   }
 }

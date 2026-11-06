@@ -32,6 +32,7 @@ import {
   instantiateBetterAuth,
   OnPasswordResetCallback,
 } from './better-auth.config.js';
+import { sealVerificationToken } from './core-better-auth-verification-link.helper.js';
 import { applyBetterAuthSchema } from './better-auth-sql.helper.js';
 import { getBetterAuthSqlStore, setBetterAuthSqlStore } from './core-better-auth-sql.registry.js';
 import { BetterAuthSqlStore } from './core-better-auth-sql.store.js';
@@ -927,6 +928,20 @@ export class CoreBetterAuthModule implements NestModule, OnModuleInit {
   }
 
   /**
+   * The verification mail's token and link with the token sealed (core-better-auth-verification-link.helper.ts). The
+   * API middleware opens it again for `GET /verify-email`, and `POST /iam/resend-verification-email` does too.
+   * Without an instance (cannot happen while Better-Auth sends) the mail goes out unsealed rather than not at all.
+   */
+  protected static async sealVerificationMail(options: AuthEmailCallbackOptions): Promise<AuthEmailCallbackOptions> {
+    const secret = (await this.authInstance?.$context)?.secret;
+    if (!secret || !options.token) {
+      return options;
+    }
+    const sealed = await sealVerificationToken(secret, options.token);
+    return { ...options, token: sealed, url: options.url?.split(options.token).join(sealed) };
+  }
+
+  /**
    * `protected` rather than `private`: the callbacks it returns include `onPasswordReset`, which
    * decides what mirroring a reset into the legacy store means for a deployment. A project with a
    * different answer (a different store, an extra audit record, skipping it entirely) must be able
@@ -1027,9 +1042,10 @@ export class CoreBetterAuthModule implements NestModule, OnModuleInit {
         }
       },
       sendVerificationEmail: async (options) => {
-        // Delegate to the NestJS service
+        // Delegate to the NestJS service — with the token sealed, because Better-Auth's own token is a readable JWT
+        // that carries the address, and the link goes into mails, browser histories and access logs (DEV-4056)
         if (this.emailVerificationService) {
-          await this.emailVerificationService.sendVerificationEmail(options);
+          await this.emailVerificationService.sendVerificationEmail(await this.sealVerificationMail(options));
         } else {
           // Same reasoning as the password-reset branch above: the URL carries a token and this
           // logger feeds the ADMIN-readable Hub log buffer, so report the breakage instead.

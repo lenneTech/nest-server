@@ -17,6 +17,7 @@ import { SignJWT } from 'jose';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import { CoreBetterAuthEmailVerificationService } from '../../src/core/modules/better-auth/core-better-auth-email-verification.service';
+import { sealVerificationToken } from '../../src/core/modules/better-auth/core-better-auth-verification-link.helper';
 
 const SECRET = 'better-auth-test-secret-0123456789abcdef';
 const EMAIL = 'kai@lenne.tech';
@@ -70,6 +71,27 @@ describe('resendVerificationByToken() — who gets a new mail', () => {
 
     expect(sendVerificationEmail).toHaveBeenCalledWith({ body: { email: EMAIL } });
     expect(answer).toEqual({ email: 'k***@lenne.tech', success: true });
+  });
+
+  it('opens the sealed token a link carries', async () => {
+    const { instance, sendVerificationEmail } = betterAuth();
+    const sealed = await sealVerificationToken(SECRET, await verificationToken({ email: EMAIL, userId: 'u1' }));
+
+    const answer = await service().resendVerificationByToken(instance, sealed, '203.0.113.1');
+
+    expect(sendVerificationEmail).toHaveBeenCalledWith({ body: { email: EMAIL } });
+    expect(answer.email).toBe('k***@lenne.tech');
+  });
+
+  it('sends nothing for a sealed token that does not open with this secret', async () => {
+    const { instance, sendVerificationEmail } = betterAuth();
+    const sealed = await sealVerificationToken('another-secret-0123456789abcdef', await verificationToken({ email: EMAIL }));
+
+    await expect(service().resendVerificationByToken(instance, sealed, '203.0.113.1')).resolves.toEqual({
+      email: null,
+      success: true,
+    });
+    expect(sendVerificationEmail).not.toHaveBeenCalled();
   });
 
   it('does the same for an expired token, which is what the endpoint is for', async () => {
@@ -190,6 +212,30 @@ describe('resendVerificationByToken() — rate limits', () => {
       HttpStatus.TOO_MANY_REQUESTS,
     );
     expect(await statusOf(verification.resendVerificationByToken(instance, 'token-12', '192.0.2.8'))).toBeUndefined();
+  });
+
+  /**
+   * @regression   DEV-4056 review — behind a reverse proxy without `trustProxy` every client has the proxy's address.
+   *   With valid tokens counted per address, ten junk requests from one anonymous caller locked the resend for every
+   *   user of the deployment for the hour.
+   * @seen-failing Count every request per address, not only invalid tokens (call assertResendAddressLimit() right after
+   *   assertResendTokenLimit()) in src/core/modules/better-auth/core-better-auth-email-verification.service.ts —
+   *   registered as mutation `resend-verification-ip-limit-counts-valid-tokens` in tests/regression-mutations.json.
+   */
+  it('does not count valid tokens per address, so junk from the same address cannot lock them out', async () => {
+    const { instance, sendVerificationEmail } = betterAuth();
+    const verification = service();
+    for (let attempt = 1; attempt <= 10; attempt++) {
+      await verification.resendVerificationByToken(instance, `junk-${attempt}`, '10.0.0.1');
+    }
+
+    for (let user = 1; user <= 3; user++) {
+      const token = await verificationToken({ email: `user${user}@lenne.tech` });
+      await expect(verification.resendVerificationByToken(instance, token, '10.0.0.1')).resolves.toMatchObject({
+        success: true,
+      });
+    }
+    expect(sendVerificationEmail).toHaveBeenCalledTimes(3);
   });
 
   it('checks the limit before the token, so a refused request reaches Better-Auth not at all', async () => {

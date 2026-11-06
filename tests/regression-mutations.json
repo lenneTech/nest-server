@@ -6446,6 +6446,39 @@
         "tests/unit/better-auth-resend-verification.spec.ts"
       ],
       "driverSpecific": false
+    },
+    {
+      "id": "resend-verification-ip-limit-counts-valid-tokens",
+      "defect": "DEV-4056 review — behind a reverse proxy without trustProxy every client has the proxy's address; counting valid tokens per address let ten junk requests lock the resend for every user for the hour.",
+      "file": "src/core/modules/better-auth/core-better-auth-email-verification.service.ts",
+      "find": "    await this.assertResendTokenLimit(tokenValue);\n",
+      "replace": "    await this.assertResendTokenLimit(tokenValue);\n    await this.assertResendAddressLimit(clientAddress);\n",
+      "specs": [
+        "tests/unit/better-auth-resend-verification.spec.ts"
+      ],
+      "driverSpecific": false
+    },
+    {
+      "id": "verification-link-token-readable",
+      "defect": "DEV-4056 review — Better-Auth's verification token is a readable JWT with the address and the user id; without the seal every URL the link reached still disclosed both.",
+      "file": "src/core/modules/better-auth/core-better-auth.module.ts",
+      "find": "          await this.emailVerificationService.sendVerificationEmail(await this.sealVerificationMail(options));\n",
+      "replace": "          await this.emailVerificationService.sendVerificationEmail(options);\n",
+      "specs": [
+        "tests/unit/better-auth-verification-link-seal.spec.ts"
+      ],
+      "driverSpecific": false
+    },
+    {
+      "id": "verification-link-not-opened",
+      "defect": "DEV-4056 review — the link carries the token sealed; without opening it in the API middleware, GET /verify-email hands Better-Auth a value it never signed and no account can be verified.",
+      "file": "src/core/modules/better-auth/core-better-auth-api.middleware.ts",
+      "find": "      await this.openVerificationLinkToken(req, relativePath);\n",
+      "replace": "",
+      "specs": [
+        "tests/stories/better-auth-email-verification.story.test.ts"
+      ],
+      "driverSpecific": false
     }
   ]
 }

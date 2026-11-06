@@ -21,6 +21,7 @@ import { ErrorCode } from '../error-code/error-codes.js';
 import { EmailService } from '../../common/services/email.service.js';
 import { TemplateService } from '../../common/services/template.service.js';
 import { AuthEmailCallbackOptions, formatProjectName } from './better-auth.config.js';
+import { openVerificationToken } from './core-better-auth-verification-link.helper.js';
 import { callerDirectory } from '../../common/helpers/module-location.helper.js';
 
 /**
@@ -745,10 +746,12 @@ export class CoreBetterAuthEmailVerificationService {
       baseUrl = `${appUrl.replace(/\/$/, '')}${baseUrl}`;
     }
 
-    // The token only. Until DEV-4056 the address travelled alongside it (`&email=`), so the page could offer "send a
-    // new email" for an expired link — and it stood in the mail, in the browser history and in every access log the
-    // app keeps. The page now asks for a new mail WITH the token (POST /iam/resend-verification-email): the server
-    // reads the address from the token itself and answers with a masked form, so the address never leaves it.
+    // The token only — and the token arrives here SEALED (CoreBetterAuthModule's mail callback,
+    // core-better-auth-verification-link.helper.ts), because Better-Auth's own token is a readable JWT with the address
+    // in it. Until DEV-4056 the address also travelled as `&email=`, so the page could offer "send a new email" for an
+    // expired link; it stood in the mail, in the browser history and in every access log the app keeps. The page now
+    // asks for a new mail WITH the token (POST /iam/resend-verification-email): the server opens it, reads the address
+    // and answers with a masked form, so the address never leaves it.
     const separator = baseUrl.includes('?') ? '&' : '?';
     return `${baseUrl}${separator}token=${encodeURIComponent(token)}`;
   }
@@ -760,7 +763,11 @@ export class CoreBetterAuthEmailVerificationService {
   /** Requests one token may make per {@link resendByTokenWindowSeconds} — counted whether the token is valid or not */
   protected readonly resendByTokenMaxPerToken = 3;
 
-  /** Requests one client address may make per {@link resendByTokenWindowSeconds} */
+  /**
+   * Requests with an INVALID token one client address may make per {@link resendByTokenWindowSeconds}. Valid tokens
+   * are not counted here: behind a reverse proxy without `trustProxy` every client has the proxy's address, and a
+   * bucket shared by everyone would let one anonymous caller lock the resend for all users with ten junk requests.
+   */
   protected readonly resendByTokenMaxPerIp = 10;
 
   protected readonly resendByTokenWindowSeconds = 3600;
@@ -773,7 +780,9 @@ export class CoreBetterAuthEmailVerificationService {
    * included, which is the case this exists for. The caller types nothing, and the address never leaves the server:
    * the answer carries it masked ({@link maskEmailForDisplay}).
    *
-   * - The token must carry Better-Auth's signature (HS256 with its secret). A forged or garbled token sends nothing.
+   * - The token is the one the link carries: sealed (core-better-auth-verification-link.helper.ts), or plain from a
+   *   link mailed before the seal. It must carry Better-Auth's signature (HS256 with its secret) once opened; a forged
+   *   or garbled token sends nothing.
    * - A new mail goes out only through Better-Auth's own `sendVerificationEmail`, which sends to an existing,
    *   unverified account and to nothing else; the per-address cooldown of {@link sendVerificationEmail} applies on
    *   top. A token of an address change (`updateTo`) sends nothing.
@@ -782,9 +791,9 @@ export class CoreBetterAuthEmailVerificationService {
    *   them nothing new, and nothing in the answer says whether an account exists, is verified, or was mailed.
    * - It never verifies, signs in or creates a session.
    *
-   * @throws HttpException 429 `RATE_LIMIT_EXCEEDED` past {@link resendByTokenMaxPerToken} requests for one token or
-   *   {@link resendByTokenMaxPerIp} for one client address within the window — checked before the token is read, so
-   *   the limit says nothing about it either
+   * @throws HttpException 429 `RATE_LIMIT_EXCEEDED` past {@link resendByTokenMaxPerToken} requests for one token
+   *   (checked before the token is read, valid or not, so the limit says nothing about it) or past
+   *   {@link resendByTokenMaxPerIp} invalid tokens from one client address within the window
    */
   async resendVerificationByToken(
     authInstance:
@@ -799,13 +808,18 @@ export class CoreBetterAuthEmailVerificationService {
     clientAddress: string | undefined,
   ): Promise<{ email: null | string; success: true }> {
     const tokenValue = typeof token === 'string' ? token : '';
-    await this.assertResendByTokenAllowed(tokenValue, clientAddress);
+    await this.assertResendTokenLimit(tokenValue);
 
-    if (!authInstance || !tokenValue) {
-      return { email: null, success: true };
+    let claims: undefined | { email: string; updateTo?: string };
+    if (authInstance && tokenValue) {
+      const { secret } = await authInstance.$context;
+      const opened = await openVerificationToken(secret, tokenValue);
+      claims = opened ? await this.readVerificationTokenClaims(secret, opened) : undefined;
     }
-    const claims = await this.readVerificationTokenClaims((await authInstance.$context).secret, tokenValue);
     if (!claims) {
+      // The answer already says the token is invalid (`email: null`), so counting only these per address tells
+      // nobody anything more, and a valid token cannot be locked out by a stranger behind the same proxy
+      await this.assertResendAddressLimit(clientAddress);
       return { email: null, success: true };
     }
 
@@ -824,21 +838,27 @@ export class CoreBetterAuthEmailVerificationService {
     return { email: this.maskEmailForDisplay(claims.email), success: true };
   }
 
-  /**
-   * Count the request against the per-token and the per-address limit, and refuse it past either. The token is
-   * counted by its hash, so the counter key does not hold a credential.
-   */
-  protected async assertResendByTokenAllowed(token: string, clientAddress: string | undefined): Promise<void> {
+  /** The counters behind both resend limits, created on first use */
+  protected resendLimitStore(): RateLimitStore {
     this.resendByTokenStore ??= this.coreRedisService?.enabled
       ? new RedisRateLimitStore(this.coreRedisService, 'email-verification-resend')
       : new InMemoryRateLimitStore(10_000);
-    const window = this.resendByTokenWindowSeconds;
+    return this.resendByTokenStore;
+  }
+
+  /** Count the request against its token, by the token's hash (the counter key holds no credential) */
+  protected async assertResendTokenLimit(token: string): Promise<void> {
     const tokenKey = createHash('sha256').update(token).digest('hex');
-    const perToken = await this.resendByTokenStore.hit(`token:${tokenKey}`, window);
+    const perToken = await this.resendLimitStore().hit(`token:${tokenKey}`, this.resendByTokenWindowSeconds);
     if (perToken.count > this.resendByTokenMaxPerToken) {
       throw new HttpException(ErrorCode.RATE_LIMIT_EXCEEDED, HttpStatus.TOO_MANY_REQUESTS);
     }
-    const perAddress = await this.resendByTokenStore.hit(`ip:${clientAddress || 'unknown'}`, window);
+  }
+
+  /** Count an invalid token against the client address it came from */
+  protected async assertResendAddressLimit(clientAddress: string | undefined): Promise<void> {
+    const key = `ip:${clientAddress || 'unknown'}`;
+    const perAddress = await this.resendLimitStore().hit(key, this.resendByTokenWindowSeconds);
     if (perAddress.count > this.resendByTokenMaxPerIp) {
       throw new HttpException(ErrorCode.RATE_LIMIT_EXCEEDED, HttpStatus.TOO_MANY_REQUESTS);
     }

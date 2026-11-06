@@ -29,6 +29,7 @@ import {
   TestHelper,
 } from '../../src';
 import envConfig from '../../src/config.env';
+import { sealVerificationToken } from '../../src/core/modules/better-auth/core-better-auth-verification-link.helper';
 import { ServerModule } from '../../src/server/server.module';
 import { type IamTestDb, openIamTestDb } from '../helpers/iam-test-db';
 
@@ -727,6 +728,57 @@ describe('Story: BetterAuth Email Verification and Sign-Up Checks', () => {
       await testHelper.rest('/iam/resend-verification-email', { method: 'POST', payload: {}, statusCode: 400 });
     });
 
+    /** A Better-Auth verification token for a planted, unverified user, as its own createEmailVerificationToken signs it */
+    const plantedUserToken = async (label: string, secret?: string) => {
+      const email = `verify-${label}-${Date.now()}@test.com`;
+      testEmails.push(email);
+      const userId = await iamDb.insertUser({ createdAt: new Date(), email, emailVerified: false, name: 'Verify', roles: [] });
+      const signingSecret = secret ?? (await betterAuthService.getInstance().$context).secret;
+      const token = await new SignJWT({ email, userId })
+        .setProtectedHeader({ alg: 'HS256' })
+        .setIssuedAt()
+        .setExpirationTime('1h')
+        .sign(new TextEncoder().encode(signingSecret));
+      return { email, token };
+    };
+
+    /**
+     * @regression   DEV-4056 review — the link carries Better-Auth's token sealed. Not opened before Better-Auth sees it,
+     *   GET /verify-email hands Better-Auth a value it never signed, and no account can be verified at all.
+     * @seen-failing Drop the openVerificationLinkToken() call from use() in
+     *   src/core/modules/better-auth/core-better-auth-api.middleware.ts — registered as mutation
+     *   `verification-link-not-opened` in tests/regression-mutations.json.
+     */
+    it('verifies through the sealed token of a link, and through the plain token of an older mail', async () => {
+      if (!isBetterAuthEnabled) {
+        return;
+      }
+      const { secret } = await betterAuthService.getInstance().$context;
+
+      const sealed = await plantedUserToken('sealed');
+      await testHelper.rest(`/iam/verify-email?token=${await sealVerificationToken(secret, sealed.token)}`, {
+        method: 'GET',
+        statusCode: 200,
+      });
+      const plain = await plantedUserToken('plain');
+      await testHelper.rest(`/iam/verify-email?token=${plain.token}`, { method: 'GET', statusCode: 200 });
+
+      expect((await iamDb.findUser({ email: sealed.email })).emailVerified).toBe(true);
+      expect((await iamDb.findUser({ email: plain.email })).emailVerified).toBe(true);
+    });
+
+    it('answers a seal that does not open with this secret like any invalid token', async () => {
+      if (!isBetterAuthEnabled) {
+        return;
+      }
+      const planted = await plantedUserToken('foreign-seal');
+      const foreign = await sealVerificationToken('another-secret-0123456789abcdef-xyz', planted.token);
+
+      await testHelper.rest(`/iam/verify-email?token=${foreign}`, { method: 'GET', statusCode: 401 });
+
+      expect((await iamDb.findUser({ email: planted.email })).emailVerified).toBeFalsy();
+    });
+
     it('refuses the fourth request for one token with 429', async () => {
       if (!isBetterAuthEnabled) {
         return;
@@ -754,8 +806,7 @@ describe('Story: BetterAuth Email Verification and Sign-Up Checks', () => {
   // bodies never executed. They were green for their whole life without checking anything.
   //
   // `tests/unit/verification-link.spec.ts` now covers `buildFrontendVerificationUrl()`
-  // UNCONDITIONALLY — five cases including the `&email=` parameter, the `+` encoding and the
-  // omitted-address fallback — so deleting them loses no coverage and removes two false positives
-  // from the report.
+  // UNCONDITIONALLY — the token-only link, its encoding, a query in `callbackURL` and a relative
+  // `callbackURL` — so deleting them loses no coverage and removes two false positives from the report.
   // ===================================================================================================================
 });
