@@ -259,7 +259,8 @@ NEST_SERVER_CONFIG='{ "systemSetup": { "initialAdmin": { "email": "admin@example
 
 ### Security Best Practices
 
-1. **Remove credentials after first deployment** - Once the admin exists, the ENV vars are unused
+1. **Remove credentials after first deployment** - Once the admin exists, the ENV vars change nothing; the boot only
+   reads them to finish a setup that was killed halfway (see Security). Removing them closes that path too
 2. **Use secrets management** - Docker Secrets, Kubernetes Secrets, Vault, etc.
 3. **Never commit credentials** - Use `.env` files (gitignored) or external secret stores
 4. **Use strong passwords** - Minimum 8 characters, recommended 16+
@@ -282,7 +283,8 @@ NEST_SERVER_CONFIG='{ "systemSetup": { "initialAdmin": { "email": "admin@example
    without a login account. With `initialAdmin` configured, the next boot finishes the setup for that address: it
    adds the credential account with the configured password and sets the role. It also finishes the leftover of an
    older setup (no role, no administrator in the system, and no account or only a credential account with the
-   configured password). A user with another password, a social account or a second account is never touched. A
+   configured password). A user with another password, a social account, a second account or a legacy password (`users.password`, e.g. a
+   Legacy-Auth administrator who has not signed in through IAM yet) is never touched. A
    restart within five minutes of the kill finds the old claim still held and tries once more after it goes stale.
    The anonymous HTTP init finishes nothing: once users exist it refuses, as before
 5. **Race condition protection** - MongoDB unique email index prevents duplicates; auto-creation on

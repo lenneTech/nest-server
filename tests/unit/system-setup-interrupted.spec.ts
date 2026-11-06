@@ -37,6 +37,7 @@ interface IFakeAccount {
 class InterruptedSetupTestService extends CoreSystemSetupService {
   admins = false;
   claimAnswers: boolean[] = [];
+  legacyPassword = false;
   claimReleased = 0;
   constructor(
     public userCount: number,
@@ -56,6 +57,9 @@ class InterruptedSetupTestService extends CoreSystemSetupService {
   }
   protected override async hasAdmin(): Promise<boolean> {
     return this.admins;
+  }
+  protected override async hasLegacyPassword(): Promise<boolean> {
+    return this.legacyPassword;
   }
   protected override async claimInitialAdminSetup(): Promise<boolean> {
     return this.claimAnswers.length ? (this.claimAnswers.shift() as boolean) : true;
@@ -246,6 +250,31 @@ describe('CoreSystemSetupService — the boot finishes an interrupted setup', ()
 
     expect(roleWrites).toHaveLength(0);
     expect(internalAdapter.linkAccount).not.toHaveBeenCalled();
+  });
+
+  /**
+   * @regression   DEV-4050 review — a Legacy-Auth administrator who has not signed in through IAM yet has the admin
+   *   role and no Better-Auth account, exactly like the administrator a killed setup leaves. With its address in
+   *   `initialAdmin` the boot gave it a credential account with the configured password and synced that password over
+   *   its own legacy one: the real administrator was locked out.
+   * @seen-failing Ignore hasLegacyPassword() for users without an account in findInterruptedInitialAdmin() in
+   *   src/core/modules/system-setup/core-system-setup.service.ts — registered as mutation
+   *   `system-setup-resume-overwrites-legacy-password` in tests/regression-mutations.json.
+   */
+  it('leaves a legacy administrator alone, whose own password lives in users.password', async () => {
+    const { instance, internalAdapter } = betterAuthWith({
+      accounts: [],
+      user: { email: ADMIN_EMAIL, id: 'iam-1', roles: ['admin'] },
+    });
+    const { roleWrites, service, userMapper } = serviceWith({ userCount: 1 }, instance);
+    service.admins = true;
+    service.legacyPassword = true;
+
+    await service.boot();
+
+    expect(internalAdapter.linkAccount).not.toHaveBeenCalled();
+    expect(userMapper.syncPasswordToLegacy).not.toHaveBeenCalled();
+    expect(roleWrites).toHaveLength(0);
   });
 
   it('leaves a user alone who signs in through another provider', async () => {

@@ -469,6 +469,21 @@ describe('Story: System Setup - Auto-Creation via Config', () => {
       expect((await iamDb.findUser({ email: AUTO_ADMIN_EMAIL })).roles).toContain('admin');
     });
 
+    it('leaves a legacy administrator without an IAM account alone', async () => {
+      await iamDb.deleteUsers({ email: AUTO_ADMIN_EMAIL });
+      const userId = await iamDb.insertUser({
+        createdAt: new Date(),
+        email: AUTO_ADMIN_EMAIL,
+        password: 'own-legacy-password-hash',
+        roles: ['admin'],
+      });
+
+      await bootAgain();
+
+      expect(await iamDb.credentialAccount(userId)).toBeFalsy();
+      expect((await iamDb.findUser({ email: AUTO_ADMIN_EMAIL })).password).toBe('own-legacy-password-hash');
+    });
+
     it('leaves a user with another password without the role', async () => {
       const planted = await plantSetupUser({});
       await plantCredential(planted.id, 'SomebodyElse123!');

@@ -6375,8 +6375,8 @@
       "id": "system-setup-resume-ignores-existing-admin",
       "defect": "DEV-4050 — a user without role and without account is a setup leftover only while the deployment has no administrator; promoting it otherwise grants administration nobody decided on.",
       "file": "src/core/modules/system-setup/core-system-setup.service.ts",
-      "find": "      return isAdmin || !(await this.hasAdmin()) ? { iamUser: found.user, linkCredential: true } : undefined;\n",
-      "replace": "      return { iamUser: found.user, linkCredential: true };\n",
+      "find": "      if (!isAdmin && (await this.hasAdmin())) {\n        return undefined;\n      }\n",
+      "replace": "",
       "specs": [
         "tests/unit/system-setup-interrupted.spec.ts"
       ],
@@ -6388,6 +6388,17 @@
       "file": "src/core/modules/system-setup/core-system-setup.service.ts",
       "find": "        this.scheduleInterruptedSetupRetry(initialAdmin);\n",
       "replace": "",
+      "specs": [
+        "tests/unit/system-setup-interrupted.spec.ts"
+      ],
+      "driverSpecific": false
+    },
+    {
+      "id": "system-setup-resume-overwrites-legacy-password",
+      "defect": "DEV-4050 review — a Legacy-Auth administrator without a Better-Auth account looks like the administrator a killed setup leaves; finishing it gave it the configured password and synced that over its own legacy password.",
+      "file": "src/core/modules/system-setup/core-system-setup.service.ts",
+      "find": "      return (await this.hasLegacyPassword(found.user, email))\n        ? undefined\n        : { iamUser: found.user, linkCredential: true };\n",
+      "replace": "      return { iamUser: found.user, linkCredential: true };\n",
       "specs": [
         "tests/unit/system-setup-interrupted.spec.ts"
       ],

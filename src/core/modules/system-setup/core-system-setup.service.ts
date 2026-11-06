@@ -485,8 +485,8 @@ export class CoreSystemSetupService implements OnApplicationBootstrap, OnApplica
    *   password: killed between linkAccount and the role update of such a setup. The password is the evidence — a
    *   user who signed up with the administrator's address has a password of their own.
    *
-   * A social account, a second account or another password never qualifies, and a finished setup (administrator with
-   * an account) is answered without comparing the password.
+   * A social account, a second account, another password or a legacy password ({@link hasLegacyPassword}) never
+   * qualifies, and a finished setup (administrator with an account) is answered without comparing the password.
    */
   protected async findInterruptedInitialAdmin(
     context: {
@@ -512,7 +512,12 @@ export class CoreSystemSetupService implements OnApplicationBootstrap, OnApplica
     const accounts = found.accounts ?? [];
 
     if (accounts.length === 0) {
-      return isAdmin || !(await this.hasAdmin()) ? { iamUser: found.user, linkCredential: true } : undefined;
+      if (!isAdmin && (await this.hasAdmin())) {
+        return undefined;
+      }
+      return (await this.hasLegacyPassword(found.user, email))
+        ? undefined
+        : { iamUser: found.user, linkCredential: true };
     }
 
     if (isAdmin || accounts.length !== 1) {
@@ -525,7 +530,29 @@ export class CoreSystemSetupService implements OnApplicationBootstrap, OnApplica
     if (!(await context.password.verify({ hash: account.password, password: normalizedPassword }))) {
       return undefined;
     }
-    return (await this.hasAdmin()) ? undefined : { iamUser: found.user, linkCredential: false };
+    if (await this.hasAdmin()) {
+      return undefined;
+    }
+    return (await this.hasLegacyPassword(found.user, email))
+      ? undefined
+      : { iamUser: found.user, linkCredential: false };
+  }
+
+  /**
+   * Whether the app user behind `iamUser` carries a legacy password (`users.password`). A killed setup never has one:
+   * syncing it is the last step of {@link finishInitialAdmin}, and neither createUser nor the sync writes it. So a user
+   * with one did not come from the setup — typically a Legacy-Auth administrator who has not signed in through IAM
+   * yet, who has no Better-Auth account either. Finishing such a user would replace their own password with the
+   * configured one.
+   */
+  protected async hasLegacyPassword(iamUser: { email?: string; id: string }, email: string): Promise<boolean> {
+    const store = getBetterAuthSqlStore()?.users ?? (await getPersistenceRuntime()?.iamStorage())?.users;
+    const row = store
+      ? await store.findById(iamUser.id, { select: ['password'] })
+      : await this.connection
+          .collection('users')
+          .findOne({ email: iamUser.email ?? email }, { projection: { password: 1 } });
+    return typeof row?.password === 'string' && row.password.length > 0;
   }
 
   /**
