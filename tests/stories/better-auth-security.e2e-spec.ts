@@ -753,7 +753,14 @@ describe('Story: BetterAuth Security Integration', () => {
         getConfig: vi.fn().mockReturnValue({ basePath: '/iam', secret: 'test-secret' }),
         getCookieDomain: vi.fn().mockReturnValue(undefined),
         getInstance: vi.fn(),
+        getSessionByToken: vi.fn().mockResolvedValue({ session: null, user: null }),
+        getSessionCookieName: vi.fn().mockReturnValue('iam.session_token'),
         isEnabled: vi.fn().mockReturnValue(true),
+        // The real token policy (11.43.7): every forwarded response is sent through it
+        presentSessionTokens: CoreBetterAuthService.prototype.presentSessionTokens,
+        resolveJwtToken: vi.fn(async (token: string) => token),
+        sendBetterAuthResponse: CoreBetterAuthService.prototype.sendBetterAuthResponse,
+        sessionCookieNameOfInstance: (CoreBetterAuthService.prototype as any).sessionCookieNameOfInstance,
       };
 
       apiMiddleware = new CoreBetterAuthApiMiddleware(
@@ -837,6 +844,7 @@ describe('Story: BetterAuth Security Integration', () => {
       // Response should contain enriched body with user data
       expect(parsedBody.session).toBeDefined();
       expect(parsedBody.session.userId).toBe('user-456');
+      expect(parsedBody.session.token, 'the session token stays out of the body (11.43.7)').toBeUndefined();
       expect(parsedBody.user).toBeDefined();
       expect(parsedBody.user.id).toBe('user-456');
       expect(parsedBody.user.email).toBe('passkey-user@test.com');

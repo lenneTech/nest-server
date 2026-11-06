@@ -425,6 +425,34 @@ Both are needed. `processCookies()` returns early once a session token is presen
 `processAuthResult()` — and every unit test of it — is **unreachable** from the path the fix
 repairs. Only the second row observes the defect the way a browser would.
 
+### Forwarded responses (11.43.7)
+
+The rule above was enforced on the framework's own routes only. Everything the API middleware or the controller's
+catch-all forwards to Better-Auth's handler — two-factor `verify-totp` / `verify-backup-code` / `verify-otp`, passkey
+verify, OTP and magic-link sign-in, `get-session` — went out as Better-Auth wrote it: `{ token: <session token>, user }`
+and `session.token`, in cookie mode too, where a frontend then stored the 7-day session token where scripts can read it.
+
+**Rule:** a response of Better-Auth's handler reaches the client only through
+`CoreBetterAuthService.sendBetterAuthResponse()`, which applies `presentSessionTokens()`
+(`core-better-auth-session-token.helper.ts`): cookie mode removes the session token (top-level `token` and
+`session.token`), token-in-body mode replaces it with the JWT sign-in hands out. It recognises the session token by the
+session cookie the response sets, by `session.token`, or by asking the session store (`getSessionByToken()`), and leaves
+a JWT (`/token`), arrays (`list-sessions`) and other plugins' tokens alone. Never call `sendWebResponse()` for a
+forwarded response directly — pinned by `tests/unit/better-auth-session-token-presentation.spec.ts` (mutations
+`session-token-*`, `session-lookup-not-wired`, `session-cookie-name-not-from-instance`,
+`forwarded-session-token-not-presented`) and end to end on `get-session` (`get-session-hands-out-session-token`).
+
+Two cases the cookie alone does not cover, both found in the release review:
+
+- **A signed-in user verifying a second factor** (step-up, an authenticator added next to e-mail OTP) gets
+  `{ token: <the session they already hold>, user }` and NO session cookie. Only the store lookup identifies it — the
+  shape is otherwise identical to another plugin's token. The lookup runs only for a non-JWT top-level token the
+  response does not already name; a failed lookup vouches for nothing.
+- **The cookie's name comes from the instance** (`$context.authCookies.sessionToken.name`, via
+  `sessionCookieNameOfInstance()`), not from `getSessionCookieName()`: under `advanced.useSecureCookies` Better-Auth
+  sets `__Secure-iam.session_token`, and a passkey sign-in in token-in-body mode — which answers `{ session }` and gains
+  its JWT from that cookie — got none.
+
 ## 8. `issuer` follows the INSTALLED better-auth — and is never added to a READ
 
 better-auth 1.7.0–1.7.2 keyed accounts by `(issuer, accountId)`; 1.7.3 restored the 1.6 schema,
@@ -515,6 +543,7 @@ removed. `tests/better-auth-signin-csrf.e2e-spec.ts` does; mutations `iam-signin
 | Guards | Maintain both RolesGuard and BetterAuthRolesGuard in sync |
 | DI Tokens | Import-free leaf file only — never in `*.module.ts` / `*.service.ts` (§6) |
 | Session cookie | Always the opaque session token — never the body JWT (§7) |
+| Forwarded responses | Better-Auth's own answers go through `sendBetterAuthResponse()` / `presentSessionTokens()`: no session token in a body in cookie mode, a JWT where the body carries one (§7) |
 | `account` reads / writes | Reads filter on `providerId` alone, never `issuer`. Writes set `issuer` only on better-auth 1.7.0–1.7.2, via the helper (§8) |
 | `openAPI()` plugin | Registered internally for `setupSwagger()`, kept off the router (`SERVER_ONLY`) unless the project registered it — never by a path check (§9) |
 | Direct `api.*` calls | Hand Better-Auth the request (CSRF headers only) + `asResponse: false`, or its login-CSRF check is skipped (§10) |

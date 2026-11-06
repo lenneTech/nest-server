@@ -675,6 +675,18 @@ If authentication succeeds, `req.user` is set with the authenticated user (inclu
 > must know the counterpart of the rule above — the response body it forwards is no longer
 > byte-identical to the one Better-Auth produced.
 
+> **Response side, since 11.43.7 — session tokens in forwarded bodies.** A **successful** response of
+> Better-Auth's handler reaches the client only through `CoreBetterAuthService.sendBetterAuthResponse()`
+> (the middleware's three send sites and the controller's catch-all), which applies
+> `presentSessionTokens()`: in the default cookie mode the session token leaves the body (top-level
+> `token` and `session.token`), where the body may carry a token it becomes the JWT sign-in hands out.
+> Before, two-factor verify, passkey verify, OTP / magic-link sign-in and `get-session` answered with the
+> opaque session token in the body, also in cookie mode. The session token is recognised by the session
+> cookie the response sets (under the name the instance gives it), by `session.token`, or — for a top-level
+> token neither identifies, as a signed-in user's second factor returns — by a session-store lookup. A JWT
+> (`/token`), arrays (`list-sessions`) and other plugins' tokens are left alone. See
+> `.claude/rules/better-auth.md` §7 "Forwarded responses".
+
 #### 2b. SecurityHeadersMiddleware
 
 Sets the browser security headers on **every** response — `X-Content-Type-Options`,

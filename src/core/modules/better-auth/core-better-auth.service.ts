@@ -15,10 +15,15 @@ import {
   sessionMiddleware,
 } from 'better-auth/api';
 import { Request } from 'express';
+import type { Response as ExpressResponse } from 'express';
 import { importJWK, jwtVerify } from 'jose';
 import { Connection } from 'mongoose';
 
-import { shouldConvertSessionTokenToJwt } from '../../common/helpers/cookies.helper';
+import {
+  isCookiesEnabled,
+  isExposeTokenInBodyEnabled,
+  shouldConvertSessionTokenToJwt,
+} from '../../common/helpers/cookies.helper';
 import { maskEmail, maskToken } from '../../common/helpers/logging.helper';
 import { IBetterAuth, ICookiesConfig } from '../../common/interfaces/server-options.interface';
 import { ConfigService } from '../../common/services/config.service';
@@ -35,8 +40,14 @@ import {
 } from './core-better-auth-openapi.helper';
 import type { IBetterAuthOpenApiDocument, IBetterAuthRuntime } from './core-better-auth-openapi.helper';
 import { isJwtShaped } from './core-better-auth-token.helper';
+import { presentSessionTokens } from './core-better-auth-session-token.helper';
 import { BetterAuthSessionUser } from './core-better-auth-user.mapper';
-import { convertExpressHeaders, parseCookieHeader, signCookieValueIfNeeded } from './core-better-auth-web.helper';
+import {
+  convertExpressHeaders,
+  parseCookieHeader,
+  sendWebResponse,
+  signCookieValueIfNeeded,
+} from './core-better-auth-web.helper';
 import {
   ACCOUNT_ISSUER_BACKFILL_ID,
   BACKFILL_MARKER_COLLECTION,
@@ -769,6 +780,53 @@ export class CoreBetterAuthService implements OnApplicationBootstrap, OnModuleIn
    */
   getSessionCookieName(): string {
     return `${this.getCookiePrefix()}.session_token`;
+  }
+
+  /**
+   * Applies the sign-in token policy to a response Better-Auth's own handler produced (11.43.7).
+   *
+   * Routes the framework forwards to Better-Auth — two-factor verify, passkey verify, OTP and magic-link sign-in,
+   * get-session — answered with the opaque session token in the body, also in the default cookie mode, where the
+   * framework's own sign-in keeps it in an httpOnly cookie only, and as the raw token where sign-in hands out a JWT.
+   * See `presentSessionTokens()` (`core-better-auth-session-token.helper.ts`) for the rules.
+   *
+   * Override to present tokens differently; keep the cookie-mode rule, it is what keeps the session out of scripts.
+   */
+  async presentSessionTokens(response: globalThis.Response): Promise<globalThis.Response> {
+    const cookiesConfig = ConfigService.configFastButReadOnly?.cookies as boolean | ICookiesConfig | undefined;
+    return presentSessionTokens(response, {
+      cookieName: await this.sessionCookieNameOfInstance(),
+      isSessionToken: async (token) => !!(await this.getSessionByToken(token))?.session,
+      resolveJwt: (sessionToken) => this.resolveJwtToken(sessionToken),
+      tokenInBody: !isCookiesEnabled(cookiesConfig) || isExposeTokenInBodyEnabled(cookiesConfig),
+    });
+  }
+
+  /**
+   * The session cookie's name as the running Better-Auth instance sets it — `__Secure-` prefixed under
+   * `advanced.useSecureCookies`, renamed under `advanced.cookies.session_token.name` — falling back to
+   * {@link getSessionCookieName} when the instance cannot say.
+   */
+  protected async sessionCookieNameOfInstance(): Promise<string> {
+    try {
+      const context = await (this.getInstance() as { $context?: Promise<any> } | null)?.$context;
+      const name = context?.authCookies?.sessionToken?.name;
+      if (typeof name === 'string' && name) {
+        return name;
+      }
+    } catch {
+      // The configured name below is what the framework writes itself
+    }
+    return this.getSessionCookieName();
+  }
+
+  /**
+   * Sends a response of Better-Auth's handler to the client, through {@link presentSessionTokens}. Every place that
+   * forwards to the handler (the API middleware, the controller's catch-all) sends through here, so a forwarded route
+   * cannot hand a client a token the framework's own sign-in would not.
+   */
+  async sendBetterAuthResponse(res: ExpressResponse, response: globalThis.Response): Promise<void> {
+    await sendWebResponse(res, await this.presentSessionTokens(response));
   }
 
   /**
