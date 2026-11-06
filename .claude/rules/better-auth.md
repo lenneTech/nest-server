@@ -437,10 +437,17 @@ and `session.token`, in cookie mode too, where a frontend then stored the 7-day 
 (`core-better-auth-session-token.helper.ts`): cookie mode removes the session token (top-level `token` and
 `session.token`), token-in-body mode replaces it with the JWT sign-in hands out. It recognises the session token by the
 session cookie the response sets, by `session.token`, or by asking the session store (`getSessionByToken()`), and leaves
-a JWT (`/token`), arrays (`list-sessions`) and other plugins' tokens alone. Never call `sendWebResponse()` for a
+a JWT (`/token`) and other plugins' tokens alone. Since 12.6.2 (DEV-4109) a session RECORD (`token` + `userId` +
+`expiresAt`) loses its `token` in every mode, also inside an array: `list-sessions` names the sessions by `id`, and
+`POST /revoke-session` takes `{ sessionId }`, which `CoreBetterAuthApiMiddleware.resolveRevokeSessionId()` resolves
+among the caller's own sessions (`CoreBetterAuthService.sessionTokenOfUser()`; an unknown or foreign id becomes an
+empty token, so nothing is revoked and nothing is disclosed); `{ token }` keeps working. Never call `sendWebResponse()` for a
 forwarded response directly — pinned by `tests/unit/better-auth-session-token-presentation.spec.ts` (mutations
 `session-token-*`, `session-lookup-not-wired`, `session-cookie-name-not-from-instance`,
-`forwarded-session-token-not-presented`) and end to end on the second factor (`second-factor-hands-out-session-token`).
+`forwarded-session-token-not-presented`, `session-list-tokens-kept`, `revoke-session-id-not-resolved`,
+`session-id-of-other-user-resolved`) and end to end on the second factor (`second-factor-hands-out-session-token`) and
+in `tests/session-token-exposure.e2e-spec.ts` (`list-sessions-hands-out-tokens`, `revoke-session-id-not-wired`), whose
+last case searches every answer of the suite for every session token the users hold.
 
 Two cases the cookie alone does not cover, both found in the release review:
 
