@@ -6,7 +6,7 @@ import ejs from 'ejs';
 import * as fs from 'fs';
 import * as path from 'path';
 
-import { isLocalEnv, isProductionLikeEnv, resolveAppUrlFromConfig } from '../../common/helpers/cookies.helper.js';
+import { isLocalEnv, resolveAppUrlFromConfig } from '../../common/helpers/cookies.helper.js';
 import { maskEmail } from '../../common/helpers/logging.helper.js';
 import { IBetterAuthEmailVerificationConfig } from '../../common/interfaces/server-options.interface.js';
 import { BrevoService } from '../../common/services/brevo.service.js';
