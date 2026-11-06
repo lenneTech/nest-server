@@ -410,7 +410,7 @@ pnpm run check:mutations -- --id=<id>       # one mutation
 pnpm run check:mutations -- --list          # the registry, without running anything
 pnpm run check:mutations -- --allow-dirty   # when the fix and its evidence share a working tree
 pnpm run check:mutations -- --jobs=4        # N mutations at a time (default: 2, or 4 on >=12 cores)
-pnpm run check:mutations -- --no-infra      # only the 331 that need no MongoDB
+pnpm run check:mutations -- --no-infra      # only the 336 that need no MongoDB
 pnpm run check:mutations -- --since=<ref>   # only mutations touching files changed since <ref>
 pnpm run check:mutations -- --shard=2/4     # this job's quarter of the selection (CI splits the full run)
 ```
@@ -430,7 +430,7 @@ when the registry, a vitest config or a setup file changed, since those can move
 commit, and in CI alongside the publish without blocking it. The price of caching is a cache that
 has to model each spec's full dependency closure correctly, and getting that wrong produces a stale
 PASS for a test that has since gone vacuous — exactly what the gate is there to prevent. Bad trade
-at 555 mutations.
+at 560 mutations.
 
 **Decided 2026-10-03 (repo owner): keep the full run.** Measured at 128 mutations, the CI job for
 11.41.6 took **14 minutes**. The trigger to revisit is that wall time, not the mutation count —
@@ -503,7 +503,7 @@ exactly the environment where the answer matters.
 
 Worth knowing before optimising the wrong thing: the specs behind all 224 e2e mutations add up to
 **~40 seconds**. The step takes ~740s. The remaining ~700s is paying vitest's startup — process
-spawn, transform, module graph, mongod connect, DB create and drop — once per mutation, 555 times.
+spawn, transform, module graph, mongod connect, DB create and drop — once per mutation, 560 times.
 That work is largely single-threaded I/O and barely scales with cores: the full registry measures
 **744s on a 12-core laptop and 777s on a 4-vCPU CI runner**.
 
@@ -911,6 +911,7 @@ catches the *failure*, never the *disarming* of the safety property.
 | The core is valid as CommonJS AND ESM (no `require()`, `__dirname`, `import x = require()`, `import.meta`, relative dynamic `import()`) | `tests/unit/module-format-invariants.spec.ts`; `pnpm run check:esm` proves the loading half |
 | The ESM package stays loadable by `require()` (no import from a CommonJS directory into the graph, no top-level `await`) and its CommonJS islands (`bin/`, `migrate/helpers/`) load in place | `tests/unit/module-format-invariants.spec.ts`, `tests/unit/package-format-contracts.spec.ts`; `pnpm run check:manifest` repeats it against the packed build |
 | Type-aware lint is armed (flag, `oxlint-tsgolint`, `no-floating-promises: error`) | `tests/unit/lint-type-aware.spec.ts` |
+| The core lints clean with nest-server-starter's oxlint configuration, in the vendor layout (what every vendor project's `lint` sees) | `pnpm run check:vendor-lint`; `tests/unit/check-vendor-lint.spec.ts` (mutations `vendor-lint-*`) |
 | The core needs no MongoDB library (12.1.0+): no static value import of `mongoose` / `@nestjs/mongoose` / `mongodb`, both model-description sources agree | `pnpm run check:without-mongodb` (dist, packages unresolvable; `:package` installs the tarball without them); `tests/unit/persistence-model-descriptor.spec.ts`; `tests/unit/import-cycle-invariants.spec.ts` (the compat leaf) |
 
 `service-options-forwarding` is 11.33.1 generalised: inside `src/core/`, a method that HAS the

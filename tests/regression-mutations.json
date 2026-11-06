@@ -6282,6 +6282,61 @@
         "tests/unit/redact-secrets.spec.ts"
       ],
       "driverSpecific": false
+    },
+    {
+      "id": "vendor-lint-allows-warnings",
+      "defect": "DEV-4040 — the vendored core produced four warnings in nest-server-starter (smoke test 2026-11-05) while this repository's lint was green; the starter's lint only reports warnings, so a vendor lint gate that lets them through passes exactly that case.",
+      "file": "scripts/check-vendor-lint.mjs",
+      "find": "        '--deny-warnings',\n",
+      "replace": "",
+      "specs": [
+        "tests/unit/check-vendor-lint.spec.ts"
+      ],
+      "driverSpecific": false
+    },
+    {
+      "id": "vendor-lint-not-type-aware",
+      "defect": "DEV-4040 — the starter lints with --type-aware and configures no-floating-promises as an error; without the flag oxlint skips that rule silently and the gate certifies a floating promise the starter refuses.",
+      "file": "scripts/check-vendor-lint.mjs",
+      "find": "        '--type-aware',\n",
+      "replace": "",
+      "specs": [
+        "tests/unit/check-vendor-lint.spec.ts"
+      ],
+      "driverSpecific": false
+    },
+    {
+      "id": "vendor-lint-upstream-layout",
+      "defect": "DEV-4040 — the starter scopes its core exceptions to src/core/**; linting src/index.ts where this repository keeps it reports warnings no vendor project has.",
+      "file": "scripts/check-vendor-lint.mjs",
+      "find": "  ['index.ts', 'core/index.ts'],\n",
+      "replace": "  ['index.ts', 'index.ts'],\n",
+      "specs": [
+        "tests/unit/check-vendor-lint.spec.ts"
+      ],
+      "driverSpecific": false
+    },
+    {
+      "id": "vendor-lint-ci-skip-passes",
+      "defect": "DEV-4040 — an unreadable starter configuration is skipped locally; under CI the same skip is a gate that never ran and reads green.",
+      "file": "scripts/check-vendor-lint.mjs",
+      "find": "  if (config.error) {\n    if (ci) {\n",
+      "replace": "  if (config.error) {\n    if (false) {\n",
+      "specs": [
+        "tests/unit/check-vendor-lint.spec.ts"
+      ],
+      "driverSpecific": false
+    },
+    {
+      "id": "vendor-lint-not-in-check",
+      "defect": "DEV-4040 — no step of check linted the core with the starter's configuration, so four warnings reached every vendor project unnoticed.",
+      "file": "package.json",
+      "find": "pnpm run lint && pnpm run typecheck:tests && pnpm run typecheck:vendor && pnpm run check:vendor-lint && ",
+      "replace": "pnpm run lint && pnpm run typecheck:tests && pnpm run typecheck:vendor && ",
+      "specs": [
+        "tests/unit/check-vendor-lint.spec.ts"
+      ],
+      "driverSpecific": false
     }
   ]
 }
