@@ -1,4 +1,6 @@
 import { createHash } from 'node:crypto';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
 /**
  * `CoreBetterAuthEmailVerificationService.sendPasswordResetEmail()` — the delivery half of the
  * native password-reset flow, and the documented override point for projects.
@@ -12,10 +14,13 @@ import { createHash } from 'node:crypto';
  */
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
+import { getEnvironmentConfig } from '../../src/core/common/helpers/config.helper';
 import { CoreBetterAuthEmailVerificationService } from '../../src/core/modules/better-auth/core-better-auth-email-verification.service';
 import { captureExpectedLogs } from '../helpers/expected-log-output';
 
 const USER = { email: 'reset.user@test.com', id: 'u1', name: 'Reset User' };
+/** No .env is read: getEnvironmentConfig() must not pull a developer's local file into this process */
+const MISSING_ENV_FILE = join(tmpdir(), 'nest-server-dev-4056-no-env-file');
 const RESET_URL = 'https://api.test.local/iam/reset-password/JnQ2K8xL5pR7wT1vB4hZ9mCd';
 
 /**
@@ -91,6 +96,7 @@ describe('sendPasswordResetEmail', () => {
 
   afterEach(() => {
     vi.restoreAllMocks();
+    vi.unstubAllEnvs();
     delete process.env.LT_LOG_AUTH_URLS;
   });
 
@@ -220,6 +226,11 @@ describe('sendPasswordResetEmail', () => {
   });
 
   describe('reset-URL logging', () => {
+    // vitest runs unit specs with NODE_ENV=test, and the line also asks the process's own NODE_ENV (fallback cases below)
+    beforeEach(() => {
+      vi.stubEnv('NODE_ENV', 'local');
+    });
+
     it('masks the address and prints the URL outside production', async () => {
       const { service } = createService({ env: 'local' });
 
@@ -289,6 +300,38 @@ describe('sendPasswordResetEmail', () => {
         expect(logSpy.mock.calls.map(c => String(c[0])).find(l => l.includes('[PASSWORD RESET]'))).toBeUndefined();
       },
     );
+
+    /**
+     * @regression   DEV-4056 follow-up — getEnvironmentConfig() answers a NODE_ENV without a configuration key with the
+     *   `local` block, so a deployed stage started with NODE_ENV=development, dev or staging in a project that defines
+     *   none of them ran with `env: 'local'` and printed live verification and reset links into its log pipeline.
+     * @seen-failing Drop the NODE_ENV check from logAuthUrlForDevelopment() in
+     *   src/core/modules/better-auth/core-better-auth-email-verification.service.ts — registered as mutation
+     *   `auth-url-log-trusts-local-fallback` in tests/regression-mutations.json.
+     */
+    it.each(['development', 'dev', 'staging'])(
+      'prints nothing when NODE_ENV=%s fell back to the local configuration',
+      async (nodeEnv) => {
+        vi.stubEnv('NODE_ENV', nodeEnv);
+        const resolved = getEnvironmentConfig({ config: { local: { env: 'local' } }, envPath: MISSING_ENV_FILE });
+        // The fallback this case is about: the deployed stage now claims to be local
+        expect(resolved.env).toBe('local');
+        const { service } = createService({ env: resolved.env });
+
+        await service.sendPasswordResetEmail({ token: 't', url: RESET_URL, user: USER });
+
+        expect(logSpy.mock.calls.map(c => String(c[0])).find(l => l.includes('[PASSWORD RESET]'))).toBeUndefined();
+      },
+    );
+
+    it('prints the link when NODE_ENV is not set, the local default', async () => {
+      vi.stubEnv('NODE_ENV', undefined);
+      const { service } = createService({ env: 'local' });
+
+      await service.sendPasswordResetEmail({ token: 't', url: RESET_URL, user: USER });
+
+      expect(logSpy.mock.calls.map(c => String(c[0])).find(l => l.includes('[PASSWORD RESET]'))).toBeDefined();
+    });
 
     it('prints nothing in local when LT_LOG_AUTH_URLS=0', async () => {
       process.env.LT_LOG_AUTH_URLS = '0';

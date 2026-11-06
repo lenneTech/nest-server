@@ -1004,6 +1004,11 @@ export class CoreBetterAuthEmailVerificationService {
    * and the line's `UserKey` (a pseudonym of the address) must never reach a deployment's logs.
    * `LT_LOG_AUTH_URLS=0` still suppresses the line in the local environments.
    *
+   * The process's own `NODE_ENV` must agree (12.6.0): `getEnvironmentConfig()` answers a `NODE_ENV` without a
+   * configuration key (`development`, `dev`, `staging` in a project that defines none of them) with the `local`
+   * block, whose `env` then claims `local` on a deployed stage. So the line needs both a local `env` and a
+   * `NODE_ENV` that is unset (the `local` default) or itself `local`, `ci` or `e2e`.
+   *
    * The address is masked (PII, and the rest of this file already masks it); the URL is printed in
    * full because following it without a mail server is the whole point locally. `UserKey` tells a
    * test which line is its own when many runs sign up in parallel: the first 16 hex characters of
@@ -1022,6 +1027,10 @@ export class CoreBetterAuthEmailVerificationService {
     }
     const env = this.configService?.getFastButReadOnly<string>('env') ?? process.env.NODE_ENV;
     if (!isLocalEnv(env)) {
+      return;
+    }
+    const nodeEnv = process.env.NODE_ENV;
+    if (nodeEnv && !isLocalEnv(nodeEnv)) {
       return;
     }
     const userKey = createHash('sha256').update(email.trim().toLowerCase()).digest('hex').slice(0, 16);
