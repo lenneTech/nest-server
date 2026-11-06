@@ -65,8 +65,11 @@ export function sessionTokenFromSetCookie(response: globalThis.Response, cookieN
  * - Token in body: the session token becomes {@link SessionTokenPresentation.resolveJwt}'s answer; `session.token`
  *   leaves the body as in sign-in (`mapSession()`). A response that created a session without a top-level token
  *   (passkey verify answers `{ session }`) gains one.
- * - Untouched: error responses, non-JSON bodies, arrays, a JWT (`/token` hands one out on purpose), and a top-level
- *   `token` that is not the session token (another plugin's value).
+ * - Session records (an object with a `token`, a `userId` and an `expiresAt`) lose their `token` in every mode, also
+ *   inside an array: `list-sessions` answered every session of the user with its token (11.43.8). The client revokes a
+ *   session by its `id` instead (`POST /revoke-session` with `{ sessionId }`).
+ * - Untouched: error responses, non-JSON bodies, a JWT (`/token` hands one out on purpose), and a top-level `token`
+ *   that is not the session token (another plugin's value).
  *
  * Returns the response itself when nothing changes, otherwise a new one with the same status and headers.
  */
@@ -83,8 +86,19 @@ export async function presentSessionTokens(
   } catch {
     return response;
   }
-  if (!body || typeof body !== 'object' || Array.isArray(body)) {
+  if (!body || typeof body !== 'object') {
     return response;
+  }
+  if (Array.isArray(body)) {
+    return body.some(isSessionRecord)
+      ? rebuildResponse(
+          response,
+          body.map((item) => (isSessionRecord(item) ? withoutToken(item) : item)),
+        )
+      : response;
+  }
+  if (isSessionRecord(body)) {
+    return rebuildResponse(response, withoutToken(body));
   }
 
   const record = body as Record<string, unknown>;
@@ -129,6 +143,29 @@ export async function presentSessionTokens(
     }
   }
 
+  return rebuildResponse(response, next);
+}
+
+/**
+ * A session as Better-Auth outputs it (`parseSessionOutput()`): its `token` is the bearer credential of that session,
+ * so it never belongs in a body — the `id` identifies the session to the client.
+ */
+function isSessionRecord(value: unknown): value is Record<string, unknown> {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) {
+    return false;
+  }
+  const record = value as Record<string, unknown>;
+  return typeof record.token === 'string' && !!record.token && 'userId' in record && 'expiresAt' in record;
+}
+
+/** The record without its `token` */
+function withoutToken(record: Record<string, unknown>): Record<string, unknown> {
+  const { token: _token, ...rest } = record;
+  return rest;
+}
+
+/** The same response with another JSON body: status and headers kept, every `Set-Cookie` re-appended */
+function rebuildResponse(response: globalThis.Response, body: unknown): globalThis.Response {
   const headers = new Headers();
   response.headers.forEach((value, key) => {
     if (key.toLowerCase() !== 'content-length' && key.toLowerCase() !== 'set-cookie') {
@@ -138,7 +175,7 @@ export async function presentSessionTokens(
   for (const cookie of response.headers.getSetCookie?.() ?? []) {
     headers.append('set-cookie', cookie);
   }
-  return new Response(JSON.stringify(next), { headers, status: response.status, statusText: response.statusText });
+  return new Response(JSON.stringify(body), { headers, status: response.status, statusText: response.statusText });
 }
 
 /** Asks {@link SessionTokenPresentation.isSessionToken}; a lookup that fails cannot vouch for anything */
