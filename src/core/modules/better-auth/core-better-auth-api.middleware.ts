@@ -133,8 +133,7 @@ export class CoreBetterAuthApiMiddleware implements NestMiddleware {
    * already carries a `token` is left as it is (revoking by token keeps working).
    */
   protected async resolveRevokeSessionId(req: Request, relativePath: string): Promise<void> {
-    const path = relativePath.replace(/\/+$/, '').toLowerCase();
-    if (req.method !== 'POST' || path !== '/revoke-session') {
+    if (req.method !== 'POST' || relativePath.replace(/\/+$/, '').toLowerCase() !== '/revoke-session') {
       return;
     }
     const body = req.body as Record<string, unknown> | undefined;

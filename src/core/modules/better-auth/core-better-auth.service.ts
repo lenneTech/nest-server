@@ -1053,7 +1053,9 @@ export class CoreBetterAuthService implements OnApplicationBootstrap, OnModuleIn
     }
     try {
       const context = await (this.getInstance() as { $context?: Promise<any> } | null)?.$context;
-      const sessions: unknown = await context?.internalAdapter?.listSessions?.(userId);
+      // Active sessions only — the query Better-Auth's own list-sessions runs. Without the filter the adapter's default
+      // cap (100 rows, oldest first) could hide every current session behind expired rows MongoDB never removes.
+      const sessions: unknown = await context?.internalAdapter?.listSessions?.(userId, { onlyActiveSessions: true });
       const match = (Array.isArray(sessions) ? sessions : []).find(
         (session: { id?: unknown; userId?: unknown }) =>
           String(session?.id) === sessionId && String(session?.userId) === String(userId),
