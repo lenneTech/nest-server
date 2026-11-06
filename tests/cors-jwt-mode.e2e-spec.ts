@@ -109,13 +109,19 @@ describe('CORS in JWT mode: cross-origin sign-in (e2e)', () => {
   });
 
   it('answers a foreign origin with no CORS grant at all', async () => {
-    const res = await request(app.getHttpServer())
+    // The `cors` package sends `Access-Control-Allow-Credentials: true` to every origin once credentials are on;
+    // what grants (or denies) a browser access is `Access-Control-Allow-Origin` alone.
+    const preflight = await request(app.getHttpServer())
       .options('/iam/sign-in/email')
       .set('Origin', FOREIGN)
       .set('Access-Control-Request-Method', 'POST')
       .set('Access-Control-Request-Headers', 'content-type');
+    const post = await request(app.getHttpServer())
+      .post('/iam/sign-in/email')
+      .set('Origin', FOREIGN)
+      .send({ email, password });
 
-    expect(res.headers['access-control-allow-origin']).toBeUndefined();
-    expect(res.headers['access-control-allow-credentials']).toBeUndefined();
+    expect(preflight.headers['access-control-allow-origin']).toBeUndefined();
+    expect(post.headers['access-control-allow-origin']).toBeUndefined();
   });
 });
