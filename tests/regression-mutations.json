@@ -6803,8 +6803,30 @@
       "id": "rotated-session-token-kept",
       "defect": "12.7.1 (DEV-4129) — the first verify-totp while enabling 2FA rotates the session (new cookie set, old session deleted) and answered with the OLD token; neither the cookie nor the session store recognised it, so the replaced session token still reached the body.",
       "file": "src/core/modules/better-auth/core-better-auth-session-token.helper.ts",
-      "find": "  const rotatedFrom = !!topToken && !isJwtShaped(topToken) && !!cookieToken && topToken !== cookieToken;\n",
-      "replace": "  const rotatedFrom = false;\n",
+      "find": "  const rotatedFrom =\n    answersWithUser && !!topToken && !isJwtShaped(topToken) && !!cookieToken && topToken !== cookieToken;\n",
+      "replace": "  const rotatedFrom = answersWithUser && false;\n",
+      "specs": [
+        "tests/unit/better-auth-session-token-presentation.spec.ts"
+      ],
+      "driverSpecific": false
+    },
+    {
+      "id": "session-cookie-first-of-several-read",
+      "defect": "12.7.1 review — a session refresh during verify-totp sets the CURRENT session's cookie before enabling 2FA sets the new one; the browser keeps the last, the helper read the first, missed the rotation and with the token in the body handed out no token at all.",
+      "file": "src/core/modules/better-auth/core-better-auth-session-token.helper.ts",
+      "find": "    token = value.split('.')[0] || undefined;\n  }\n  return token;\n",
+      "replace": "    token = value.split('.')[0] || undefined;\n    return token;\n  }\n  return token;\n",
+      "specs": [
+        "tests/unit/better-auth-session-token-presentation.spec.ts"
+      ],
+      "driverSpecific": false
+    },
+    {
+      "id": "plugin-token-read-as-rotation",
+      "defect": "12.7.1 review — a session refresh sets the session cookie on any session-protected request; /one-time-token/generate answers { token }, and read as a rotation the one-time token was dropped in cookie mode and replaced by the session JWT with the token in the body.",
+      "file": "src/core/modules/better-auth/core-better-auth-session-token.helper.ts",
+      "find": "  const answersWithUser = !!record.user && typeof record.user === 'object' && !Array.isArray(record.user);\n",
+      "replace": "  const answersWithUser = true;\n",
       "specs": [
         "tests/unit/better-auth-session-token-presentation.spec.ts"
       ],
@@ -6814,8 +6836,8 @@
       "id": "enable-2fa-hands-out-replaced-token",
       "defect": "12.7.1 (DEV-4129) — the first verify-totp while enabling 2FA rotates the session (new cookie set, old session deleted) and answered with the OLD token; neither the cookie nor the session store recognised it, so the replaced session token still reached the body.",
       "file": "src/core/modules/better-auth/core-better-auth-session-token.helper.ts",
-      "find": "  const rotatedFrom = !!topToken && !isJwtShaped(topToken) && !!cookieToken && topToken !== cookieToken;\n",
-      "replace": "  const rotatedFrom = false;\n",
+      "find": "  const rotatedFrom =\n    answersWithUser && !!topToken && !isJwtShaped(topToken) && !!cookieToken && topToken !== cookieToken;\n",
+      "replace": "  const rotatedFrom = answersWithUser && false;\n",
       "specs": [
         "tests/session-token-exposure.e2e-spec.ts"
       ],

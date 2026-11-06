@@ -449,12 +449,20 @@ forwarded response directly — pinned by `tests/unit/better-auth-session-token-
 in `tests/session-token-exposure.e2e-spec.ts` (`list-sessions-hands-out-tokens`, `revoke-session-id-not-wired`), whose
 last case searches every answer of the suite for every session token the users hold.
 
-Two cases the cookie alone does not cover, both found in the release review:
+Cases the cookie alone does not cover, each found in a release review:
 
 - **A signed-in user verifying a second factor** (step-up, an authenticator added next to e-mail OTP) gets
   `{ token: <the session they already hold>, user }` and NO session cookie. Only the store lookup identifies it — the
   shape is otherwise identical to another plugin's token. The lookup runs only for a non-JWT top-level token the
   response does not already name; a failed lookup vouches for nothing.
+- **A rotated session** (12.7.1): the first `verify-totp` while enabling 2FA creates a new session, sets its cookie,
+  deletes the old one and answers `{ token: <the OLD token>, user }`. A response in that `{ token, user }` shape whose
+  body token differs from the session cookie it sets counts as a rotation. The shape is load-bearing: a session
+  refresh (`getSessionFromCtx()`, once per `updateAge`) sets the session cookie on ANY session-protected request, so a
+  plugin's own `{ token }` (`/one-time-token/generate`) can sit next to one. For the same reason the LAST session
+  cookie of a response counts — the refresh sets the current one before the new one. Mutations
+  `rotated-session-token-kept`, `session-cookie-first-of-several-read`, `plugin-token-read-as-rotation`,
+  `enable-2fa-hands-out-replaced-token`.
 - **The cookie's name comes from the instance** (`$context.authCookies.sessionToken.name`, via
   `sessionCookieNameOfInstance()`), not from `getSessionCookieName()`: under `advanced.useSecureCookies` Better-Auth
   sets `__Secure-iam.session_token`, and a passkey sign-in in token-in-body mode — which answers `{ session }` and gains
