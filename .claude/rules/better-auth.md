@@ -441,7 +441,10 @@ a JWT (`/token`) and other plugins' tokens alone. Since 12.6.2 (DEV-4109) a sess
 `expiresAt`) loses its `token` in every mode, also inside an array: `list-sessions` names the sessions by `id`, and
 `POST /revoke-session` takes `{ sessionId }`, which `CoreBetterAuthApiMiddleware.resolveRevokeSessionId()` resolves
 among the caller's own sessions (`CoreBetterAuthService.sessionTokenOfUser()`; an unknown or foreign id becomes an
-empty token, so nothing is revoked and nothing is disclosed); `{ token }` keeps working. Never call `sendWebResponse()` for a
+empty token, so nothing is revoked and nothing is disclosed); `{ token }` keeps working. The caller is looked up under
+the `userId` of its own session, not `user.id` (12.6.3, DEV-4133): the session lookup prefers a STORED `id`, the legacy
+migration writes one next to `_id`, and every session references `_id` — under `user.id` a migrated user's sessions
+were never found (mutations `revoke-session-id-by-stored-user-id`, `migrated-user-revoke-by-id-ends-nothing`). Never call `sendWebResponse()` for a
 forwarded response directly — pinned by `tests/unit/better-auth-session-token-presentation.spec.ts` (mutations
 `session-token-*`, `session-lookup-not-wired`, `session-cookie-name-not-from-instance`,
 `forwarded-session-token-not-presented`, `session-list-tokens-kept`, `revoke-session-id-not-resolved`,
