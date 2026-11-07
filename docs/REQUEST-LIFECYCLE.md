@@ -879,8 +879,10 @@ A parameter declared as `string`, `number` or `boolean` (`@Body('token') token: 
 declared type is erased at runtime. Since 12.8.0 a **plain object** there is answered with 400
 (`#LTNS_0306 [<parameter>]`) before the route runs: `{ "token": { "$ne": null } }` is the shape of a MongoDB operator
 (DEV-4143 set somebody else's password with it). `null` and arrays pass. Not covered: parameters typed as a class (the
-DTO validates them), as `any`, or as a union (`string | undefined` is emitted as `Object`) — guard those values at the
-query with `isQueryableString()`. `security.mapAndValidatePipe.rejectObjectsForPrimitiveTypes: false` switches it off.
+DTO validates them), as `any`, or as a union the compiler emits as `Object` (`tsc` with `strictNullChecks` does so for
+`string | undefined`; SWC emits `String`), and a number at a `string` parameter, which MySQL / MariaDB compare
+numerically — guard those values at the query with `isQueryableString()`.
+`security.mapAndValidatePipe.rejectObjectsForPrimitiveTypes: false` switches it off.
 
 #### Whitelisting via @UnifiedField()
 
