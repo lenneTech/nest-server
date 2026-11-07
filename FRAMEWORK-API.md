@@ -1,6 +1,6 @@
 # @lenne.tech/nest-server — Framework API Reference
 
-> Auto-generated from source code as of 2026-11-07 (v12.7.3)
+> Auto-generated from source code as of 2026-11-07 (v12.8.0)
 > File: `FRAMEWORK-API.md` — compact, machine-readable API surface for Claude Code
 
 ## CoreModule.forRoot()
@@ -252,7 +252,7 @@ When `passkey` is enabled, `trustedOrigins` is required (compile-time enforcemen
 
   - `autoSignInAfterVerification?`: `boolean` (default: `false`) — Whether `GET /iam/verify-email` signs in the browser that opens the verification link.
   - `brevoTemplateId?`: `number` (default: `undefined (uses SMTP/EJS templates)`) — Brevo template ID for verification emails.
-  - `callbackURL?`: `string` (default: `undefined (backend-handled verification)`) — Frontend callback URL for email verification.
+  - `callbackURL?`: `string` (default: `'/auth/verify-email'`) — Frontend callback URL for email verification.
   - `enabled?`: `boolean` (default: `true (enabled by default when BetterAuth is active)`) — Whether email verification is enabled.
   - `expiresIn?`: `number` (default: `86400 (24 hours)`) — Time in seconds until the verification link expires.
   - `locale?`: `string` (default: `'en'`) — Locale for the verification email template.
