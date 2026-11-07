@@ -59,7 +59,7 @@ trap cleanup EXIT
 
 if $WITH_SERVER; then
   log "Starting nest-server in CI mode (rate limit disabled for load testing) ..."
-  NODE_ENV=ci NSC__betterAuth__rateLimit__enabled=false node dist/main.js &
+  NODE_ENV=ci NSC__BETTER_AUTH__RATE_LIMIT__ENABLED=false node dist/main.js &
   SERVER_PID=$!
 
   # Wait for health-check
