@@ -540,10 +540,14 @@ export interface IBetterAuthEmailVerificationConfig {
    *
    * Supports both absolute URLs and relative paths:
    * - Absolute: `https://example.com/auth/verify-email`
-   * - Relative: `/auth/verify-email` (resolved against `appUrl`)
+   * - Relative: `/auth/verify-email` (the default), resolved against the app URL the rest of the framework uses:
+   *   `appUrl`, the localhost default in `local` / `ci` / `e2e`, else derived from `baseUrl`
+   *   (`https://api.example.com` → `https://example.com`) unless `cors.deriveAppUrl` is `false`. When none resolves,
+   *   the mail keeps the backend link below and the service warns once. Until DEV-4140 a relative path without
+   *   `appUrl` resolved against `http://localhost:3001` on every stage.
    *
-   * When not set, the verification link points directly to the backend
-   * endpoint which handles verification and redirects.
+   * An empty value keeps the backend link: it points directly to the backend
+   * endpoint, which handles verification and redirects.
    *
    * Since 11.38.0 the generated link carries the recipient's address as well —
    * `{callbackURL}?token=<token>&email=<address>`. The verification page needs it to offer
@@ -551,7 +555,7 @@ export interface IBetterAuthEmailVerificationConfig {
    * that value lives inside the token's JWT payload, and reading it there would mean rendering
    * data from an unverified signature.
    *
-   * @default undefined (backend-handled verification)
+   * @default '/auth/verify-email'
    * @since 11.13.0
    */
   callbackURL?: string;

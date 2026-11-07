@@ -220,10 +220,8 @@ export class CoreBetterAuthEmailVerificationService {
     let sent = false;
 
     try {
-      // Override URL if callbackURL is configured (frontend-based verification)
-      if (this.config.callbackURL) {
-        url = this.buildFrontendVerificationUrl(token, user.email);
-      }
+      // The app's verification page when callbackURL is configured, Better-Auth's own link otherwise
+      url = this.verificationMailUrl({ email: user.email, token, url });
 
       this.logAuthUrlForDevelopment('EMAIL VERIFICATION', user.email, url);
 
@@ -708,19 +706,57 @@ export class CoreBetterAuthEmailVerificationService {
   }
 
   /**
+   * The link the verification mail carries: the app's verification page when `callbackURL` is configured and resolves
+   * ({@link buildFrontendVerificationUrl}), otherwise the link Better-Auth built (`<baseUrl>/<basePath>/verify-email`,
+   * token sealed), which verifies on the API and redirects from there.
+   *
+   * A relative `callbackURL` with no resolvable app URL keeps Better-Auth's link and warns once — a guessed host
+   * would 404 (DEV-4140).
+   */
+  protected verificationMailUrl(options: { email?: string; token: string; url: string }): string {
+    if (!this.config.callbackURL) {
+      return options.url;
+    }
+    const frontendUrl = this.buildFrontendVerificationUrl(options.token, options.email);
+    if (frontendUrl === undefined && !this.warnedAboutMissingAppUrl) {
+      this.warnedAboutMissingAppUrl = true;
+      this.logger.warn(
+        `No app URL resolves for the verification link (callbackURL "${this.config.callbackURL}" is relative, appUrl is ` +
+          'unset and baseUrl gives none): the mail links to the API instead of the app page. Set NSC__APP_URL, or ' +
+          'NSC__BASE_URL to derive it from.',
+      );
+    }
+    return frontendUrl ?? options.url;
+  }
+
+  /** Whether {@link verificationMailUrl} already warned that no app URL resolves (once per process) */
+  protected warnedAboutMissingAppUrl = false;
+
+  /**
    * Build the frontend verification URL from the configured callbackURL and token.
    *
-   * Resolves relative paths against `appUrl`. Appends the token as a query parameter.
+   * Resolves a relative `callbackURL` against the app URL the rest of the framework uses
+   * (`resolveAppUrlFromConfig()`: explicit `appUrl`, the localhost default in `local` / `ci` / `e2e`, else derived from
+   * `baseUrl` unless `cors.deriveAppUrl` is `false`). Appends the token as a query parameter.
+   *
+   * Until DEV-4140 a relative value was resolved against `appUrl || 'http://localhost:3001'`, so every deployed stage
+   * without `NSC__APP_URL` mailed a link to localhost — while the password-reset link next to it already derived the
+   * app from `baseUrl`.
    *
    * @param token - The verification token from Better-Auth
-   * @returns The full frontend URL with token query parameter
+   * @param email - The recipient's address, appended so the page can offer "send a new email"
+   * @returns The full frontend URL with token query parameter, or `undefined` for a relative `callbackURL` when no app
+   *   URL resolves (the caller then keeps Better-Auth's own link)
    */
-  protected buildFrontendVerificationUrl(token: string, email?: string): string {
+  protected buildFrontendVerificationUrl(token: string, email?: string): string | undefined {
     let baseUrl = this.config.callbackURL!;
 
-    // Resolve relative paths against appUrl
+    // Resolve relative paths against the app URL — the SAME resolver as the password-reset link
     if (baseUrl.startsWith('/')) {
-      const appUrl = this.configService.getFastButReadOnly<string>('appUrl') || 'http://localhost:3001';
+      const appUrl = resolveAppUrlFromConfig(this.configService);
+      if (!appUrl) {
+        return undefined;
+      }
       baseUrl = `${appUrl.replace(/\/$/, '')}${baseUrl}`;
     }
 
