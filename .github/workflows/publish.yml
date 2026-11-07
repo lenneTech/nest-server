@@ -9,6 +9,15 @@ jobs:
   publish:
     name: Publish
     runs-on: ubuntu-latest
+    # Trusted Publishing (OIDC, DEV-3143): npm exchanges this run's GitHub OIDC token for a publish token that expires
+    # within minutes, instead of a long-lived NPM_TOKEN, and signs a provenance statement because the repository is
+    # public. It needs the Trusted Publisher on npmjs.com: lenneTech / nest-server / publish.yml, no environment — the
+    # entry holds for every branch, so release/11.x and release/12.6.x publish through it too. Renaming this file
+    # breaks publishing until that entry is changed. Granted on this job only: `regression-evidence-report` opens
+    # issues and keeps the repository's default token permissions.
+    permissions:
+      id-token: write
+      contents: read
     strategy:
       matrix:
         node-version: [ 24.x ]
@@ -29,11 +38,14 @@ jobs:
         # No version input: the exact version is read from package.json's packageManager field.
         uses: pnpm/action-setup@v6
 
+      # Node 24: npm 12 needs ^24.15.0. `registry-url` writes the .npmrc entry the NPM_TOKEN fallback of the publish step
+      # reads.
       - name: Use Node.js ${{ matrix.node-version }}
         uses: actions/setup-node@v6
         with:
           node-version: ${{ matrix.node-version }}
           cache: 'pnpm'
+          registry-url: https://registry.npmjs.org
 
       - name: Start MongoDB
         uses: supercharge/mongodb-github-action@1.12.1
@@ -140,10 +152,26 @@ jobs:
       - name: PostgreSQL-only consumer (the tarball installed without MongoDB's libraries)
         run: node scripts/check-without-mongodb.mjs --package
 
-      - uses: JS-DevTools/npm-publish@v4
-        with:
-          access: public
-          token: ${{ secrets.NPM_TOKEN }}
+      # Trusted Publishing needs npm >= 11.5.1. npm 12 is the major lenneTech/cli and nuxt-extensions publish with through
+      # OIDC; pinned to that major, not `@latest`, so a new npm major never reaches a release run untried. Installed
+      # only here, after every gate: the gates above run with the runner's npm, as before.
+      - name: npm for Trusted Publishing
+        run: npm install -g npm@12
+
+      # The npm CLI itself, because JS-DevTools/npm-publish takes a token and cannot do OIDC. npm tries OIDC first and
+      # uses NODE_AUTH_TOKEN only when that exchange fails — the case while no Trusted Publisher is configured on
+      # npmjs.com. The token path publishes WITHOUT provenance, so a release without provenance on npm went out with the
+      # token; proven through OIDC is a release for which
+      # https://registry.npmjs.org/-/npm/v1/attestations/@lenne.tech%2fnest-server@<version> answers 200. NPM_TOKEN
+      # stays as the fallback until then (DEV-3143); afterwards delete the `env` block.
+      #
+      # `--ignore-scripts`, as the old action did by default: without it npm runs `prepack` (= `pnpm run build`) and
+      # `prepublishOnly` (lint + the whole suite) here, with the token in their environment, and publishes a second
+      # build instead of the one the gates above checked.
+      - name: Publish
+        run: npm publish --access public --ignore-scripts
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
 
       # A hosted runner is thrown away after the job, so this is a no-op there.
       # It matters on a self-hosted runner, where a leftover `ci-redis` makes the
