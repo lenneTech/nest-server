@@ -38,8 +38,7 @@ jobs:
         # No version input: the exact version is read from package.json's packageManager field.
         uses: pnpm/action-setup@v6
 
-      # Node 24: npm 12 needs ^24.15.0. `registry-url` writes the .npmrc entry the NPM_TOKEN fallback of the publish step
-      # reads.
+      # Node 24: npm 12 needs ^24.15.0. `registry-url` pins the registry npm publishes to.
       - name: Use Node.js ${{ matrix.node-version }}
         uses: actions/setup-node@v6
         with:
@@ -158,20 +157,17 @@ jobs:
       - name: npm for Trusted Publishing
         run: npm install -g npm@12
 
-      # The npm CLI itself, because JS-DevTools/npm-publish takes a token and cannot do OIDC. npm tries OIDC first and
-      # uses NODE_AUTH_TOKEN only when that exchange fails — the case while no Trusted Publisher is configured on
-      # npmjs.com. The token path publishes WITHOUT provenance, so a release without provenance on npm went out with the
-      # token; proven through OIDC is a release for which
-      # https://registry.npmjs.org/-/npm/v1/attestations/@lenne.tech%2fnest-server@<version> answers 200. NPM_TOKEN
-      # stays as the fallback until then (DEV-3143); afterwards delete the `env` block.
+      # The npm CLI itself, because JS-DevTools/npm-publish takes a token and cannot do OIDC. OIDC only since 12.6.5
+      # proved it (DEV-3143: published by "GitHub Actions" with trustedPublisher github, SLSA provenance). No NPM_TOKEN
+      # fallback: were it back, npm would use it silently whenever the OIDC exchange fails and publish without
+      # provenance, so a broken Trusted Publisher would go unnoticed. A failed exchange now fails the publish instead
+      # (rerun it with `gh run rerun --failed`).
       #
       # `--ignore-scripts`, as the old action did by default: without it npm runs `prepack` (= `pnpm run build`) and
-      # `prepublishOnly` (lint + the whole suite) here, with the token in their environment, and publishes a second
+      # `prepublishOnly` (lint + the whole suite) in the step that obtains the publish token, and publishes a second
       # build instead of the one the gates above checked.
       - name: Publish
         run: npm publish --access public --ignore-scripts
-        env:
-          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
 
       # A hosted runner is thrown away after the job, so this is a no-op there.
       # It matters on a self-hosted runner, where a leftover `ci-redis` makes the
