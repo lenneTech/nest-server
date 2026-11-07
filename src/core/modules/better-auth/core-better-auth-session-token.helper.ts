@@ -31,8 +31,13 @@ export interface SessionTokenPresentation {
  * A Better-Auth endpoint that CREATES a session (two-factor verify, passkey verify, OTP and magic-link sign-in, …)
  * sets this cookie; that is how the token in its body is recognised as the session token rather than some other
  * value a plugin names `token`. The cookie value is signed (`<token>.<signature>`, URL-encoded).
+ *
+ * When a response sets the cookie more than once, the LAST one counts, as in the browser: a session refresh during
+ * the request (Better-Auth's `getSessionFromCtx()`, once per `updateAge`) sets the current session's cookie first, and
+ * an endpoint that then replaces the session (enabling 2FA) sets the new one after it (12.7.1).
  */
 export function sessionTokenFromSetCookie(response: globalThis.Response, cookieName: string): string | undefined {
+  let token: string | undefined;
   for (const header of response.headers.getSetCookie?.() ?? []) {
     if (!header.startsWith(`${cookieName}=`)) {
       continue;
@@ -44,10 +49,9 @@ export function sessionTokenFromSetCookie(response: globalThis.Response, cookieN
     } catch {
       value = raw;
     }
-    const token = value.split('.')[0];
-    return token || undefined;
+    token = value.split('.')[0] || undefined;
   }
-  return undefined;
+  return token;
 }
 
 /**
@@ -68,6 +72,10 @@ export function sessionTokenFromSetCookie(response: globalThis.Response, cookieN
  * - Session records (an object with a `token`, a `userId` and an `expiresAt`) lose their `token` in every mode, also
  *   inside an array: `list-sessions` answered every session of the user with its token (12.7.0). The client revokes a
  *   session by its `id` instead (`POST /revoke-session` with `{ sessionId }`).
+ * - A response in the shape `{ token, user }` that sets a new session cookie while its body names another opaque token
+ *   rotated the session (the first verify-totp while enabling 2FA answers with the token of the session it deleted):
+ *   that token is treated as the session token — removed in cookie mode, replaced by the JWT of the NEW session where
+ *   the body carries one (12.7.1). A plugin's own `{ token }` next to a refreshed session cookie is not a rotation.
  * - Untouched: error responses, non-JSON bodies, a JWT (`/token` hands one out on purpose), and a top-level `token`
  *   that is not the session token (another plugin's value).
  *
@@ -109,10 +117,19 @@ export async function presentSessionTokens(
   const sessionFieldToken = typeof session?.token === 'string' && session.token ? session.token : undefined;
   const cookieToken = sessionTokenFromSetCookie(response, options.cookieName);
   const topToken = typeof record.token === 'string' && record.token ? record.token : undefined;
+  // A response that sets a NEW session cookie while its body names another opaque token rotated the session: the
+  // body token is the one it just replaced (and deleted). Better-Auth's first verify-totp while enabling 2FA does that.
+  // Only in the shape of a session-creating answer, `{ token, user }`: a session refresh sets the cookie on ANY
+  // session-protected request, so a plugin's own token (`/one-time-token/generate` answers `{ token }`) can sit next
+  // to a session cookie as well, and must stay what it is.
+  const answersWithUser = !!record.user && typeof record.user === 'object' && !Array.isArray(record.user);
+  const rotatedFrom =
+    answersWithUser && !!topToken && !isJwtShaped(topToken) && !!cookieToken && topToken !== cookieToken;
   const topIsSessionToken =
     !!topToken &&
     !isJwtShaped(topToken) &&
     (topToken === cookieToken ||
+      rotatedFrom ||
       topToken === sessionFieldToken ||
       (await isLiveSessionToken(topToken, options.isSessionToken)));
 
@@ -131,8 +148,9 @@ export async function presentSessionTokens(
       delete next.token;
     }
   } else {
-    // The session token the body should present: the top-level one, else the one this response just set
-    const source = topIsSessionToken ? topToken : !topToken ? cookieToken : undefined;
+    // The session token the body should present: the one this response set when it rotated the session, else the
+    // top-level one, else the one this response just set
+    const source = rotatedFrom ? cookieToken : topIsSessionToken ? topToken : !topToken ? cookieToken : undefined;
     if (source) {
       const presented = await options.resolveJwt(source);
       if (presented) {

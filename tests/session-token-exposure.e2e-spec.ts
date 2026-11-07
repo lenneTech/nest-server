@@ -20,6 +20,7 @@
  */
 import { Test } from '@nestjs/testing';
 import { PubSub } from 'graphql-subscriptions';
+import * as OTPAuth from 'otpauth';
 import request from 'supertest';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 
@@ -43,6 +44,7 @@ describe('Session tokens never reach a body (e2e)', () => {
   const stamp = `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
   const emailA = `token-exposure-a-${stamp}@test.com`;
   const emailB = `token-exposure-b-${stamp}@test.com`;
+  const emailC = `token-exposure-c-${stamp}@test.com`;
   const password = 'Token-Exposure-1';
   /** Every answer body this suite received, for the general guard */
   const bodies: unknown[] = [];
@@ -91,12 +93,14 @@ describe('Session tokens never reach a body (e2e)', () => {
 
     await signUp(emailA);
     await signUp(emailB);
+    await signUp(emailC);
   });
 
   afterAll(async () => {
     if (iamDb) {
       await iamDb.deleteUsers({ email: emailA });
       await iamDb.deleteUsers({ email: emailB });
+      await iamDb.deleteUsers({ email: emailC });
       await iamDb.close();
     }
     await app?.close();
@@ -150,6 +154,40 @@ describe('Session tokens never reach a body (e2e)', () => {
 
     expect(res.status).toBeLessThan(500);
     expect(await iamDb.findSession(victim.token), "the other user's session survives").not.toBeNull();
+  });
+
+  /**
+   * @regression   12.7.1 (DEV-4129) — the first verify-totp while enabling 2FA rotates the session: it sets the new
+   *   session's cookie, deletes the old session and answered with the OLD token in the body.
+   * @seen-failing Never treat a token next to a newly set session cookie as rotated in presentSessionTokens() in
+   *   src/core/modules/better-auth/core-better-auth-session-token.helper.ts — registered as mutation
+   *   `enable-2fa-hands-out-replaced-token` in tests/regression-mutations.json.
+   */
+  it('enabling 2FA rotates the session without handing out the replaced token', async () => {
+    const holder = await signIn(emailC);
+    const enable = record(
+      await request(server).post('/iam/two-factor/enable').set('Cookie', holder.cookie).send({ password }).expect(200),
+    );
+    const secret = String(enable.body?.totpURI).match(/secret=([A-Z2-7]+)/i)?.[1];
+    expect(secret, 'enable answers a TOTP URI with a secret').toBeTruthy();
+    const code = new OTPAuth.TOTP({
+      algorithm: 'SHA1',
+      digits: 6,
+      period: 30,
+      secret: OTPAuth.Secret.fromBase32(secret!),
+    }).generate();
+
+    const verify = record(
+      await request(server).post('/iam/two-factor/verify-totp').set('Cookie', holder.cookie).send({ code }).expect(200),
+    );
+    const rotated = ([] as string[])
+      .concat(verify.headers['set-cookie'] ?? [])
+      .find((header) => header.startsWith(`${cookieName}=`));
+    if (rotated) {
+      tokens.push(decodeURIComponent(rotated.split(';')[0].slice(cookieName.length + 1)).split('.')[0]);
+    }
+
+    expect(JSON.stringify(verify.body), 'the replaced session token stays out of the body').not.toContain(holder.token);
   });
 
   it('no answer this suite received carries a session token (general guard)', async () => {
