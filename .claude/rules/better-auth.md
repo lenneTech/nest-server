@@ -108,8 +108,8 @@ Before completing any Better-Auth changes:
       `session-lookup-object-token-matched`, and `tests/session-token-cookie-type.e2e-spec.ts`)
       Since 12.8.0 two framework layers close the class (DEV-4144): `MapAndValidatePipe` refuses an object at a
       `string` / `number` / `boolean` parameter, and `StringCookiesMiddleware` drops non-string cookies. The guards at
-      the individual queries stay — union-typed parameters, DTO fields without a type validator and aggregations are
-      not covered by either layer
+      the individual queries stay — union-typed parameters, DTO fields without a type validator, a number at a
+      `string` parameter (MySQL / MariaDB compare it numerically) and aggregations are not covered by either layer
 
 ### Example: Challenge Storage
 

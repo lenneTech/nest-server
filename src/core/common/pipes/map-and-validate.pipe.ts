@@ -706,8 +706,11 @@ const PRIMITIVE_METATYPES: readonly unknown[] = [String, Number, Boolean];
  * and a MongoDB filter read it as an operator (DEV-4143: a reset token that set somebody else's password). Only a
  * PLAIN OBJECT is refused: an operator always is one. `null` passes (clearing an optional field is legitimate; the
  * query guards handle it), and so does an array (a repeated query key, `?tag=a&tag=b`, arrives as one and selects
- * nothing in a filter). A parameter typed as a class, as `any` or as a union (`string | undefined`, which TypeScript
- * emits as `Object`) is not covered — its value is validated by its DTO or, for a union, by the guard at the query.
+ * nothing in a filter). A parameter typed as a class, as `any` or as a union the compiler emits as `Object` is not
+ * covered — its value is validated by its DTO or by the guard at the query. (`tsc` with `strictNullChecks` emits
+ * `string | undefined` as `Object`; SWC and `tsc` without it emit `String`, and the parameter is covered.) A number
+ * at a `string` parameter passes on purpose — a client may send a numeric code as a number — so a lookup on MySQL /
+ * MariaDB, which compare a number numerically, still checks its value with `isQueryableString()`.
  *
  * Exported for tests and for project pipes that replace this one.
  */
