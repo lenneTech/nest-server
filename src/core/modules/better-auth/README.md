@@ -2099,11 +2099,17 @@ When a user is deleted:
    db.account.findOne({ userId: ObjectId('...'), providerId: 'credential' });
    ```
 
-   From better-auth 1.7 the row must ALSO carry `issuer: 'local:credential'`. A row matching only
-   `providerId` is not usable — better-auth keys accounts by `(issuer, accountId)` and will not find
-   it, so sign-in answers 401 while this query happily reports that the account exists:
+   On better-auth 1.7.3 and later (nest-server requires 1.7.16 or later) that query is the whole
+   check: rows carry no `issuer`, and an `issuer` filter finds nothing for every user — that is
+   expected, not the cause of a 401. Do not write `issuer` fields by hand.
+
+   Only on better-auth 1.7.0–1.7.2 (see [Boot-Time Behaviour](#boot-time-behaviour)) must the row ALSO
+   carry `issuer: 'local:credential'`. There a row matching only `providerId` is not usable — those
+   versions key accounts by `(issuer, accountId)` and will not find it, so sign-in answers 401 while
+   the query above reports that the account exists:
 
    ```javascript
+   // better-auth 1.7.0–1.7.2 only
    db.account.findOne({ issuer: 'local:credential', providerId: 'credential', userId: ObjectId('...') });
    ```
 
