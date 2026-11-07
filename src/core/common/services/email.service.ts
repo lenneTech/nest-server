@@ -105,6 +105,24 @@ export class EmailService implements OnModuleDestroy {
     return undefined;
   }
 
+  /**
+   * Whether a mail sent with this transport configuration actually leaves the process (12.7.2, DEV-4131).
+   *
+   * nodemailer's `jsonTransport` and `streamTransport` only RENDER a mail: `sendMail()` resolves like a delivery, and
+   * nothing is sent. A starter-based project uses `jsonTransport` locally whenever no `SMTP_HOST` is set, so a caller
+   * that logs "sent" after `sendMail()` tells a developer a mail is on its way that never will be. Ask this before
+   * claiming a delivery. A send the Hub mailbox captured answers `captured: true` instead — see `sendMail()`.
+   *
+   * @param smtp - The transport options to judge; defaults to `email.smtp` from the configuration.
+   */
+  public deliversMail(smtp: MailTransportOptions = this.configService.get('email.smtp')): boolean {
+    if (typeof smtp !== 'object' || smtp === null) {
+      return true;
+    }
+    const options = smtp as Record<string, unknown>;
+    return !options.jsonTransport && !options.streamTransport;
+  }
+
   onModuleDestroy(): void {
     if (this.cachedTransporter) {
       this.cachedTransporter.close();

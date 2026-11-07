@@ -538,7 +538,7 @@ export class CoreAuthService {
       const migrated = await this.betterAuthUserMapper.migrateAccountToIam(email, plainPassword);
 
       if (migrated) {
-        this.logger.log(`Migrated Legacy user ${email} to IAM`);
+        // The mapper logs a real migration itself, with the address masked (12.7.2, DEV-4128)
 
         // Refresh user to get updated iamId
         const updatedUser = await this.userService.getViaEmail(email, { force: true });
