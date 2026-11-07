@@ -26,6 +26,7 @@ import {
   shouldConvertSessionTokenToJwt,
 } from '../../common/helpers/cookies.helper.js';
 import { type ExpirySweep, scheduleExpirySweep } from '../../common/persistence/expiry-sweep.js';
+import { isQueryableString } from '../../common/helpers/input.helper.js';
 import { maskEmail, maskToken } from '../../common/helpers/logging.helper.js';
 import { type IBetterAuth, ICookiesConfig } from '../../common/interfaces/server-options.interface.js';
 import { ConfigService } from '../../common/services/config.service.js';
@@ -1203,11 +1204,17 @@ export class CoreBetterAuthService implements OnApplicationBootstrap, OnModuleDe
    * and returns the associated user. Useful for verifying session tokens
    * passed via Authorization header.
    *
+   * A value that is not a non-empty string finds no session (DEV-4138): `token` reaches a raw `$match` below, so an
+   * object such as `{ $ne: null }` — what cookie-parser makes of a `j:` cookie — would be read as a query operator and
+   * select somebody else's session; on MySQL / MariaDB a number (`j:7`) is compared numerically and matches every token
+   * starting with `7`. The check sits here, before both branches, because projects call this method with cookie values
+   * of their own.
+   *
    * @param token - The session token to look up
    * @returns Session and user data, or null if not found/expired
    */
   async getSessionByToken(token: string): Promise<SessionResult> {
-    if (!this.isEnabled()) {
+    if (!isQueryableString(token) || !this.isEnabled()) {
       return { session: null, user: null };
     }
     const sql = getBetterAuthSqlStore();
