@@ -3191,7 +3191,43 @@ export interface IServerOptions {
            * @default 'strip'
            */
           nonWhitelistedFields?: 'strip' | 'error' | false;
+
+          /**
+           * Answer 400 (`#LTNS_0306`) when a request value arrives as an object where the route declares a
+           * string, number or boolean: `@Body('token') token: string`, likewise `@Query(…)` and `@Param(…)`.
+           *
+           * Such a parameter used to receive the value unchecked — the declared type is erased at runtime — so
+           * `{ "token": { "$ne": null } }` reached the service as a MongoDB operator (DEV-4143: a password-reset
+           * token that set somebody else's password). Only a plain object is refused; `null` and arrays pass.
+           * Not covered: parameters typed as a class (validated by their DTO), as `any`, or as a union
+           * (`string | undefined` is emitted as `Object`). Guard those values at the query with
+           * `isQueryableString()`.
+           *
+           * Only an explicit `false` switches the check off.
+           *
+           * @default true
+           * @since 11.44.0
+           */
+          rejectObjectsForPrimitiveTypes?: boolean;
         };
+
+    /**
+     * Remove every cookie value that is not a string from `req.cookies` (and from `req.signedCookies`
+     * everything but strings and `false`, cookie-parser's invalid-signature marker) before any middleware or
+     * guard reads it.
+     *
+     * cookie-parser turns a cookie value starting with `j:` into the parsed JSON, so
+     * `iam.session_token=j:{"$ne":null}` arrived as an object and a session lookup read it as an operator
+     * (DEV-4138). The framework writes only string cookies.
+     * Implemented by `StringCookiesMiddleware`, registered by `CoreModule` for all routes.
+     *
+     * Only an explicit `false` switches it off (for a project that deliberately writes object cookies with
+     * `res.cookie(name, object)` and reads them back).
+     *
+     * @default true
+     * @since 11.44.0
+     */
+    stringCookiesOnly?: boolean;
 
     /**
      * Answer a Mongoose `CastError` caused by the client as a client error instead of a 500.

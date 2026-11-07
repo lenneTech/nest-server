@@ -3266,6 +3266,50 @@
         "tests/unit/verification-link.spec.ts"
       ],
       "driverSpecific": false
+    },
+    {
+      "id": "primitive-param-object-accepted",
+      "defect": "DEV-4144 — MapAndValidatePipe returned a plain object unchecked for a parameter declared as String / Number / Boolean, so a MongoDB operator reached the service.",
+      "file": "src/core/common/pipes/map-and-validate.pipe.ts",
+      "find": "    if (this.rejectObjectsForPrimitiveTypes && receivesObjectForPrimitive(value, metadata)) {\n",
+      "replace": "    if (false && this.rejectObjectsForPrimitiveTypes && receivesObjectForPrimitive(value, metadata)) {\n",
+      "specs": [
+        "tests/unit/primitive-param-objects.spec.ts"
+      ],
+      "driverSpecific": false
+    },
+    {
+      "id": "object-cookie-kept",
+      "defect": "DEV-4144 — non-string values (cookie-parser's parse of a `j:` cookie) stayed in req.cookies for every reader downstream.",
+      "file": "src/core/common/middlewares/string-cookies.middleware.ts",
+      "find": "      if (typeof value === 'string' || (keepFalse && value === false)) {\n",
+      "replace": "      if (true || typeof value === 'string' || (keepFalse && value === false)) {\n",
+      "specs": [
+        "tests/unit/primitive-param-objects.spec.ts"
+      ],
+      "driverSpecific": false
+    },
+    {
+      "id": "primitive-param-object-reaches-route",
+      "defect": "DEV-4144 — over HTTP, an operator object for @Body('token') token: string reached the reference UserController's service (DEV-4143).",
+      "file": "src/core/common/pipes/map-and-validate.pipe.ts",
+      "find": "    if (this.rejectObjectsForPrimitiveTypes && receivesObjectForPrimitive(value, metadata)) {\n",
+      "replace": "    if (false && this.rejectObjectsForPrimitiveTypes && receivesObjectForPrimitive(value, metadata)) {\n",
+      "specs": [
+        "tests/primitive-param-objects.e2e-spec.ts"
+      ],
+      "driverSpecific": false
+    },
+    {
+      "id": "string-cookies-middleware-not-registered",
+      "defect": "DEV-4144 — without the middleware a `j:` cookie reached every route as an object or number.",
+      "file": "src/core.module.ts",
+      "find": "    consumer.apply(StringCookiesMiddleware).forRoutes('*');\n",
+      "replace": "",
+      "specs": [
+        "tests/primitive-param-objects.e2e-spec.ts"
+      ],
+      "driverSpecific": false
     }
   ]
 }

@@ -106,6 +106,10 @@ Before completing any Better-Auth changes:
       value is read: projects call `getSessionByToken()` with cookie values of their own (pinned by
       `tests/unit/better-auth-session-token-type.spec.ts`, mutations `session-cookie-object-accepted`,
       `session-lookup-object-token-matched`, and `tests/session-token-cookie-type.e2e-spec.ts`)
+      Since 11.44.0 (12.8.0 on 12.x) two framework layers close the class (DEV-4144): `MapAndValidatePipe` refuses an object at a
+      `string` / `number` / `boolean` parameter, and `StringCookiesMiddleware` drops non-string cookies. The guards at
+      the individual queries stay — union-typed parameters, DTO fields without a type validator and aggregations are
+      not covered by either layer
 
 ### Example: Challenge Storage
 
