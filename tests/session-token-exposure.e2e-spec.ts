@@ -164,9 +164,11 @@ describe('Session tokens never reach a body (e2e)', () => {
     const keep = await signIn(emailMigrated);
     const end = await signIn(emailMigrated);
     if (iamDb.driver === 'mongodb') {
-      const stored = await iamDb.findUser({ email: emailMigrated });
+      // The raw document: findUser() answers `id` as `_id`, which would hide the very field this case is about
+      const stored = await iamDb.mongo.collection('users').findOne({ email: emailMigrated });
       expect(stored?.id, 'precondition: the migration wrote an id of its own next to _id').toBeTruthy();
-      expect(String(stored?.id), 'precondition: that id is not _id').not.toBe(userId);
+      expect(String(stored?.id), 'precondition: that id is not _id').not.toBe(String(stored?._id));
+      expect(String(stored?._id)).toBe(userId);
     }
     const ended = await iamDb.findSession(end.token);
     expect(ended?.id, 'the session exists before').toBeTruthy();
