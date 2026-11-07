@@ -24,6 +24,7 @@ import {
   isExposeTokenInBodyEnabled,
   shouldConvertSessionTokenToJwt,
 } from '../../common/helpers/cookies.helper';
+import { isQueryableString } from '../../common/helpers/input.helper';
 import { maskEmail, maskToken } from '../../common/helpers/logging.helper';
 import { IBetterAuth, ICookiesConfig } from '../../common/interfaces/server-options.interface';
 import { ConfigService } from '../../common/services/config.service';
@@ -1170,11 +1171,16 @@ export class CoreBetterAuthService implements OnApplicationBootstrap, OnModuleIn
    * and returns the associated user. Useful for verifying session tokens
    * passed via Authorization header.
    *
+   * A value that is not a non-empty string finds no session (DEV-4138): `token` reaches a raw `$match` below, so an
+   * object such as `{ $ne: null }` — what cookie-parser makes of a `j:` cookie — would be read as a query operator and
+   * select somebody else's session. The check sits here, at the query, because projects call this method with cookie
+   * values of their own.
+   *
    * @param token - The session token to look up
    * @returns Session and user data, or null if not found/expired
    */
   async getSessionByToken(token: string): Promise<SessionResult> {
-    if (!this.isEnabled() || !this.connection?.db) {
+    if (!isQueryableString(token) || !this.isEnabled() || !this.connection?.db) {
       return { session: null, user: null };
     }
 
