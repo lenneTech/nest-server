@@ -692,6 +692,10 @@ export class CoreBetterAuthUserMapper implements OnApplicationBootstrap, OnModul
         userId: userMongoId,
       });
 
+      // Logged HERE, where an account is actually created (12.7.2, DEV-4128): `true` also answers "the credential
+      // account exists already" — every sign-in of every user with a synchronised legacy password — and the callers
+      // logged "Migrated legacy user" for that, also for users registered a minute earlier
+      this.logger.log(`Migrated legacy user ${maskEmail(userEmail)} to IAM`);
       return true;
     } catch (error) {
       this.logger.error(`Error migrating account to IAM: ${error instanceof Error ? error.message : 'Unknown error'}`);
@@ -1467,6 +1471,8 @@ export class CoreBetterAuthUserMapper implements OnApplicationBootstrap, OnModul
         providerId: 'credential',
         userId: legacyUser.id,
       });
+      // Logged where the account is created, as on MongoDB (12.7.2, DEV-4128)
+      this.logger.log(`Migrated legacy user ${maskEmail(userEmail)} to IAM`);
       return true;
     } catch (error) {
       this.logger.error(`Error migrating account to IAM: ${error instanceof Error ? error.message : 'Unknown error'}`);

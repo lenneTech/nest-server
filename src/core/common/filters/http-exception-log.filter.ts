@@ -3,6 +3,7 @@ import {
   Catch,
   ExceptionFilter,
   HttpException,
+  HttpStatus,
   Logger,
   ServiceUnavailableException,
 } from '@nestjs/common';
@@ -22,8 +23,13 @@ export class HttpExceptionLogFilter implements ExceptionFilter {
    * Log exception
    */
   catch(exception: HttpException, host: ArgumentsHost) {
-    // Log
-    exceptionLogger.debug(exception.stack);
+    // Log. A 404 is an answer, not a failure, so it gets one line without the stack (12.7.2, DEV-4128): the frontends
+    // ask `GET /ai/status` on every page, and with the AI module off each of those answers logged a stack trace.
+    if (exception.getStatus() === HttpStatus.NOT_FOUND) {
+      exceptionLogger.debug(`404 ${exception.message}`);
+    } else {
+      exceptionLogger.debug(exception.stack);
+    }
 
     // GraphQL
     const type = host.getType<GqlContextType>();

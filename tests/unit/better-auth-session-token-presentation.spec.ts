@@ -362,6 +362,29 @@ describe('revoke-session by id (DEV-4109)', () => {
     expect(sessionTokenOfUser).toHaveBeenCalledWith('u1', 's2');
   });
 
+  /**
+   * @regression   12.7.2 (DEV-4133) — the caller was looked up by `user.id`, which the session lookup takes from a
+   *   STORED `id` first; the legacy migration writes one of its own next to `_id`, while every session references
+   *   `_id`. For a migrated user no session was found, and revoke-session by id ended nothing.
+   * @seen-failing Read only `betterAuthSession.user.id` in resolveRevokeSessionId() in
+   *   src/core/modules/better-auth/core-better-auth-api.middleware.ts — registered as mutation
+   *   `revoke-session-id-by-stored-user-id` in tests/regression-mutations.json.
+   */
+  it("looks the session up under the session's userId when the user carries a stored id of its own", async () => {
+    const { mw, sessionTokenOfUser } = middleware();
+    const req = {
+      betterAuthSession: { session: { userId: '64f0c0ffee0c0ffee0c0ffee' }, user: { id: 'migrated-string-id' } },
+      betterAuthUser: { id: 'migrated-string-id' },
+      body: { sessionId: 's2' },
+      method: 'POST',
+    } as any;
+    await mw.resolveRevokeSessionId(req, '/revoke-session');
+
+    expect(req.body).toEqual({ token: 'tok-2' });
+    expect(sessionTokenOfUser).toHaveBeenCalledWith('64f0c0ffee0c0ffee0c0ffee', 's2');
+    expect(sessionTokenOfUser).not.toHaveBeenCalledWith('migrated-string-id', 's2');
+  });
+
   it('turns an id it cannot resolve into an empty token, so Better-Auth revokes nothing', async () => {
     const { mw } = middleware();
     const req = request({ sessionId: 's-of-someone-else' });

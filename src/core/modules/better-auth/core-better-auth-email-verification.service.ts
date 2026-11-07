@@ -289,21 +289,22 @@ export class CoreBetterAuthEmailVerificationService {
           name: user.name || user.email.split('@')[0],
         };
 
+        let info: unknown;
         if (resolved.isAbsolute) {
           // Fallback template from nest-server: render directly via EJS (compiled once)
           const html = this.renderFrameworkTemplate(resolved.path, templateData);
 
-          await this.emailService.sendMail(user.email, this.getEmailSubject(appName), { html });
+          info = await this.emailService.sendMail(user.email, this.getEmailSubject(appName), { html });
         } else {
           // Project template: use TemplateService (relative path)
-          await this.emailService.sendMail(user.email, this.getEmailSubject(appName), {
+          info = await this.emailService.sendMail(user.email, this.getEmailSubject(appName), {
             htmlTemplate: resolved.path,
             templateData,
           });
         }
 
         sent = true;
-        this.logger.debug(`Verification email sent to ${this.maskEmail(user.email)}`);
+        this.logAuthMailOutcome('Verification', 'EMAIL VERIFICATION', user.email, info);
       } catch (error) {
         this.logger.error(
           `Failed to send verification email to ${this.maskEmail(user.email)}: ${error instanceof Error ? error.message : 'Unknown error'}`,
@@ -424,20 +425,21 @@ export class CoreBetterAuthEmailVerificationService {
         const resolved = await this.resolveTemplatePath(PASSWORD_RESET_TEMPLATE, this.config.locale);
         const subject = this.getPasswordResetSubject(appName);
 
+        let info: unknown;
         if (resolved.isAbsolute) {
           // nest-server fallback template: render directly via EJS (compiled once, see the helper)
           const html = this.renderFrameworkTemplate(resolved.path, templateData);
-          await this.emailService.sendMail(user.email, subject, { html });
+          info = await this.emailService.sendMail(user.email, subject, { html });
         } else {
           // Project template: use TemplateService (relative path)
-          await this.emailService.sendMail(user.email, subject, {
+          info = await this.emailService.sendMail(user.email, subject, {
             htmlTemplate: resolved.path,
             templateData,
           });
         }
 
         sent = true;
-        this.logger.debug(`Password-reset email sent to ${this.maskEmail(user.email)}`);
+        this.logAuthMailOutcome('Password-reset', 'PASSWORD RESET', user.email, info);
       } catch (error) {
         this.logger.error(
           `Failed to send password-reset email to ${this.maskEmail(user.email)}: ${error instanceof Error ? error.message : 'Unknown error'}`,
@@ -1051,22 +1053,62 @@ export class CoreBetterAuthEmailVerificationService {
    * token into `HubLogBufferService`'s ring buffer, which is readable over HTTP by any ADMIN.
    */
   protected logAuthUrlForDevelopment(label: string, email: string, url: string): void {
-    if (process.env.LT_LOG_AUTH_URLS === '0') {
-      return;
-    }
-    const env = this.configService?.getFastButReadOnly<string>('env') ?? process.env.NODE_ENV;
-    if (!isLocalEnv(env)) {
-      return;
-    }
-    // `!== undefined`, not truthiness: an empty NODE_ENV (`NODE_ENV=${NODE_ENV}` in a compose file on a host without
-    // the variable) is read as `local` by getEnvironmentConfig(), and `isLocalEnv('')` is false
-    const nodeEnv = process.env.NODE_ENV;
-    if (nodeEnv !== undefined && !isLocalEnv(nodeEnv)) {
+    if (!this.logsAuthUrlsForDevelopment()) {
       return;
     }
     const userKey = createHash('sha256').update(email.trim().toLowerCase()).digest('hex').slice(0, 16);
     // oxlint-disable-next-line no-console
     console.log(`[${label}] User: ${maskEmail(email)}, UserKey: ${userKey}, URL: ${url}`);
+  }
+
+  /**
+   * Whether {@link logAuthUrlForDevelopment} prints its line in this process (the rules are documented there). Its own
+   * method since 12.7.2, so the outcome line of a send can say where the link is (DEV-4131).
+   */
+  protected logsAuthUrlsForDevelopment(): boolean {
+    if (process.env.LT_LOG_AUTH_URLS === '0') {
+      return false;
+    }
+    const env = this.configService?.getFastButReadOnly<string>('env') ?? process.env.NODE_ENV;
+    if (!isLocalEnv(env)) {
+      return false;
+    }
+    // `!== undefined`, not truthiness: an empty NODE_ENV (`NODE_ENV=${NODE_ENV}` in a compose file on a host without
+    // the variable) is read as `local` by getEnvironmentConfig(), and `isLocalEnv('')` is false
+    const nodeEnv = process.env.NODE_ENV;
+    if (nodeEnv !== undefined && !isLocalEnv(nodeEnv)) {
+      return false;
+    }
+    return true;
+  }
+
+  /**
+   * Logs what became of an auth mail handed to the EmailService (12.7.2, DEV-4131). A transport that only renders mail
+   * (`jsonTransport`, what a starter-based project uses locally without `SMTP_HOST`) resolves like a delivery; logging
+   * "sent" then told a developer to check an inbox no mail would ever reach, with the link lost between debug lines.
+   * Such a send is now a WARN saying that nothing went out and where the link is; a send the Hub mailbox captured says
+   * so; only a real delivery reads "sent".
+   *
+   * @param kind - `Verification` or `Password-reset`
+   * @param label - The label of the development log line that carries the link (`EMAIL VERIFICATION`, `PASSWORD RESET`)
+   * @param info - What `EmailService.sendMail()` answered
+   */
+  protected logAuthMailOutcome(kind: string, label: string, email: string, info: unknown): void {
+    const masked = maskEmail(email);
+    if ((info as { captured?: unknown } | null | undefined)?.captured === true) {
+      this.logger.debug(`${kind} email for ${masked} captured in the Hub mailbox, not delivered`);
+      return;
+    }
+    if (this.emailService?.deliversMail?.() === false) {
+      const where = this.logsAuthUrlsForDevelopment()
+        ? `Open the link from the [${label}] line above.`
+        : 'Configure email.smtp (SMTP_HOST) to deliver it.';
+      this.logger.warn(
+        `No ${kind.toLowerCase()} email was sent to ${masked}: no mail server is configured, the transport only renders mail (email.smtp.jsonTransport / streamTransport). ${where}`,
+      );
+      return;
+    }
+    this.logger.debug(`${kind} email sent to ${masked}`);
   }
 
   protected getAppName(): string {

@@ -180,10 +180,18 @@ export class CoreBetterAuthApiMiddleware implements NestMiddleware {
       return;
     }
     const caller = req as unknown as {
-      betterAuthSession?: { user?: { id?: unknown } };
+      betterAuthSession?: { session?: { userId?: unknown }; user?: { id?: unknown } };
       betterAuthUser?: { id?: unknown };
     };
-    const userId = caller.betterAuthSession?.user?.id ?? caller.betterAuthUser?.id;
+    // The id the sessions are stored under, from the caller's own session (12.7.2, DEV-4133). `user.id` is not it for
+    // every user: the session lookup prefers a STORED `id`, and the legacy migration (`migrateAccountToIam()`) writes
+    // one of its own next to `_id`, which is what every session references — so a migrated user's sessions were never
+    // found and nothing was revoked. The ownership check stays in sessionTokenOfUser().
+    const sessionUserId = caller.betterAuthSession?.session?.userId;
+    const userId =
+      (typeof sessionUserId === 'string' && sessionUserId ? sessionUserId : undefined) ??
+      caller.betterAuthSession?.user?.id ??
+      caller.betterAuthUser?.id;
     const token =
       typeof userId === 'string' && userId
         ? await this.betterAuthService.sessionTokenOfUser(userId, sessionId)

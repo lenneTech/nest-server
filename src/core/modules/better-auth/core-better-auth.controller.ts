@@ -408,11 +408,10 @@ export class CoreBetterAuthController {
 
     // Step 1: Try legacy user migration BEFORE Better Auth handles the request
     // This allows users who exist in legacy system to be migrated automatically
+    // `true` also means "already migrated" (every sign-in of a user with a synchronised legacy password); the mapper
+    // logs a real migration itself (12.7.2, DEV-4128)
     try {
-      const migrated = await this.userMapper.migrateAccountToIam(input.email, input.password);
-      if (migrated) {
-        this.logger.debug(`Migrated legacy user ${maskEmail(input.email)} to IAM`);
-      }
+      await this.userMapper.migrateAccountToIam(input.email, input.password);
     } catch (error) {
       // Migration failure is not fatal - user might not exist in legacy or already migrated
       this.logger.debug(`Legacy migration check: ${error instanceof Error ? error.message : 'not needed'}`);

@@ -373,7 +373,7 @@ export class CoreBetterAuthResolver {
         const migrated = await this.userMapper.migrateAccountToIam(email, password);
         this.logger.debug(`[SignIn] Migration result for ${maskEmail(email)}: ${migrated}`);
         if (migrated) {
-          this.logger.debug(`[SignIn] Migrated legacy user ${maskEmail(email)} to IAM, retrying sign-in`);
+          this.logger.debug(`[SignIn] IAM account of ${maskEmail(email)} is ready, retrying sign-in`);
           // Retry sign-in after migration with normalized password (as migrateAccountToIam stores it)
           const normalizedPassword = this.userMapper.normalizePasswordForIam(password);
           return this.attemptSignInDirect(email, normalizedPassword, api);

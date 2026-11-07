@@ -13,6 +13,7 @@ import {
   handleFatalBootstrapError,
   installProcessDiagnostics,
 } from './core/common/helpers/process-diagnostics.helper.js';
+import { serverDisplayUrl } from './core/common/helpers/server-url.helper.js';
 import { setupSwagger } from './core/common/helpers/swagger.helper.js';
 import { CorePersistenceModel } from './core/common/models/core-persistence.model.js';
 import { CoreAuthModel } from './core/modules/auth/core-auth.model.js';
@@ -129,7 +130,7 @@ async function bootstrap() {
 
   // Start server on configured port
   await server.listen(envConfig.port, envConfig.hostname);
-  console.debug(`Server started at ${await server.getUrl()}`);
+  console.debug(`Server started at ${await serverDisplayUrl(server)}`);
 
   // Run command after server init
   if (envConfig.execAfterInit) {
