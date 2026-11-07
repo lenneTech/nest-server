@@ -6919,6 +6919,17 @@
         "tests/unit/local-log-messages.spec.ts"
       ],
       "driverSpecific": false
+    },
+    {
+      "id": "test-infra-leaves-anonymous-volumes",
+      "defect": "test-infra — down and the recreation of an exited container in up removed containers with docker rm -f, leaving their anonymous volumes behind.",
+      "file": "scripts/test-infra.mjs",
+      "find": "  return run('docker', ['rm', '-f', '-v', name]);\n",
+      "replace": "  return run('docker', ['rm', '-f', name]);\n",
+      "specs": [
+        "tests/unit/test-infra-volumes.spec.ts"
+      ],
+      "driverSpecific": false
     }
   ]
 }
