@@ -3147,6 +3147,17 @@
       "driverSpecific": false
     },
     {
+      "id": "revoke-session-id-by-stored-user-id",
+      "defect": "11.43.9 (DEV-4133) — resolveRevokeSessionId() looked the caller's sessions up under user.id, which the session lookup takes from a STORED id first; the legacy migration writes one of its own next to _id, every session references _id, so revoke-session by id ended nothing for a migrated user.",
+      "file": "src/core/modules/better-auth/core-better-auth-api.middleware.ts",
+      "find": "    const userId =\n      (typeof sessionUserId === 'string' && sessionUserId ? sessionUserId : undefined) ??\n      caller.betterAuthSession?.user?.id ??\n      caller.betterAuthUser?.id;\n",
+      "replace": "    const userId = (sessionUserId && undefined) ?? caller.betterAuthSession?.user?.id ?? caller.betterAuthUser?.id;\n",
+      "specs": [
+        "tests/unit/better-auth-session-token-presentation.spec.ts"
+      ],
+      "driverSpecific": false
+    },
+    {
       "id": "session-id-of-other-user-resolved",
       "defect": "11.43.8 (DEV-4109, backport of 12.7.0) — the id lookup for revoke-session must stay inside the caller's own sessions, or a session id would be enough to end another user's session.",
       "file": "src/core/modules/better-auth/core-better-auth.service.ts",
@@ -3174,6 +3185,17 @@
       "file": "src/core/modules/better-auth/core-better-auth-api.middleware.ts",
       "find": "      await this.resolveRevokeSessionId(req, relativePath);\n",
       "replace": "",
+      "specs": [
+        "tests/session-token-exposure.e2e-spec.ts"
+      ],
+      "driverSpecific": false
+    },
+    {
+      "id": "migrated-user-revoke-by-id-ends-nothing",
+      "defect": "11.43.9 (DEV-4133) — resolveRevokeSessionId() looked the caller's sessions up under user.id, which the session lookup takes from a STORED id first; the legacy migration writes one of its own next to _id, every session references _id, so revoke-session by id ended nothing for a migrated user.",
+      "file": "src/core/modules/better-auth/core-better-auth-api.middleware.ts",
+      "find": "    const userId =\n      (typeof sessionUserId === 'string' && sessionUserId ? sessionUserId : undefined) ??\n      caller.betterAuthSession?.user?.id ??\n      caller.betterAuthUser?.id;\n",
+      "replace": "    const userId = (sessionUserId && undefined) ?? caller.betterAuthSession?.user?.id ?? caller.betterAuthUser?.id;\n",
       "specs": [
         "tests/session-token-exposure.e2e-spec.ts"
       ],
