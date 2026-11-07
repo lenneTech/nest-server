@@ -80,6 +80,7 @@ export * from './core/common/interfaces/swagger-setup-options.interface';
 export * from './core/common/middleware/request-context.middleware';
 export * from './core/common/middlewares/to-lower-case.middleware';
 export * from './core/common/middlewares/security-headers.middleware';
+export * from './core/common/middlewares/string-cookies.middleware';
 export * from './core/common/models/core-model.model';
 export * from './core/common/models/core-persistence.model';
 export * from './core/common/models/pagination-info.model';

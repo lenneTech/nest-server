@@ -99,6 +99,8 @@ JWT-based authentication for existing projects:
 | Feature | Description |
 |---------|-------------|
 | **Input Whitelisting** | `MapAndValidatePipe` strips/rejects unknown properties |
+| **Primitive Parameter Types** | `MapAndValidatePipe` answers 400 (`#LTNS_0306`) to an object at a parameter declared `string` / `number` / `boolean` — the shape of a MongoDB operator (11.44.0) |
+| **String Cookies Only** | `StringCookiesMiddleware` removes non-string values (cookie-parser's `j:` JSON) from `req.cookies` before any middleware or guard reads them (11.44.0) |
 | **Input Validation** | `class-validator` integration via `@UnifiedField()` |
 | **Password Hashing Plugin** | Automatic BCrypt hashing on all Mongoose write operations |
 | **Role Guard Plugin** | Prevents unauthorized role escalation at database level |
@@ -346,6 +348,9 @@ The following diagram shows the exact order of execution from HTTP request to re
   |     - Lazy currentUser getter (from req.user)           |
   |     - Accept-Language for translations                  |
   |                                                         |
+  |  1b. StringCookiesMiddleware  [11.44.0]                  |
+  |     - Drops non-string cookie values (`j:` JSON)        |
+  |                                                         |
   |  2. CoreBetterAuthMiddleware                            |
   |     - Skips API-token credentials entirely              |
   |     - Strategy 1: Auth header (JWT/Session)             |
@@ -589,6 +594,8 @@ NestJS middleware runs for every request after Express-level middleware. Registr
 // src/core.module.ts
 configure(consumer: MiddlewareConsumer) {
   consumer.apply(RequestContextMiddleware).forRoutes('*');
+  consumer.apply(StringCookiesMiddleware).forRoutes('*');
+  consumer.apply(SecurityHeadersMiddleware).forRoutes('*');
   consumer.apply(graphqlUploadExpress()).forRoutes('graphql');
 }
 ```
@@ -688,6 +695,13 @@ If authentication succeeds, `req.user` is set with the authenticated user (inclu
 > `POST /revoke-session` takes `{ sessionId }`, resolved by the API middleware among the caller's own
 > sessions). A JWT (`/token`) and other plugins' tokens are left alone. See `.claude/rules/better-auth.md` §7
 > "Forwarded responses".
+
+#### 1b. StringCookiesMiddleware (11.44.0)
+
+Removes every cookie value that is not a string from `req.cookies`, and from `req.signedCookies` everything but
+strings and `false` (cookie-parser's invalid-signature marker). cookie-parser turns a cookie value starting with `j:`
+into the parsed JSON, so `iam.session_token=j:{"$ne":null}` arrived as an object and a session lookup read it as a
+MongoDB operator (DEV-4138). Registered right after the request context, before every other middleware and every guard. `security.stringCookiesOnly: false` switches it off.
 
 #### 2b. SecurityHeadersMiddleware
 
@@ -837,6 +851,16 @@ The `MapAndValidatePipe` runs on every incoming argument/body:
 ```
 Plain Object --> Transform to Class Instance --> Whitelist Check --> Validation --> Clean Input
 ```
+
+#### Primitive parameters (11.44.0)
+
+A parameter declared as `string`, `number` or `boolean` (`@Body('token') token: string`, likewise `@Query` and
+`@Param`) has `metatype` `String` / `Number` / `Boolean`, and the pipe used to return its value unchecked — the
+declared type is erased at runtime. Since 11.44.0 a **plain object** there is answered with 400
+(`#LTNS_0306 [<parameter>]`) before the route runs: `{ "token": { "$ne": null } }` is the shape of a MongoDB operator
+(DEV-4143 set somebody else's password with it). `null` and arrays pass. Not covered: parameters typed as a class (the
+DTO validates them), as `any`, or as a union (`string | undefined` is emitted as `Object`) — guard those values at the
+query with `isQueryableString()`. `security.mapAndValidatePipe.rejectObjectsForPrimitiveTypes: false` switches it off.
 
 #### Whitelisting via @UnifiedField()
 

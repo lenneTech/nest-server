@@ -493,6 +493,19 @@ export const LtnsErrors = {
     },
   },
 
+  /**
+   * An object arrived where the route declares a string, number or boolean (`@Body('token') token: string`) — the
+   * shape a MongoDB operator takes (`{ "$ne": null }`). Answered by `MapAndValidatePipe` (11.44.0 / 12.8.0, DEV-4144).
+   */
+  INVALID_PARAMETER_TYPE: {
+    code: 'LTNS_0306',
+    message: 'Invalid parameter type',
+    translations: {
+      de: 'Ein Parameter hat einen ungültigen Typ.',
+      en: 'A parameter has an invalid type.',
+    },
+  },
+
   // =====================================================
   // Resource Errors (LTNS_0400-LTNS_0499)
   // =====================================================
