@@ -215,6 +215,92 @@ describe('presentSessionTokens()', () => {
   });
 });
 
+describe('a response that rotated the session (12.7.1, DEV-4129)', () => {
+  const OLD_SESSION_TOKEN = 'Old0Session0Token0Deleted0By0Enable';
+
+  /**
+   * @regression   12.7.1 (DEV-4129) — the first verify-totp while enabling 2FA creates a new session, sets its cookie,
+   *   deletes the old one and answers with the OLD token. Neither the cookie nor the session store recognised it, so
+   *   the token of the replaced session still reached the body.
+   * @seen-failing Never treat a token next to a newly set session cookie as rotated in presentSessionTokens() in
+   *   src/core/modules/better-auth/core-better-auth-session-token.helper.ts — registered as mutation
+   *   `rotated-session-token-kept` in tests/regression-mutations.json.
+   */
+  it('drops the token of the replaced session in cookie mode', async () => {
+    const { options } = policy(false);
+    const presented = await presentSessionTokens(
+      betterAuthResponse({ token: OLD_SESSION_TOKEN, user: USER }, { setsSession: true }),
+      options,
+    );
+
+    expect(await presented.json()).toEqual({ user: USER });
+    expect(sessionTokenFromSetCookie(presented, COOKIE)).toBe(SESSION_TOKEN);
+  });
+
+  it('presents the JWT of the NEW session where the body carries a token', async () => {
+    const { options, resolveJwt } = policy(true);
+    const presented = await presentSessionTokens(
+      betterAuthResponse({ token: OLD_SESSION_TOKEN, user: USER }, { setsSession: true }),
+      options,
+    );
+
+    expect(await presented.json()).toEqual({ token: JWT, user: USER });
+    expect(resolveJwt).toHaveBeenCalledWith(SESSION_TOKEN);
+    expect(resolveJwt).not.toHaveBeenCalledWith(OLD_SESSION_TOKEN);
+  });
+
+  /** A rotation during which the session was due for a refresh: the refreshed OLD cookie first, the new one after it */
+  function rotatedAfterRefresh(): Response {
+    const headers = new Headers({ 'content-type': 'application/json' });
+    headers.append('set-cookie', `${COOKIE}=${encodeURIComponent(`${OLD_SESSION_TOKEN}.c2lnbmF0dXJl`)}; Path=/`);
+    headers.append('set-cookie', `${COOKIE}=${encodeURIComponent(`${SESSION_TOKEN}.c2lnbmF0dXJl`)}; Path=/`);
+    return new Response(JSON.stringify({ token: OLD_SESSION_TOKEN, user: USER }), { headers, status: 200 });
+  }
+
+  /**
+   * @regression   12.7.1 review — Better-Auth's verify-totp reads the session through getSessionFromCtx(), which sets the
+   *   refreshed cookie of the CURRENT session once per updateAge. Enabling 2FA then sets the new session's cookie
+   *   after it, and the browser keeps the last one; the helper read the first, missed the rotation and, with the
+   *   token in the body, tried the deleted session and handed out no token at all.
+   * @seen-failing Return the FIRST session cookie in sessionTokenFromSetCookie() in
+   *   src/core/modules/better-auth/core-better-auth-session-token.helper.ts — registered as mutation
+   *   `session-cookie-first-of-several-read` in tests/regression-mutations.json.
+   */
+  it('reads the session cookie the browser keeps when a refresh set the old one first', async () => {
+    expect(sessionTokenFromSetCookie(rotatedAfterRefresh(), COOKIE)).toBe(SESSION_TOKEN);
+
+    const { options, resolveJwt } = policy(true);
+    const presented = await presentSessionTokens(rotatedAfterRefresh(), options);
+
+    expect(await presented.json()).toEqual({ token: JWT, user: USER });
+    expect(resolveJwt).toHaveBeenCalledWith(SESSION_TOKEN);
+    expect(resolveJwt).not.toHaveBeenCalledWith(OLD_SESSION_TOKEN);
+  });
+
+  /**
+   * @regression   12.7.1 review — a session refresh sets the session cookie on ANY session-protected request, so a
+   *   plugin's own token can sit next to it: `/one-time-token/generate` answers `{ token }`. Read as a rotation, the
+   *   one-time token was dropped in cookie mode and replaced by the session JWT with the token in the body.
+   * @seen-failing Treat every opaque token next to another session cookie as rotated, without the `{ token, user }`
+   *   shape, in presentSessionTokens() in src/core/modules/better-auth/core-better-auth-session-token.helper.ts —
+   *   registered as mutation `plugin-token-read-as-rotation` in tests/regression-mutations.json.
+   */
+  it.each([
+    ['cookie mode', false],
+    ['token in body', true],
+  ])("keeps a plugin's own token next to a refreshed session cookie in %s", async (_mode, tokenInBody) => {
+    const ONE_TIME_TOKEN = 'One0Time0Token0For0A0Handoff0abcd';
+    const { options, resolveJwt } = policy(tokenInBody);
+    const presented = await presentSessionTokens(
+      betterAuthResponse({ token: ONE_TIME_TOKEN }, { setsSession: true }),
+      options,
+    );
+
+    expect(await presented.json()).toEqual({ token: ONE_TIME_TOKEN });
+    expect(resolveJwt).not.toHaveBeenCalled();
+  });
+});
+
 describe('session records (list-sessions), 12.7.0', () => {
   const SESSIONS = [
     { expiresAt: '2026-11-13T00:00:00.000Z', id: 's1', token: SESSION_TOKEN, userId: 'u1' },
@@ -323,6 +409,26 @@ describe('revoke-session by id (DEV-4109)', () => {
     expect(await lookup('u1', 's1')).toBe('tok-1');
     expect(await lookup('u1', 's9')).toBeUndefined();
     expect(await lookup('u1', 'unknown')).toBeUndefined();
+  });
+
+  /**
+   * @regression   12.7.1 (DEV-4109 review) — the lookup listed ALL session rows of the user. Better-Auth's adapter caps
+   *   that at 100 rows, oldest first, and MongoDB never removes an expired session row: a user with 100 old rows could
+   *   no longer end a current session by id (Better-Auth answered 200, the session stayed valid).
+   * @seen-failing List sessions without `onlyActiveSessions` in sessionTokenOfUser() in
+   *   src/core/modules/better-auth/core-better-auth.service.ts — registered as mutation
+   *   `session-lookup-includes-expired-rows` in tests/regression-mutations.json.
+   */
+  it('looks the id up among the ACTIVE sessions — the list list-sessions shows', async () => {
+    const listSessions = vi.fn(async () => [{ id: 's1', token: 'tok-1', userId: 'u1' }]);
+    const service = {
+      getInstance: () => ({ $context: Promise.resolve({ internalAdapter: { listSessions } }) }),
+      logger: { debug: vi.fn() },
+    };
+
+    await CoreBetterAuthService.prototype.sessionTokenOfUser.call(service as any, 'u1', 's1');
+
+    expect(listSessions).toHaveBeenCalledWith('u1', { onlyActiveSessions: true });
   });
 });
 
