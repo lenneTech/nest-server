@@ -14,7 +14,7 @@
  *
  * Usage:
  *   node scripts/test-infra.mjs up      # start and wait for readiness
- *   node scripts/test-infra.mjs down    # stop and remove
+ *   node scripts/test-infra.mjs down    # stop and remove, anonymous volumes included
  *   node scripts/test-infra.mjs status  # what is running
  *
  * Opt out entirely with LT_TEST_INFRA=0 (CI provisions its own containers and
@@ -318,6 +318,20 @@ function containerMatches(container) {
   });
 }
 
+/**
+ * Remove a container TOGETHER with its anonymous volumes.
+ *
+ * Every image here declares a data volume (`/data`, `/var/lib/mysql`, `/data/db`, …), so each `docker run` below
+ * creates anonymous volumes, and `docker rm -f` alone leaves them behind. Nothing ever attaches them again: a
+ * recreated container gets fresh ones. Without `-v`, every recreation of an exited container (the normal case after a
+ * reboot) and every `down` left the previous container's database files on disk, unnamed, until somebody pruned them
+ * by hand — on one machine 7 volumes under 6 stopped containers. `-v` removes exactly the container's
+ * anonymous volumes; a named volume or a bind mount would survive it, and this script creates neither.
+ */
+function removeContainer(name) {
+  return run('docker', ['rm', '-f', '-v', name]);
+}
+
 async function waitFor(container, timeoutMs = 60_000) {
   const deadline = Date.now() + timeoutMs;
   for (;;) {
@@ -362,7 +376,7 @@ async function up() {
       if (state) {
         // Exited/created from an earlier run, or running with a stale image /
         // port mapping — remove before recreating, so the change takes effect.
-        run('docker', ['rm', '-f', container.name]);
+        removeContainer(container.name);
       }
       const args = ['run', '-d', '--name', container.name];
       for (const port of container.ports) {
@@ -406,7 +420,7 @@ function down() {
   }
   for (const { name } of CONTAINERS) {
     if (containerState(name)) {
-      const removed = run('docker', ['rm', '-f', name]);
+      const removed = removeContainer(name);
       if (removed.status === 0) {
         console.log(`[test-infra] removed ${name}`);
       } else {
