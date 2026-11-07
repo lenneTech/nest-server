@@ -1,4 +1,4 @@
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 
 import { CoreBetterAuthEmailVerificationService } from '../../src/core/modules/better-auth/core-better-auth-email-verification.service';
 
@@ -86,5 +86,89 @@ describe('CoreBetterAuthEmailVerificationService.buildFrontendVerificationUrl', 
     const url = build({ appUrl: 'https://example.com/', callbackURL: '/auth/verify-email', email: 'a@test.com' });
 
     expect(url).toBe('https://example.com/auth/verify-email?token=tok-123&email=a%40test.com');
+  });
+});
+
+/**
+ * Where a relative `callbackURL` (the default `/auth/verify-email`) points when `appUrl` is not configured (DEV-4140).
+ *
+ * The builder read `appUrl` straight off the configuration and fell back to `http://localhost:3001`, so every deployed
+ * stage without `NSC__APP_URL` mailed a verification link to localhost — although the app's address follows from
+ * `NSC__BASE_URL`, which the starter requires on every deployed stage, and the password-reset link already resolved it
+ * that way. The link now asks the same resolver (`resolveAppUrlFromConfig()`: explicit `appUrl`, the localhost default
+ * in `local` / `ci` / `e2e`, else derived from `baseUrl`). Where nothing resolves, the mail keeps Better-Auth's own link
+ * to the API, which verifies and works, rather than a guessed host.
+ */
+describe('CoreBetterAuthEmailVerificationService: the verification link follows the resolved app URL', () => {
+  const service = (config: Record<string, unknown>, callbackURL = '/auth/verify-email'): any => {
+    const instance = Object.create(CoreBetterAuthEmailVerificationService.prototype) as any;
+    instance.config = { callbackURL };
+    instance.configService = { getFastButReadOnly: (key: string) => config[key] };
+    instance.logger = { debug: () => undefined, warn: vi.fn() };
+    return instance;
+  };
+  const betterAuthLink = 'https://api.crm.example.com/iam/verify-email?token=sealed&callbackURL=%2F';
+
+  /**
+   * @regression   DEV-4140 — without `appUrl`, the verification link pointed at `http://localhost:3001` on every deployed
+   *   stage, although the app URL follows from `baseUrl`.
+   * @seen-failing Restore `this.configService.getFastButReadOnly<string>('appUrl') || 'http://localhost:3001'` in
+   *   buildFrontendVerificationUrl() in src/core/modules/better-auth/core-better-auth-email-verification.service.ts —
+   *   registered as mutation `verification-link-localhost-without-app-url` in tests/regression-mutations.json.
+   */
+  it('derives the app URL from baseUrl on a deployed stage without appUrl', () => {
+    const url = service({ baseUrl: 'https://api.crm.example.com', env: 'develop' }).buildFrontendVerificationUrl('tok');
+
+    expect(url).toBe('https://crm.example.com/auth/verify-email?token=tok');
+  });
+
+  it('never links to localhost on a deployed stage, also when nothing resolves', () => {
+    for (const config of [
+      { env: 'develop' },
+      { env: 'production' },
+      { baseUrl: 'https://api.crm.example.com', 'cors.deriveAppUrl': false, env: 'test' },
+    ]) {
+      const url = service(config).buildFrontendVerificationUrl('tok');
+      expect(url ?? '', JSON.stringify(config)).not.toContain('localhost');
+    }
+  });
+
+  /**
+   * @regression   DEV-4140 — the mail must carry a working link when no app URL resolves; a builder that answers
+   *   nothing for a relative callbackURL must not leave the mail without one.
+   * @seen-failing Drop `?? options.url` from verificationMailUrl() in
+   *   src/core/modules/better-auth/core-better-auth-email-verification.service.ts — registered as mutation
+   *   `verification-mail-drops-better-auth-link` in tests/regression-mutations.json.
+   */
+  it("keeps Better-Auth's own link, and warns, when no app URL resolves", () => {
+    const instance = service({ env: 'production' });
+
+    expect(instance.verificationMailUrl({ token: 'sealed', url: betterAuthLink })).toBe(betterAuthLink);
+    expect(instance.logger.warn).toHaveBeenCalledWith(expect.stringContaining('NSC__APP_URL'));
+  });
+
+  it('honours cors.deriveAppUrl: false and falls back to the link Better-Auth built', () => {
+    const instance = service({ baseUrl: 'https://api.crm.example.com', 'cors.deriveAppUrl': false, env: 'production' });
+
+    expect(instance.verificationMailUrl({ token: 'sealed', url: betterAuthLink })).toBe(betterAuthLink);
+  });
+
+  it('paired control: an explicit appUrl still wins, and local environments keep the localhost default', () => {
+    expect(
+      service({ appUrl: 'https://app.example.com', baseUrl: 'https://api.crm.example.com', env: 'production' })
+        .verificationMailUrl({ token: 'tok', url: betterAuthLink }),
+    ).toBe('https://app.example.com/auth/verify-email?token=tok');
+    expect(service({ env: 'local' }).buildFrontendVerificationUrl('tok')).toBe(
+      'http://localhost:3001/auth/verify-email?token=tok',
+    );
+  });
+
+  it('paired control: an absolute callbackURL needs no app URL at all', () => {
+    expect(
+      service({ env: 'production' }, 'https://app.example.com/verify').verificationMailUrl({
+        token: 'tok',
+        url: betterAuthLink,
+      }),
+    ).toBe('https://app.example.com/verify?token=tok');
   });
 });

@@ -1017,7 +1017,7 @@
       "id": "verification-link-omits-email",
       "defect": "11.38.0 — the email-verification link carried only the token. That is sufficient while the token is valid and useless once it is not: the verification page shipped by nuxt-base-starter gates its \"send a new email\" button on `route.query.email`, so an expired link produced a correct explanation and no way to act on it. The page cannot recover the address itself — it lives in the token's JWT payload, and reading it there would mean rendering data from an unverified signature. The dead end was reached by exactly the people who needed the button.",
       "file": "src/core/modules/better-auth/core-better-auth-email-verification.service.ts",
-      "after": "  protected buildFrontendVerificationUrl(token: string, email?: string): string {",
+      "after": "  protected buildFrontendVerificationUrl(token: string, email?: string): string | undefined {",
       "find": "    if (email) {\n      url += `&email=${encodeURIComponent(email)}`;\n    }",
       "replace": "",
       "specs": [
@@ -1126,8 +1126,8 @@
       "defect": "11.39.0 — `buildPasswordResetUrl` read `appUrl` straight off the configuration while its legacy twin had already been moved to the shared resolver. Three behaviours were missing as a result: the localhost default that `local`/`ci`/`e2e` rely on (none of them set `appUrl`), the derivation from a host-split `baseUrl` such as `https://api.crm.localhost` that `lt dev up` serves, and the `cors.deriveAppUrl` opt-out that keeps a reset token out of an untrusted apex domain. The registry asserted the raw read was a defect on the legacy side while tolerating it here — two hand-maintained copies of one decision, drifting.",
       "file": "src/core/modules/better-auth/core-better-auth-email-verification.service.ts",
       "after": "  protected buildPasswordResetUrl(options: SendPasswordResetEmailOptions): string {",
-      "find": "    const appUrl = resolveAppUrlFromConfig(this.configService);",
-      "replace": "    const appUrl = this.configService.getFastButReadOnly<string>('appUrl');",
+      "find": "    const appUrl = resolveAppUrlFromConfig(this.configService);\n\n    if (!target) {",
+      "replace": "    const appUrl = this.configService.getFastButReadOnly<string>('appUrl');\n\n    if (!target) {",
       "specs": [
         "tests/unit/password-reset-link.spec.ts"
       ],
@@ -3242,6 +3242,28 @@
       "replace": "    if (!this.isEnabled() || !this.connection?.db) {\n",
       "specs": [
         "tests/session-token-cookie-type.e2e-spec.ts"
+      ],
+      "driverSpecific": false
+    },
+    {
+      "id": "verification-link-localhost-without-app-url",
+      "defect": "DEV-4140 — buildFrontendVerificationUrl() resolved a relative callbackURL against `appUrl || 'http://localhost:3001'`, so every deployed stage without NSC__APP_URL mailed a verification link to localhost.",
+      "file": "src/core/modules/better-auth/core-better-auth-email-verification.service.ts",
+      "find": "      const appUrl = resolveAppUrlFromConfig(this.configService);\n      if (!appUrl) {\n        return undefined;\n      }\n",
+      "replace": "      const appUrl = this.configService.getFastButReadOnly<string>('appUrl') || 'http://localhost:3001';\n",
+      "specs": [
+        "tests/unit/verification-link.spec.ts"
+      ],
+      "driverSpecific": false
+    },
+    {
+      "id": "verification-mail-drops-better-auth-link",
+      "defect": "DEV-4140 — with no resolvable app URL the verification mail must keep Better-Auth's own link; dropping the fallback leaves it without one.",
+      "file": "src/core/modules/better-auth/core-better-auth-email-verification.service.ts",
+      "find": "    return frontendUrl ?? options.url;\n",
+      "replace": "    return frontendUrl as string;\n",
+      "specs": [
+        "tests/unit/verification-link.spec.ts"
       ],
       "driverSpecific": false
     }
