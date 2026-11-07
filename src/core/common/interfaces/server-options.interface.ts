@@ -3419,7 +3419,7 @@ export interface IServerOptions {
    *
    * Auto-creation via config/ENV (no REST call needed):
    * - `{ initialAdmin: { email: '...', password: '...' } }`
-   * - `NSC__systemSetup__initialAdmin__email` + `NSC__systemSetup__initialAdmin__password`
+   * - `NSC__SYSTEM_SETUP__INITIAL_ADMIN__EMAIL` + `NSC__SYSTEM_SETUP__INITIAL_ADMIN__PASSWORD`
    *
    * @since 11.14.0
    *
@@ -3744,10 +3744,11 @@ export interface ISystemSetup {
    * during application bootstrap if zero users exist. This is useful for
    * automated deployments (Docker, CI/CD) where no manual REST call is possible.
    *
-   * Can be provided via environment variables:
-   * - `NSC__systemSetup__initialAdmin__email`
-   * - `NSC__systemSetup__initialAdmin__password`
-   * - `NSC__systemSetup__initialAdmin__name` (optional)
+   * Can be provided via environment variables, every segment in SCREAMING_SNAKE_CASE. A camelCase spelling such as
+   * `NSC__systemSetup__…` is never read: the environment reader lowercases every segment it does not split at `_`.
+   * - `NSC__SYSTEM_SETUP__INITIAL_ADMIN__EMAIL`
+   * - `NSC__SYSTEM_SETUP__INITIAL_ADMIN__PASSWORD`
+   * - `NSC__SYSTEM_SETUP__INITIAL_ADMIN__NAME` (optional)
    *
    * Security: Same zero-user guard applies - only works when no users exist.
    */

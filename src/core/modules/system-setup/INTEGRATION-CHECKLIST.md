@@ -35,11 +35,16 @@ https://github.com/lenneTech/nest-server/tree/develop/src/core/modules/system-se
 For automated deployments where no manual REST call is possible:
 
 ```bash
-# .env or Docker environment
-NSC__systemSetup__initialAdmin__email=admin@example.com
-NSC__systemSetup__initialAdmin__password=YourSecurePassword123!
-NSC__systemSetup__initialAdmin__name=Admin  # optional
+# .env or Docker environment — every segment in SCREAMING_SNAKE_CASE
+NSC__SYSTEM_SETUP__INITIAL_ADMIN__EMAIL=admin@example.com
+NSC__SYSTEM_SETUP__INITIAL_ADMIN__PASSWORD=YourSecurePassword123!
+NSC__SYSTEM_SETUP__INITIAL_ADMIN__NAME=Admin  # optional
 ```
+
+**WHY SCREAMING_SNAKE_CASE?** The environment reader lowercases every segment it does not split at `_`. The camelCase
+form `NSC__systemSetup__initialAdmin__email`, which this checklist showed before, is therefore read as
+`systemsetup.initialadmin.email` and never reaches `systemSetup.initialAdmin`: no admin is created, and nothing reports
+it.
 
 Or in `config.env.ts`:
 
@@ -99,6 +104,7 @@ export class SystemSetupController extends CoreSystemSetupController {
 | Re-running init after a successful setup    | 403, even with an empty `users`  | The claim marker in `system-setup-locks` outlives a SUCCESSFUL setup (it is released only on failure) — drop that collection too, or wait 5 min for it to go stale |
 | Password too short                          | 400 validation error             | Password must be at least 8 characters                                                                                                                             |
 | Missing ENV password                        | Auto-creation silently skipped   | Set both `email` and `password` ENV vars                                                                                                                           |
+| camelCase ENV names (`NSC__systemSetup__…`) | Auto-creation silently skipped   | Write every segment in SCREAMING_SNAKE_CASE: `NSC__SYSTEM_SETUP__INITIAL_ADMIN__EMAIL`                                                                             |
 | `systemSetup: { enabled: false }` in config | 404 on endpoints                 | Remove the explicit disable                                                                                                                                        |
 
 ---
