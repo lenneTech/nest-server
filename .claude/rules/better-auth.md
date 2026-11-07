@@ -99,6 +99,13 @@ Before completing any Better-Auth changes:
 - [ ] Cookie signing uses proper HMAC with application secret
 - [ ] Rate limiting considered for authentication endpoints
 - [ ] Input validation on all user-supplied data
+- [ ] A token read from a cookie, header, query or body is a non-empty string (`isQueryableString()`) before it
+      reaches a lookup. cookie-parser turns a `j:` cookie into parsed JSON, so `iam.session_token=j:{"$ne":null}`
+      arrives as an object, and a raw `{ $match: { token } }` reads it as an operator. Until 11.43.10 the guard fallback
+      signed such a request in as the owner of a stored session (DEV-4138). Check at the query too, not only where the
+      value is read: projects call `getSessionByToken()` with cookie values of their own (pinned by
+      `tests/unit/better-auth-session-token-type.spec.ts`, mutations `session-cookie-object-accepted`,
+      `session-lookup-object-token-matched`, and `tests/session-token-cookie-type.e2e-spec.ts`)
 
 ### Example: Challenge Storage
 

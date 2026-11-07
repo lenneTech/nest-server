@@ -3211,6 +3211,39 @@
         "tests/unit/better-auth-session-token-presentation.spec.ts"
       ],
       "driverSpecific": false
+    },
+    {
+      "id": "session-cookie-object-accepted",
+      "defect": "DEV-4138 — extractTokenFromRequest() passed a non-string cookie value (cookie-parser's parse of a `j:` cookie) on as the token, which the session lookup read as a MongoDB operator.",
+      "file": "src/core/modules/better-auth/better-auth-token.service.ts",
+      "find": "      const token = [request.cookies[cookieName], request.cookies['token']].find(isQueryableString);\n",
+      "replace": "      const token = request.cookies[cookieName] || request.cookies['token'] || undefined;\n",
+      "specs": [
+        "tests/unit/better-auth-session-token-type.spec.ts"
+      ],
+      "driverSpecific": false
+    },
+    {
+      "id": "session-lookup-object-token-matched",
+      "defect": "DEV-4138 — getSessionByToken() put a non-string token into `{ $match: { token } }`, so `{ $ne: null }` selected somebody else's session.",
+      "file": "src/core/modules/better-auth/core-better-auth.service.ts",
+      "find": "    if (!isQueryableString(token) || !this.isEnabled() || !this.connection?.db) {\n",
+      "replace": "    if (!this.isEnabled() || !this.connection?.db) {\n",
+      "specs": [
+        "tests/unit/better-auth-session-token-type.spec.ts"
+      ],
+      "driverSpecific": false
+    },
+    {
+      "id": "session-lookup-operator-on-real-database",
+      "defect": "DEV-4138 — getSessionByToken() put a non-string token into `{ $match: { token } }`; on the real MongoDB an operator object matched a live session.",
+      "file": "src/core/modules/better-auth/core-better-auth.service.ts",
+      "find": "    if (!isQueryableString(token) || !this.isEnabled() || !this.connection?.db) {\n",
+      "replace": "    if (!this.isEnabled() || !this.connection?.db) {\n",
+      "specs": [
+        "tests/session-token-cookie-type.e2e-spec.ts"
+      ],
+      "driverSpecific": false
     }
   ]
 }

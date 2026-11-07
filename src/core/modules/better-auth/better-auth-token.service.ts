@@ -2,6 +2,7 @@ import { Injectable, Logger, Optional } from '@nestjs/common';
 import { InjectConnection } from '@nestjs/mongoose';
 import { Connection, Types } from 'mongoose';
 
+import { isQueryableString } from '../../common/helpers/input.helper';
 import { BetterAuthenticatedUser } from './better-auth.types';
 import { CoreBetterAuthService } from './core-better-auth.service';
 
@@ -58,7 +59,7 @@ export class BetterAuthTokenService {
    * @returns Token extraction result with token and source
    */
   extractTokenFromRequest(request: {
-    cookies?: Record<string, string>;
+    cookies?: Record<string, unknown>;
     headers?: Record<string, string | string[] | undefined>;
   }): TokenExtractionResult {
     // Try Authorization header first
@@ -71,10 +72,13 @@ export class BetterAuthTokenService {
       }
     }
 
-    // Try cookies - Better-Auth native cookie first, then legacy
+    // Try cookies - Better-Auth native cookie first, then legacy.
+    // Only a non-empty string is a token (DEV-4138): cookie-parser turns a value starting with `j:` into the parsed
+    // JSON, so `iam.session_token=j:{"$ne":null}` arrives here as an object — which the session lookup would read as a
+    // MongoDB operator and answer with somebody else's session. A non-string cookie is skipped, never passed on.
     if (request.cookies && this.betterAuthService) {
       const cookieName = this.betterAuthService.getSessionCookieName();
-      const token = request.cookies[cookieName] || request.cookies['token'] || undefined;
+      const token = [request.cookies[cookieName], request.cookies['token']].find(isQueryableString);
 
       if (token) {
         return { source: 'cookie', token };
