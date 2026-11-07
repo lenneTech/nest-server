@@ -2416,7 +2416,7 @@
       "id": "auth-url-log-on-deployed-stage",
       "defect": "11.42.12 — logAuthUrlForDevelopment() printed verification and password-reset links (live bearer tokens) whenever the environment was not production-like. isProductionLikeEnv() names only `production` and `staging`, so the deployed `develop` and `test` stages of a starter-based project wrote live reset links into their log pipeline, and log access alone was enough to take over an account. Removing the local-environment allowlist restores exactly that gate.",
       "file": "src/core/modules/better-auth/core-better-auth-email-verification.service.ts",
-      "find": "    if (!isLocalEnv(env)) {\n      return;\n    }\n",
+      "find": "    if (!isLocalEnv(env)) {\n      return false;\n    }\n",
       "replace": "",
       "specs": [
         "tests/unit/better-auth-password-reset-email.spec.ts"
@@ -6517,8 +6517,8 @@
       "id": "auth-url-log-opt-in-on-deployed-stage",
       "defect": "DEV-4056 — LT_LOG_AUTH_URLS=1 printed verification and reset links (live tokens) and the address pseudonym in every environment but production and staging, so a deployed develop, test or development stage with the variable set wrote them into its log pipeline.",
       "file": "src/core/modules/better-auth/core-better-auth-email-verification.service.ts",
-      "find": "    if (!isLocalEnv(env)) {\n      return;\n    }\n",
-      "replace": "    if (!isLocalEnv(env) && process.env.LT_LOG_AUTH_URLS !== '1') {\n      return;\n    }\n",
+      "find": "    if (!isLocalEnv(env)) {\n      return false;\n    }\n",
+      "replace": "    if (!isLocalEnv(env) && process.env.LT_LOG_AUTH_URLS !== '1') {\n      return false;\n    }\n",
       "specs": [
         "tests/unit/better-auth-password-reset-email.spec.ts"
       ],
@@ -6528,7 +6528,7 @@
       "id": "auth-url-log-trusts-local-fallback",
       "defect": "DEV-4056 follow-up — getEnvironmentConfig() answers a NODE_ENV without a configuration key with the local block, so a deployed stage started with NODE_ENV=development, dev or staging ran with env: 'local' and printed live verification and reset links.",
       "file": "src/core/modules/better-auth/core-better-auth-email-verification.service.ts",
-      "find": "    const nodeEnv = process.env.NODE_ENV;\n    if (nodeEnv !== undefined && !isLocalEnv(nodeEnv)) {\n      return;\n    }\n",
+      "find": "    const nodeEnv = process.env.NODE_ENV;\n    if (nodeEnv !== undefined && !isLocalEnv(nodeEnv)) {\n      return false;\n    }\n",
       "replace": "",
       "specs": [
         "tests/unit/better-auth-password-reset-email.spec.ts"
@@ -6745,6 +6745,17 @@
       "driverSpecific": false
     },
     {
+      "id": "revoke-session-id-by-stored-user-id",
+      "defect": "12.7.2 (DEV-4133) — resolveRevokeSessionId() looked the caller's sessions up under user.id, which the session lookup takes from a STORED id first; the legacy migration writes one of its own next to _id, every session references _id, so revoke-session by id ended nothing for a migrated user.",
+      "file": "src/core/modules/better-auth/core-better-auth-api.middleware.ts",
+      "find": "    const userId =\n      (typeof sessionUserId === 'string' && sessionUserId ? sessionUserId : undefined) ??\n      caller.betterAuthSession?.user?.id ??\n      caller.betterAuthUser?.id;\n",
+      "replace": "    const userId = (sessionUserId && undefined) ?? caller.betterAuthSession?.user?.id ?? caller.betterAuthUser?.id;\n",
+      "specs": [
+        "tests/unit/better-auth-session-token-presentation.spec.ts"
+      ],
+      "driverSpecific": false
+    },
+    {
       "id": "session-id-of-other-user-resolved",
       "defect": "12.7.0 (DEV-4109) — the id lookup for revoke-session must stay inside the caller's own sessions, or a session id would be enough to end another user's session.",
       "file": "src/core/modules/better-auth/core-better-auth.service.ts",
@@ -6772,6 +6783,17 @@
       "file": "src/core/modules/better-auth/core-better-auth-api.middleware.ts",
       "find": "      await this.resolveRevokeSessionId(req, relativePath);\n",
       "replace": "",
+      "specs": [
+        "tests/session-token-exposure.e2e-spec.ts"
+      ],
+      "driverSpecific": false
+    },
+    {
+      "id": "migrated-user-revoke-by-id-ends-nothing",
+      "defect": "12.7.2 (DEV-4133) — resolveRevokeSessionId() looked the caller's sessions up under user.id, which the session lookup takes from a STORED id first; the legacy migration writes one of its own next to _id, every session references _id, so revoke-session by id ended nothing for a migrated user.",
+      "file": "src/core/modules/better-auth/core-better-auth-api.middleware.ts",
+      "find": "    const userId =\n      (typeof sessionUserId === 'string' && sessionUserId ? sessionUserId : undefined) ??\n      caller.betterAuthSession?.user?.id ??\n      caller.betterAuthUser?.id;\n",
+      "replace": "    const userId = (sessionUserId && undefined) ?? caller.betterAuthSession?.user?.id ?? caller.betterAuthUser?.id;\n",
       "specs": [
         "tests/session-token-exposure.e2e-spec.ts"
       ],
@@ -6851,6 +6873,50 @@
       "replace": "      const sessions: unknown = await context?.internalAdapter?.listSessions?.(userId);\n",
       "specs": [
         "tests/unit/better-auth-session-token-presentation.spec.ts"
+      ],
+      "driverSpecific": false
+    },
+    {
+      "id": "auth-mail-logged-as-sent-without-transport",
+      "defect": "12.7.2 (DEV-4131) — without SMTP a starter-based project sends through jsonTransport, which delivers nothing; the API logged \"Verification email sent to …\" all the same and the link was lost between the debug lines.",
+      "file": "src/core/modules/better-auth/core-better-auth-email-verification.service.ts",
+      "find": "    if (this.emailService?.deliversMail?.() === false) {\n",
+      "replace": "    if (this.emailService?.deliversMail?.() === 'never') {\n",
+      "specs": [
+        "tests/unit/local-log-messages.spec.ts"
+      ],
+      "driverSpecific": false
+    },
+    {
+      "id": "migration-logged-for-existing-account",
+      "defect": "12.7.2 (DEV-4128) — migrateAccountToIam() also answers true when the credential account exists already (every sign-in of a user with a synchronised legacy password), and \"Migrated legacy user … to IAM\" was logged for a user registered a minute earlier.",
+      "file": "src/core/modules/better-auth/core-better-auth-user.mapper.ts",
+      "find": "      if (existingAccount) {\n        return true;\n      }\n",
+      "replace": "      if (existingAccount) {\n        this.logger.log(`Migrated legacy user ${maskEmail(userEmail)} to IAM`);\n        return true;\n      }\n",
+      "specs": [
+        "tests/unit/local-log-messages.spec.ts"
+      ],
+      "driverSpecific": false
+    },
+    {
+      "id": "not-found-logged-with-stack",
+      "defect": "12.7.2 (DEV-4128) — the frontends ask GET /ai/status on every page; with the AI module off each answer is a 404, and HttpExceptionLogFilter logged its full stack trace every time.",
+      "file": "src/core/common/filters/http-exception-log.filter.ts",
+      "find": "    if (exception.getStatus() === HttpStatus.NOT_FOUND) {\n",
+      "replace": "    if (exception.getStatus() === -1 && HttpStatus.NOT_FOUND) {\n",
+      "specs": [
+        "tests/unit/local-log-messages.spec.ts"
+      ],
+      "driverSpecific": false
+    },
+    {
+      "id": "start-url-names-one-loopback-family",
+      "defect": "12.7.2 (DEV-4128) — with no host configured Node binds to ::, and the start message read http://[::1]:3000, an address that does not open on every system.",
+      "file": "src/core/common/helpers/server-url.helper.ts",
+      "find": "  if (host !== '::' && host !== '0.0.0.0') {\n",
+      "replace": "  if (host || !host) {\n",
+      "specs": [
+        "tests/unit/local-log-messages.spec.ts"
       ],
       "driverSpecific": false
     }
