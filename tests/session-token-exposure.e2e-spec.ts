@@ -19,7 +19,9 @@
  *   `revoke-session-id-not-wired` in tests/regression-mutations.json.
  */
 import { Test } from '@nestjs/testing';
+import bcrypt from 'bcrypt';
 import { PubSub } from 'graphql-subscriptions';
+import { sha256 } from 'js-sha256';
 import request from 'supertest';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 
@@ -43,6 +45,7 @@ describe('Session tokens never reach a body (e2e)', () => {
   const stamp = `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
   const emailA = `token-exposure-a-${stamp}@test.com`;
   const emailB = `token-exposure-b-${stamp}@test.com`;
+  const emailMigrated = `token-exposure-migrated-${stamp}@test.com`;
   const password = 'Token-Exposure-1';
   /** Every answer body this suite received, for the general guard */
   const bodies: unknown[] = [];
@@ -97,6 +100,7 @@ describe('Session tokens never reach a body (e2e)', () => {
     if (iamDb) {
       await iamDb.deleteUsers({ email: emailA });
       await iamDb.deleteUsers({ email: emailB });
+      await iamDb.deleteUsers({ email: emailMigrated });
       await iamDb.close();
     }
     await app?.close();
@@ -121,6 +125,47 @@ describe('Session tokens never reach a body (e2e)', () => {
   it('revoke-session with a sessionId ends that session of the caller', async () => {
     const keep = await signIn(emailA);
     const end = await signIn(emailA);
+    const ended = await iamDb.findSession(end.token);
+    expect(ended?.id, 'the session exists before').toBeTruthy();
+
+    record(
+      await request(server)
+        .post('/iam/revoke-session')
+        .set('Cookie', keep.cookie)
+        .send({ sessionId: String(ended!.id) })
+        .expect(200),
+    );
+
+    expect(await iamDb.findSession(end.token), 'the named session is gone').toBeNull();
+    expect(await iamDb.findSession(keep.token), 'the caller keeps its own session').not.toBeNull();
+  });
+
+  /**
+   * @regression   12.6.3 (DEV-4133) — a user the legacy migration linked (created via `POST /users` or the legacy
+   *   sign-up, first IAM sign-in later) carries a stored `id` of its own next to `_id`, and the session lookup prefers
+   *   it, while every session references `_id`. The middleware searched the caller's sessions under that stored `id`,
+   *   found none, and revoke-session by id ended nothing — answering success all the same.
+   * @seen-failing Read only `betterAuthSession.user.id` in resolveRevokeSessionId() in
+   *   src/core/modules/better-auth/core-better-auth-api.middleware.ts — registered as mutation
+   *   `migrated-user-revoke-by-id-ends-nothing` in tests/regression-mutations.json.
+   */
+  it('revoke-session with a sessionId ends the session of a user the legacy migration linked', async () => {
+    // A user as `POST /users` leaves it: a legacy password, no IAM account yet. The first IAM sign-in migrates it.
+    const userId = await iamDb.insertUser({
+      email: emailMigrated,
+      password: await bcrypt.hash(sha256(password), 10),
+      roles: [],
+      verified: true,
+    });
+    const keep = await signIn(emailMigrated);
+    const end = await signIn(emailMigrated);
+    if (iamDb.driver === 'mongodb') {
+      // The raw document: findUser() answers `id` as `_id`, which would hide the very field this case is about
+      const stored = await iamDb.mongo.collection('users').findOne({ email: emailMigrated });
+      expect(stored?.id, 'precondition: the migration wrote an id of its own next to _id').toBeTruthy();
+      expect(String(stored?.id), 'precondition: that id is not _id').not.toBe(String(stored?._id));
+      expect(String(stored?._id)).toBe(userId);
+    }
     const ended = await iamDb.findSession(end.token);
     expect(ended?.id, 'the session exists before').toBeTruthy();
 
