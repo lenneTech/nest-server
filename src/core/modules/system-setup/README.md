@@ -9,8 +9,8 @@ System setup is **enabled by default** when BetterAuth is active. No configurati
 For automated deployments (Docker, CI/CD), set initial admin credentials via ENV:
 
 ```bash
-NSC__systemSetup__initialAdmin__email=admin@example.com
-NSC__systemSetup__initialAdmin__password=YourSecurePassword123!
+NSC__SYSTEM_SETUP__INITIAL_ADMIN__EMAIL=admin@example.com
+NSC__SYSTEM_SETUP__INITIAL_ADMIN__PASSWORD=YourSecurePassword123!
 ```
 
 **Quick Links:** [Integration Checklist](./INTEGRATION-CHECKLIST.md) | [Endpoints](#endpoints) | [Configuration](#configuration) | [Security](#security)
@@ -136,9 +136,9 @@ For automated deployments where no manual REST call is possible (Docker, CI/CD, 
 ### Via NSC Environment Variables
 
 ```bash
-NSC__systemSetup__initialAdmin__email=admin@example.com
-NSC__systemSetup__initialAdmin__password=YourSecurePassword123!
-NSC__systemSetup__initialAdmin__name=Admin  # optional
+NSC__SYSTEM_SETUP__INITIAL_ADMIN__EMAIL=admin@example.com
+NSC__SYSTEM_SETUP__INITIAL_ADMIN__PASSWORD=YourSecurePassword123!
+NSC__SYSTEM_SETUP__INITIAL_ADMIN__NAME=Admin  # optional
 ```
 
 ### Via config.env.ts
