@@ -24,6 +24,8 @@ import { readFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
+import { packedFilesFromNpmPackJson } from './npm-pack-json.mjs';
+
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), '..');
 const pkg = JSON.parse(readFileSync(join(ROOT, 'package.json'), 'utf8'));
 
@@ -46,7 +48,7 @@ try {
   process.exit(1);
 }
 
-const packed = JSON.parse(raw)[0].files.map((f) => f.path);
+const packed = packedFilesFromNpmPackJson(raw, pkg.name);
 const problems = [];
 
 // 1. Every `files` entry must contribute at least one file.
