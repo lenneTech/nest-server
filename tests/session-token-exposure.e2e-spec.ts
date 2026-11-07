@@ -19,7 +19,9 @@
  *   `revoke-session-id-not-wired` in tests/regression-mutations.json.
  */
 import { Test } from '@nestjs/testing';
+import * as bcrypt from 'bcrypt';
 import { PubSub } from 'graphql-subscriptions';
+import { sha256 } from 'js-sha256';
 import { MongoClient } from 'mongodb';
 import request from 'supertest';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
@@ -62,6 +64,7 @@ describe('Session tokens never reach a body (e2e)', () => {
   const stamp = `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
   const emailA = `token-exposure-a-${stamp}@test.com`;
   const emailB = `token-exposure-b-${stamp}@test.com`;
+  const emailMigrated = `token-exposure-migrated-${stamp}@test.com`;
   const password = 'Token-Exposure-1';
   /** Every answer body this suite received, for the general guard */
   const bodies: unknown[] = [];
@@ -116,6 +119,7 @@ describe('Session tokens never reach a body (e2e)', () => {
     if (mongo) {
       await deleteUser(emailA);
       await deleteUser(emailB);
+      await deleteUser(emailMigrated);
       await mongo.close();
     }
     await app?.close();
@@ -140,6 +144,46 @@ describe('Session tokens never reach a body (e2e)', () => {
   it('revoke-session with a sessionId ends that session of the caller', async () => {
     const keep = await signIn(emailA);
     const end = await signIn(emailA);
+    const ended = await findSession(end.token);
+    expect(ended?.id, 'the session exists before').toBeTruthy();
+
+    record(
+      await request(server)
+        .post('/iam/revoke-session')
+        .set('Cookie', keep.cookie)
+        .send({ sessionId: String(ended!.id) })
+        .expect(200),
+    );
+
+    expect(await findSession(end.token), 'the named session is gone').toBeNull();
+    expect(await findSession(keep.token), 'the caller keeps its own session').not.toBeNull();
+  });
+
+  /**
+   * @regression   11.43.9 (DEV-4133) — a user the legacy migration linked (created via `POST /users` or the legacy
+   *   sign-up, first IAM sign-in later) carries a stored `id` of its own next to `_id`, and the session lookup prefers
+   *   it, while every session references `_id`. The middleware searched the caller's sessions under that stored `id`,
+   *   found none, and revoke-session by id ended nothing — answering success all the same.
+   * @seen-failing Read only `betterAuthSession.user.id` in resolveRevokeSessionId() in
+   *   src/core/modules/better-auth/core-better-auth-api.middleware.ts — registered as mutation
+   *   `migrated-user-revoke-by-id-ends-nothing` in tests/regression-mutations.json.
+   */
+  it('revoke-session with a sessionId ends the session of a user the legacy migration linked', async () => {
+    // A user as `POST /users` leaves it: a legacy password, no IAM account yet. The first IAM sign-in migrates it.
+    const { insertedId } = await mongo
+      .db()
+      .collection('users')
+      .insertOne({
+        email: emailMigrated,
+        password: await bcrypt.hash(sha256(password), 10),
+        roles: [],
+        verified: true,
+      });
+    const keep = await signIn(emailMigrated);
+    const end = await signIn(emailMigrated);
+    const stored = await mongo.db().collection('users').findOne({ _id: insertedId });
+    expect(stored?.id, 'precondition: the migration wrote an id of its own next to _id').toBeTruthy();
+    expect(String(stored?.id), 'precondition: that id is not _id').not.toBe(String(insertedId));
     const ended = await findSession(end.token);
     expect(ended?.id, 'the session exists before').toBeTruthy();
 
