@@ -12,9 +12,12 @@
  * matches THIS suite's live session, so a value that became a query would certainly have found a session, whatever
  * other suites left in the shared run database.
  *
- * Two layers stop the HTTP case — the token service passes only strings on, the session lookup refuses anything else —
- * so it goes red only with both removed. Each layer is pinned on its own: the unit spec
- * `tests/unit/better-auth-session-token-type.spec.ts` for both, and the lookup case below against the real database.
+ * Three layers stop the HTTP case — since 11.44.0 `StringCookiesMiddleware` removes the non-string cookie before any
+ * reader sees it (DEV-4144), the token service passes only strings on, the session lookup refuses anything else — so it
+ * goes red only with all three removed. Each layer is pinned on its own: `tests/primitive-param-objects.e2e-spec.ts` and
+ * its unit spec for the middleware, `tests/unit/better-auth-session-token-type.spec.ts` for the other two, and the
+ * lookup case below against the real database. The recorder runs before Nest's middleware and therefore still sees the
+ * parsed object.
  */
 import { Test } from '@nestjs/testing';
 import cookieParser = require('cookie-parser');
@@ -54,7 +57,8 @@ describe('DEV-4138: a session cookie that is not a string signs nobody in', () =
     app.use(cookieSecret ? cookieParser(cookieSecret) : cookieParser());
     app.use((req: any, _res: unknown, next: () => void) => {
       if (req.headers['x-record-cookies']) {
-        seenCookies.push(req.cookies);
+        // A copy: StringCookiesMiddleware (11.44.0) deletes the object from this same `req.cookies` afterwards
+        seenCookies.push({ ...req.cookies });
       }
       next();
     });

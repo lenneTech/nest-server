@@ -3199,9 +3199,9 @@ export interface IServerOptions {
            * Such a parameter used to receive the value unchecked — the declared type is erased at runtime — so
            * `{ "token": { "$ne": null } }` reached the service as a MongoDB operator (DEV-4143: a password-reset
            * token that set somebody else's password). Only a plain object is refused; `null` and arrays pass.
-           * Not covered: parameters typed as a class (validated by their DTO), as `any`, or as a union
-           * (`string | undefined` is emitted as `Object`). Guard those values at the query with
-           * `isQueryableString()`.
+           * Not covered: parameters typed as a class (validated by their DTO), as `any`, or as a union the
+           * compiler emits as `Object` (`tsc` with `strictNullChecks` does so for `string | undefined`; SWC does
+           * not). Guard those values at the query with `isQueryableString()`.
            *
            * Only an explicit `false` switches the check off.
            *

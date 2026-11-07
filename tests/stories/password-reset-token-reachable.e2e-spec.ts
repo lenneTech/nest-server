@@ -36,6 +36,7 @@
  *                                                confirmed account-takeover primitive
  */
 
+import { NotFoundException } from '@nestjs/common';
 import { Test, TestingModule } from '@nestjs/testing';
 import { PubSub } from 'graphql-subscriptions';
 import { Db, MongoClient } from 'mongodb';
@@ -226,18 +227,26 @@ describe('Story: the reset token reaches the code that mails it', () => {
 
   it('refuses a NoSQL operator where a token string belongs', async () => {
     // Confirmed exploitable before the guard: `@Body('token') token: string` has
-    // `metatype === String`, and MapAndValidatePipe returns basic-type values verbatim — the
+    // `metatype === String`, and MapAndValidatePipe returned basic-type values verbatim — the
     // declared type is erased at runtime. `findOne({ passwordResetToken: { $ne: null } })` then
     // selected the first user holding ANY live token and reset THAT account, with the attacker
     // never seeing the mail.
     const created = await userService.createPasswordResetToken(email);
     const before = await db.collection('users').findOne({ email });
 
+    // Since 11.44.0 the pipe refuses the object before the route runs (DEV-4144) …
     await testHelper.rest('/users/password/reset', {
       method: 'POST',
       payload: { password: 'b'.repeat(64), token: { $ne: null } },
-      statusCode: 404,
+      statusCode: 400,
     });
+
+    // … so the service guard — the layer for callers that bypass the pipe (MCP/AI tools, other
+    // services, a project route typed as a union) — is asked directly. Mutation
+    // `reset-password-accepts-nosql-operator` turns this red.
+    await expect(userService.resetPassword({ $ne: null } as never, 'b'.repeat(64))).rejects.toBeInstanceOf(
+      NotFoundException,
+    );
 
     // The victim's credential is untouched and their legitimate token still works.
     const after = await db.collection('users').findOne({ email });
