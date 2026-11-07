@@ -546,10 +546,14 @@ export interface IBetterAuthEmailVerificationConfig {
    *
    * Supports both absolute URLs and relative paths:
    * - Absolute: `https://example.com/auth/verify-email`
-   * - Relative: `/auth/verify-email` (resolved against `appUrl`)
+   * - Relative: `/auth/verify-email` (the default), resolved against the app URL the rest of the framework uses:
+   *   `appUrl`, the localhost default in `local` / `ci` / `e2e`, else derived from `baseUrl`
+   *   (`https://api.example.com` → `https://example.com`) unless `cors.deriveAppUrl` is `false`. When none resolves,
+   *   the mail keeps the backend link below and the service warns once. Until DEV-4140 a relative path without
+   *   `appUrl` resolved against `http://localhost:3001` on every stage.
    *
-   * When not set, the verification link points directly to the backend
-   * endpoint which handles verification and redirects.
+   * An empty value keeps the backend link: it points directly to the backend
+   * endpoint, which handles verification and redirects.
    *
    * Since 12.6.0 the link carries the token only, and sealed — `{callbackURL}?token=<sealed>`: no `email`
    * parameter, and the token is encrypted, because Better-Auth's own token is a readable JWT with the
@@ -558,7 +562,7 @@ export interface IBetterAuthEmailVerificationConfig {
    * masked (`GET /iam/features` → `resendVerificationByToken`). From 11.38.0 to 12.5.x the link carried
    * `&email=<address>`.
    *
-   * @default undefined (backend-handled verification)
+   * @default '/auth/verify-email'
    * @since 11.13.0
    */
   callbackURL?: string;
@@ -3392,7 +3396,44 @@ export interface IServerOptions {
            * @default 'strip'
            */
           nonWhitelistedFields?: 'strip' | 'error' | false;
+
+          /**
+           * Answer 400 (`#LTNS_0306`) when a request value arrives as an object where the route declares a
+           * string, number or boolean: `@Body('token') token: string`, likewise `@Query(…)` and `@Param(…)`.
+           *
+           * Such a parameter used to receive the value unchecked — the declared type is erased at runtime — so
+           * `{ "token": { "$ne": null } }` reached the service as a MongoDB operator (DEV-4143: a password-reset
+           * token that set somebody else's password). Only a plain object is refused; `null` and arrays pass.
+           * Not covered: parameters typed as a class (validated by their DTO), as `any`, or as a union the
+           * compiler emits as `Object` (`tsc` with `strictNullChecks` does so for `string | undefined`; SWC does
+           * not), and a number at a `string` parameter (MySQL / MariaDB compare it numerically). Guard those
+           * values at the query with `isQueryableString()`.
+           *
+           * Only an explicit `false` switches the check off.
+           *
+           * @default true
+           * @since 12.8.0
+           */
+          rejectObjectsForPrimitiveTypes?: boolean;
         };
+
+    /**
+     * Remove every cookie value that is not a string from `req.cookies` (and from `req.signedCookies`
+     * everything but strings and `false`, cookie-parser's invalid-signature marker) before any middleware or
+     * guard reads it.
+     *
+     * cookie-parser turns a cookie value starting with `j:` into the parsed JSON, so
+     * `iam.session_token=j:{"$ne":null}` arrived as an object and a session lookup read it as an operator
+     * (DEV-4138); on MySQL / MariaDB a number (`j:7`) did the same. The framework writes only string cookies.
+     * Implemented by `StringCookiesMiddleware`, registered by `CoreModule` for all routes.
+     *
+     * Only an explicit `false` switches it off (for a project that deliberately writes object cookies with
+     * `res.cookie(name, object)` and reads them back).
+     *
+     * @default true
+     * @since 12.8.0
+     */
+    stringCookiesOnly?: boolean;
 
     /**
      * Answer a Mongoose `CastError` caused by the client as a client error instead of a 500.

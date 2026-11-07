@@ -38,6 +38,7 @@ import {
 } from './core/common/interfaces/server-options.interface.js';
 import { RequestContextMiddleware } from './core/common/middleware/request-context.middleware.js';
 import { SecurityHeadersMiddleware } from './core/common/middlewares/security-headers.middleware.js';
+import { StringCookiesMiddleware } from './core/common/middlewares/string-cookies.middleware.js';
 import { CorePersistenceLifecycle } from './core/common/persistence/core-persistence.lifecycle.js';
 import { CorePersistenceModule } from './core/common/persistence/core-persistence.module.js';
 import {
@@ -114,6 +115,10 @@ export class CoreModule implements NestModule {
   configure(consumer: MiddlewareConsumer) {
     // RequestContext middleware must run for all routes to provide AsyncLocalStorage context
     consumer.apply(RequestContextMiddleware).forRoutes('*');
+
+    // No non-string values in the parsed cookies (cookie-parser turns `j:{...}` into an object, the shape of a MongoDB
+    // operator — DEV-4138 / DEV-4144). Before every other middleware and every guard, so none of them sees one.
+    consumer.apply(StringCookiesMiddleware).forRoutes('*');
 
     // Security headers on EVERY response, guards' rejections included. Middleware rather than an
     // interceptor for exactly that reason: an interceptor never runs for a request a guard turns

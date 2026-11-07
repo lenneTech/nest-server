@@ -695,14 +695,48 @@ function processNonWhitelistedFields(
   return forbiddenKeys;
 }
 
+/** The declared parameter types a request value must not arrive as an object for */
+const PRIMITIVE_METATYPES: readonly unknown[] = [String, Number, Boolean];
+
+/**
+ * Whether a request value is an object where the route declares a string, number or boolean (DEV-4144).
+ *
+ * `@Body('token') token: string` has `metatype === String`, and the pipe used to return a basic-type value unchecked —
+ * the declared type is erased at runtime. `{ "token": { "$ne": null } }` therefore reached the service as an object,
+ * and a MongoDB filter read it as an operator (DEV-4143: a reset token that set somebody else's password). Only a
+ * PLAIN OBJECT is refused: an operator always is one. `null` passes (clearing an optional field is legitimate; the
+ * query guards handle it), and so does an array (a repeated query key, `?tag=a&tag=b`, arrives as one and selects
+ * nothing in a filter). A parameter typed as a class, as `any` or as a union the compiler emits as `Object` is not
+ * covered — its value is validated by its DTO or by the guard at the query. (`tsc` with `strictNullChecks` emits
+ * `string | undefined` as `Object`; SWC and `tsc` without it emit `String`, and the parameter is covered.) A number
+ * at a `string` parameter passes on purpose — a client may send a numeric code as a number — so a lookup on MySQL /
+ * MariaDB, which compare a number numerically, still checks its value with `isQueryableString()`.
+ *
+ * Exported for tests and for project pipes that replace this one.
+ */
+export function receivesObjectForPrimitive(value: unknown, metadata: ArgumentMetadata): boolean {
+  return (
+    (metadata.type === 'body' || metadata.type === 'query' || metadata.type === 'param') &&
+    PRIMITIVE_METATYPES.includes(metadata.metatype) &&
+    value !== null &&
+    typeof value === 'object' &&
+    !Array.isArray(value)
+  );
+}
+
 @Injectable()
 export class MapAndValidatePipe implements PipeTransform {
   private readonly nonWhitelistedFieldsMode: 'strip' | 'error' | false = 'strip';
+  private readonly rejectObjectsForPrimitiveTypes: boolean = true;
 
   constructor() {
     const pipeConfig = ConfigService.getFastButReadOnly('security.mapAndValidatePipe');
     if (typeof pipeConfig === 'object' && pipeConfig?.nonWhitelistedFields !== undefined) {
       this.nonWhitelistedFieldsMode = pipeConfig.nonWhitelistedFields;
+    }
+    // Only an explicit `false` switches the check off — a security default must not fall to a typo or a string
+    if (typeof pipeConfig === 'object' && pipeConfig?.rejectObjectsForPrimitiveTypes === false) {
+      this.rejectObjectsForPrimitiveTypes = false;
     }
   }
 
@@ -711,6 +745,12 @@ export class MapAndValidatePipe implements PipeTransform {
     // and must not be mutated by whitelist stripping or validation
     if (metadata.type === 'custom') {
       return value;
+    }
+
+    // An object where the route declares a string, number or boolean is the shape of a MongoDB operator
+    // ({ "$ne": null }) and never a value the route can use — refused before anything reaches a query (DEV-4144)
+    if (this.rejectObjectsForPrimitiveTypes && receivesObjectForPrimitive(value, metadata)) {
+      throw new BadRequestException(`${ErrorCode.INVALID_PARAMETER_TYPE} [${metadata.data ?? metadata.type}]`);
     }
 
     const { metatype } = metadata;

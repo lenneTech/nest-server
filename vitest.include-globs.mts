@@ -104,7 +104,7 @@ export const POSTGRES_E2E_EXCLUDED: Readonly<Record<string, string>> = {
  * `iam-sql-<engine>` in `vitest-e2e.config.mts`): Better-Auth's stories (sign-in, 2FA, passkey, sessions), the sync
  * between legacy and IAM (password, email, name), the AI and MCP OAuth suites, and the security specs that pin what
  * must hold on every database (server-managed fields stay `input: false`, sign-in CSRF, a session token is a string —
- * MySQL compares `token = 7` numerically). Better-Auth runs its own
+ * MySQL compares `token = 7` numerically —, no object at a primitive parameter or in a cookie). Better-Auth runs its own
  * adapter on each engine's driver pool, which is why these suites see every engine and not only the default one the
  * `postgres` project uses.
  */
@@ -118,6 +118,7 @@ export const IAM_SQL_TEST_INCLUDE = [
   'tests/better-auth-signin-csrf.e2e-spec.ts',
   'tests/better-auth-storage-paths.e2e-spec.ts',
   'tests/session-token-cookie-type.e2e-spec.ts',
+  'tests/primitive-param-objects.e2e-spec.ts',
   'tests/stories/bidirectional-auth-sync.e2e-spec.ts',
 ];
 
