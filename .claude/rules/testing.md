@@ -302,7 +302,7 @@ The **IAM suites** run on the two other engines as well, through vitest projects
 `iam-sql-kysely` and `iam-sql-drizzle` (`IAM_SQL_ENGINES`) on PostgreSQL, and `iam-mysql` / `iam-mariadb`
 (`IAM_MYSQL_VARIANTS`, 12.1.1+) with MySQL / MariaDB as the default source and the default engine, each over the files in `IAM_SQL_TEST_INCLUDE`
 (`vitest.include-globs.mts`: the Better-Auth stories, privilege escalation, sign-in CSRF, migration status, the storage
-paths, the bidirectional sync, and since phase 4 the AI suite and both MCP OAuth suites). A project's global setup (`tests/iam-sql.global-setup.ts`) creates its PostgreSQL
+paths, the session-token type check (DEV-4138), the bidirectional sync, and since phase 4 the AI suite and both MCP OAuth suites). A project's global setup (`tests/iam-sql.global-setup.ts`) creates its PostgreSQL
 (or MySQL / MariaDB) database per run and drops it afterwards; its setup file (`tests/iam-sql.setup.ts`) points
 `NSC__DATABASE__URL`, `NSC__DATABASE__OWNER_URL` and — for an engine project — `NSC__DATABASE__SQL_ENGINE` at it, so
 the unchanged `ServerModule` boots with its users — and Better-Auth with them — on that database. The suites read and prepare state through `tests/helpers/iam-test-db.ts`,
@@ -412,7 +412,7 @@ pnpm run check:mutations -- --id=<id>       # one mutation
 pnpm run check:mutations -- --list          # the registry, without running anything
 pnpm run check:mutations -- --allow-dirty   # when the fix and its evidence share a working tree
 pnpm run check:mutations -- --jobs=4        # N mutations at a time (default: 2, or 4 on >=12 cores)
-pnpm run check:mutations -- --no-infra      # only the 382 that need no MongoDB
+pnpm run check:mutations -- --no-infra      # only the 384 that need no MongoDB
 pnpm run check:mutations -- --since=<ref>   # only mutations touching files changed since <ref>
 pnpm run check:mutations -- --shard=2/4     # this job's quarter of the selection (CI splits the full run)
 ```
@@ -432,7 +432,7 @@ when the registry, a vitest config or a setup file changed, since those can move
 commit, and in CI alongside the publish without blocking it. The price of caching is a cache that
 has to model each spec's full dependency closure correctly, and getting that wrong produces a stale
 PASS for a test that has since gone vacuous — exactly what the gate is there to prevent. Bad trade
-at 614 mutations.
+at 617 mutations.
 
 **Decided 2026-10-03 (repo owner): keep the full run.** Measured at 128 mutations, the CI job for
 11.41.6 took **14 minutes**. The trigger to revisit is that wall time, not the mutation count —
@@ -503,9 +503,9 @@ exactly the environment where the answer matters.
 
 ### The cost is vitest's cold start, not the tests
 
-Worth knowing before optimising the wrong thing: the specs behind all 232 e2e mutations add up to
+Worth knowing before optimising the wrong thing: the specs behind all 233 e2e mutations add up to
 **~40 seconds**. The step takes ~740s. The remaining ~700s is paying vitest's startup — process
-spawn, transform, module graph, mongod connect, DB create and drop — once per mutation, 614 times.
+spawn, transform, module graph, mongod connect, DB create and drop — once per mutation, 617 times.
 That work is largely single-threaded I/O and barely scales with cores: the full registry measures
 **744s on a 12-core laptop and 777s on a 4-vCPU CI runner**.
 
