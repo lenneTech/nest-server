@@ -84,6 +84,7 @@ export * from './core/common/interfaces/swagger-setup-options.interface.js';
 export * from './core/common/middleware/request-context.middleware.js';
 export * from './core/common/middlewares/to-lower-case.middleware.js';
 export * from './core/common/middlewares/security-headers.middleware.js';
+export * from './core/common/middlewares/string-cookies.middleware.js';
 export * from './core/common/models/core-model.model.js';
 export * from './core/common/models/core-persistence.model.js';
 export * from './core/common/models/pagination-info.model.js';
