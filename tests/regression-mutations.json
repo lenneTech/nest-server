@@ -7161,6 +7161,28 @@
         "tests/unit/better-auth-origin-check-test-env.spec.ts"
       ],
       "driverSpecific": false
+    },
+    {
+      "id": "iam-rate-limit-key-unbounded",
+      "defect": "12.3.0–12.8.1 — the IAM rate limiter keyed counters by the raw last path segment, and the middleware runs for paths nobody serves: one client sending /iam/x1, /iam/x2, … created a counter per request, none reached the limit, and a full store refused every new client at its first sign-in.",
+      "file": "src/core/modules/better-auth/core-better-auth-rate-limiter.service.ts",
+      "find": "    if (last && this.knownEndpoints?.has(last)) {\n      return last;\n    }\n",
+      "replace": "    return last || 'root';\n",
+      "specs": [
+        "tests/unit/better-auth-rate-limit-key-bound.spec.ts"
+      ],
+      "driverSpecific": false
+    },
+    {
+      "id": "iam-rate-limit-known-routes-not-provided",
+      "defect": "12.8.2 — the limiter learns the route names only from the middleware; without them every real route of a client shares one counter, and session polling uses up the budget of 2FA or passkey routes.",
+      "file": "src/core/modules/better-auth/core-better-auth-rate-limit.middleware.ts",
+      "find": "    this.provideKnownEndpoints();\n",
+      "replace": "",
+      "specs": [
+        "tests/unit/better-auth-rate-limit-key-bound.spec.ts"
+      ],
+      "driverSpecific": false
     }
   ]
 }
