@@ -110,6 +110,15 @@ Before completing any Better-Auth changes:
       `string` / `number` / `boolean` parameter, and `StringCookiesMiddleware` drops non-string cookies. The guards at
       the individual queries stay — union-typed parameters, DTO fields without a type validator, a number at a
       `string` parameter (MySQL / MariaDB compare it numerically) and aggregations are not covered by either layer
+- [ ] A user Better-Auth returns from a sign-up is written to the app user only after
+      `CoreBetterAuthService.isPersistedUser()` confirmed it. With `requireEmailVerification: true` or
+      `autoSignIn: false` Better-Auth (1.5.0+) answers a sign-up for a KNOWN address with a placeholder it never stored
+      (enumeration protection). Until 12.8.1 the REST and GraphQL sign-up and the legacy sign-up with IAM linked it to the
+      real account found by address — `iamId` re-pointed, `verified: false`, its legacy password set to the caller's,
+      its roles in the answer, and the legacy path returned its tokens. The answer to a placeholder stays that of a new
+      sign-up (`mapUnstoredSessionUser()`, `equalizeLegacyPasswordSync()` for the timing); only the writes are left out.
+      Pinned by `tests/unit/better-auth-sign-up-existing-address.spec.ts` (mutations
+      `sign-up-placeholder-linked-rest`, `-graphql`, `-legacy`)
 
 ### Example: Challenge Storage
 

@@ -7029,6 +7029,50 @@
         "tests/primitive-param-objects.e2e-spec.ts"
       ],
       "driverSpecific": false
+    },
+    {
+      "id": "sign-up-placeholder-linked-rest",
+      "defect": "12.8.1 — with requireEmailVerification / autoSignIn: false Better-Auth answers a sign-up for a known address with a placeholder user it never stored; CoreBetterAuthController.signUp() linked it to the real account (iamId, verified: false), set that account's legacy password to the caller's and answered with its roles.",
+      "file": "src/core/modules/better-auth/core-better-auth.controller.ts",
+      "find": "        const isPlaceholder = !(await this.betterAuthService.isPersistedUser(response.user.id));\n",
+      "replace": "        const isPlaceholder = false;\n",
+      "specs": [
+        "tests/unit/better-auth-sign-up-existing-address.spec.ts"
+      ],
+      "driverSpecific": false
+    },
+    {
+      "id": "sign-up-placeholder-linked-graphql",
+      "defect": "12.8.1 — CoreBetterAuthResolver.betterAuthSignUp() linked Better-Auth's placeholder for a known address to the real account and answered with its id and roles.",
+      "file": "src/core/modules/better-auth/core-better-auth.resolver.ts",
+      "find": "        const isPlaceholder = !(await this.betterAuthService.isPersistedUser(sessionUser.id));\n",
+      "replace": "        const isPlaceholder = false;\n",
+      "specs": [
+        "tests/unit/better-auth-sign-up-existing-address.spec.ts"
+      ],
+      "driverSpecific": false
+    },
+    {
+      "id": "sign-up-placeholder-linked-legacy",
+      "defect": "12.8.1 — the legacy sign-up with IAM enabled (CoreAuthService.createUserViaIam) linked Better-Auth's placeholder for a known address, overwrote the real account's password and returned that account, so the caller got its tokens.",
+      "file": "src/core/modules/auth/services/core-auth.service.ts",
+      "find": "      if (!(await this.betterAuthService.isPersistedUser(iamUser.id))) {\n        throw new BadRequestException('Email address already in use');\n      }\n",
+      "replace": "",
+      "specs": [
+        "tests/unit/better-auth-sign-up-existing-address.spec.ts"
+      ],
+      "driverSpecific": false
+    },
+    {
+      "id": "api-middleware-raw-path-compared",
+      "defect": "12.8.1 — CoreBetterAuthApiMiddleware compared the raw originalUrl with the controller routes while the forwarded request resolves dot segments, so /iam/sign-up/%2e/email reached Better-Auth's own sign-up past the controller and every project override.",
+      "file": "src/core/modules/better-auth/core-better-auth-api.middleware.ts",
+      "find": "    const requestPath = canonicalRequestPath(req.originalUrl || req.url || req.path);\n",
+      "replace": "    const requestPath = req.originalUrl?.split('?')[0] || req.path;\n",
+      "specs": [
+        "tests/unit/better-auth-api-middleware-routed-path.spec.ts"
+      ],
+      "driverSpecific": false
     }
   ]
 }
