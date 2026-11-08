@@ -241,6 +241,29 @@ export class CoreBetterAuthUserMapper implements OnApplicationBootstrap, OnModul
    * @param sessionUser - The Better-Auth session user
    * @returns A mapped user with role capabilities
    */
+  /**
+   * The mapped user of a Better-Auth user that is stored nowhere, from its own fields only (12.6.6).
+   *
+   * The placeholder Better-Auth answers a sign-up for an already registered address with (see
+   * `CoreBetterAuthService.isPersistedUser()`) must look like a new user: its own id, no roles, not verified. Looking it
+   * up by address, as {@link mapSessionUser} does, found the real account and answered its id and roles.
+   */
+  mapUnstoredSessionUser(sessionUser: BetterAuthSessionUser): MappedUser | null {
+    if (!sessionUser?.id || !sessionUser?.email) {
+      return null;
+    }
+    return this.createMappedUser({
+      email: sessionUser.email,
+      emailVerified: sessionUser.emailVerified,
+      iamId: sessionUser.id,
+      id: sessionUser.id,
+      image: sessionUser.image,
+      name: sessionUser.name,
+      roles: [],
+      verified: sessionUser.emailVerified,
+    });
+  }
+
   async mapSessionUser(sessionUser: BetterAuthSessionUser): Promise<MappedUser | null> {
     if (!sessionUser?.id || !sessionUser?.email) {
       return null;
@@ -465,6 +488,24 @@ export class CoreBetterAuthUserMapper implements OnApplicationBootstrap, OnModul
    * @param plainPassword - The plain password to hash with bcrypt
    * @returns true if sync was successful, false otherwise
    */
+  /**
+   * Spends the time {@link syncPasswordToLegacy} spends on a password, and writes nothing (12.6.6).
+   *
+   * A sign-up for an already registered address writes nothing (see `CoreBetterAuthService.isPersistedUser()`).
+   * Without this it would answer a bcrypt round faster than a real sign-up, and the response time would tell which
+   * addresses have an account — the enumeration Better-Auth's placeholder answer exists to prevent.
+   */
+  async equalizeLegacyPasswordSync(plainPassword?: string): Promise<void> {
+    if (!plainPassword) {
+      return;
+    }
+    try {
+      await bcrypt.hash(this.normalizePasswordForIam(plainPassword), 10);
+    } catch {
+      // Timing only — nothing depends on the result
+    }
+  }
+
   async syncPasswordToLegacy(iamUserId: string, userEmail: string, plainPassword?: string): Promise<boolean> {
     const sql = getBetterAuthSqlStore();
     if (sql) {

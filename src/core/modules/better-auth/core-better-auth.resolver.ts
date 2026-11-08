@@ -484,10 +484,20 @@ export class CoreBetterAuthResolver {
       if (hasUser(response)) {
         const sessionUser: BetterAuthSessionUser = response.user;
 
+        // An already registered address: with `requireEmailVerification` or `autoSignIn: false` Better-Auth answers it
+        // like a new sign-up, with a placeholder user it never stored (enumeration protection). Linking that user
+        // re-pointed the real account found by address, and the answer carried that account's id and roles (12.6.6).
+        // The answer stays that of a new sign-up; only the write is left out.
+        const isPlaceholder = !(await this.betterAuthService.isPersistedUser(sessionUser.id));
+
         // Link or create user in our database
         // Pass termsAndPrivacyAccepted to store the acceptance timestamp
-        await this.userMapper.linkOrCreateUser(sessionUser, { termsAndPrivacyAccepted });
-        const mappedUser = await this.userMapper.mapSessionUser(sessionUser);
+        if (!isPlaceholder) {
+          await this.userMapper.linkOrCreateUser(sessionUser, { termsAndPrivacyAccepted });
+        }
+        const mappedUser = isPlaceholder
+          ? this.userMapper.mapUnstoredSessionUser(sessionUser)
+          : await this.userMapper.mapSessionUser(sessionUser);
 
         // If email verification is enabled, revoke the session and don't return session data
         // The user must verify their email before they can use any session
