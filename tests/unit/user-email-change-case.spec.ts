@@ -4,7 +4,7 @@ import { CrudService } from '../../src/core/common/services/crud.service';
 import { CoreUserService } from '../../src/core/modules/user/core-user.service';
 
 /**
- * An address that differs only in letter case or surrounding whitespace is no address change (12.8.2).
+ * An address that differs only in letter case or surrounding whitespace is no address change (12.6.7).
  *
  * `CoreUserService.update()` syncs an address change to IAM (`syncEmailChangeFromLegacy()`), and that sync ends every
  * session of the account, so the user has to sign in again. It compared the stored address with the submitted one as
@@ -36,7 +36,7 @@ async function syncedAddressFor(storedEmail: string, submittedEmail: string): Pr
 
 describe('CoreUserService.update(): address change detection', () => {
   /**
-   * @regression   12.8.2 — an address that differed only in case counted as a change, and the IAM sync ended every
+   * @regression   12.6.7 — an address that differed only in case counted as a change, and the IAM sync ended every
    *   session of the account.
    * @seen-failing Compare `oldEmail !== input.email` again in CoreUserService.update()
    *   (src/core/modules/user/core-user.service.ts) — registered as mutation `user-email-case-ends-sessions` in

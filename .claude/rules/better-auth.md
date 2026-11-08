@@ -120,7 +120,7 @@ Before completing any Better-Auth changes:
       ci / e2e, and a project's explicit value is the only thing that overrides it. Unset, `NODE_ENV=test` or a truthy
       `TEST` switches off the origin check, the CSRF check and the `callbackURL` / `redirectTo` validation — and a
       deployed stage named `test` is that environment. local / ci / e2e are left alone because vitest sets `TEST=true`:
-      a suite that tests these checks sets `disableOriginCheck: false` itself (`better-auth-signin-csrf.e2e-spec.ts`). Until 12.8.2 a reset mail there
+      a suite that tests these checks sets `disableOriginCheck: false` itself (`better-auth-signin-csrf.e2e-spec.ts`). Until 12.6.7 a reset mail there
       carried any caller-chosen `redirectTo` with a valid token. `buildPasswordResetUrl()` takes the caller's
       `redirectTo` only while the check runs (`isOriginCheckDisabled()`). Pinned by
       `tests/unit/better-auth-origin-check-test-env.spec.ts` and `tests/unit/password-reset-link.spec.ts` (mutations

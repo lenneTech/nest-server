@@ -254,7 +254,7 @@ describe('password-reset link resolution', () => {
     });
 
     /**
-     * @regression   12.8.2 — the caller's `redirectTo` is safe to mail only because Better-Auth's origin check validated
+     * @regression   12.6.7 — the caller's `redirectTo` is safe to mail only because Better-Auth's origin check validated
      *   it. A project that switched the check off (`options.advanced.disableOriginCheck`) mailed any URL the caller
      *   chose, with a valid token in it.
      * @seen-failing Read the callback without the `!this.isOriginCheckDisabled()` condition in buildPasswordResetUrl()
