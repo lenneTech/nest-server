@@ -106,6 +106,15 @@ Before completing any Better-Auth changes:
       value is read: projects call `getSessionByToken()` with cookie values of their own (pinned by
       `tests/unit/better-auth-session-token-type.spec.ts`, mutations `session-cookie-object-accepted`,
       `session-lookup-object-token-matched`, and `tests/session-token-cookie-type.e2e-spec.ts`)
+- [ ] A user Better-Auth returns from a sign-up is written to the app user only after
+      `CoreBetterAuthService.isPersistedUser()` confirmed it. With `requireEmailVerification: true` or
+      `autoSignIn: false` Better-Auth (1.5.0+) answers a sign-up for a KNOWN address with a placeholder it never stored
+      (enumeration protection). Until 12.6.6 the REST and GraphQL sign-up and the legacy sign-up with IAM linked it to the
+      real account found by address — `iamId` re-pointed, `verified: false`, its legacy password set to the caller's,
+      its roles in the answer, and the legacy path returned its tokens. The answer to a placeholder stays that of a new
+      sign-up (`mapUnstoredSessionUser()`, `equalizeLegacyPasswordSync()` for the timing); only the writes are left out.
+      Pinned by `tests/unit/better-auth-sign-up-existing-address.spec.ts` (mutations
+      `sign-up-placeholder-linked-rest`, `-graphql`, `-legacy`)
 
 ### Example: Challenge Storage
 

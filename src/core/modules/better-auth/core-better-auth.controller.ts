@@ -612,17 +612,31 @@ export class CoreBetterAuthController {
       }
 
       if (hasUser(response)) {
-        // Link or create user in our database
-        // Pass termsAndPrivacyAccepted to store the acceptance timestamp
-        await this.userMapper.linkOrCreateUser(response.user, {
-          termsAndPrivacyAccepted: input.termsAndPrivacyAccepted,
-        });
+        // An already registered address: with `requireEmailVerification` or `autoSignIn: false` Better-Auth answers it
+        // like a new sign-up, with a placeholder user it never stored (enumeration protection). Linking that user
+        // re-pointed the real account found by address and overwrote its legacy password with the caller's (12.6.6).
+        // The answer below stays that of a new sign-up; only the writes are left out.
+        const isPlaceholder = !(await this.betterAuthService.isPersistedUser(response.user.id));
 
-        // Sync password to legacy (enables IAM Sign-Up → Legacy Sign-In)
-        // Pass the plain password so it can be hashed with bcrypt for Legacy Auth
-        await this.userMapper.syncPasswordToLegacy(response.user.id, response.user.email, input.password);
+        if (isPlaceholder) {
+          // The same bcrypt round as the legacy sync, so the response time does not tell the address exists
+          await this.userMapper.equalizeLegacyPasswordSync(input.password);
+        } else {
+          // Link or create user in our database
+          // Pass termsAndPrivacyAccepted to store the acceptance timestamp
+          await this.userMapper.linkOrCreateUser(response.user, {
+            termsAndPrivacyAccepted: input.termsAndPrivacyAccepted,
+          });
 
-        const mappedUser = await this.userMapper.mapSessionUser(response.user);
+          // Sync password to legacy (enables IAM Sign-Up → Legacy Sign-In)
+          // Pass the plain password so it can be hashed with bcrypt for Legacy Auth
+          await this.userMapper.syncPasswordToLegacy(response.user.id, response.user.email, input.password);
+        }
+
+        // A new user has no roles yet; the placeholder must not carry those of the account it stands for
+        const mappedUser = isPlaceholder
+          ? this.userMapper.mapUnstoredSessionUser(response.user)
+          : await this.userMapper.mapSessionUser(response.user);
 
         // Get token: JWT accessToken > top-level token > session.token
         // Without this, no session cookies are set after sign-up, causing 401 on
