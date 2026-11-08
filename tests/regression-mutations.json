@@ -7150,6 +7150,17 @@
         "tests/unit/better-auth-user-options-merge.spec.ts"
       ],
       "driverSpecific": false
+    },
+    {
+      "id": "iam-origin-check-missing-env-unpinned",
+      "defect": "12.8.2 — the origin-check pin must hold where the Better-Auth instance is built without a config environment (forRootAsync(), a direct createBetterAuthInstance() call); pinning only for a given environment leaves those to Better-Auth's isTest().",
+      "file": "src/core/modules/better-auth/better-auth.config.ts",
+      "find": "      ...(!isLocalEnv(serverEnv) && { disableOriginCheck: false }),\n",
+      "replace": "      ...(serverEnv && !isLocalEnv(serverEnv) && { disableOriginCheck: false }),\n",
+      "specs": [
+        "tests/unit/better-auth-origin-check-test-env.spec.ts"
+      ],
+      "driverSpecific": false
     }
   ]
 }
