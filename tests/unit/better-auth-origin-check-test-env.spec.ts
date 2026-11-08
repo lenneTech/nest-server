@@ -38,12 +38,16 @@ const fakeDb: any = {
 const VALID_SECRET = 'a-very-long-secret-that-is-at-least-32-characters-long-for-testing';
 const BASE_URL = 'http://localhost:3000';
 
-/** The Better-Auth instance for the given `betterAuth` configuration, built for the given config environment. */
-function instanceFor(config: Record<string, unknown> = {}, serverEnv: string | undefined = 'test'): any {
+/**
+ * The Better-Auth instance for the given `betterAuth` configuration, built for the config environment `test` unless
+ * `env` names another one. `{ serverEnv: undefined }` builds it WITHOUT an environment — a default parameter would turn
+ * an explicit `undefined` back into `'test'`.
+ */
+function instanceFor(config: Record<string, unknown> = {}, env: { serverEnv?: string } = { serverEnv: 'test' }): any {
   const result = createBetterAuthInstance({
     config: { baseUrl: BASE_URL, enabled: true, secret: VALID_SECRET, ...config } as any,
     db: fakeDb,
-    serverEnv,
+    serverEnv: env.serverEnv,
   } as any);
   expect(result).not.toBeNull();
   return result!.instance;
@@ -74,16 +78,27 @@ describe('Better-Auth origin check under NODE_ENV=test', () => {
     expect(process.env.NODE_ENV).toBe('test');
   });
 
-  it.each(['test', 'develop', 'production', 'staging', undefined])(
+  it.each(['test', 'develop', 'production', 'staging'])(
     'pins the origin check for the deployed environment %s',
     async (serverEnv) => {
-      expect((await instanceFor({}, serverEnv).$context).skipOriginCheck).toBe(false);
+      expect((await instanceFor({}, { serverEnv }).$context).skipOriginCheck).toBe(false);
     },
   );
 
+  /**
+   * @regression   12.8.2 — the pin must also hold where the instance is built without a config environment
+   *   (`forRootAsync()`, a direct `createBetterAuthInstance()` call): a missing name counts as deployed.
+   * @seen-failing Pin only for a GIVEN environment (`serverEnv && !isLocalEnv(serverEnv)`) in
+   *   createBetterAuthInstance() (src/core/modules/better-auth/better-auth.config.ts) — registered as mutation
+   *   `iam-origin-check-missing-env-unpinned` in tests/regression-mutations.json.
+   */
+  it('pins the origin check when no environment is given', async () => {
+    expect((await instanceFor({}, { serverEnv: undefined }).$context).skipOriginCheck).toBe(false);
+  });
+
   it.each(['local', 'ci', 'e2e'])("leaves %s to Better-Auth's own decision", async (serverEnv) => {
     // Under the test runner that decision is "off" — what every e2e suite has always run with.
-    expect((await instanceFor({}, serverEnv).$context).skipOriginCheck).toBe(true);
+    expect((await instanceFor({}, { serverEnv }).$context).skipOriginCheck).toBe(true);
   });
 
   /**
