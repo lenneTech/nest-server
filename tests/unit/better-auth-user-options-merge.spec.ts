@@ -68,6 +68,21 @@ describe('betterAuth.options.user merge', () => {
     expect(user.additionalFields.roles.input).toBe(false);
   });
 
+  /**
+   * @regression   12.8.2 — a project field under another key that maps to a protected column
+   *   (`customRoles: { fieldName: 'roles', input: true }`) fed client input into `roles` through the merged block.
+   * @seen-failing Drop the `lockProtectedColumns()` call after the `user` merge in createBetterAuthInstance()
+   *   (src/core/modules/better-auth/better-auth.config.ts) — registered as mutation
+   *   `iam-options-user-shadow-field-unlocked` in tests/regression-mutations.json.
+   */
+  it('locks a project field that maps to a protected column under another key, without touching its config', async () => {
+    const shadow = Object.freeze({ fieldName: 'roles', input: true, type: 'string[]' });
+    const user = await userOptionsFor({ additionalFields: Object.freeze({ customRoles: shadow }) });
+
+    expect(user.additionalFields.customRoles.input).toBe(false);
+    expect(shadow.input).toBe(true);
+  });
+
   it('paired control: adds a field the framework does not declare', async () => {
     const user = await userOptionsFor({ additionalFields: { nickname: { required: false, type: 'string' } } });
 

@@ -3502,8 +3502,8 @@
       "id": "iam-options-user-fields-override-locks",
       "defect": "12.8.2 — merging betterAuth.options.user must not let a project field of the same name replace a framework field: roles with input: true would reopen self-assigned roles through /iam/update-user.",
       "file": "src/core/modules/better-auth/better-auth.config.ts",
-      "find": "          ...(overrideUser.additionalFields as Record<string, unknown> | undefined),\n          ...(baseUser.additionalFields as Record<string, unknown>),\n",
-      "replace": "          ...(baseUser.additionalFields as Record<string, unknown>),\n          ...(overrideUser.additionalFields as Record<string, unknown> | undefined),\n",
+      "find": "        ...projectFields,\n        ...(baseUser.additionalFields as Record<string, unknown>),\n",
+      "replace": "        ...(baseUser.additionalFields as Record<string, unknown>),\n        ...projectFields,\n",
       "specs": [
         "tests/unit/better-auth-user-options-merge.spec.ts"
       ],
@@ -3517,6 +3517,17 @@
       "replace": "      oldEmail !== input.email\n",
       "specs": [
         "tests/unit/user-email-change-case.spec.ts"
+      ],
+      "driverSpecific": false
+    },
+    {
+      "id": "iam-options-user-shadow-field-unlocked",
+      "defect": "12.8.2 — the betterAuth.options.user merge kept a project field under another key that maps to a protected column (customRoles: { fieldName: 'roles', input: true }), so client input reached roles through /iam/update-user.",
+      "file": "src/core/modules/better-auth/better-auth.config.ts",
+      "find": "      lockProtectedColumns(mergedFields as Record<string, { fieldName?: string; input?: boolean }>);\n",
+      "replace": "",
+      "specs": [
+        "tests/unit/better-auth-user-options-merge.spec.ts"
       ],
       "driverSpecific": false
     }
