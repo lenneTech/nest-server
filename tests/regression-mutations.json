@@ -7106,6 +7106,39 @@
         "tests/unit/password-reset-link.spec.ts"
       ],
       "driverSpecific": false
+    },
+    {
+      "id": "iam-options-user-replaces-block",
+      "defect": "12.8.2 — a project's betterAuth.options.user replaced the framework's user block: modelName 'users' and every additional field, the input: false locks included, were gone, and Better-Auth read and wrote a user collection the framework never sees.",
+      "file": "src/core/modules/better-auth/better-auth.config.ts",
+      "find": "    if (optionsUser && typeof optionsUser === 'object') {\n",
+      "replace": "    finalConfig.user = optionsUser ?? finalConfig.user;\n    if (false) {\n",
+      "specs": [
+        "tests/unit/better-auth-user-options-merge.spec.ts"
+      ],
+      "driverSpecific": false
+    },
+    {
+      "id": "iam-options-user-fields-override-locks",
+      "defect": "12.8.2 — merging betterAuth.options.user must not let a project field of the same name replace a framework field: roles with input: true would reopen self-assigned roles through /iam/update-user.",
+      "file": "src/core/modules/better-auth/better-auth.config.ts",
+      "find": "          ...(overrideUser.additionalFields as Record<string, unknown> | undefined),\n          ...(baseUser.additionalFields as Record<string, unknown>),\n",
+      "replace": "          ...(baseUser.additionalFields as Record<string, unknown>),\n          ...(overrideUser.additionalFields as Record<string, unknown> | undefined),\n",
+      "specs": [
+        "tests/unit/better-auth-user-options-merge.spec.ts"
+      ],
+      "driverSpecific": false
+    },
+    {
+      "id": "user-email-case-ends-sessions",
+      "defect": "12.8.2 — CoreUserService.update() compared the stored address with the submitted one as typed, while addresses are stored trimmed and in lower case: an address differing only in case counted as a change, and the IAM sync ended every session of the account.",
+      "file": "src/core/modules/user/core-user.service.ts",
+      "find": "      normalizeEmail(oldEmail) !== normalizeEmail(input.email)\n",
+      "replace": "      oldEmail !== input.email\n",
+      "specs": [
+        "tests/unit/user-email-change-case.spec.ts"
+      ],
+      "driverSpecific": false
     }
   ]
 }

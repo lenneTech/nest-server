@@ -740,8 +740,16 @@ export abstract class CoreUserService<
     // Perform the update
     const updatedUser = await super.update(id, input, serviceOptions);
 
-    // Sync email change to IAM if email was changed and mapper is available
-    if (this.options?.betterAuthUserMapper && oldEmail && input.email && oldEmail !== input.email) {
+    // Sync email change to IAM if email was changed and mapper is available. Compared the way the address is stored
+    // (trimmed, lower case): `Foo@Example.com` for `foo@example.com` changes nothing, and the sync would end every
+    // session of the account for it.
+    const normalizeEmail = (value: unknown) => (typeof value === 'string' ? value.trim().toLowerCase() : value);
+    if (
+      this.options?.betterAuthUserMapper &&
+      oldEmail &&
+      input.email &&
+      normalizeEmail(oldEmail) !== normalizeEmail(input.email)
+    ) {
       try {
         await this.options.betterAuthUserMapper.syncEmailChangeFromLegacy(oldEmail, input.email);
         this.userServiceLogger.debug(`Synced email change from Legacy to IAM: ${oldEmail} → ${input.email}`);
