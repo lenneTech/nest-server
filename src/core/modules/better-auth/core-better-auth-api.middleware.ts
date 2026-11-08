@@ -8,6 +8,7 @@ import { BetterAuthCookieHelper, createCookieHelper } from './core-better-auth-c
 import { wrapBetterAuthErrorResponse } from './core-better-auth-error-codes.helper.js';
 import { isControllerHandledPath } from './core-better-auth-openapi.helper.js';
 import { runWithResetPassword } from './core-better-auth-password-reset.registry.js';
+import { canonicalRequestPath } from './core-better-auth-path-guard.middleware.js';
 import { CoreBetterAuthUserMapper } from './core-better-auth-user.mapper.js';
 import { extractSessionToken, signCookieValue, toWebRequest } from './core-better-auth-web.helper.js';
 import { CoreBetterAuthService } from './core-better-auth.service.js';
@@ -314,9 +315,13 @@ export class CoreBetterAuthApiMiddleware implements NestMiddleware {
     }
 
     const basePath = this.betterAuthService.getBasePath();
-    // Use originalUrl to get full path for IAM endpoints, but fallback to req.path
-    // The originalUrl contains the original request path as sent by client
-    const requestPath = req.originalUrl?.split('?')[0] || req.path;
+    // The path Better-Auth will ROUTE, not the one the client wrote (12.8.1): the forwarded Web Request is built with
+    // `new URL(originalUrl, baseUrl)` (toWebRequest()), which resolves `.`, `..` and `%2e` segments. Compared raw,
+    // `/iam/sign-up/%2e/email` counted as "not a controller path" while Better-Auth's own sign-up served it — past the
+    // controller's checks and every project override. CoreBetterAuthPathGuardMiddleware refuses such a path before this
+    // runs; deciding on the canonical path keeps this middleware right where the guard is not registered, as the rate
+    // limiter does.
+    const requestPath = canonicalRequestPath(req.originalUrl || req.url || req.path);
 
     // Only handle requests that start with the Better Auth base path
     if (!requestPath.startsWith(basePath)) {
