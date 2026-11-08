@@ -193,7 +193,7 @@ describe('IAM sign-in / sign-up — Better-Auth CSRF protection runs (e2e)', () 
 
   /**
    * The reset mail links to the caller's `redirectTo` only because Better-Auth validated it against `trustedOrigins`
-   * first (12.8.2 pins that check on deployed environments; this suite switches it on like a deployment). The unit spec
+   * first (12.6.7 pins that check on deployed environments; this suite switches it on like a deployment). The unit spec
    * `better-auth-origin-check-test-env.spec.ts` proves the pin; this case proves the refusal through the assembled stack:
    * the API middleware forwards the route to Better-Auth's own handler with the full request.
    */

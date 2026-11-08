@@ -634,7 +634,7 @@ export class CoreBetterAuthEmailVerificationService {
 
   /**
    * Whether the project switched Better-Auth's origin check off (`betterAuth.options.advanced.disableOriginCheck`):
-   * `true`, or a list of paths, which may name the reset route. The framework itself pins `false` (12.8.2), so only a
+   * `true`, or a list of paths, which may name the reset route. The framework itself pins `false` (12.6.7), so only a
    * project's own value counts here.
    */
   protected isOriginCheckDisabled(): boolean {
@@ -721,7 +721,7 @@ export class CoreBetterAuthEmailVerificationService {
    * knowing before anyone widens it. `cors.allowAll` does not widen it (an origin check has no
    * "allow everything" mode), but an over-broad `allowedOrigins` would.
    *
-   * And it makes the origin check itself load-bearing. Until 12.8.2 Better-Auth switched it off on its
+   * And it makes the origin check itself load-bearing. Until 12.6.7 Better-Auth switched it off on its
    * own under `NODE_ENV=test` (`isTest()`), which is a deployed stage in starter-based projects; the
    * framework now pins `advanced.disableOriginCheck: false`. A project that switches it off itself
    * gets no caller URL here at all ({@link isOriginCheckDisabled}).
