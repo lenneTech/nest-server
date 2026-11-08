@@ -3,7 +3,7 @@ import { describe, expect, it } from 'vitest';
 import { createBetterAuthInstance } from '../../src/core/modules/better-auth/better-auth.config';
 
 /**
- * `betterAuth.options.user` is merged into the framework's `user` block, not swapped for it (12.8.2).
+ * `betterAuth.options.user` is merged into the framework's `user` block, not swapped for it (11.44.2).
  *
  * The framework gives Better-Auth `user: { modelName: 'users', additionalFields }`: the collection or table it shares
  * with the user model, and the fields `additionalUserFields` declares, among them the `input: false` locks on `roles`,
@@ -42,7 +42,7 @@ async function userOptionsFor(user: Record<string, unknown>): Promise<any> {
 
 describe('betterAuth.options.user merge', () => {
   /**
-   * @regression   12.8.2 — a project's `options.user` replaced the framework's `user` block: `modelName: 'users'` and
+   * @regression   11.44.2 — a project's `options.user` replaced the framework's `user` block: `modelName: 'users'` and
    *   every additional field (with the `input: false` locks) were gone.
    * @seen-failing Remove the `user` merge from createBetterAuthInstance()
    *   (src/core/modules/better-auth/better-auth.config.ts) — registered as mutation `iam-options-user-replaces-block`
@@ -58,7 +58,7 @@ describe('betterAuth.options.user merge', () => {
   });
 
   /**
-   * @regression   12.8.2 — the same merge must not let a project field of the same name reopen a lock.
+   * @regression   11.44.2 — the same merge must not let a project field of the same name reopen a lock.
    * @seen-failing Spread the framework's additional fields BEFORE the project's in the `user` merge — registered as
    *   mutation `iam-options-user-fields-override-locks` in tests/regression-mutations.json.
    */
@@ -69,7 +69,7 @@ describe('betterAuth.options.user merge', () => {
   });
 
   /**
-   * @regression   12.8.2 — a project field under another key that maps to a protected column
+   * @regression   11.44.2 — a project field under another key that maps to a protected column
    *   (`customRoles: { fieldName: 'roles', input: true }`) fed client input into `roles` through the merged block.
    * @seen-failing Drop the `lockProtectedColumns()` call after the `user` merge in createBetterAuthInstance()
    *   (src/core/modules/better-auth/better-auth.config.ts) — registered as mutation

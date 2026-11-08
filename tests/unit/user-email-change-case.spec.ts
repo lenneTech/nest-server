@@ -4,7 +4,7 @@ import { CrudService } from '../../src/core/common/services/crud.service';
 import { CoreUserService } from '../../src/core/modules/user/core-user.service';
 
 /**
- * An address that differs only in letter case or surrounding whitespace is no address change (12.8.2).
+ * An address that differs only in letter case or surrounding whitespace is no address change (11.44.2).
  *
  * `CoreUserService.update()` syncs an address change to IAM (`syncEmailChangeFromLegacy()`), and that sync ends every
  * session of the account, so the user has to sign in again. It compared the stored address with the submitted one as
@@ -23,8 +23,9 @@ async function syncedAddressFor(storedEmail: string, submittedEmail: string): Pr
   vi.spyOn(CrudService.prototype, 'update').mockResolvedValue({ email: submittedEmail } as any);
   const syncEmailChangeFromLegacy = vi.fn(async () => true);
   const service = Object.create(CoreUserService.prototype) as any;
-  Object.defineProperty(service, 'usesNeutralStore', { value: true });
-  Object.defineProperty(service, 'dataStore', { value: { findById: async () => ({ email: storedEmail, id: 'u1' }) } });
+  // The read before the update (`mainDbModel.findById(id).lean().exec()`)
+  const query = { exec: async () => ({ email: storedEmail, id: 'u1' }), lean: () => query };
+  service.mainDbModel = { findById: () => query };
   service.assertCredentialChangeAllowed = () => undefined;
   service.userServiceLogger = { debug: () => undefined, error: () => undefined, warn: () => undefined };
   service.options = { betterAuthUserMapper: { syncEmailChangeFromLegacy } };
@@ -36,7 +37,7 @@ async function syncedAddressFor(storedEmail: string, submittedEmail: string): Pr
 
 describe('CoreUserService.update(): address change detection', () => {
   /**
-   * @regression   12.8.2 — an address that differed only in case counted as a change, and the IAM sync ended every
+   * @regression   11.44.2 — an address that differed only in case counted as a change, and the IAM sync ended every
    *   session of the account.
    * @seen-failing Compare `oldEmail !== input.email` again in CoreUserService.update()
    *   (src/core/modules/user/core-user.service.ts) — registered as mutation `user-email-case-ends-sessions` in

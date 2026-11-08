@@ -3456,7 +3456,7 @@
     },
     {
       "id": "iam-origin-check-follows-node-env",
-      "defect": "12.8.2 — with advanced.disableOriginCheck unset on a deployed environment, Better-Auth's isTest() (NODE_ENV=test or a truthy TEST) switched the origin check off, and with it the CSRF check and the redirectTo validation: on a deployed stage named test a password-reset mail carried any redirectTo, with a valid token, to the caller's page.",
+      "defect": "11.44.2 — with advanced.disableOriginCheck unset on a deployed environment, Better-Auth's isTest() (NODE_ENV=test or a truthy TEST) switched the origin check off, and with it the CSRF check and the redirectTo validation: on a deployed stage named test a password-reset mail carried any redirectTo, with a valid token, to the caller's page.",
       "file": "src/core/modules/better-auth/better-auth.config.ts",
       "find": "      ...(!isLocalEnv(serverEnv) && { disableOriginCheck: false }),\n",
       "replace": "",
@@ -3467,7 +3467,7 @@
     },
     {
       "id": "iam-origin-check-merge-drops-pin",
-      "defect": "12.8.2 — a project's options.advanced carrying an explicitly undefined disableOriginCheck replaced the pinned false in the merge (dropping the fallback to the framework's value) and handed the origin check back to Better-Auth's isTest().",
+      "defect": "11.44.2 — a project's options.advanced carrying an explicitly undefined disableOriginCheck replaced the pinned false in the merge (dropping the fallback to the framework's value) and handed the origin check back to Better-Auth's isTest().",
       "file": "src/core/modules/better-auth/better-auth.config.ts",
       "find": "          (optionsAdvanced as Record<string, unknown>).disableOriginCheck ??\n          (betterAuthConfig.advanced as Record<string, unknown>).disableOriginCheck,\n",
       "replace": "          (optionsAdvanced as Record<string, unknown>).disableOriginCheck,\n",
@@ -3478,7 +3478,7 @@
     },
     {
       "id": "reset-link-trusts-unchecked-redirect",
-      "defect": "12.8.2 — buildPasswordResetUrl() put the caller's redirectTo into the reset mail although nobody had validated it: with options.advanced.disableOriginCheck switched off, a reset requested for somebody else's address mailed a valid token to a page the caller chose.",
+      "defect": "11.44.2 — buildPasswordResetUrl() put the caller's redirectTo into the reset mail although nobody had validated it: with options.advanced.disableOriginCheck switched off, a reset requested for somebody else's address mailed a valid token to a page the caller chose.",
       "file": "src/core/modules/better-auth/core-better-auth-email-verification.service.ts",
       "find": "    if (!target && !this.isOriginCheckDisabled()) {\n",
       "replace": "    if (!target) {\n",
@@ -3489,7 +3489,7 @@
     },
     {
       "id": "iam-options-user-replaces-block",
-      "defect": "12.8.2 — a project's betterAuth.options.user replaced the framework's user block: modelName 'users' and every additional field, the input: false locks included, were gone, and Better-Auth read and wrote a user collection the framework never sees.",
+      "defect": "11.44.2 — a project's betterAuth.options.user replaced the framework's user block: modelName 'users' and every additional field, the input: false locks included, were gone, and Better-Auth read and wrote a user collection the framework never sees.",
       "file": "src/core/modules/better-auth/better-auth.config.ts",
       "find": "    if (optionsUser && typeof optionsUser === 'object') {\n",
       "replace": "    finalConfig.user = optionsUser ?? finalConfig.user;\n    if (false) {\n",
@@ -3500,7 +3500,7 @@
     },
     {
       "id": "iam-options-user-fields-override-locks",
-      "defect": "12.8.2 — merging betterAuth.options.user must not let a project field of the same name replace a framework field: roles with input: true would reopen self-assigned roles through /iam/update-user.",
+      "defect": "11.44.2 — merging betterAuth.options.user must not let a project field of the same name replace a framework field: roles with input: true would reopen self-assigned roles through /iam/update-user.",
       "file": "src/core/modules/better-auth/better-auth.config.ts",
       "find": "        ...projectFields,\n        ...(baseUser.additionalFields as Record<string, unknown>),\n",
       "replace": "        ...(baseUser.additionalFields as Record<string, unknown>),\n        ...projectFields,\n",
@@ -3511,7 +3511,7 @@
     },
     {
       "id": "user-email-case-ends-sessions",
-      "defect": "12.8.2 — CoreUserService.update() compared the stored address with the submitted one as typed, while addresses are stored trimmed and in lower case: an address differing only in case counted as a change, and the IAM sync ended every session of the account.",
+      "defect": "11.44.2 — CoreUserService.update() compared the stored address with the submitted one as typed, while addresses are stored trimmed and in lower case: an address differing only in case counted as a change, and the IAM sync ended every session of the account.",
       "file": "src/core/modules/user/core-user.service.ts",
       "find": "      normalizeEmail(oldEmail) !== normalizeEmail(input.email)\n",
       "replace": "      oldEmail !== input.email\n",
@@ -3522,7 +3522,7 @@
     },
     {
       "id": "iam-options-user-shadow-field-unlocked",
-      "defect": "12.8.2 — the betterAuth.options.user merge kept a project field under another key that maps to a protected column (customRoles: { fieldName: 'roles', input: true }), so client input reached roles through /iam/update-user.",
+      "defect": "11.44.2 — the betterAuth.options.user merge kept a project field under another key that maps to a protected column (customRoles: { fieldName: 'roles', input: true }), so client input reached roles through /iam/update-user.",
       "file": "src/core/modules/better-auth/better-auth.config.ts",
       "find": "      lockProtectedColumns(mergedFields as Record<string, { fieldName?: string; input?: boolean }>);\n",
       "replace": "",
@@ -3533,7 +3533,7 @@
     },
     {
       "id": "iam-origin-check-missing-env-unpinned",
-      "defect": "12.8.2 — the origin-check pin must hold where the Better-Auth instance is built without a config environment (forRootAsync(), a direct createBetterAuthInstance() call); pinning only for a given environment leaves those to Better-Auth's isTest().",
+      "defect": "11.44.2 — the origin-check pin must hold where the Better-Auth instance is built without a config environment (forRootAsync(), a direct createBetterAuthInstance() call); pinning only for a given environment leaves those to Better-Auth's isTest().",
       "file": "src/core/modules/better-auth/better-auth.config.ts",
       "find": "      ...(!isLocalEnv(serverEnv) && { disableOriginCheck: false }),\n",
       "replace": "      ...(serverEnv && !isLocalEnv(serverEnv) && { disableOriginCheck: false }),\n",
