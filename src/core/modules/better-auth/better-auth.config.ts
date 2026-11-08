@@ -647,6 +647,13 @@ export function buildBetterAuthOptions(options: CreateBetterAuthOptions): Better
       // `Secure` TRANSPORT flag. Only injected on https so http/local and a consumer's
       // own `options.advanced.useSecureCookies` override are left untouched.
       ...(secureCookies && { defaultCookieAttributes: { secure: true } }),
+      // Better-Auth decides the origin check itself when this is unset: `isTest()` — `NODE_ENV === 'test'` or a
+      // truthy `TEST` variable — switches it off, and with it the CSRF check (backward compatibility in
+      // origin-check.mjs) and the validation of `callbackURL` / `redirectTo` against `trustedOrigins`. A deployed
+      // stage named `test` is exactly that environment, so a password-reset mail carried any `redirectTo` a caller
+      // chose — with a valid token, to the caller's page. Pinned so the environment name never decides it; a
+      // project's own `options.advanced.disableOriginCheck` still wins (see the merge below).
+      disableOriginCheck: false,
     },
     basePath,
     baseURL: betterAuthBaseUrl,
@@ -839,6 +846,9 @@ export function buildBetterAuthOptions(options: CreateBetterAuthOptions): Better
               | undefined),
           },
         }),
+        // An explicitly `undefined` value survives the spread as a present key and hands the decision back to
+        // Better-Auth's `isTest()`. Only a value the project actually set overrides the pin.
+        disableOriginCheck: (optionsAdvanced as Record<string, unknown>).disableOriginCheck ?? false,
       };
     }
   } else {
