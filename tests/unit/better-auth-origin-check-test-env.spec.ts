@@ -3,7 +3,7 @@ import { describe, expect, it } from 'vitest';
 import { createBetterAuthInstance } from '../../src/core/modules/better-auth/better-auth.config';
 
 /**
- * The origin check runs whatever the environment is called (12.8.2).
+ * The origin check runs whatever the environment is called (11.44.2).
  *
  * Better-Auth decides the origin check itself while `advanced.disableOriginCheck` is unset: `isTest()` —
  * `NODE_ENV === 'test'` or a truthy `TEST` variable — switches it off. With it go the CSRF check (backward
@@ -86,7 +86,7 @@ describe('Better-Auth origin check under NODE_ENV=test', () => {
   );
 
   /**
-   * @regression   12.8.2 — the pin must also hold where the instance is built without a config environment
+   * @regression   11.44.2 — the pin must also hold where the instance is built without a config environment
    *   (`forRootAsync()`, a direct `createBetterAuthInstance()` call): a missing name counts as deployed.
    * @seen-failing Pin only for a GIVEN environment (`serverEnv && !isLocalEnv(serverEnv)`) in
    *   createBetterAuthInstance() (src/core/modules/better-auth/better-auth.config.ts) — registered as mutation
@@ -102,7 +102,7 @@ describe('Better-Auth origin check under NODE_ENV=test', () => {
   });
 
   /**
-   * @regression   12.8.2 — with `advanced.disableOriginCheck` unset, Better-Auth's `isTest()` switched the origin
+   * @regression   11.44.2 — with `advanced.disableOriginCheck` unset, Better-Auth's `isTest()` switched the origin
    *   check off on every stage with NODE_ENV=test, and `/request-password-reset` took any `redirectTo` into the mail.
    * @seen-failing Remove the deployed-environment `disableOriginCheck: false` from the `advanced` block in
    *   createBetterAuthInstance()
@@ -127,7 +127,7 @@ describe('Better-Auth origin check under NODE_ENV=test', () => {
   });
 
   /**
-   * @regression   12.8.2 — a project setting `options.advanced` must not hand the decision back to `isTest()` through
+   * @regression   11.44.2 — a project setting `options.advanced` must not hand the decision back to `isTest()` through
    *   the merge, neither with other keys nor with an explicitly `undefined` `disableOriginCheck`.
    * @seen-failing Drop the fallback to the framework's value from the merged `disableOriginCheck` in
    *   createBetterAuthInstance()
