@@ -4608,7 +4608,8 @@ interface IBetterAuthBase {
      * Since 12.3.0 it closes social sign-up too: every configured social provider receives it as its own
      * `disableSignUp`, so a first sign-in through Google, GitHub etc. creates no account, while existing users keep
      * signing in. `socialProviders.<name>.disableSignUp: false` opens one provider deliberately. Plugins a project
-     * registers itself through `options.plugins` are not covered.
+     * registers itself through `plugins` are not covered; they need their own sign-up option
+     * (`magicLink({ disableSignUp: true })`).
      * The Swagger document built by `setupSwagger()` then leaves out `POST /iam/sign-up/email`,
      * which would answer `SIGNUP_DISABLED` to every caller.
      * @default false
