@@ -12,8 +12,13 @@ import { createBetterAuthInstance } from '../../src/core/modules/better-auth/bet
  * any `redirectTo`, and the framework's reset mail (`buildPasswordResetUrl()`) carried it, with a valid token, to the
  * caller's page.
  *
- * The unit runner runs with `NODE_ENV=test`, so every case below runs in the environment the defect needs. They build
- * the REAL `createBetterAuthInstance()` and, where it matters, send the request through Better-Auth's own handler.
+ * The framework now pins `advanced.disableOriginCheck: false` for every config environment that is not local / ci / e2e.
+ * Those three keep Better-Auth's own decision on purpose: vitest sets `TEST=true`, so a pin there would arm the check in
+ * every e2e suite of every project at once.
+ *
+ * The unit runner runs with `NODE_ENV=test` and `TEST=true`, so every case below runs in the environment the defect
+ * needs. They build the REAL `createBetterAuthInstance()` and, where it matters, send the request through Better-Auth's
+ * own handler.
  */
 
 /** Minimal MongoDB `Db` stand-in: every lookup finds nothing. */
@@ -33,11 +38,12 @@ const fakeDb: any = {
 const VALID_SECRET = 'a-very-long-secret-that-is-at-least-32-characters-long-for-testing';
 const BASE_URL = 'http://localhost:3000';
 
-/** The Better-Auth instance for the given `betterAuth` configuration. */
-function instanceFor(config: Record<string, unknown> = {}): any {
+/** The Better-Auth instance for the given `betterAuth` configuration, built for the given config environment. */
+function instanceFor(config: Record<string, unknown> = {}, serverEnv: string | undefined = 'test'): any {
   const result = createBetterAuthInstance({
     config: { baseUrl: BASE_URL, enabled: true, secret: VALID_SECRET, ...config } as any,
     db: fakeDb,
+    serverEnv,
   } as any);
   expect(result).not.toBeNull();
   return result!.instance;
@@ -68,10 +74,23 @@ describe('Better-Auth origin check under NODE_ENV=test', () => {
     expect(process.env.NODE_ENV).toBe('test');
   });
 
+  it.each(['test', 'develop', 'production', 'staging', undefined])(
+    'pins the origin check for the deployed environment %s',
+    async (serverEnv) => {
+      expect((await instanceFor({}, serverEnv).$context).skipOriginCheck).toBe(false);
+    },
+  );
+
+  it.each(['local', 'ci', 'e2e'])("leaves %s to Better-Auth's own decision", async (serverEnv) => {
+    // Under the test runner that decision is "off" — what every e2e suite has always run with.
+    expect((await instanceFor({}, serverEnv).$context).skipOriginCheck).toBe(true);
+  });
+
   /**
    * @regression   12.8.2 — with `advanced.disableOriginCheck` unset, Better-Auth's `isTest()` switched the origin
    *   check off on every stage with NODE_ENV=test, and `/request-password-reset` took any `redirectTo` into the mail.
-   * @seen-failing Remove `disableOriginCheck: false` from the `advanced` block in createBetterAuthInstance()
+   * @seen-failing Remove the deployed-environment `disableOriginCheck: false` from the `advanced` block in
+   *   createBetterAuthInstance()
    *   (src/core/modules/better-auth/better-auth.config.ts) — registered as mutation
    *   `iam-origin-check-follows-node-env` in tests/regression-mutations.json.
    */
@@ -95,7 +114,8 @@ describe('Better-Auth origin check under NODE_ENV=test', () => {
   /**
    * @regression   12.8.2 — a project setting `options.advanced` must not hand the decision back to `isTest()` through
    *   the merge, neither with other keys nor with an explicitly `undefined` `disableOriginCheck`.
-   * @seen-failing Drop the `?? false` from the merged `disableOriginCheck` in createBetterAuthInstance()
+   * @seen-failing Drop the fallback to the framework's value from the merged `disableOriginCheck` in
+   *   createBetterAuthInstance()
    *   (src/core/modules/better-auth/better-auth.config.ts) — registered as mutation
    *   `iam-origin-check-merge-drops-pin` in tests/regression-mutations.json.
    */
