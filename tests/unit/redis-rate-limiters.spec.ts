@@ -118,6 +118,8 @@ describe('CoreBetterAuthRateLimiter store selection', () => {
     const { client, redisService } = createRedisService(true);
     const limiter = new CoreBetterAuthRateLimiter(redisService);
     limiter.configure({ enabled: true, max: 4, strictEndpoints: [], windowSeconds: 60 });
+    // A route the base path serves keys its own counter (12.8.2: unknown paths share `other`)
+    limiter.setKnownEndpoints(['/profile']);
 
     expect(limiter['getStore']()).toBeInstanceOf(RedisRateLimitStore);
     expect(await limiter.check('1.2.3.4', '/profile')).toMatchObject({ allowed: true, current: 1, remaining: 3 });
@@ -139,6 +141,7 @@ describe('CoreBetterAuthRateLimiter store selection', () => {
     const { client, redisService } = createRedisService(true);
     const limiter = new CoreBetterAuthRateLimiter(redisService);
     limiter.configure({ enabled: true, max: 4, windowSeconds: 60 });
+    limiter.setKnownEndpoints(['/profile']);
 
     await limiter.check('1.2.3.4', '/profile');
     await limiter.check('5.6.7.8', '/profile');
