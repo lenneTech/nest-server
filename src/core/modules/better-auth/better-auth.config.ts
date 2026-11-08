@@ -784,13 +784,22 @@ export function buildBetterAuthOptions(options: CreateBetterAuthOptions): Better
     if (optionsUser && typeof optionsUser === 'object') {
       const baseUser = betterAuthConfig.user as Record<string, unknown>;
       const overrideUser = optionsUser as Record<string, unknown>;
+      // Copies, because the lock below writes to them and the project's options may be the frozen configuration
+      const projectFields = Object.fromEntries(
+        Object.entries((overrideUser.additionalFields as Record<string, unknown> | undefined) ?? {}).map(
+          ([key, field]) => [key, field && typeof field === 'object' ? { ...field } : field],
+        ),
+      );
+      const mergedFields = {
+        ...projectFields,
+        ...(baseUser.additionalFields as Record<string, unknown>),
+      };
+      // A project field under another key may still map to a protected column (`fieldName: 'roles'`)
+      lockProtectedColumns(mergedFields as Record<string, { fieldName?: string; input?: boolean }>);
       finalConfig.user = {
         ...baseUser,
         ...overrideUser,
-        additionalFields: {
-          ...(overrideUser.additionalFields as Record<string, unknown> | undefined),
-          ...(baseUser.additionalFields as Record<string, unknown>),
-        },
+        additionalFields: mergedFields,
         modelName: overrideUser.modelName ?? baseUser.modelName,
       };
     }
@@ -1434,14 +1443,29 @@ function buildUserFields(config: IBetterAuth): Record<string, UserFieldConfig> {
   // it, e.g. `additionalUserFields: { customRoles: { fieldName: 'roles', input: true } }`. Lock any
   // such field too, so no additionalUserFields entry — regardless of its key — can feed client input
   // into a protected column.
+  lockProtectedColumns(coreFields);
+
+  return coreFields;
+}
+
+/**
+ * Sets `input: false` on every field that feeds a protected column under another key
+ * (`customRoles: { fieldName: 'roles' }`). Used for `additionalUserFields` and for the fields a project passes through
+ * `options.user.additionalFields`, which the `user` merge in createBetterAuthInstance() adds beside the framework's.
+ */
+function lockProtectedColumns(fields: Record<string, { fieldName?: string; input?: boolean }>): void {
   const protectedColumns = new Set<string>(PROTECTED_INPUT_FALSE_KEYS);
-  for (const [key, field] of Object.entries(coreFields)) {
-    if (!protectedColumns.has(key) && field.fieldName && protectedColumns.has(field.fieldName)) {
+  for (const [key, field] of Object.entries(fields)) {
+    if (
+      field &&
+      typeof field === 'object' &&
+      !protectedColumns.has(key) &&
+      field.fieldName &&
+      protectedColumns.has(field.fieldName)
+    ) {
       field.input = false;
     }
   }
-
-  return coreFields;
 }
 
 /**
