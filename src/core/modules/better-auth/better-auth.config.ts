@@ -7,7 +7,7 @@ import * as crypto from 'crypto';
 import * as fs from 'fs';
 import * as path from 'path';
 
-import { resolveServerUrls, strippedApiHostname } from '../../common/helpers/cookies.helper';
+import { isLocalEnv, resolveServerUrls, strippedApiHostname } from '../../common/helpers/cookies.helper';
 import { revalidateWsConnectionsOf } from '../../common/helpers/graphql-ws-connection.helper';
 import { IBetterAuth, ICorsConfig } from '../../common/interfaces/server-options.interface';
 import { ConfigService } from '../../common/services/config.service';
@@ -563,9 +563,11 @@ export function createBetterAuthInstance(options: CreateBetterAuthOptions): Crea
       // truthy `TEST` variable — switches it off, and with it the CSRF check (backward compatibility in
       // origin-check.mjs) and the validation of `callbackURL` / `redirectTo` against `trustedOrigins`. A deployed
       // stage named `test` is exactly that environment, so a password-reset mail carried any `redirectTo` a caller
-      // chose — with a valid token, to the caller's page. Pinned so the environment name never decides it; a
-      // project's own `options.advanced.disableOriginCheck` still wins (see the merge below).
-      disableOriginCheck: false,
+      // chose — with a valid token, to the caller's page. Pinned for every environment that is not local / ci / e2e
+      // (an unknown or missing name included). Those three keep Better-Auth's own decision: vitest sets `TEST=true`,
+      // and pinning there would arm the check in every e2e suite of every project at once. A project's own
+      // `options.advanced.disableOriginCheck` still wins (see the merge below).
+      ...(!isLocalEnv(serverEnv) && { disableOriginCheck: false }),
     },
     basePath,
     baseURL: betterAuthBaseUrl,
@@ -754,7 +756,9 @@ export function createBetterAuthInstance(options: CreateBetterAuthOptions): Crea
         }),
         // An explicitly `undefined` value survives the spread as a present key and hands the decision back to
         // Better-Auth's `isTest()`. Only a value the project actually set overrides the pin.
-        disableOriginCheck: (optionsAdvanced as Record<string, unknown>).disableOriginCheck ?? false,
+        disableOriginCheck:
+          (optionsAdvanced as Record<string, unknown>).disableOriginCheck ??
+          (betterAuthConfig.advanced as Record<string, unknown>).disableOriginCheck,
       };
     }
   } else {

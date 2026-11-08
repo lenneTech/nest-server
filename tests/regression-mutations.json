@@ -3456,9 +3456,9 @@
     },
     {
       "id": "iam-origin-check-follows-node-env",
-      "defect": "12.8.2 — with advanced.disableOriginCheck unset, Better-Auth's isTest() (NODE_ENV=test or a truthy TEST) switched the origin check off, and with it the CSRF check and the redirectTo validation: on a deployed stage named test a password-reset mail carried any redirectTo, with a valid token, to the caller's page.",
+      "defect": "12.8.2 — with advanced.disableOriginCheck unset on a deployed environment, Better-Auth's isTest() (NODE_ENV=test or a truthy TEST) switched the origin check off, and with it the CSRF check and the redirectTo validation: on a deployed stage named test a password-reset mail carried any redirectTo, with a valid token, to the caller's page.",
       "file": "src/core/modules/better-auth/better-auth.config.ts",
-      "find": "      disableOriginCheck: false,\n",
+      "find": "      ...(!isLocalEnv(serverEnv) && { disableOriginCheck: false }),\n",
       "replace": "",
       "specs": [
         "tests/unit/better-auth-origin-check-test-env.spec.ts"
@@ -3467,10 +3467,10 @@
     },
     {
       "id": "iam-origin-check-merge-drops-pin",
-      "defect": "12.8.2 — a project's options.advanced carrying an explicitly undefined disableOriginCheck replaced the pinned false in the merge and handed the origin check back to Better-Auth's isTest().",
+      "defect": "12.8.2 — a project's options.advanced carrying an explicitly undefined disableOriginCheck replaced the pinned false in the merge (dropping the fallback to the framework's value) and handed the origin check back to Better-Auth's isTest().",
       "file": "src/core/modules/better-auth/better-auth.config.ts",
-      "find": "        disableOriginCheck: (optionsAdvanced as Record<string, unknown>).disableOriginCheck ?? false,\n",
-      "replace": "        disableOriginCheck: (optionsAdvanced as Record<string, unknown>).disableOriginCheck,\n",
+      "find": "          (optionsAdvanced as Record<string, unknown>).disableOriginCheck ??\n          (betterAuthConfig.advanced as Record<string, unknown>).disableOriginCheck,\n",
+      "replace": "          (optionsAdvanced as Record<string, unknown>).disableOriginCheck,\n",
       "specs": [
         "tests/unit/better-auth-origin-check-test-env.spec.ts"
       ],

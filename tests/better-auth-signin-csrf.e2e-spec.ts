@@ -177,4 +177,29 @@ describe('IAM sign-in / sign-up — Better-Auth CSRF protection runs (e2e)', () 
     expect(response.status).toBe(403);
     expect(await db.collection('users').countDocuments({ email: victimEmail })).toBe(0);
   });
+
+  /**
+   * The reset mail links to the caller's `redirectTo` only because Better-Auth validated it against `trustedOrigins`
+   * first (12.8.2 pins that check on deployed environments; this suite switches it on like a deployment). The unit spec
+   * `better-auth-origin-check-test-env.spec.ts` proves the pin; this case proves the refusal through the assembled stack:
+   * the API middleware forwards the route to Better-Auth's own handler with the full request.
+   */
+  it('refuses a password-reset request whose redirectTo leaves the trusted origins', async () => {
+    const refusals = captureExpectedLogs();
+    const response = await request(app.getHttpServer())
+      .post('/iam/request-password-reset')
+      .send({ email, redirectTo: 'https://attacker.example/reset' });
+
+    expect(response.status).toBe(403);
+    expect(response.body?.code).toBe('INVALID_REDIRECT_URL');
+    expect(refusals.join('\n')).toContain('Invalid redirectURL: https://attacker.example/reset');
+  });
+
+  it('paired control: accepts a password-reset request whose redirectTo is a trusted origin', async () => {
+    const response = await request(app.getHttpServer())
+      .post('/iam/request-password-reset')
+      .send({ email, redirectTo: `${trusted[0].replace(/\/$/, '')}/auth/reset-password` });
+
+    expect(response.status).toBe(200);
+  });
 });
