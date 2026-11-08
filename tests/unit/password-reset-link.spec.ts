@@ -59,6 +59,7 @@ const resolve = (options: {
   appUrl?: string;
   baseUrl?: string;
   deriveAppUrl?: boolean;
+  disableOriginCheck?: unknown;
   env?: string;
   passwordResetLink?: false | string;
   redirectTo?: string;
@@ -70,6 +71,7 @@ const resolve = (options: {
       ({
         appUrl: options.appUrl,
         baseUrl: options.baseUrl,
+        'betterAuth.options.advanced.disableOriginCheck': options.disableOriginCheck,
         'cors.deriveAppUrl': options.deriveAppUrl,
         env: options.env,
       })[key],
@@ -225,6 +227,29 @@ describe('password-reset link resolution', () => {
       expect(resolve({ passwordResetLink: false, redirectTo: 'https://example.com/auth/reset-password' })).toBe(
         betterAuthUrlWithCallback('https://example.com/auth/reset-password'),
       );
+    });
+
+    /**
+     * @regression   12.8.2 — the caller's `redirectTo` is safe to mail only because Better-Auth's origin check validated
+     *   it. A project that switched the check off (`options.advanced.disableOriginCheck`) mailed any URL the caller
+     *   chose, with a valid token in it.
+     * @seen-failing Read the callback without the `!this.isOriginCheckDisabled()` condition in buildPasswordResetUrl()
+     *   (src/core/modules/better-auth/core-better-auth-email-verification.service.ts) — registered as mutation
+     *   `reset-link-trusts-unchecked-redirect` in tests/regression-mutations.json.
+     */
+    it.each([
+      ['switched off', true],
+      ['switched off for a list of paths', ['/request-password-reset']],
+    ])('ignores it while the origin check is %s', (_case, disableOriginCheck) => {
+      expect(
+        resolve({ appUrl: 'https://example.com', disableOriginCheck, redirectTo: 'https://attacker.example/reset' }),
+      ).toBe('https://example.com/auth/reset-password?token=tok-123');
+    });
+
+    it('paired control: still takes it while the origin check runs', () => {
+      expect(
+        resolve({ appUrl: 'https://example.com', disableOriginCheck: false, redirectTo: 'https://example.com/konto' }),
+      ).toBe('https://example.com/konto?token=tok-123');
     });
   });
 
