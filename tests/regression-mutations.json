@@ -6820,6 +6820,39 @@
         "tests/unit/better-auth-api-middleware-routed-path.spec.ts"
       ],
       "driverSpecific": false
+    },
+    {
+      "id": "iam-origin-check-follows-node-env",
+      "defect": "12.8.2 — with advanced.disableOriginCheck unset, Better-Auth's isTest() (NODE_ENV=test or a truthy TEST) switched the origin check off, and with it the CSRF check and the redirectTo validation: on a deployed stage named test a password-reset mail carried any redirectTo, with a valid token, to the caller's page.",
+      "file": "src/core/modules/better-auth/better-auth.config.ts",
+      "find": "      disableOriginCheck: false,\n",
+      "replace": "",
+      "specs": [
+        "tests/unit/better-auth-origin-check-test-env.spec.ts"
+      ],
+      "driverSpecific": false
+    },
+    {
+      "id": "iam-origin-check-merge-drops-pin",
+      "defect": "12.8.2 — a project's options.advanced carrying an explicitly undefined disableOriginCheck replaced the pinned false in the merge and handed the origin check back to Better-Auth's isTest().",
+      "file": "src/core/modules/better-auth/better-auth.config.ts",
+      "find": "        disableOriginCheck: (optionsAdvanced as Record<string, unknown>).disableOriginCheck ?? false,\n",
+      "replace": "        disableOriginCheck: (optionsAdvanced as Record<string, unknown>).disableOriginCheck,\n",
+      "specs": [
+        "tests/unit/better-auth-origin-check-test-env.spec.ts"
+      ],
+      "driverSpecific": false
+    },
+    {
+      "id": "reset-link-trusts-unchecked-redirect",
+      "defect": "12.8.2 — buildPasswordResetUrl() put the caller's redirectTo into the reset mail although nobody had validated it: with options.advanced.disableOriginCheck switched off, a reset requested for somebody else's address mailed a valid token to a page the caller chose.",
+      "file": "src/core/modules/better-auth/core-better-auth-email-verification.service.ts",
+      "find": "    if (!target && !this.isOriginCheckDisabled()) {\n",
+      "replace": "    if (!target) {\n",
+      "specs": [
+        "tests/unit/password-reset-link.spec.ts"
+      ],
+      "driverSpecific": false
     }
   ]
 }
