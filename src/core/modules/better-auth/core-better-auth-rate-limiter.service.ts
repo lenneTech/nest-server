@@ -288,7 +288,36 @@ export class CoreBetterAuthRateLimiter {
   }
 
   /**
-   * Normalize endpoint path for consistent grouping
+   * The route names the base path serves: the last static segment of every route Better-Auth and the controller
+   * answer (`/sign-in/email` → `email`, `/two-factor/enable` → `enable`). Set by CoreBetterAuthRateLimitMiddleware from
+   * the running instance. A counter is keyed by one of these names, so a client cannot create counters of its own.
+   */
+  protected knownEndpoints: null | ReadonlySet<string> = null;
+
+  /**
+   * Record the routes the base path serves (paths relative to it, `:param` segments allowed). Only their last static
+   * segment counts.
+   */
+  setKnownEndpoints(paths: Iterable<unknown>): void {
+    const names = new Set<string>();
+    for (const path of paths) {
+      if (typeof path !== 'string') {
+        continue;
+      }
+      const last = path.split('?')[0].split('/').filter(Boolean).pop();
+      if (last && !last.startsWith(':')) {
+        names.add(last.toLowerCase());
+      }
+    }
+    this.knownEndpoints = names;
+  }
+
+  /**
+   * Normalize endpoint path for consistent grouping. The result comes from a bounded set — a known route name, a
+   * configured strict entry, `callback` or `other` — never from the request alone: keyed by the raw last segment, one
+   * client sending `/iam/x1`, `/iam/x2`, … created one counter per path, none of them ever reached the limit, and once
+   * the store held `maxEntries` counters every new client fell into the overflow buckets the attacker had filled, and
+   * was refused at its first sign-in.
    */
   private normalizeEndpoint(path: string): string {
     // Remove query strings
@@ -299,9 +328,21 @@ export class CoreBetterAuthRateLimiter {
       return 'callback';
     }
 
-    // Extract the last segment as the endpoint identifier
+    // The last segment, when it names a route the base path serves
     const segments = cleanPath.split('/').filter(Boolean);
-    return segments[segments.length - 1] || 'root';
+    const last = segments[segments.length - 1];
+    if (last && this.knownEndpoints?.has(last)) {
+      return last;
+    }
+
+    // A strict route under a name nobody serves (`/reset-password/<token>`, `/sign-in/<anything>`) keeps its own counter
+    const strict = this.config.strictEndpoints.find((entry) => pathContainsSegments(cleanPath, entry.toLowerCase()));
+    if (strict) {
+      return `strict:${strict.toLowerCase()}`;
+    }
+
+    // Everything else of one client shares one counter, as every IAM request did before the per-route split
+    return 'other';
   }
 
   /**

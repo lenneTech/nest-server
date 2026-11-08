@@ -2,6 +2,7 @@ import { HttpException, HttpStatus, Injectable, NestMiddleware } from '@nestjs/c
 import { NextFunction, Request, Response } from 'express';
 
 import { CoreBetterAuthRateLimiter, RateLimitResult } from './core-better-auth-rate-limiter.service.js';
+import { CONTROLLER_HANDLED_PATHS } from './core-better-auth-openapi.helper.js';
 import { CoreBetterAuthService } from './core-better-auth.service.js';
 
 /**
@@ -57,6 +58,9 @@ export class CoreBetterAuthRateLimitMiddleware implements NestMiddleware {
     const requestPath = (req.originalUrl || req.url || '').split('?')[0];
     const path = requestPath.startsWith(basePath) ? requestPath.substring(basePath.length) : requestPath;
 
+    // The route names counters are keyed by, from the running instance (once per instance)
+    this.provideKnownEndpoints();
+
     // Check rate limit
     const result = await this.rateLimiter.check(ip, path);
 
@@ -92,6 +96,25 @@ export class CoreBetterAuthRateLimitMiddleware implements NestMiddleware {
    */
   private getClientIp(req: Request): string {
     return req.ip || req.socket?.remoteAddress || 'unknown';
+  }
+
+  /** The instance whose routes the limiter knows */
+  private knownEndpointsFrom: unknown = null;
+
+  /**
+   * Hands the limiter the routes the base path serves: Better-Auth's own (every endpoint of the running instance,
+   * plugins included) and the controller's. Counters are keyed by these names only, so unknown paths cannot create
+   * counters (see CoreBetterAuthRateLimiter.normalizeEndpoint()).
+   */
+  private provideKnownEndpoints(): void {
+    // Optional call: a project's stand-in service may not offer it, and the limiter stays bounded without the names
+    const instance = this.betterAuthService.getInstance?.() as null | undefined | { api?: Record<string, unknown> };
+    if (!instance || instance === this.knownEndpointsFrom) {
+      return;
+    }
+    this.knownEndpointsFrom = instance;
+    const routes = Object.values(instance.api ?? {}).map((endpoint) => (endpoint as { path?: unknown })?.path);
+    this.rateLimiter.setKnownEndpoints([...routes, ...CONTROLLER_HANDLED_PATHS]);
   }
 
   /**
