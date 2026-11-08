@@ -13,7 +13,7 @@
  * report job opens issues. So the permissions sit on the publish job — a job-level block REPLACES the workflow-level
  * one, it does not add to it — and only that job is read as the step list.
  */
-import { readFileSync } from 'node:fs';
+import { existsSync, readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
 import { describe, expect, it } from 'vitest';
 
@@ -106,6 +106,17 @@ describe('publish.yml — npm Trusted Publishing (DEV-3143)', () => {
       expect(indexes[i], String(gate)).toBeLessThan(PUBLISH);
     }
     expect(indexes).toEqual([...indexes].sort((a, b) => a - b));
+  });
+
+  // Since 11.44.1: the Trusted Publishing backport carried a 12.x step onto release/11.x whose script that line does
+  // not have, and the publish failed after the tag and the release existed. This repository's lines share the file.
+  it('runs only scripts this branch has', () => {
+    const scripts = [...JOB.matchAll(/\brun: node (scripts\/[\w.-]+)/g)].map((match) => match[1]);
+
+    expect(scripts.length).toBeGreaterThan(0);
+    for (const script of scripts) {
+      expect(existsSync(resolve(process.cwd(), script)), script).toBe(true);
+    }
   });
 
   it('installs an npm that can do Trusted Publishing, pinned to a major, before the publish', () => {
