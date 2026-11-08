@@ -643,8 +643,8 @@ socialProviders: {
 ```
 
 Only a boolean counts on the provider; any other value follows `emailAndPassword.disableSignUp`, so a string from
-`NEST_SERVER_CONFIG` cannot open a closed registration. Plugins a project adds itself through `betterAuth.options.plugins`
-(Generic OAuth, Magic Link, …) are not covered and need their own sign-up options. Before 11.44.1 every provider created
+`NEST_SERVER_CONFIG` cannot open a closed registration. Plugins a project adds itself through `betterAuth.plugins`
+(Generic OAuth, Magic Link, …) are not covered and need their own sign-up options (`magicLink({ disableSignUp: true })`). Before 11.44.1 every provider created
 accounts whatever `disableSignUp` said.
 
 **Default:** `false` (sign-up enabled) - fully backward compatible.
