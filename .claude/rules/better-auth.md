@@ -119,10 +119,12 @@ Before completing any Better-Auth changes:
       sign-up (`mapUnstoredSessionUser()`, `equalizeLegacyPasswordSync()` for the timing); only the writes are left out.
       Pinned by `tests/unit/better-auth-sign-up-existing-address.spec.ts` (mutations
       `sign-up-placeholder-linked-rest`, `-graphql`, `-legacy`)
-- [ ] Better-Auth's origin check is never left to Better-Auth's own `isTest()`: `createBetterAuthInstance()` pins
-      `advanced.disableOriginCheck: false`, and a project's explicit value is the only thing that overrides it. Unset,
-      `NODE_ENV=test` or a truthy `TEST` switches off the origin check, the CSRF check and the `callbackURL` /
-      `redirectTo` validation — and a deployed stage named `test` is that environment. Until 12.8.2 a reset mail there
+- [ ] On a deployed environment Better-Auth's origin check is never left to Better-Auth's own `isTest()`:
+      `createBetterAuthInstance()` pins `advanced.disableOriginCheck: false` for every config env that is not local /
+      ci / e2e, and a project's explicit value is the only thing that overrides it. Unset, `NODE_ENV=test` or a truthy
+      `TEST` switches off the origin check, the CSRF check and the `callbackURL` / `redirectTo` validation — and a
+      deployed stage named `test` is that environment. local / ci / e2e are left alone because vitest sets `TEST=true`:
+      a suite that tests these checks sets `disableOriginCheck: false` itself (`better-auth-signin-csrf.e2e-spec.ts`). Until 12.8.2 a reset mail there
       carried any caller-chosen `redirectTo` with a valid token. `buildPasswordResetUrl()` takes the caller's
       `redirectTo` only while the check runs (`isOriginCheckDisabled()`). Pinned by
       `tests/unit/better-auth-origin-check-test-env.spec.ts` and `tests/unit/password-reset-link.spec.ts` (mutations
