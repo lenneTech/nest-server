@@ -632,6 +632,16 @@ export class CoreBetterAuthEmailVerificationService {
     return Math.max(1, Math.round(resolved / 60));
   }
 
+  /**
+   * Whether the project switched Better-Auth's origin check off (`betterAuth.options.advanced.disableOriginCheck`):
+   * `true`, or a list of paths, which may name the reset route. The framework itself pins `false` (12.8.2), so only a
+   * project's own value counts here.
+   */
+  protected isOriginCheckDisabled(): boolean {
+    const raw = this.configService.getFastButReadOnly<unknown>('betterAuth.options.advanced.disableOriginCheck');
+    return raw === true || Array.isArray(raw);
+  }
+
   protected buildPasswordResetUrl(options: SendPasswordResetEmailOptions): string {
     const configured = this.config.passwordResetLink;
 
@@ -646,7 +656,9 @@ export class CoreBetterAuthEmailVerificationService {
     // `nuxt-base-starter` sends it on every request (`forgot-password.vue` →
     // `requestPasswordReset({ email, redirectTo: appUrl('/auth/reset-password', siteUrl) })`), and
     // a client that names its page is a better authority on that page than a framework default.
-    if (!target) {
+    // Only while Better-Auth's origin check validated it (see readCallbackUrlFromBetterAuthLink): a project that
+    // switched the check off gets the default page, never an unvalidated URL with a valid token in it.
+    if (!target && !this.isOriginCheckDisabled()) {
       target = this.readCallbackUrlFromBetterAuthLink(options.url);
       // Only an absolute http(s) URL or a root-relative path names a page. Anything else — a path without
       // its leading slash (`redirectTo: 'reset'`), or a template literal over an unset variable
@@ -708,6 +720,11 @@ export class CoreBetterAuthEmailVerificationService {
    * That makes `trustedOrigins` load-bearing for THIS path too, not only for CORS — which is worth
    * knowing before anyone widens it. `cors.allowAll` does not widen it (an origin check has no
    * "allow everything" mode), but an over-broad `allowedOrigins` would.
+   *
+   * And it makes the origin check itself load-bearing. Until 12.8.2 Better-Auth switched it off on its
+   * own under `NODE_ENV=test` (`isTest()`), which is a deployed stage in starter-based projects; the
+   * framework now pins `advanced.disableOriginCheck: false`. A project that switches it off itself
+   * gets no caller URL here at all ({@link isOriginCheckDisabled}).
    *
    * Returns `undefined` for anything unparseable or absent, so the caller falls through to its own
    * resolution rather than to a half-formed URL.
