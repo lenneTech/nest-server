@@ -3442,6 +3442,17 @@
         "tests/unit/better-auth-api-middleware-routed-path.spec.ts"
       ],
       "driverSpecific": false
+    },
+    {
+      "id": "publish-runs-missing-script",
+      "defect": "11.44.1 — the Trusted Publishing backport carried 12.x's PostgreSQL-only consumer step (node scripts/check-without-mongodb.mjs --package) onto release/11.x, which has no such script: the publish failed after the tag and the GitHub release existed, with nothing on npm.",
+      "file": ".github/workflows/publish.yml",
+      "find": "      - name: npm for Trusted Publishing\n",
+      "replace": "      - name: PostgreSQL-only consumer (the tarball installed without MongoDB's libraries)\n        run: node scripts/check-without-mongodb.mjs --package\n\n      - name: npm for Trusted Publishing\n",
+      "specs": [
+        "tests/unit/publish-workflow.spec.ts"
+      ],
+      "driverSpecific": false
     }
   ]
 }

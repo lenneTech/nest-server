@@ -13,7 +13,7 @@
  * report job opens issues. So the permissions sit on the publish job — a job-level block REPLACES the workflow-level
  * one, it does not add to it — and only that job is read as the step list.
  */
-import { readFileSync } from 'node:fs';
+import { existsSync, readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
 import { describe, expect, it } from 'vitest';
 
@@ -97,7 +97,6 @@ describe('publish.yml — npm Trusted Publishing (DEV-3143)', () => {
       /\brun: pnpm run check:swc-tdz$/m,
       /\brun: pnpm run build$/m,
       /\brun: node scripts\/check-consumer\.mjs\b/m,
-      /\brun: node scripts\/check-without-mongodb\.mjs --package$/m,
     ];
     const indexes = gates.map((gate) => stepIndex(gate));
 
@@ -108,12 +107,28 @@ describe('publish.yml — npm Trusted Publishing (DEV-3143)', () => {
     expect(indexes).toEqual([...indexes].sort((a, b) => a - b));
   });
 
+  /**
+   * @regression   11.44.1 — the Trusted Publishing backport carried 12.x's PostgreSQL-only consumer step
+   *   (`node scripts/check-without-mongodb.mjs --package`) onto this line, which has no such script and no PostgreSQL
+   *   support. The publish failed after the tag and the release existed, with nothing on npm.
+   * @seen-failing Put the step back before the npm upgrade in .github/workflows/publish.yml — registered as mutation
+   *   `publish-runs-missing-script` in tests/regression-mutations.json.
+   */
+  it('runs only scripts this branch has', () => {
+    const scripts = [...JOB.matchAll(/\brun: node (scripts\/[\w.-]+)/g)].map((match) => match[1]);
+
+    expect(scripts.length).toBeGreaterThan(0);
+    for (const script of scripts) {
+      expect(existsSync(resolve(process.cwd(), script)), script).toBe(true);
+    }
+  });
+
   it('installs an npm that can do Trusted Publishing, pinned to a major, before the publish', () => {
     const upgrade = stepIndex(/\brun: npm install -g npm@/);
     const spec = /\brun: npm install -g npm@(\S+)/.exec(STEPS[upgrade] ?? '')?.[1] ?? '';
     const nodeMajor = Number(/node-version: \[ ?(\d+)\.x ?\]/.exec(JOB)?.[1]);
 
-    expect(upgrade).toBeGreaterThan(stepIndex(/\brun: node scripts\/check-without-mongodb\.mjs --package$/m));
+    expect(upgrade).toBeGreaterThan(stepIndex(/\brun: node scripts\/check-consumer\.mjs\b/m));
     expect(upgrade).toBeLessThan(PUBLISH);
     // `latest`, `next` or a caret/tilde range would let a new major in unseen.
     expect(spec).toMatch(/^\d+$/);
