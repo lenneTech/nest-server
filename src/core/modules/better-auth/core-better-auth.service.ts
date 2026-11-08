@@ -1102,6 +1102,34 @@ export class CoreBetterAuthService implements OnApplicationBootstrap, OnModuleDe
   }
 
   /**
+   * Whether Better-Auth has stored the user `userId` — false for the placeholder it answers a sign-up with when the
+   * address is already registered (12.8.1).
+   *
+   * With `emailAndPassword.requireEmailVerification: true` or `autoSignIn: false`, Better-Auth answers a sign-up for a
+   * known address like a new one (enumeration protection): `{ token: null, user: <a generated id, the given address> }`.
+   * That user exists nowhere. The sign-up paths linked it to the app user found by address — the real account then
+   * carried the placeholder's id and `verified: false`, its legacy password became the one the caller chose, and the
+   * answer carried its roles. A sign-up therefore writes only for a user this confirms. Asked through Better-Auth's own
+   * adapter (`internalAdapter.findUserById()`), so it reads wherever Better-Auth keeps its users.
+   *
+   * @returns `false` for an unknown id, an empty id, and a failed lookup — a sign-up that cannot confirm the user writes
+   *   nothing rather than guessing
+   */
+  async isPersistedUser(userId: string): Promise<boolean> {
+    if (typeof userId !== 'string' || !userId) {
+      return false;
+    }
+    try {
+      const context = await (this.getInstance() as { $context?: Promise<any> } | null)?.$context;
+      const user: unknown = await context?.internalAdapter?.findUserById?.(userId);
+      return !!user && String((user as { id?: unknown }).id) === userId;
+    } catch (error) {
+      this.logger.error(`isPersistedUser error: ${error instanceof Error ? error.message : 'Unknown error'}`);
+      return false;
+    }
+  }
+
+  /**
    * Revokes a specific session (logout for that session)
    *
    * This should be called when a user wants to log out from a specific device/session.

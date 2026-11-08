@@ -591,6 +591,14 @@ export class CoreAuthService {
 
       // Link or create Legacy user with iamId
       const iamUser = response.user as { email: string; id: string; name?: string };
+
+      // An already registered address: with `requireEmailVerification` or `autoSignIn: false` Better-Auth answers it
+      // with a placeholder user it never stored. Linking it re-pointed the real account, overwrote its password with
+      // the caller's, and this method then returned that account — the caller got its tokens (12.8.1). The legacy
+      // sign-up has always answered a known address with this error, so the IAM path does the same.
+      if (!(await this.betterAuthService.isPersistedUser(iamUser.id))) {
+        throw new BadRequestException('Email address already in use');
+      }
       const syncedUser = await this.betterAuthUserMapper.linkOrCreateUser(iamUser as any, {
         firstName: inputAny.firstName,
         lastName: inputAny.lastName,
