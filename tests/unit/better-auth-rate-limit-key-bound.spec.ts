@@ -4,9 +4,9 @@ import { CoreBetterAuthRateLimitMiddleware } from '../../src/core/modules/better
 import { CoreBetterAuthRateLimiter } from '../../src/core/modules/better-auth/core-better-auth-rate-limiter.service';
 
 /**
- * The IAM rate limiter keys its counters by a bounded set of names (12.8.2).
+ * The IAM rate limiter keys its counters by a bounded set of names (11.44.2).
  *
- * Since 12.3.0 a counter was keyed by the last segment of the path as sent, and the middleware runs for every path
+ * Since 11.44.1 a counter was keyed by the last segment of the path as sent, and the middleware runs for every path
  * under the base path, existing or not. One client sending `/iam/x1`, `/iam/x2`, … therefore created one counter per
  * request; none of them reached the limit, and once the store held `maxEntries` counters every NEW client fell into the
  * shared overflow buckets the attacker had filled — and was refused at its first sign-in. Counters are now keyed by a
@@ -25,7 +25,7 @@ function limiter(config: Record<string, unknown> = {}): CoreBetterAuthRateLimite
 
 describe('CoreBetterAuthRateLimiter: bounded counter keys', () => {
   /**
-   * @regression   12.8.2 — paths nobody serves created one counter each, so one client filled the store and every new
+   * @regression   11.44.2 — paths nobody serves created one counter each, so one client filled the store and every new
    *   client was refused at its first sign-in.
    * @seen-failing Return the raw last segment again in normalizeEndpoint()
    *   (src/core/modules/better-auth/core-better-auth-rate-limiter.service.ts) — registered as mutation
@@ -43,7 +43,7 @@ describe('CoreBetterAuthRateLimiter: bounded counter keys', () => {
   });
 
   /**
-   * @regression   12.8.2 — the consequence that made it a lockout: a full store refused every new client.
+   * @regression   11.44.2 — the consequence that made it a lockout: a full store refused every new client.
    * @seen-failing Same mutation `iam-rate-limit-key-unbounded`.
    */
   it('lets new clients sign in after one client sent thousands of unknown paths', async () => {
@@ -74,7 +74,7 @@ describe('CoreBetterAuthRateLimiter: bounded counter keys', () => {
   it('paired control: real routes keep their counter per route name', async () => {
     const rateLimiter = limiter();
 
-    // sign-in and sign-up share `email`, as since 12.3.0: five strict attempts for both together
+    // sign-in and sign-up share `email`, as since 11.44.1: five strict attempts for both together
     for (let i = 0; i < 3; i++) {
       await rateLimiter.check('203.0.113.9', '/sign-in/email');
     }
@@ -101,7 +101,7 @@ describe('CoreBetterAuthRateLimiter: bounded counter keys', () => {
 
 describe('CoreBetterAuthRateLimitMiddleware: route names from the running instance', () => {
   /**
-   * @regression   12.8.2 — the limiter knows route names only through the middleware; without them every real route
+   * @regression   11.44.2 — the limiter knows route names only through the middleware; without them every real route
    *   of a client would share one counter.
    * @seen-failing Drop the `this.provideKnownEndpoints()` call in CoreBetterAuthRateLimitMiddleware.use()
    *   (src/core/modules/better-auth/core-better-auth-rate-limit.middleware.ts) — registered as mutation

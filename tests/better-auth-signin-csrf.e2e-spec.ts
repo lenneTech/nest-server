@@ -185,14 +185,13 @@ describe('IAM sign-in / sign-up — Better-Auth CSRF protection runs (e2e)', () 
    * the API middleware forwards the route to Better-Auth's own handler with the full request.
    */
   it('refuses a password-reset request whose redirectTo leaves the trusted origins', async () => {
-    const refusals = captureExpectedLogs();
+    // 11.x: Better-Auth logs through its own logger, not Nest's, so the refusal is asserted on the answer alone
     const response = await request(app.getHttpServer())
       .post('/iam/request-password-reset')
       .send({ email, redirectTo: 'https://attacker.example/reset' });
 
     expect(response.status).toBe(403);
     expect(response.body?.code).toBe('INVALID_REDIRECT_URL');
-    expect(refusals.join('\n')).toContain('Invalid redirectURL: https://attacker.example/reset');
   });
 
   it('paired control: accepts a password-reset request whose redirectTo is a trusted origin', async () => {

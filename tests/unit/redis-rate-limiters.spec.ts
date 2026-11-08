@@ -20,7 +20,7 @@ function createFakeRedis() {
   const store = new Map<string, unknown>();
   return {
     del: vi.fn(async (...keys: string[]) => {
-      keys.forEach(key => store.delete(key));
+      keys.forEach((key) => store.delete(key));
       return keys.length;
     }),
     eval: vi.fn(async (script: string, numKeys: number, ...rest: unknown[]) => {
@@ -54,7 +54,7 @@ function createFakeRedis() {
     }),
     scan: vi.fn(async (_cursor: string, _match: string, pattern: string) => {
       const regex = new RegExp(`^${pattern.replace(/[.]/g, '\\.').replace(/\*/g, '.*')}$`);
-      return ['0', [...store.keys()].filter(key => regex.test(key))];
+      return ['0', [...store.keys()].filter((key) => regex.test(key))];
     }),
     set: vi.fn(async (key: string, value?: unknown) => {
       if (store.has(key)) {
@@ -118,7 +118,7 @@ describe('CoreBetterAuthRateLimiter store selection', () => {
     const { client, redisService } = createRedisService(true);
     const limiter = new CoreBetterAuthRateLimiter(redisService);
     limiter.configure({ enabled: true, max: 4, strictEndpoints: [], windowSeconds: 60 });
-    // A route the base path serves keys its own counter (12.8.2: unknown paths share `other`)
+    // A route the base path serves keys its own counter (11.44.2: unknown paths share `other`)
     limiter.setKnownEndpoints(['/profile']);
 
     expect(limiter['getStore']()).toBeInstanceOf(RedisRateLimitStore);
@@ -323,10 +323,18 @@ describe('CoreBetterAuthEmailVerificationService send slot', () => {
 
   it('releases the slot when the send throws', async () => {
     const service = createService(60);
-    service.emailService = { sendMail: vi.fn(async () => { throw new Error('smtp down'); }) };
+    service.emailService = {
+      sendMail: vi.fn(async () => {
+        throw new Error('smtp down');
+      }),
+    };
 
     await expect(
-      service.sendVerificationEmail({ token: 't', url: 'https://example.com', user: { email: 'fail@test.com', id: '1' } }),
+      service.sendVerificationEmail({
+        token: 't',
+        url: 'https://example.com',
+        user: { email: 'fail@test.com', id: '1' },
+      }),
     ).rejects.toThrow('smtp down');
 
     // Cooldown was not burnt — a retry is allowed immediately

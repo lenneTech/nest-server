@@ -149,7 +149,7 @@ describe('Story: BetterAuth Rate Limiting', () => {
 
       it('should track different endpoints independently for same IP', async () => {
         const ip = '192.168.1.104';
-        // Routes the base path serves; a path nobody serves shares the client's `other` counter (12.8.2)
+        // Routes the base path serves; a path nobody serves shares the client's `other` counter (11.44.2)
         rateLimiter.setKnownEndpoints(['/profile', '/settings']);
 
         // Make requests to different endpoints
