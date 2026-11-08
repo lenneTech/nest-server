@@ -683,9 +683,29 @@ export function createBetterAuthInstance(options: CreateBetterAuthOptions): Crea
     const {
       advanced: optionsAdvanced,
       emailAndPassword: optionsEmailAndPassword,
+      user: optionsUser,
       ...restOptions
     } = config.options as Record<string, unknown>;
     finalConfig = { ...betterAuthConfig, ...restOptions };
+
+    // `user` is merged, not replaced. A project that sets `options.user` for its own reason (`changeEmail`,
+    // `deleteUser`) would otherwise drop `modelName: 'users'` — Better-Auth then reads and writes a `user` collection
+    // or table the framework never sees — and every field `additionalUserFields` declares, the `input: false` locks
+    // included. The framework's fields win over a project field of the same name; `betterAuth.additionalUserFields` is
+    // where a project changes them.
+    if (optionsUser && typeof optionsUser === 'object') {
+      const baseUser = betterAuthConfig.user as Record<string, unknown>;
+      const overrideUser = optionsUser as Record<string, unknown>;
+      finalConfig.user = {
+        ...baseUser,
+        ...overrideUser,
+        additionalFields: {
+          ...(overrideUser.additionalFields as Record<string, unknown> | undefined),
+          ...(baseUser.additionalFields as Record<string, unknown>),
+        },
+        modelName: overrideUser.modelName ?? baseUser.modelName,
+      };
+    }
 
     // `emailAndPassword` needs a DEEP merge, and this one is load-bearing.
     // The block above carries `password: { hash: nativeScryptHash, verify:
