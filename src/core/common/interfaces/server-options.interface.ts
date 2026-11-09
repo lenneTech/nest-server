@@ -510,6 +510,23 @@ export type IBetterAuth = IBetterAuthWithoutPasskey | IBetterAuthWithPasskey;
  */
 export interface IBetterAuthEmailVerificationConfig {
   /**
+   * The application name in the verification and password-reset mails: the subject (`<appName> - Verify your email
+   * address`), the `appName` variable of the EJS templates and the `appName` parameter of the Brevo templates.
+   *
+   * Unset (or empty), the name comes from the `name` of the `package.json` in the working directory, formatted
+   * (`my-app` → `My App`), as before 12.8.3 — in a monorepo that is the API package (`api`). A value that is not a
+   * string is ignored with a warning. `twoFactor.appName` and `passkey.rpName` name the application in authenticator
+   * apps and passkey prompts; they are separate settings.
+   *
+   * **Environment Variable:** `NSC__BETTER_AUTH__EMAIL_VERIFICATION__APP_NAME`
+   *
+   * @default undefined (the formatted package.json name, 'Nest Server' without one)
+   * @example 'Kundenportal'
+   * @since 12.8.3
+   */
+  appName?: string;
+
+  /**
    * Whether `GET /iam/verify-email` signs in the browser that opens the verification link.
    *
    * Off by default, as in Better-Auth (12.3.0+; before, the framework defaulted to `true`). Switching it on signs in

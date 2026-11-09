@@ -32,12 +32,17 @@ import { callerDirectory } from '../../common/helpers/module-location.helper.js'
  */
 type ResolvedEmailVerificationConfig = Pick<
   IBetterAuthEmailVerificationConfig,
-  'brevoTemplateId' | 'callbackURL' | 'passwordResetBrevoTemplateId' | 'passwordResetLink'
+  'appName' | 'brevoTemplateId' | 'callbackURL' | 'passwordResetBrevoTemplateId' | 'passwordResetLink'
 > &
   Required<
     Omit<
       IBetterAuthEmailVerificationConfig,
-      'brevoTemplateId' | 'callbackURL' | 'passwordResetBrevoTemplateId' | 'passwordResetLink' | 'resendCooldownSeconds'
+      | 'appName'
+      | 'brevoTemplateId'
+      | 'callbackURL'
+      | 'passwordResetBrevoTemplateId'
+      | 'passwordResetLink'
+      | 'resendCooldownSeconds'
     >
   > & {
     resendCooldownSeconds: number;
@@ -1175,9 +1180,19 @@ export class CoreBetterAuthEmailVerificationService {
   }
 
   /**
-   * Resolve the application name from package.json, falling back to a framework default.
+   * Resolve the application name: `betterAuth.emailVerification.appName` when set (12.8.3), otherwise the formatted
+   * `name` of the working directory's package.json, otherwise a framework default.
    */
   protected resolveAppName(): string {
+    const configured: unknown = this.config.appName;
+    if (typeof configured === 'string' && configured.trim()) {
+      return configured.trim();
+    }
+    if (configured !== undefined && configured !== null && typeof configured !== 'string') {
+      this.logger.warn(
+        `betterAuth.emailVerification.appName must be a string and is ignored (got ${typeof configured}); the mails use the package.json name`,
+      );
+    }
     // Try to get from package.json name
     try {
       const packageJsonPath = path.join(process.cwd(), 'package.json');

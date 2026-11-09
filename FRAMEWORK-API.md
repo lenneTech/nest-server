@@ -1,6 +1,6 @@
 # @lenne.tech/nest-server — Framework API Reference
 
-> Auto-generated from source code as of 2026-11-08 (v12.8.2)
+> Auto-generated from source code as of 2026-11-09 (v12.8.2)
 > File: `FRAMEWORK-API.md` — compact, machine-readable API surface for Claude Code
 
 ## CoreModule.forRoot()
@@ -250,6 +250,7 @@ When `passkey` is enabled, `trustedOrigins` is required (compile-time enforcemen
 
 ### IBetterAuthEmailVerificationConfig
 
+  - `appName?`: `string` (default: `undefined (the formatted package.json name, 'Nest Server' without one)`) — The application name in the verification and password-reset mails: the subject (`<appName> - Verify your email
   - `autoSignInAfterVerification?`: `boolean` (default: `false`) — Whether `GET /iam/verify-email` signs in the browser that opens the verification link.
   - `brevoTemplateId?`: `number` (default: `undefined (uses SMTP/EJS templates)`) — Brevo template ID for verification emails.
   - `callbackURL?`: `string` (default: `'/auth/verify-email'`) — Frontend callback URL for email verification.

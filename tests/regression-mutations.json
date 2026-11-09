@@ -7205,6 +7205,17 @@
         "tests/unit/better-auth-rate-limit-key-bound.spec.ts"
       ],
       "driverSpecific": false
+    },
+    {
+      "id": "mail-app-name-config-ignored",
+      "defect": "12.8.3 — the verification and password-reset mails named the application after the working directory's package.json only; in a monorepo the API package name (`api`) became the subject of every auth mail. `betterAuth.emailVerification.appName` sets it; ignoring it brings the package name back.",
+      "file": "src/core/modules/better-auth/core-better-auth-email-verification.service.ts",
+      "find": "    if (typeof configured === 'string' && configured.trim()) {\n      return configured.trim();\n    }\n",
+      "replace": "",
+      "specs": [
+        "tests/unit/better-auth-mail-app-name.spec.ts"
+      ],
+      "driverSpecific": false
     }
   ]
 }
