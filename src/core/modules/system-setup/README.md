@@ -4,7 +4,9 @@ Initial admin user creation for fresh deployments of @lenne.tech/nest-server.
 
 ## TL;DR
 
-System setup is **enabled by default** when BetterAuth is active. No configuration needed.
+System setup is **enabled by default** when BetterAuth is active. Locally (`local`, `ci`, `e2e`) no configuration is
+needed. On every other environment the anonymous `POST /system-setup/init` is **closed** since 11.46.0 (see
+[HTTP init](#http-init-systemsetuphttpinit)); a deployment creates its first admin from `initialAdmin`.
 
 For automated deployments (Docker, CI/CD), set initial admin credentials via ENV:
 
@@ -23,6 +25,7 @@ NSC__SYSTEM_SETUP__INITIAL_ADMIN__PASSWORD=YourSecurePassword123!
 - [Endpoints](#endpoints)
 - [Configuration](#configuration)
 - [Auto-Creation via Config/ENV](#auto-creation-via-configenv)
+- [HTTP init (`systemSetup.httpInit`)](#http-init-systemsetuphttpinit)
 - [Security](#security)
 - [Frontend Integration](#frontend-integration)
 - [Troubleshooting](#troubleshooting)
@@ -56,13 +59,20 @@ Returns the current setup status.
 ```json
 {
   "needsSetup": true,
-  "betterAuthEnabled": true
+  "betterAuthEnabled": true,
+  "httpInitEnabled": true,
+  "httpInitTokenRequired": false
 }
 ```
 
+`httpInitEnabled` / `httpInitTokenRequired` (11.46.0+) say whether `POST /system-setup/init` is open here and whether
+it needs the setup token. Offer a setup form only when `needsSetup && httpInitEnabled`.
+
 ### POST /system-setup/init
 
-Creates the initial admin user. Only works when zero users exist.
+Creates the initial admin user. Only works when zero users exist, and only where `systemSetup.httpInit` opens it — by
+default in `local`, `ci` and `e2e` (403 `LTNS_0053` elsewhere). With a configured token the request carries it in the
+`X-System-Setup-Token` header (403 `LTNS_0054` without it or with a wrong one).
 
 **Request Body:**
 
@@ -182,16 +192,42 @@ NEST_SERVER_CONFIG='{ "systemSetup": { "initialAdmin": { "email": "admin@example
 
 ---
 
+## HTTP init (`systemSetup.httpInit`)
+
+Since 11.46.0 (backport of 12.4.0) the anonymous init is fail-closed outside the local environments: whoever reaches
+an API without users through it would become its administrator.
+
+| `systemSetup.httpInit` | `local` / `ci` / `e2e` | every other environment |
+|---|---|---|
+| not set | open | **closed** — 403 `LTNS_0053` |
+| `true` (`NSC__SYSTEM_SETUP__HTTP_INIT=true`) | open | open, without a token |
+| `{ token }` (`NSC__SYSTEM_SETUP__HTTP_INIT__TOKEN`, at least 16 characters) | open, token required | open, token required |
+| `false` / `{ enabled: false }` | closed | closed |
+
+A token that is missing, empty, shorter than 16 characters or not a string keeps the init closed and logs an error at
+boot; a non-boolean, non-object value counts as not set. `initialAdmin` is not affected. A deployed instance that starts
+with zero users, no usable `initialAdmin` and a closed init logs an error naming both ways in. While the init is closed,
+`setupSwagger()` leaves it out of the document.
+
+A project controller that overrides `createInitialAdmin()` must call `systemSetupService.assertHttpInitAllowed(token)`
+first; `createInitialAdmin()` itself is not gated, because the boot path calls it too. Migration:
+[11.45.x → 11.46.x](../../../../migration-guides/11.45.x-to-11.46.x.md).
+
 ## Security
 
-1. **Zero-user guard** - Init requires `countDocuments({}) === 0`. Necessary but not sufficient:
+1. **Fail-closed HTTP init** - the anonymous init is open only where `systemSetup.httpInit` allows it (by default
+   `local`, `ci`, `e2e`)
+2. **Zero-user guard** - Init requires `countDocuments({}) === 0`. Necessary but not sufficient:
    the atomic claim below must also be winnable, so an empty `users` collection alone does not
    re-open setup
-2. **Enabled by default** - Safe because endpoints are permanently locked once any user exists
-3. **Race condition protection** - MongoDB unique email index prevents duplicates; auto-creation on
+3. **Enabled by default** - Safe because the init is closed on deployed environments unless opened, and locked once
+   any user exists
+4. **Race condition protection** - MongoDB unique email index prevents duplicates; auto-creation on
    bootstrap is additionally claimed atomically via the `system-setup-locks` marker
-4. **Permanent lock** - Once any user exists, init returns 403
-5. **BetterAuth required** - Returns 403 if BetterAuth is not enabled
+5. **Permanent lock** - Once any user exists, init returns 403
+6. **BetterAuth required** - Returns 403 if BetterAuth is not enabled
+7. **Rollback** - a creation that fails after the user was written removes that user again (11.46.0+), so the setup can
+   be retried
 
 ### How It Bypasses disableSignUp
 
@@ -206,13 +242,17 @@ Typical frontend flow:
 ```typescript
 // 1. Check if setup is needed
 const status = await fetch('/system-setup/status');
-const { needsSetup } = await status.json();
+// A backend older than 11.46.0 sends neither httpInit field: treat that as "available"
+const { needsSetup, httpInitEnabled = true, httpInitTokenRequired = false } = await status.json();
 
-if (needsSetup) {
-  // 2. Show setup form and submit
+if (needsSetup && httpInitEnabled) {
+  // 2. Show setup form (with a token field when httpInitTokenRequired) and submit
   const result = await fetch('/system-setup/init', {
     method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
+    headers: {
+      'Content-Type': 'application/json',
+      ...(httpInitTokenRequired ? { 'X-System-Setup-Token': setupToken } : {}),
+    },
     body: JSON.stringify({
       email: 'admin@example.com',
       password: 'SecurePassword123!',

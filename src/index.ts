@@ -250,6 +250,7 @@ export * from './core/modules/permissions/permissions-scanner';
 export * from './core/modules/system-setup/core-system-setup.controller';
 export * from './core/modules/system-setup/core-system-setup.module';
 export * from './core/modules/system-setup/core-system-setup.service';
+export * from './core/modules/system-setup/system-setup-http-init.helper';
 
 // =====================================================================================================================
 // Core - Modules - Tus

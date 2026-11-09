@@ -3596,6 +3596,94 @@
         "tests/unit/swagger-switch.spec.ts"
       ],
       "driverSpecific": false
+    },
+    {
+      "id": "system-setup-http-init-open-by-default",
+      "defect": "11.46.0 (12.4.0 backport) — POST /system-setup/init was open in every environment: a deployed instance without systemSetup.initialAdmin could be taken over by whoever called the anonymous route before the first sign-up. The default now opens it only in local, ci and e2e.",
+      "file": "src/core/modules/system-setup/system-setup-http-init.helper.ts",
+      "find": "  return { enabled: isLocalEnv(env), source: 'default', tokenRequired: false };\n",
+      "replace": "  return { enabled: isLocalEnv(env) || true, source: 'default', tokenRequired: false };\n",
+      "specs": [
+        "tests/unit/system-setup-http-init.spec.ts"
+      ],
+      "driverSpecific": false
+    },
+    {
+      "id": "system-setup-token-not-compared",
+      "defect": "11.46.0 (12.4.0 backport) — a token-protected HTTP init (systemSetup.httpInit.token) must refuse a request whose X-System-Setup-Token differs from the configured token.",
+      "file": "src/core/modules/system-setup/system-setup-http-init.helper.ts",
+      "find": "  return timingSafeEqual(digest(expected), digest(provided));\n",
+      "replace": "  return digest(expected).length === digest(provided).length;\n",
+      "specs": [
+        "tests/unit/system-setup-http-init.spec.ts"
+      ],
+      "driverSpecific": false
+    },
+    {
+      "id": "system-setup-http-init-gate-removed",
+      "defect": "11.46.0 (12.4.0 backport) — assertHttpInitAllowed() is the refusal every HTTP entry point relies on; without its closed-policy branch the init runs wherever no token is configured.",
+      "file": "src/core/modules/system-setup/core-system-setup.service.ts",
+      "find": "    if (!policy.enabled) {\n      throw new ForbiddenException(ErrorCode.SYSTEM_SETUP_HTTP_INIT_DISABLED);\n    }\n",
+      "replace": "",
+      "specs": [
+        "tests/unit/system-setup-http-init.spec.ts"
+      ],
+      "driverSpecific": false
+    },
+    {
+      "id": "system-setup-controller-skips-gate",
+      "defect": "11.46.0 (12.4.0 backport) — the anonymous POST /system-setup/init must ask assertHttpInitAllowed() before creating the admin; createInitialAdmin() itself is deliberately ungated because the boot path uses it.",
+      "file": "src/core/modules/system-setup/core-system-setup.controller.ts",
+      "find": "    this.systemSetupService.assertHttpInitAllowed(token);\n",
+      "replace": "",
+      "specs": [
+        "tests/stories/system-setup-http-init.e2e-spec.ts"
+      ],
+      "driverSpecific": false
+    },
+    {
+      "id": "system-setup-unreachable-not-reported",
+      "defect": "11.46.0 (12.4.0 backport) — a deployed instance with zero users, no usable initialAdmin and a closed HTTP init cannot be set up at all; the boot must say so as an error, or nobody notices until somebody tries to sign in.",
+      "file": "src/core/modules/system-setup/core-system-setup.service.ts",
+      "find": "      this.logger.error(\n        `No users exist and this instance cannot be set up",
+      "replace": "      this.logger.log(\n        `No users exist and this instance cannot be set up",
+      "specs": [
+        "tests/unit/system-setup-http-init.spec.ts"
+      ],
+      "driverSpecific": false
+    },
+    {
+      "id": "system-setup-failed-init-keeps-user",
+      "defect": "11.46.0 (12.4.0 backport) — a failure after internalAdapter.createUser (linkAccount, the sync, the role update) released only the claim: the IAM user stayed, needsSetup turned false for good and the deployment had users but no administrator, recoverable only by editing the database.",
+      "file": "src/core/modules/system-setup/core-system-setup.service.ts",
+      "find": "        await this.rollbackInitialAdmin(context, createdIamUserId, input.email);\n",
+      "replace": "",
+      "specs": [
+        "tests/unit/system-setup-http-init.spec.ts"
+      ],
+      "driverSpecific": false
+    },
+    {
+      "id": "system-setup-http-token-not-compared",
+      "defect": "11.46.0 (12.4.0 backport) — a token-protected HTTP init (systemSetup.httpInit.token) must refuse a request whose X-System-Setup-Token differs from the configured token. Proven over HTTP.",
+      "file": "src/core/modules/system-setup/system-setup-http-init.helper.ts",
+      "find": "  return timingSafeEqual(digest(expected), digest(provided));\n",
+      "replace": "  return digest(expected).length === digest(provided).length;\n",
+      "specs": [
+        "tests/stories/system-setup-http-init.e2e-spec.ts"
+      ],
+      "driverSpecific": false
+    },
+    {
+      "id": "system-setup-http-failed-init-keeps-user",
+      "defect": "11.46.0 (12.4.0 backport) — a failure after internalAdapter.createUser (linkAccount, the sync, the role update) released only the claim: the IAM user stayed, needsSetup turned false for good and the deployment had users but no administrator, recoverable only by editing the database. Proven over HTTP.",
+      "file": "src/core/modules/system-setup/core-system-setup.service.ts",
+      "find": "        await this.rollbackInitialAdmin(context, createdIamUserId, input.email);\n",
+      "replace": "",
+      "specs": [
+        "tests/stories/system-setup-http-init.e2e-spec.ts"
+      ],
+      "driverSpecific": false
     }
   ]
 }

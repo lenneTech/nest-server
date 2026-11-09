@@ -10,7 +10,9 @@
 
 | Scenario                                             | Action Needed                                   |
 | ---------------------------------------------------- | ----------------------------------------------- |
-| Fresh deployment needs initial admin creation        | None - endpoints are available by default       |
+| Local development / e2e suites (`local`, `ci`, `e2e`) | None - the init endpoint is open there by default |
+| A deployed stage needs its first admin (11.46.0+)    | Set ENV variables (Step 1) - the HTTP init is closed there by default |
+| A deployed stage must be set up through a UI form    | Step 1b (setup token)                           |
 | Automated deployment (Docker/CI) needs auto-creation | Set ENV variables (Step 1)                      |
 | Want to disable system setup                         | Set `systemSetup: { enabled: false }` in config |
 | Custom setup logic (extra fields, notifications)     | Step 2 (Custom Controller)                      |
@@ -63,6 +65,22 @@ The admin is created automatically on server start when zero users exist.
 
 ---
 
+## Step 1b: Open the HTTP init with a token (Optional, 11.46.0+)
+
+Outside `local`, `ci` and `e2e`, `POST /system-setup/init` answers 403 `LTNS_0053` unless `systemSetup.httpInit`
+opens it. When a deployed stage must be set up through a form:
+
+```bash
+NSC__SYSTEM_SETUP__HTTP_INIT__TOKEN=<secret of at least 16 characters, with letters>
+```
+
+The frontend sends it in the `X-System-Setup-Token` header (403 `LTNS_0054` without it). `GET /system-setup/status`
+reports `httpInitEnabled` / `httpInitTokenRequired`. Remove the variable once the admin exists.
+
+**WHY a token and not `httpInit: true`:** without a token, whoever reaches the API first becomes the administrator.
+
+---
+
 ## Step 2: Custom Controller (Optional)
 
 Only needed if you want to add extra validation, logging, or custom fields.
@@ -80,6 +98,9 @@ export class SystemSetupController extends CoreSystemSetupController {
 }
 ```
 
+**An override of `createInitialAdmin()` must call `this.systemSetupService.assertHttpInitAllowed(token)` first** (the
+token read with `@Headers(SYSTEM_SETUP_TOKEN_HEADER)`). Otherwise it keeps the init open in every environment.
+
 > **Note:** The SystemSetup module auto-registers its controller via CoreModule. To use a custom controller, you would need to disable auto-registration and register your own module.
 
 ---
@@ -92,6 +113,7 @@ export class SystemSetupController extends CoreSystemSetupController {
 - [ ] `POST /system-setup/init` creates admin user with correct role
 - [ ] `GET /system-setup/status` returns `{ needsSetup: false }` after init
 - [ ] `POST /system-setup/init` returns 403 when users already exist
+- [ ] On a deployed stage without `httpInit`: `POST /system-setup/init` returns 403 `LTNS_0053`
 
 ---
 
