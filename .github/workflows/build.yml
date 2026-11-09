@@ -157,3 +157,34 @@ jobs:
       # unnoticed. Own job: needs no MongoDB / matrix, and stays off the build job.
       - name: Type-check test suites
         run: pnpm run typecheck:tests
+
+  loader:
+    # The TypeScript loader (`migrate/helpers/ts-compiler.cjs`) registers its module hooks through a different Node API
+    # per line (DEV-4134): `module.register()` on 22.x and 24.0–24.11, `module.registerHooks()` on 24.12+ and 26+. The
+    # build job runs 24.x; this one runs the loader specs on the two other ends, engines.node's floor and the line that
+    # deprecates `module.register()`. Unit specs only: no MongoDB, no containers.
+    name: TypeScript loader (Node ${{ matrix.node-version }})
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        node-version: [22.15.0, 26.x]
+    steps:
+      - name: Git checkout
+        uses: actions/checkout@v7
+
+      - name: Install pnpm
+        # No version input: the exact version is read from package.json's packageManager field.
+        uses: pnpm/action-setup@v6
+
+      - name: Use Node.js ${{ matrix.node-version }}
+        uses: actions/setup-node@v6
+        with:
+          node-version: ${{ matrix.node-version }}
+          cache: 'pnpm'
+
+      - name: Install dependencies
+        run: pnpm install
+
+      - name: Loader specs
+        run: npx vitest run --config vitest.config.mts tests/unit/ts-compiler.spec.ts tests/unit/package-format-contracts.spec.ts
