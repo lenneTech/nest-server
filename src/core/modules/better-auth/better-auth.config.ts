@@ -903,7 +903,9 @@ function buildEmailVerificationConfig(
   // Get configuration values (with defaults)
   const configObj = typeof emailVerificationConfig === 'object' ? emailVerificationConfig : {};
   const expiresIn = configObj.expiresIn ?? 86400; // 24 hours
-  const autoSignInAfterVerification = configObj.autoSignInAfterVerification ?? true;
+  // Off unless switched on, as Better-Auth has it (11.46.0+): on verification Better-Auth signs in the browser that
+  // opens the link, to the account the link belongs to — a forwarded link signs its recipient in to the sender's account
+  const autoSignInAfterVerification = configObj.autoSignInAfterVerification === true;
 
   const result: Record<string, unknown> = {
     autoSignInAfterVerification,

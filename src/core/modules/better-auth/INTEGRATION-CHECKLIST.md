@@ -273,6 +273,10 @@ Email verification is **enabled by default** via Better-Auth's `emailVerificatio
 - Users receive a verification email after sign-up
 - Email contains a verification link with token
 - After verification, `verifiedAt` is automatically set on the user
+- The user is **not** signed in by the verification link and signs in once afterwards (11.46.0+, as in Better-Auth).
+  `emailVerification: { autoSignInAfterVerification: true }` signs in whoever opens the link, to the link owner's
+  account — a forwarded link signs its recipient in to the sender's account. Your frontend's verify page should lead
+  to the sign-in rather than expect a session
 - Templates are provided in German and English
 
 ### Configuration
