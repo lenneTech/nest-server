@@ -2,14 +2,18 @@
 export * from './core-ai-mcp-oauth.initializer.js';
 export * from './core-ai-mcp.controller.js';
 export * from './helpers/ai-mcp-oauth.helper.js';
-// Named on purpose: the page's scripts and security headers stay internal, so a project cannot pin them
+// Named on purpose: the page's scripts and security headers stay internal, so a project cannot pin them. A project's
+// own notice on the consent route goes through CoreAiMcpOAuthService.sendConsentNotice(), which applies them
 export {
   MCP_OAUTH_CONSENT_DECISION_FIELD,
   MCP_OAUTH_CONSENT_TOKEN_FIELD,
   mcpOAuthConsentLocale,
+  renderMcpOAuthConsentNoticePage,
   renderMcpOAuthConsentPage,
 } from './helpers/ai-mcp-oauth-consent.helper.js';
 export type {
+  IMcpOAuthConsentNotice,
+  IMcpOAuthConsentNoticeView,
   IMcpOAuthConsentPageOptions,
   IMcpOAuthConsentView,
   McpOAuthConsentLocale,

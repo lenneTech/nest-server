@@ -2252,6 +2252,24 @@ export interface IAi {
         oauthLoginUrl?: string;
         oauthSecret?: string;
         /**
+         * Which accounts may use MCP at all (12.8.6+): only a user whose own `roles` hold one of these. Checked on
+         * every request to `/ai/mcp`, whichever credential authenticated it (the user's session token or JWT as
+         * bearer, an MCP OAuth access token), on the consent route (a refused user gets the notice page with 403
+         * instead of the consent form) and when an authorization code or a refresh token is exchanged
+         * (`invalid_grant`). A revoked role therefore takes effect with the next request, also for open sessions
+         * and grants issued earlier.
+         *
+         * An array of role names, or a comma-separated string (`NSC__AI__MCP__ROLES=admin,support`). Unset: every
+         * signed-in user may use MCP, as before 12.8.6. A value that names no role (`[]`, `''`, an empty entry,
+         * a non-string) or a system role (`s_…`) fails the boot — a misconfiguration must never read as "everyone".
+         * The roles are compared with the user's own (global) roles, never a tenant membership role; list every
+         * role that may use MCP, `admin` included if administrators should. For any other rule override
+         * `mayUseMcp()` in the `CoreAiMcpOAuthService` subclass registered via
+         * `CoreModule.forRoot(env, { ai: { mcpOAuthService } })`.
+         * @default undefined (every signed-in user)
+         */
+        roles?: string | string[];
+        /**
          * Serve `/ai/mcp` without sessions: every POST builds its own server and transport for the
          * authenticated user and ends with the response, no `mcp-session-id` is issued, and GET /
          * DELETE answer 405. Any replica can answer any request, so no sticky sessions are needed

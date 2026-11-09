@@ -50,7 +50,7 @@ function buildController() {
       throw new Error('createServer reached');
     }),
   };
-  const oauthService: any = { loadUser: vi.fn(), verifyAccessToken: vi.fn() };
+  const oauthService: any = { checkMcpAccess: vi.fn(async () => true), loadUser: vi.fn(), verifyAccessToken: vi.fn() };
   return { controller: new CoreAiMcpController(mcpService, oauthService), mcpService };
 }
 
