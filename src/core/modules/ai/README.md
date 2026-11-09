@@ -945,6 +945,72 @@ protected override renderConsentPage(view: IMcpOAuthConsentView): string {
 }
 ```
 
+**Who may use MCP (12.8.6+).** `ai.mcp.roles` limits MCP to accounts holding one of the listed roles — an array, or a
+comma-separated string (`NSC__AI__MCP__ROLES=admin,support`). Unset, every signed-in user may use MCP, as before.
+
+```typescript
+ai: { mcp: { oauth: true, roles: ['admin'] } }
+```
+
+The framework checks the rule wherever a credential arrives, so it cannot be walked around:
+
+| Where                                          | Credential                                                           | A refused user gets                                               |
+| ---------------------------------------------- | -------------------------------------------------------------------- | ----------------------------------------------------------------- |
+| every request to `/ai/mcp` (POST, GET, DELETE) | the user's session token or JWT as bearer, an MCP OAuth access token | 403 — an open session ends with its next request                  |
+| the consent route `/authorize`                 | the signed-in session                                                | the refusal notice (403) instead of the consent form              |
+| `/token`                                       | an authorization code, a refresh token                               | `invalid_grant`; the refresh token the rotation issued is revoked |
+
+The roles are compared with the user's own (global) roles, never a tenant membership role — list every role that may
+use MCP, `admin` included if administrators should. A value that names no role (`[]`, `''`, an empty entry, a
+non-string) or a system role (`s_…`) fails the boot: a misconfigured access rule must never read as "everyone may".
+
+**Any other rule** (a flag in the database, a tenant rule): override `mayUseMcp(user, req)` in the
+`CoreAiMcpOAuthService` subclass registered via `CoreModule.forRoot(env, { ai: { mcpOAuthService } })`. The framework
+calls it at every point in the table above — `user` carries `id` and `roles` (on `/token` the roles `loadUser()`
+reads), and it runs per MCP request, so keep it fast. Only an explicit `true` admits; a throw refuses and is logged.
+
+```typescript
+@Injectable()
+export class McpOAuthService extends CoreAiMcpOAuthService {
+  constructor(
+    @InjectConnection() connection: Connection,
+    private readonly mcpAccounts: McpAccountService,
+  ) {
+    super(connection);
+  }
+
+  // A rule roles cannot express, e.g. a switch the project keeps per account
+  override async mayUseMcp(user: { id: string; roles?: string[] }): Promise<boolean> {
+    return this.mcpAccounts.isEnabled(user.id);
+  }
+}
+```
+
+**The refusal notice.** Its wording comes from `consentRefusal(req)` (German or English by `Accept-Language`),
+its look from `renderConsentNoticePage(view)` — override them to change it:
+
+```typescript
+protected override consentRefusal(req: any): IMcpOAuthConsentNotice {
+  return { locale: 'de', message: 'Nur Administratoren dürfen MCP-Clients verbinden.', title: 'Zugriff nicht möglich' };
+}
+
+protected override renderConsentNoticePage(view: IMcpOAuthConsentNoticeView): string {
+  return renderMcpOAuthConsentNoticePage(view, { styles: ':root{--primary:#0b5}' });
+}
+```
+
+**A notice of your own on the consent route** — for any other case where a project answers `/authorize` itself:
+`this.sendConsentNotice(res, { title, message })` from an overridden `authorizeConsent()`. The framework sets the
+status (default 403, any 400–599), a fresh nonce and the consent page's security headers (CSP with nonce,
+`frame-ancestors 'none'`, `X-Frame-Options: DENY`, `no-store`), so the page keeps receiving their fixes. It shows title
+and message as plain text (an array renders one paragraph per entry), the signed-in account with "use another
+account" (`switchAccount: false` leaves it out) and optionally a link (`link: { href, label }`, an absolute `http(s)`
+URL or a path; anything else is dropped with a warning). It issues nothing: no code, no redirect. `locale` fixes the
+language of the built-in labels; default from `Accept-Language`. The security headers themselves are not exported
+(`mcpOAuthConsentHeaders()` stays internal): a project that copied them into its own response would stop receiving
+their fixes. Such a notice refuses a new grant only — who may use MCP at all belongs in `ai.mcp.roles` /
+`mayUseMcp()`, which `/ai/mcp` and `/token` check too.
+
 **Your own page.** Override `renderConsentPage(view)` in a subclass to restyle it beyond that (keep every
 value escaped), or `authorizeConsent(client, params, res)` for a consent UI of your own — same shape: no session
 → sign in, GET → show which client, POST with a CSRF token → `saveAuthorizationCode()` and redirect;

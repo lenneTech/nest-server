@@ -38,7 +38,7 @@ describe('renderMcpOAuthConsentPage — options', () => {
 
   /**
    * @regression   12.3.0 — replacement texts must be merged per locale over the built-in ones.
-   * @seen-failing Use the built-in texts only in renderMcpOAuthConsentPage()
+   * @seen-failing Use the built-in texts only in pageTexts(), which both consent pages read their texts from
    *   (src/core/modules/ai/helpers/ai-mcp-oauth-consent.helper.ts) — registered as mutation
    *   `mcp-consent-texts-not-merged` in tests/regression-mutations.json.
    */

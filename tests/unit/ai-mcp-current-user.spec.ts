@@ -94,7 +94,11 @@ describe('MCP sessions follow the current user', () => {
         return { connect: async () => undefined };
       }),
     };
-    const controller = new CoreAiMcpController(mcpService, { loadUser: vi.fn(), verifyAccessToken: vi.fn() } as any);
+    const controller = new CoreAiMcpController(mcpService, {
+      checkMcpAccess: vi.fn(async () => true),
+      loadUser: vi.fn(),
+      verifyAccessToken: vi.fn(),
+    } as any);
     const res: any = { json: () => res, set: () => res, status: () => res };
     const request = (roles: string[], sessionId?: string): any => ({
       body: sessionId

@@ -249,6 +249,14 @@ CSS without copying markup, scripts or headers; fill both from code or configura
 `authorizeConsent(client, params, res)` (replace), registered via
 `CoreModule.forRoot(envConfig, { ai: { mcpOAuthService: McpOAuthService } })`.
 
+**Optional — only some accounts may use MCP (12.8.6+):** `ai: { mcp: { roles: ['admin'] } }` (or
+`NSC__AI__MCP__ROLES=admin`). The framework checks it on every `/ai/mcp` request (session, JWT and OAuth token alike),
+on the consent route (refusal notice, 403) and on `/token` — do not build this into an `authorizeConsent()` override:
+`/ai/mcp` takes the user's own session or JWT as bearer, which never passes `/authorize`. For a rule roles cannot
+express, override `mayUseMcp(user, req)` in the `CoreAiMcpOAuthService` subclass; the refusal's wording comes from
+`consentRefusal(req)`, its look from `renderConsentNoticePage(view)`. A project that refused accounts in its own
+`authorizeConsent()` moves that rule into `ai.mcp.roles` or `mayUseMcp()` (README, "Who may use MCP").
+
 **Optional — no sticky sessions:** `ai: { mcp: { stateless: true } }` serves `/ai/mcp` without sessions, so any
 replica answers any request. Without a session the server cannot ask the user (no MCP elicitation): tools that
 need confirmation are refused there unless the user or `ai.mcp.confirmation` switched the question off.

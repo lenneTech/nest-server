@@ -5933,8 +5933,8 @@
       "id": "mcp-consent-texts-not-merged",
       "defect": "12.3.0 — replacement consent texts must be merged per locale over the built-in ones.",
       "file": "src/core/modules/ai/helpers/ai-mcp-oauth-consent.helper.ts",
-      "find": "  const t: Texts = { ...TEXTS[view.locale], ...options.texts?.[view.locale] };\n",
-      "replace": "  const t: Texts = TEXTS[view.locale];\n",
+      "find": "  return { ...TEXTS[locale], ...options.texts?.[locale] };\n",
+      "replace": "  return TEXTS[locale];\n",
       "specs": [
         "tests/unit/ai-mcp-oauth-consent-options.spec.ts"
       ],
@@ -7225,6 +7225,50 @@
       "replace": "",
       "specs": [
         "tests/unit/http-exception-log-filter.spec.ts"
+      ],
+      "driverSpecific": false
+    },
+    {
+      "id": "mcp-route-skips-access-check",
+      "defect": "Until 12.8.5 `/ai/mcp` had no account-level rule: a refusal on the MCP OAuth consent route was bypassed with the user's own session token or JWT as bearer, which never passes `/authorize`.",
+      "file": "src/core/modules/ai/core-ai-mcp.controller.ts",
+      "find": "  async handlePost(@Req() req: Request, @Res() res: Response): Promise<void> {\n    const user = await this.resolveScopedUser(req);\n    if (!user?.id) {\n      this.unauthorized(res);\n      return;\n    }\n    if (!(await this.oauthService.checkMcpAccess(user, req))) {\n      this.forbidden(res);\n      return;\n    }\n",
+      "replace": "  async handlePost(@Req() req: Request, @Res() res: Response): Promise<void> {\n    const user = await this.resolveScopedUser(req);\n    if (!user?.id) {\n      this.unauthorized(res);\n      return;\n    }\n",
+      "specs": [
+        "tests/unit/ai-mcp-access.spec.ts"
+      ],
+      "driverSpecific": false
+    },
+    {
+      "id": "mcp-consent-ignores-access",
+      "defect": "Until 12.8.5 the MCP OAuth consent route showed the consent form to every signed-in user; an account-level MCP rule had to be built into a project's authorizeConsent() override.",
+      "file": "src/core/modules/ai/services/core-ai-mcp-oauth.service.ts",
+      "find": "    if (user && !(await this.checkMcpAccess(user, req))) {\n",
+      "replace": "    if (false && user && !(await this.checkMcpAccess(user, req))) {\n",
+      "specs": [
+        "tests/unit/ai-mcp-access.spec.ts"
+      ],
+      "driverSpecific": false
+    },
+    {
+      "id": "mcp-refresh-ignores-access",
+      "defect": "Until 12.8.5 an MCP OAuth grant issued before a user lost the right to use MCP kept producing access tokens through its refresh token.",
+      "file": "src/core/modules/ai/services/core-ai-mcp-oauth.service.ts",
+      "find": "        if (!(await this.grantMayUseMcp(rotated.userId))) {\n",
+      "replace": "        if (false && !(await this.grantMayUseMcp(rotated.userId))) {\n",
+      "specs": [
+        "tests/unit/ai-mcp-access.spec.ts"
+      ],
+      "driverSpecific": false
+    },
+    {
+      "id": "mcp-access-checked-at-initialize-only",
+      "defect": "Found in the 12.8.6 review: an MCP access check that runs only for the `initialize` opening a session would let a user whose role was withdrawn keep calling tools on the session opened before, and let every refused user through in stateless mode.",
+      "file": "src/core/modules/ai/core-ai-mcp.controller.ts",
+      "find": "    if (!(await this.oauthService.checkMcpAccess(user, req))) {\n      this.forbidden(res);\n      return;\n    }\n\n    if (this.statelessEnabled()) {\n      await this.handleStatelessPost(req, res, user);\n",
+      "replace": "    if (this.isInitializeRequest(req.body) && !(await this.oauthService.checkMcpAccess(user, req))) {\n      this.forbidden(res);\n      return;\n    }\n\n    if (this.statelessEnabled()) {\n      await this.handleStatelessPost(req, res, user);\n",
+      "specs": [
+        "tests/unit/ai-mcp-access.spec.ts"
       ],
       "driverSpecific": false
     }

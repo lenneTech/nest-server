@@ -7,6 +7,10 @@
  *   Better-Auth's own endpoints on the same origin, then a reload of the very same `/authorize`
  *   request. Other methods (passkey, social login) through the app's login page.
  *
+ * Plus a notice page in the same document ({@link renderMcpOAuthConsentNoticePage}): the refusal for a user
+ * `CoreAiMcpOAuthService.mayUseMcp()` refuses (`ai.mcp.roles`), and whatever else a project answers on the consent
+ * route instead of the form.
+ *
  * Everything that reaches the page from outside is escaped: the client's name comes from dynamic
  * registration, i.e. from whoever registered the client. Nothing here decides whether a code is
  * issued — that is `CoreAiMcpOAuthService` (CSRF token, user, client, PKCE challenge).
@@ -101,6 +105,30 @@ const TEXTS = {
   },
 } satisfies Record<McpOAuthConsentLocale, Record<string, string>>;
 
+/** What the consent route shows a user `CoreAiMcpOAuthService.mayUseMcp()` refuses. */
+const REFUSAL_TEXTS = {
+  de: {
+    message: [
+      'Dieses Konto darf keine MCP-Clients verbinden.',
+      'Melde dich mit einem anderen Konto an oder wende dich an die Administration.',
+    ],
+    title: 'Kein Zugriff über MCP',
+  },
+  en: {
+    message: [
+      'This account may not connect MCP clients.',
+      'Sign in with another account or contact your administrator.',
+    ],
+    title: 'No MCP access',
+  },
+} satisfies Record<McpOAuthConsentLocale, { message: string[]; title: string }>;
+
+/** Title and message of the built-in refusal notice in one locale. */
+export function mcpOAuthConsentRefusalTexts(locale: McpOAuthConsentLocale): { message: string[]; title: string } {
+  const texts = REFUSAL_TEXTS[locale] ?? REFUSAL_TEXTS.en;
+  return { message: [...texts.message], title: texts.title };
+}
+
 /** The locale for an `Accept-Language` header: German when the first preference is German, else English. */
 export function mcpOAuthConsentLocale(acceptLanguage: unknown): McpOAuthConsentLocale {
   const first = typeof acceptLanguage === 'string' ? acceptLanguage.split(',')[0].trim().toLowerCase() : '';
@@ -149,7 +177,7 @@ export function renderMcpOAuthConsentPage(
   view: IMcpOAuthConsentView,
   options: IMcpOAuthConsentPageOptions = {},
 ): string {
-  const t: Texts = { ...TEXTS[view.locale], ...options.texts?.[view.locale] };
+  const t = pageTexts(view.locale, options);
   const clientName = view.client.name?.trim() || t.unnamedClient;
   // One pass: a client name is chosen by whoever registered the client, so a name containing
   // `{app}` must not be expanded by a second replace.
@@ -160,6 +188,106 @@ export function renderMcpOAuthConsentPage(
     );
 
   const body = view.user ? consentView(view, t, fill) : signInView(view, t, fill);
+  return pageDocument(view, t.title, body, pageScript(view), options);
+}
+
+/**
+ * What the consent route answers instead of the consent form: the refusal of `CoreAiMcpOAuthService.consentRefusal()`
+ * for a user `mayUseMcp()` refuses, or a notice a project decides in its own `authorizeConsent()` before calling
+ * `super`. Passed to `CoreAiMcpOAuthService.sendConsentNotice()`, which sets the status, a fresh nonce and the page's
+ * security headers. Fill it from code or configuration, never from user or tenant input; every value is rendered as
+ * plain text. Who may use MCP at all is `ai.mcp.roles` / `mayUseMcp()` — a notice alone stops a new grant only.
+ */
+export interface IMcpOAuthConsentNotice {
+  /** A link below the message, e.g. to the app: an absolute `http(s)` URL or a path on this origin; anything else is dropped */
+  link?: { href: string; label: string };
+  /** Locale of the built-in labels and of `<html lang>`; default from the request's `Accept-Language` */
+  locale?: McpOAuthConsentLocale;
+  /** Plain text; an array renders one paragraph per entry */
+  message: string | string[];
+  /** HTTP status between 400 and 599; default 403 */
+  status?: number;
+  /** Offer "use another account" when a user is signed in (default `true`) */
+  switchAccount?: boolean;
+  title: string;
+}
+
+/** What the notice page shows. Built by `CoreAiMcpOAuthService`, rendered by {@link renderMcpOAuthConsentNoticePage}. */
+export interface IMcpOAuthConsentNoticeView {
+  /** Host the user knows the application by (the app's host, else the API's) */
+  appHost: string;
+  /** Better-Auth base path; with a signed-in user it offers "use another account". Absent: no such offer */
+  authBasePath?: string;
+  link?: { href: string; label: string };
+  locale: McpOAuthConsentLocale;
+  /** One paragraph per entry */
+  message: string[];
+  /** CSP nonce of this response */
+  nonce: string;
+  title: string;
+  /** The signed-in user, if any */
+  user?: { email?: string; name?: string };
+}
+
+/**
+ * Renders the notice page: title, message, the signed-in account with "use another account", an optional link. No
+ * form and nothing that issues a code — the MCP client keeps waiting until the user signs in with another account
+ * or closes the window. Same document, styles and escaping as the consent page; `options` work as there.
+ */
+export function renderMcpOAuthConsentNoticePage(
+  view: IMcpOAuthConsentNoticeView,
+  options: IMcpOAuthConsentPageOptions = {},
+): string {
+  const t = pageTexts(view.locale, options);
+  const account = accountLine(view.user, view.authBasePath, t);
+  const href = consentNoticeLinkHref(view.link?.href);
+  const link = href
+    ? `<div class="other"><a href="${escapeHtml(href)}">${escapeHtml(view.link?.label || href)}</a></div>`
+    : '';
+  const body = `<h1>${escapeHtml(view.title)}</h1>
+${account}
+${view.message.map((paragraph) => `<p>${escapeHtml(paragraph)}</p>`).join('\n')}
+${link}`;
+  // Only the "use another account" half of the guard script has anything to do here: there is no Allow button
+  const script = account.includes('id="lt-mcp-switch"')
+    ? `<script nonce="${escapeHtml(view.nonce)}">${MCP_OAUTH_CONSENT_GUARD_SCRIPT}</script>`
+    : '';
+  return pageDocument(view, view.title, body, script, options);
+}
+
+/**
+ * The link target of a notice, or `undefined`: an absolute `http(s)` URL, or a path on this origin. A protocol-relative
+ * `//host` and its backslash spelling `/\host` (which browsers read the same way) are not paths, and a value with a
+ * control character is refused outright.
+ */
+export function consentNoticeLinkHref(href: unknown): string | undefined {
+  if (typeof href !== 'string') {
+    return undefined;
+  }
+  const value = href.trim();
+  // Browsers drop tabs and line breaks from a URL, so `/\t/host` would become the protocol-relative `//host`
+  if ([...value].some((char) => char.charCodeAt(0) < 0x20 || char.charCodeAt(0) === 0x7f)) {
+    return undefined;
+  }
+  if (value.startsWith('/')) {
+    return /^\/[/\\]/.test(value) ? undefined : value;
+  }
+  try {
+    const url = new URL(value);
+    return url.protocol === 'https:' || url.protocol === 'http:' ? url.href : undefined;
+  } catch {
+    return undefined;
+  }
+}
+
+/** The HTML document both pages share. */
+function pageDocument(
+  view: { appHost: string; locale: McpOAuthConsentLocale; nonce: string },
+  title: string,
+  body: string,
+  script: string,
+  options: IMcpOAuthConsentPageOptions,
+): string {
   return `<!doctype html>
 <html lang="${view.locale}">
 <head>
@@ -167,20 +295,38 @@ export function renderMcpOAuthConsentPage(
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <meta name="robots" content="noindex">
 <link rel="icon" href="data:,">
-<title>${escapeHtml(t.title)} – ${escapeHtml(view.appHost)}</title>
+<title>${escapeHtml(title)} – ${escapeHtml(view.appHost)}</title>
 <style nonce="${escapeHtml(view.nonce)}">${STYLES}${confinedStyles(options.styles)}</style>
 </head>
 <body>
 <main class="card">
 ${body}
 </main>
-${pageScript(view)}
+${script}
 </body>
 </html>
 `;
 }
 
 type Texts = McpOAuthConsentTexts;
+
+/** The texts of one locale: the built-in ones, with the project's replacements merged over them. */
+function pageTexts(locale: McpOAuthConsentLocale, options: IMcpOAuthConsentPageOptions): Texts {
+  return { ...TEXTS[locale], ...options.texts?.[locale] };
+}
+
+/** "Signed in as …" with "use another account" (when Better-Auth is active); empty without a user. */
+function accountLine(user: { email?: string; name?: string } | undefined, authBasePath: string | undefined, t: Texts) {
+  const who = user?.email || user?.name;
+  if (!who) {
+    return '';
+  }
+  return `<p class="account">${escapeHtml(t.signedInAs).replace('{user}', () => `<strong>${escapeHtml(who)}</strong>`)}${
+    authBasePath
+      ? `<a href="" id="lt-mcp-switch" class="switch" data-sign-out="${escapeHtml(`${authBasePath}/sign-out`)}">${escapeHtml(t.switchAccount)}</a>`
+      : ''
+  }</p>`;
+}
 
 /**
  * Project CSS that cannot end the `<style>` element: a `</style>` in it would continue as markup — an injected
@@ -195,19 +341,12 @@ function consentView(view: IMcpOAuthConsentView, t: Texts, fill: (text: string) 
   const target = view.redirect.loopback
     ? `${escapeHtml(t.loopback)} (${escapeHtml(view.redirect.host)})`
     : escapeHtml(view.redirect.host);
-  const who = view.user?.email || view.user?.name;
   const hidden = Object.entries(view.oauthParams)
     .map(([name, value]) => `<input type="hidden" name="${escapeHtml(name)}" value="${escapeHtml(value)}">`)
     .join('\n');
   // The account comes first and is not muted: a session planted by login CSRF must be noticed
   // before Allow, not after.
-  const account = who
-    ? `<p class="account">${escapeHtml(t.signedInAs).replace('{user}', () => `<strong>${escapeHtml(who)}</strong>`)}${
-        view.authBasePath
-          ? `<a href="" id="lt-mcp-switch" class="switch" data-sign-out="${escapeHtml(`${view.authBasePath}/sign-out`)}">${escapeHtml(t.switchAccount)}</a>`
-          : ''
-      }</p>`
-    : '';
+  const account = accountLine(view.user, view.authBasePath, t);
   // Allow starts disabled: only the guard script enables it, so a page without the script can never
   // be clicked into an approval (see MCP_OAUTH_CONSENT_GUARD_SCRIPT).
   return `<h1>${escapeHtml(t.title)}</h1>
