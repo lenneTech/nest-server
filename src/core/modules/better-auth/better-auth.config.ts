@@ -7,7 +7,7 @@ import * as fs from 'fs';
 import * as path from 'path';
 import { inspect } from 'util';
 
-import { resolveServerUrls, strippedApiHostname } from '../../common/helpers/cookies.helper.js';
+import { isLocalEnv, resolveServerUrls, strippedApiHostname } from '../../common/helpers/cookies.helper.js';
 import { revalidateWsConnectionsOf } from '../../common/helpers/graphql-ws-connection.helper.js';
 import { IBetterAuth, ICorsConfig } from '../../common/interfaces/server-options.interface.js';
 import { ConfigService } from '../../common/services/config.service.js';
@@ -647,6 +647,15 @@ export function buildBetterAuthOptions(options: CreateBetterAuthOptions): Better
       // `Secure` TRANSPORT flag. Only injected on https so http/local and a consumer's
       // own `options.advanced.useSecureCookies` override are left untouched.
       ...(secureCookies && { defaultCookieAttributes: { secure: true } }),
+      // Better-Auth decides the origin check itself when this is unset: `isTest()` — `NODE_ENV === 'test'` or a
+      // truthy `TEST` variable — switches it off, and with it the CSRF check (backward compatibility in
+      // origin-check.mjs) and the validation of `callbackURL` / `redirectTo` against `trustedOrigins`. A deployed
+      // stage named `test` is exactly that environment, so a password-reset mail carried any `redirectTo` a caller
+      // chose — with a valid token, to the caller's page. Pinned for every environment that is not local / ci / e2e
+      // (an unknown or missing name included). Those three keep Better-Auth's own decision: vitest sets `TEST=true`,
+      // and pinning there would arm the check in every e2e suite of every project at once. A project's own
+      // `options.advanced.disableOriginCheck` still wins (see the merge below).
+      ...(!isLocalEnv(serverEnv) && { disableOriginCheck: false }),
     },
     basePath,
     baseURL: betterAuthBaseUrl,
@@ -762,9 +771,38 @@ export function buildBetterAuthOptions(options: CreateBetterAuthOptions): Better
     const {
       advanced: optionsAdvanced,
       emailAndPassword: optionsEmailAndPassword,
+      user: optionsUser,
       ...restOptions
     } = config.options as Record<string, unknown>;
     finalConfig = { ...betterAuthConfig, ...restOptions };
+
+    // `user` is merged, not replaced. A project that sets `options.user` for its own reason (`changeEmail`,
+    // `deleteUser`) would otherwise drop `modelName: 'users'` — Better-Auth then reads and writes a `user` collection
+    // or table the framework never sees — and every field `additionalUserFields` declares, the `input: false` locks
+    // included. The framework's fields win over a project field of the same name; `betterAuth.additionalUserFields` is
+    // where a project changes them.
+    if (optionsUser && typeof optionsUser === 'object') {
+      const baseUser = betterAuthConfig.user as Record<string, unknown>;
+      const overrideUser = optionsUser as Record<string, unknown>;
+      // Copies, because the lock below writes to them and the project's options may be the frozen configuration
+      const projectFields = Object.fromEntries(
+        Object.entries((overrideUser.additionalFields as Record<string, unknown> | undefined) ?? {}).map(
+          ([key, field]) => [key, field && typeof field === 'object' ? { ...field } : field],
+        ),
+      );
+      const mergedFields = {
+        ...projectFields,
+        ...(baseUser.additionalFields as Record<string, unknown>),
+      };
+      // A project field under another key may still map to a protected column (`fieldName: 'roles'`)
+      lockProtectedColumns(mergedFields as Record<string, { fieldName?: string; input?: boolean }>);
+      finalConfig.user = {
+        ...baseUser,
+        ...overrideUser,
+        additionalFields: mergedFields,
+        modelName: overrideUser.modelName ?? baseUser.modelName,
+      };
+    }
 
     // `logger` is merged, not replaced: a project that only sets `level` or `disabled` keeps the Nest routing,
     // one that passes its own `log` handler gets exactly that.
@@ -839,6 +877,11 @@ export function buildBetterAuthOptions(options: CreateBetterAuthOptions): Better
               | undefined),
           },
         }),
+        // An explicitly `undefined` value survives the spread as a present key and hands the decision back to
+        // Better-Auth's `isTest()`. Only a value the project actually set overrides the pin.
+        disableOriginCheck:
+          (optionsAdvanced as Record<string, unknown>).disableOriginCheck ??
+          (betterAuthConfig.advanced as Record<string, unknown>).disableOriginCheck,
       };
     }
   } else {
@@ -1400,14 +1443,29 @@ function buildUserFields(config: IBetterAuth): Record<string, UserFieldConfig> {
   // it, e.g. `additionalUserFields: { customRoles: { fieldName: 'roles', input: true } }`. Lock any
   // such field too, so no additionalUserFields entry — regardless of its key — can feed client input
   // into a protected column.
+  lockProtectedColumns(coreFields);
+
+  return coreFields;
+}
+
+/**
+ * Sets `input: false` on every field that feeds a protected column under another key
+ * (`customRoles: { fieldName: 'roles' }`). Used for `additionalUserFields` and for the fields a project passes through
+ * `options.user.additionalFields`, which the `user` merge in createBetterAuthInstance() adds beside the framework's.
+ */
+function lockProtectedColumns(fields: Record<string, { fieldName?: string; input?: boolean }>): void {
   const protectedColumns = new Set<string>(PROTECTED_INPUT_FALSE_KEYS);
-  for (const [key, field] of Object.entries(coreFields)) {
-    if (!protectedColumns.has(key) && field.fieldName && protectedColumns.has(field.fieldName)) {
+  for (const [key, field] of Object.entries(fields)) {
+    if (
+      field &&
+      typeof field === 'object' &&
+      !protectedColumns.has(key) &&
+      field.fieldName &&
+      protectedColumns.has(field.fieldName)
+    ) {
       field.input = false;
     }
   }
-
-  return coreFields;
 }
 
 /**
