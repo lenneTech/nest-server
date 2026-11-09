@@ -3,8 +3,10 @@ import { afterEach, describe, expect, it, vi } from 'vitest';
 
 import { ErrorCode } from '../../src/core/modules/error-code/error-codes';
 import { CoreSystemSetupService } from '../../src/core/modules/system-setup/core-system-setup.service';
+import { getEnvironmentConfig } from '../../src/core/common/helpers/config.helper';
 import {
   isSystemSetupTokenValid,
+  resolveSystemSetupEnv,
   resolveSystemSetupHttpInit,
   SYSTEM_SETUP_TOKEN_HEADER,
   SYSTEM_SETUP_TOKEN_MIN_LENGTH,
@@ -246,6 +248,56 @@ describe('CoreSystemSetupService.assertHttpInitAllowed()', () => {
     );
     vi.stubEnv('NODE_ENV', 'e2e');
     expect(() => serviceWith({}).service.assertHttpInitAllowed()).not.toThrow();
+  });
+});
+
+describe('resolveSystemSetupEnv() — the 11.x local-block fallback', () => {
+  afterEach(() => {
+    vi.unstubAllEnvs();
+  });
+
+  /**
+   * @regression   11.46.0 (12.4.0 backport, pre-release) — on 11.x getEnvironmentConfig() loads the `local` block for a
+   *   NODE_ENV without a block of its own, or an empty one, so `env` read `local` on such a deployed stage and the
+   *   fail-closed init stayed OPEN there, without a boot warning.
+   * @seen-failing Return the configured env unconditionally from resolveSystemSetupEnv() in
+   *   src/core/modules/system-setup/system-setup-http-init.helper.ts — registered as mutation
+   *   `system-setup-local-fallback-opens-init` in tests/regression-mutations.json.
+   */
+  it('keeps the init closed on a stage that fell back to the local block', () => {
+    const config = { local: { env: 'local' }, production: { env: 'production' } };
+    for (const nodeEnv of ['staging', 'prod', '']) {
+      vi.stubEnv('NODE_ENV', nodeEnv);
+      const loaded = getEnvironmentConfig({ config });
+      expect(loaded.env, nodeEnv).toBe('local');
+      const { service } = serviceWith({ env: loaded.env });
+      expect(
+        forbiddenCode(() => service.assertHttpInitAllowed()),
+        nodeEnv,
+      ).toBe(ErrorCode.SYSTEM_SETUP_HTTP_INIT_DISABLED);
+    }
+  });
+
+  it.each([
+    // [configured env, NODE_ENV, VITEST, expected]
+    ['local', undefined, '', 'local'],
+    ['local', 'local', '', 'local'],
+    ['e2e', 'e2e', '', 'e2e'],
+    ['local', 'ci', '', 'local'],
+    ['local', 'staging', '', 'staging'],
+    ['local', '', '', ''],
+    ['local', 'test', '', 'test'],
+    ['local', 'test', 'true', 'local'],
+    ['production', 'local', '', 'production'],
+    ['develop', 'e2e', 'true', 'develop'],
+    [undefined, 'production', '', 'production'],
+    [undefined, undefined, '', undefined],
+  ])('configured %j with NODE_ENV %j (VITEST %j) decides as %j', (configured, nodeEnv, vitest, expected) => {
+    vi.stubEnv('VITEST', vitest);
+    vi.stubEnv('JEST_WORKER_ID', '');
+    // `undefined` reaches the default parameter, i.e. process.env.NODE_ENV — so unset it for those rows
+    vi.stubEnv('NODE_ENV', nodeEnv);
+    expect(resolveSystemSetupEnv(configured, nodeEnv)).toBe(expected);
   });
 });
 

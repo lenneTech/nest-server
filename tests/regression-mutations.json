@@ -3609,6 +3609,17 @@
       "driverSpecific": false
     },
     {
+      "id": "system-setup-local-fallback-opens-init",
+      "defect": "11.46.0 (12.4.0 backport, pre-release) — on 11.x getEnvironmentConfig() loads the `local` block for a NODE_ENV without a block of its own or an empty one, so `env` read `local` on such a deployed stage and the fail-closed HTTP init stayed open there, without a boot warning. resolveSystemSetupEnv() decides by NODE_ENV in that case.",
+      "file": "src/core/modules/system-setup/system-setup-http-init.helper.ts",
+      "find": "  return nodeEnv;\n}\n",
+      "replace": "  return configuredEnv;\n}\n",
+      "specs": [
+        "tests/unit/system-setup-http-init.spec.ts"
+      ],
+      "driverSpecific": false
+    },
+    {
       "id": "system-setup-token-not-compared",
       "defect": "11.46.0 (12.4.0 backport) — a token-protected HTTP init (systemSetup.httpInit.token) must refuse a request whose X-System-Setup-Token differs from the configured token.",
       "file": "src/core/modules/system-setup/system-setup-http-init.helper.ts",

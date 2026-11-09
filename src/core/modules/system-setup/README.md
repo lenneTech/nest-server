@@ -204,8 +204,10 @@ an API without users through it would become its administrator.
 | `{ token }` (`NSC__SYSTEM_SETUP__HTTP_INIT__TOKEN`, at least 16 characters) | open, token required | open, token required |
 | `false` / `{ enabled: false }` | closed | closed |
 
-A token that is missing, empty, shorter than 16 characters or not a string keeps the init closed and logs an error at
-boot; a non-boolean, non-object value counts as not set. `initialAdmin` is not affected. A deployed instance that starts
+The environment is the configured `env`, but where that is local only because 11.x fell back to the `local` block (a
+`NODE_ENV` without a block of its own, or an empty one), `NODE_ENV` decides — such a stage counts as deployed
+(`resolveSystemSetupEnv()`). A token that is missing, empty, shorter than 16 characters or not a string keeps the init
+closed and logs an error at boot; a non-boolean, non-object value counts as not set. `initialAdmin` is not affected. A deployed instance that starts
 with zero users, no usable `initialAdmin` and a closed init logs an error naming both ways in. While the init is closed,
 `setupSwagger()` leaves it out of the document.
 

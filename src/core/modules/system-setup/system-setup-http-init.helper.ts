@@ -97,6 +97,41 @@ export function resolveSystemSetupHttpInit(httpInit: unknown, env: string | unde
 }
 
 /**
+ * The environment the HTTP-init policy is decided for: the configured `env`, unless it is local only because 11.x fell
+ * back to the `local` block.
+ *
+ * On 11.x `getEnvironmentConfig()` loads `config[NODE_ENV] || config.local`: a stage whose `NODE_ENV` names no block
+ * (`staging`, `prod`) or is empty (`NODE_ENV=${NODE_ENV}` in a compose file with the variable unset) runs on the
+ * `local` block, and its `env` reads `local` — which would keep the anonymous init open on a deployed instance. So a
+ * local configured `env` counts only when `NODE_ENV` is unset or local too. A test runner's `NODE_ENV=test` (vitest and
+ * jest set it when nothing else does) stays local while `VITEST` / `JEST_WORKER_ID` is set, as 12.7.0 does it.
+ *
+ * | configured `env` | `NODE_ENV`                         | decided for                 |
+ * |------------------|------------------------------------|-----------------------------|
+ * | not local        | any                                | the configured `env`        |
+ * | not set          | any                                | `NODE_ENV`                  |
+ * | local            | unset, or local                    | the configured `env`        |
+ * | local            | `test` under vitest / jest         | the configured `env`        |
+ * | local            | anything else, `''` included       | `NODE_ENV` (deployed)       |
+ *
+ * @param configuredEnv the `env` of the loaded configuration
+ * @param nodeEnv `process.env.NODE_ENV` by default
+ * @since 11.46.0
+ */
+export function resolveSystemSetupEnv(
+  configuredEnv: string | undefined,
+  nodeEnv: string | undefined = process.env.NODE_ENV,
+): string | undefined {
+  if (nodeEnv === undefined || !isLocalEnv(configuredEnv)) {
+    return configuredEnv ?? nodeEnv;
+  }
+  if (isLocalEnv(nodeEnv) || (nodeEnv === 'test' && (process.env.VITEST || process.env.JEST_WORKER_ID))) {
+    return configuredEnv;
+  }
+  return nodeEnv;
+}
+
+/**
  * Whether `provided` (the header value) matches the configured `expected` token.
  *
  * Both sides are hashed to the same length before `timingSafeEqual`, so neither the content nor the LENGTH of the

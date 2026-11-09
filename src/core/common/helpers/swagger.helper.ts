@@ -23,7 +23,10 @@ import { CoreHubActionsController } from '../../modules/hub/core-hub-actions.con
 import { CoreHubController } from '../../modules/hub/core-hub.controller';
 import { isHubEnabled, normalizeHubConfig } from '../../modules/hub/hub-config.helper';
 import { CoreSystemSetupController } from '../../modules/system-setup/core-system-setup.controller';
-import { resolveSystemSetupHttpInit } from '../../modules/system-setup/system-setup-http-init.helper';
+import {
+  resolveSystemSetupEnv,
+  resolveSystemSetupHttpInit,
+} from '../../modules/system-setup/system-setup-http-init.helper';
 import { SKIP_TENANT_CHECK_KEY } from '../../modules/tenant/core-tenant.decorators';
 import { API_METHODS_KEY } from '../decorators/api-methods.decorator';
 import { mergeRolesMetadata } from '../../modules/tenant/core-tenant.helpers';
@@ -435,7 +438,7 @@ function isSwitchedOffOperation(reference: IHandlerReference, method: string, av
   // The anonymous init answers LTNS_0053 to everybody where `systemSetup.httpInit` keeps it closed (11.46.0+)
   if (extendsClass(controller, CoreSystemSetupController) && handlerName === 'createInitialAdmin') {
     const { env, systemSetup } = availability.config;
-    return !resolveSystemSetupHttpInit(systemSetup?.httpInit, env ?? process.env.NODE_ENV).enabled;
+    return !resolveSystemSetupHttpInit(systemSetup?.httpInit, resolveSystemSetupEnv(env)).enabled;
   }
   return false;
 }

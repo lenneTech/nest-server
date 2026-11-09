@@ -13,6 +13,7 @@ import { ErrorCode } from '../error-code/error-codes';
 import {
   type ISystemSetupHttpInitPolicy,
   isSystemSetupTokenValid,
+  resolveSystemSetupEnv,
   resolveSystemSetupHttpInit,
   SYSTEM_SETUP_TOKEN_HEADER,
 } from './system-setup-http-init.helper';
@@ -211,10 +212,11 @@ export class CoreSystemSetupService implements OnApplicationBootstrap {
   }
 
   /**
-   * The environment the HTTP-init policy is decided for: the configured `env`, else `NODE_ENV`
+   * The environment the HTTP-init policy is decided for: the configured `env`, else `NODE_ENV` — and `NODE_ENV` when
+   * the configured `env` is local only because 11.x fell back to the `local` block ({@link resolveSystemSetupEnv})
    */
   protected currentEnv(): string | undefined {
-    return this.configService.configFastButReadOnly?.env ?? process.env.NODE_ENV;
+    return resolveSystemSetupEnv(this.configService.configFastButReadOnly?.env);
   }
 
   /**
