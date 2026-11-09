@@ -472,7 +472,7 @@ const config = {
       template: 'email-verification', // Default: 'email-verification'
       expiresIn: 86400, // Default: 86400 (24 hours)
       callbackURL: '/auth/verify-email', // Frontend verification page
-      autoSignInAfterVerification: true, // Default: true
+      autoSignInAfterVerification: false, // Default: false — true signs in whoever opens the link (see README)
       resendCooldownSeconds: 60, // Default: 60
     },
   },

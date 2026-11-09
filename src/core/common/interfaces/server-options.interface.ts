@@ -510,8 +510,15 @@ export type IBetterAuth = IBetterAuthWithoutPasskey | IBetterAuthWithPasskey;
  */
 export interface IBetterAuthEmailVerificationConfig {
   /**
-   * Whether to automatically sign in the user after email verification.
-   * @default true
+   * Whether `GET /iam/verify-email` signs in the browser that opens the verification link.
+   *
+   * Off by default, as in Better-Auth (11.46.0+, backport of 12.3.0; before, the framework defaulted to `true`).
+   * Switching it on signs in WHOEVER opens the link, to the account the link belongs to: someone who signs up with
+   * their own address and forwards the unopened link has the recipient's browser signed in to their account, and what
+   * the recipient then enters lands there (login CSRF). Only switch it on where verification links reach nobody but
+   * their owner.
+   *
+   * @default false
    */
   autoSignInAfterVerification?: boolean;
 

@@ -3695,6 +3695,39 @@
         "tests/stories/system-setup-http-init.e2e-spec.ts"
       ],
       "driverSpecific": false
+    },
+    {
+      "id": "iam-auto-sign-in-after-verification-default-on",
+      "defect": "11.46.0 (12.3.0 backport) — autoSignInAfterVerification defaulted to true (Better-Auth: false), so GET /iam/verify-email signed in whoever opened a forwarded verification link, to the account of the link owner.",
+      "file": "src/core/modules/better-auth/better-auth.config.ts",
+      "find": "  const autoSignInAfterVerification = configObj.autoSignInAfterVerification === true;\n",
+      "replace": "  const autoSignInAfterVerification = configObj.autoSignInAfterVerification ?? true;\n",
+      "specs": [
+        "tests/unit/better-auth-auto-sign-in.spec.ts"
+      ],
+      "driverSpecific": false
+    },
+    {
+      "id": "iam-auto-sign-in-service-default-on",
+      "defect": "11.46.0 (12.3.0 backport) — the e-mail verification service reported the old default (auto sign-in on) as well.",
+      "file": "src/core/modules/better-auth/core-better-auth-email-verification.service.ts",
+      "find": "  autoSignInAfterVerification: false,\n",
+      "replace": "  autoSignInAfterVerification: true,\n",
+      "specs": [
+        "tests/unit/better-auth-auto-sign-in.spec.ts"
+      ],
+      "driverSpecific": false
+    },
+    {
+      "id": "iam-auto-sign-in-service-truthy",
+      "defect": "11.46.0 (12.3.0 backport) — shouldAutoSignIn() returned the merged value as it came, so a string in NEST_SERVER_CONFIG reported a sign-in Better-Auth never performs.",
+      "file": "src/core/modules/better-auth/core-better-auth-email-verification.service.ts",
+      "find": "    return this.config.autoSignInAfterVerification === true;\n",
+      "replace": "    return !!this.config.autoSignInAfterVerification;\n",
+      "specs": [
+        "tests/unit/better-auth-auto-sign-in.spec.ts"
+      ],
+      "driverSpecific": false
     }
   ]
 }
