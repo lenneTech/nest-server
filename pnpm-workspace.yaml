@@ -32,22 +32,20 @@ allowBuilds:
 # every entry on every run (consumer versions, a backported fix, an undeclared consumer) and fails once one stops
 # holding; see .claude/rules/package-management.md ("Suppressions age the same way").
 #
-# GHSA-g3hv-75wg-m249 (minimatch < 11.0.1, moderate, DoS through globparts amplification) and
-# GHSA-3g3m-2fjr-6pw4 (glob 9 – 14.0.1, moderate, AbortSignal cancellation bypass). Verified 2026-10-31 (owner decision,
-# DEV-3899): both fixes exist only in new majors (minimatch 11.0.1, glob 14.0.2, released 2026-10-27), and every
-# consumer is on its newest release without them — @nestjs/cli 12.0.11 pins minimatch 10.2.6 exactly, @ts-morph/common
-# 0.29.0 (via ts-morph 28.0.0, the Permissions module's scanner) and nodemon 3.1.14 need ^10, @swc/cli 0.8.2 needs ^9,
-# glob 13.0.6 (via rimraf 6.1.3, which needs glob ^13) needs ^10. An override across the major is ruled out by the
-# fixed-target rule, and minimatch 11 removed `makeRe()` and `Minimatch#regexp`. Every path matches patterns the
-# DEVELOPER writes (tsconfig and scanner globs, CLI file arguments, cleanup paths), never request input.
-# Re-verify when any of these consumers releases a version on minimatch 11 / glob 14 — the guard reports it as RE-TEST.
+# GHSA-g3hv-75wg-m249 (minimatch < 11.0.1, moderate, DoS through globparts amplification). Verified 2026-10-31 (owner
+# decision, DEV-3899), re-verified 2026-11-09 (nest-server 12.8.4): the fix exists only in the new major (minimatch
+# 11.0.1, released 2026-10-27). @nestjs/cli 12.0.12 and glob 14 (via rimraf 6.1.4) moved to minimatch 11; the
+# consumers left are each on their newest release without it — @ts-morph/common 0.29.0 (via ts-morph 28.0.0, the
+# Permissions module's scanner) and nodemon 3.1.14 need ^10, @swc/cli 0.8.2 needs ^9. An override across the major is
+# ruled out by the fixed-target rule, and minimatch 11 removed `makeRe()` and `Minimatch#regexp`. Every path matches
+# patterns the DEVELOPER writes (scanner globs, CLI file arguments), never request input.
+# Re-verify when any of these consumers releases a version on minimatch 11 — the guard reports it as RE-TEST.
+# GHSA-3g3m-2fjr-6pw4 (glob <= 14.0.1) left on 2026-11-09: rimraf 6.1.4 pulls glob 14.0.4, no affected glob remains.
 auditConfig:
   ignoreGhsas:
     - GHSA-g3hv-75wg-m249
-    - GHSA-3g3m-2fjr-6pw4
   unusableFixConsumers:
-    GHSA-g3hv-75wg-m249: '@nestjs/cli@12.0.11 + @swc/cli@0.8.2 + @ts-morph/common@0.29.0 + glob@13.0.6 + nodemon@3.1.14 cannot use 11.0.1'
-    GHSA-3g3m-2fjr-6pw4: 'rimraf@6.1.3 cannot use 14.0.2'
+    GHSA-g3hv-75wg-m249: '@swc/cli@0.8.2 + @ts-morph/common@0.29.0 + nodemon@3.1.14 cannot use 11.0.1'
 
 peerDependencyRules:
   allowedVersions:
@@ -92,22 +90,4 @@ minimumReleaseAge: 1440
 # Exact versions exempted from the hold-back. `pnpm audit --fix` writes a security fix here so it can
 # be installed the same day. Keep it empty otherwise: every entry names one exact version and goes dead
 # the moment that version stops resolving.
-# 2026-11-04 (nest-server 12.3.1): better-auth 1.7.16, published 2026-11-03 21:24 UTC, closes the better-auth
-# advisories of that day (social sign-in e-mail treated as verified, passkey origin and user verification, e-mail
-# change links, …) and pins better-call 1.4.5. Its GHSA-23w8-wx9r-vm57 is not reachable through nest-server —
-# better-auth's handler builds a router around a per-request context for every request — so 1.4.5 is a second
-# layer there. Taken the same day on purpose; every version below
-# carries SLSA provenance from the projects' own GitHub Actions. Measured under pnpm 11.28.5: a frozen CI
-# install passes with them and fails with ERR_PNPM_MINIMUM_RELEASE_AGE_VIOLATION without one of them. Inert
-# from 2026-11-04 21:24 UTC on — drop the entries with the next maintenance.
-minimumReleaseAgeExclude:
-  - '@better-auth/core@1.7.16'
-  - '@better-auth/drizzle-adapter@1.7.16'
-  - '@better-auth/kysely-adapter@1.7.16'
-  - '@better-auth/memory-adapter@1.7.16'
-  - '@better-auth/mongo-adapter@1.7.16'
-  - '@better-auth/passkey@1.7.16'
-  - '@better-auth/prisma-adapter@1.7.16'
-  - '@better-auth/telemetry@1.7.16'
-  - better-auth@1.7.16
-  - better-call@1.4.5
+minimumReleaseAgeExclude: []

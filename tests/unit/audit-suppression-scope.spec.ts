@@ -25,10 +25,10 @@ const ROOT = join(__dirname, '../..');
 /**
  * Packages whose advisories are currently suppressed, and the production reach each justification allows.
  *
- * Since 2026-10-31 (owner decision, DEV-3899), two entries, both with a fix only in a new major that no consumer can
- * take yet (`unusableFixConsumers` in `pnpm-workspace.yaml`, re-tested by `check:overrides`):
+ * Since 2026-10-31 (owner decision, DEV-3899), one entry with a fix only in a new major that no consumer can take yet
+ * (`unusableFixConsumers` in `pnpm-workspace.yaml`, re-tested by `check:overrides`). GHSA-3g3m-2fjr-6pw4 (glob, via
+ * rimraf) was the second until 2026-11-09, when rimraf 6.1.4 moved to glob 14:
  *
- * - GHSA-3g3m-2fjr-6pw4 (glob, via rimraf): dev tooling only — any glob in the production tree voids it.
  * - GHSA-g3hv-75wg-m249 (minimatch): reaches production through exactly ONE path, ts-morph's `@ts-morph/common`,
  *   which the Permissions module's scanner uses with globs the developer writes. The argument is "no request input
  *   reaches the matcher", and it holds only for that path, so any other production parent voids it (`prodVia`).
@@ -80,7 +80,6 @@ const ROOT = join(__dirname, '../..');
  * when upstream moves, not when your own reasoning stopped applying.
  */
 const DEV_ONLY_SUPPRESSIONS: { ghsa: string; pkg: string; prodVia?: string; vulnerableInProd: RegExp }[] = [
-  { ghsa: 'GHSA-3g3m-2fjr-6pw4', pkg: 'glob', vulnerableInProd: /glob@/ },
   { ghsa: 'GHSA-g3hv-75wg-m249', pkg: 'minimatch', prodVia: '@ts-morph/common', vulnerableInProd: /minimatch@/ },
 ];
 
