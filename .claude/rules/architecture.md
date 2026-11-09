@@ -137,10 +137,16 @@ vendor project receives into a temporary `"type": "module"` package, compiles it
 module plus the barrel in one process. It catches what no other step can — a named import Node cannot see, a type
 imported as a value, a missing extension — and reports each distinct cause once.
 
-**The TypeScript loader is three files.** `helpers/ts-compiler.cjs` is the implementation, `ts-compiler-hooks.mjs` the
-ESM hooks it registers through `module.register()` (resolve `.js` → `.ts`, compile ESM-scoped `.ts` with SWC — import
-attributes kept — and hand CommonJS-scoped files back), and `ts-compiler.js` the established entry path, a one-line
-CommonJS shim that `helpers/package.json` keeps CommonJS in every project. The SWC build (`check:swc-tdz`) does not
+**The TypeScript loader is three files.** `helpers/ts-compiler.cjs` is the implementation: the `require` hook and the
+module hooks for `import` (resolve `.js` → `.ts`, compile ESM-scoped `.ts` with SWC — import attributes kept — and hand
+CommonJS-scoped files back to the CommonJS loader without a source). It registers them in-thread through
+`module.registerHooks()` where Node takes that hand-back (24.12+, 26+; `registerHooksHandsBackCommonJs()`), and through
+`module.register()` with `ts-compiler-hooks.mjs`, an async adapter over the same functions, on 22.x, 24.0–24.11 and
+25.x — Node 26 deprecates `module.register()` at runtime (DEP0205), the older lines refuse a CommonJS `load` result
+without a source in synchronous hooks, and a source compiled for them crashes Node 22 and runs without `require.cache`
+on 24 (12.8.3, DEV-4134; mutations `ts-loader-uses-module-register`, `ts-hooks-commonjs-compiled-in-hook`).
+`ts-compiler.js` is the established entry path, a one-line CommonJS shim that `helpers/package.json` keeps CommonJS in
+every project. The SWC build (`check:swc-tdz`) does not
 emit `.cjs` / `.mjs` sources; its guard places them like `tsc` does. That guard also pins the SWC build to CommonJS
 (`tsconfig.swc-tdz.json`), because it checks what a CommonJS project runs under `nest start -b swc`; `@nestjs/cli` would
 otherwise emit ES modules for this `"type": "module"` package.

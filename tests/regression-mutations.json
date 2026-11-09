@@ -3192,9 +3192,31 @@
     {
       "id": "esm-hooks-drop-import-attributes",
       "defect": "12.0.0 (pre-release) — the loader's ESM hooks compiled TypeScript with SWC's defaults, which drop import attributes. An ESM project's `import pkg from '../package.json' with { type: 'json' }` reached Node without its attribute, so the dev start from source failed with ERR_IMPORT_ATTRIBUTE_MISSING while the tsc build passed. Found by converting a copy of nest-server-starter to ESM.",
-      "file": "src/core/modules/migrate/helpers/ts-compiler-hooks.mjs",
+      "file": "src/core/modules/migrate/helpers/ts-compiler.cjs",
       "find": "    jsc: { ...SWC_OPTIONS.jsc, experimental: { keepImportAssertions: true } },\n",
       "replace": "",
+      "specs": [
+        "tests/unit/ts-compiler.spec.ts"
+      ],
+      "driverSpecific": false
+    },
+    {
+      "id": "ts-loader-uses-module-register",
+      "defect": "12.8.3 (DEV-4134) — the TypeScript loader registered its import hooks with `module.register()`, which Node 26 deprecates at runtime: every start and every migration printed DEP0205. Where Node's synchronous hooks hand CommonJS back to the CommonJS loader (24.12+, 26+) the loader uses `module.registerHooks()`; answering `false` there sends every Node line back to `module.register()`.",
+      "file": "src/core/modules/migrate/helpers/ts-compiler.cjs",
+      "find": "  return major >= 26 || (major === 24 && minor >= 12);\n",
+      "replace": "  return false;\n",
+      "specs": [
+        "tests/unit/ts-compiler.spec.ts"
+      ],
+      "driverSpecific": false
+    },
+    {
+      "id": "ts-hooks-commonjs-compiled-in-hook",
+      "defect": "12.8.3 (DEV-4134, pre-release) — a CommonJS-scoped TypeScript file imported from ESM must be handed back to the CommonJS loader without a source. Compiling it inside the load hook instead runs it with the reduced `require` Node builds for a CommonJS source from a hook (no `require.cache`, no `require.extensions`) on Node 24, and crashes Node 22's CommonJS translator.",
+      "file": "src/core/modules/migrate/helpers/ts-compiler.cjs",
+      "find": "    return { format: 'commonjs', shortCircuit: true };\n",
+      "replace": "    return { format: 'commonjs', shortCircuit: true, source: (swc ??= loadSwc()).transformSync(fs.readFileSync(filename, 'utf8'), { ...SWC_OPTIONS, filename }).code };\n",
       "specs": [
         "tests/unit/ts-compiler.spec.ts"
       ],

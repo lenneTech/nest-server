@@ -2,8 +2,10 @@
  * TypeScript loader for running sources without a build — the migrate CLI, the dev server and scripts.
  *
  * Registers a CommonJS `require` hook that compiles `.ts` / `.cts` files with SWC (`@swc/core`) on load, and — for
- * ESM projects (`"type": "module"`, what `nest new` creates since NestJS 12) — the matching ESM hooks
- * (`ts-compiler-hooks.mjs`, through `module.register()`), so `import` reaches TypeScript sources the same way.
+ * ESM projects (`"type": "module"`, what `nest new` creates since NestJS 12) — the matching module hooks, so `import`
+ * reaches TypeScript sources the same way: in-thread through `module.registerHooks()` where Node supports what the
+ * loader needs (24.12+, 26+), otherwise through `module.register()` and `ts-compiler-hooks.mjs` (see
+ * `registerHooksHandsBackCommonJs()`).
  * It is the framework's replacement for ts-node (12.0.0): ts-node is unmaintained, needed TypeScript-6
  * workarounds (TS5011 / TS5107 / TS5110 from inherited compiler options), type-checked what it
  * loaded on every start, and — like `@swc-node/register`, whose peer range ends below TypeScript 7 —
@@ -27,7 +29,7 @@
 const fs = require('node:fs');
 const Module = require('node:module');
 const path = require('node:path');
-const { pathToFileURL } = require('node:url');
+const { fileURLToPath, pathToFileURL } = require('node:url');
 const { isMainThread } = require('node:worker_threads');
 
 // The loader table Node's CommonJS `require` dispatches on by extension — what every require hook patches.
@@ -114,6 +116,9 @@ function patchResolver() {
   Module._resolveFilename = resolveTypeScriptSource;
 }
 
+/** `@swc/core`, loaded once per thread by `register()` or by the first ESM file compiled. */
+let swc;
+
 /**
  * Load `@swc/core`, or fail with the one instruction that fixes it.
  *
@@ -141,7 +146,7 @@ function register() {
   if (extensionHandlers['.ts']?.[MARKER]) {
     return;
   }
-  const swc = loadSwc();
+  swc ??= loadSwc();
   // Stack traces point at the TypeScript lines (the code carries inline source maps).
   process.setSourceMapsEnabled(true);
 
@@ -158,21 +163,146 @@ function register() {
   registerEsmHooks();
 }
 
-/** Marks the process once the ESM hooks are registered. */
+/** Marks the thread once the module hooks are registered. */
 const ESM_MARKER = Symbol.for('lenne.tech/nest-server/ts-compiler/esm');
 
+const TYPESCRIPT = /\.(c|m)?ts$/;
+const packageTypes = new Map();
+
+/** `"module"` or `"commonjs"`, from the nearest package.json — how Node itself decides a `.ts` file's format. */
+function packageType(directory) {
+  if (packageTypes.has(directory)) {
+    return packageTypes.get(directory);
+  }
+  let type = 'commonjs';
+  try {
+    type =
+      JSON.parse(fs.readFileSync(path.join(directory, 'package.json'), 'utf8')).type === 'module'
+        ? 'module'
+        : 'commonjs';
+  } catch {
+    const parent = path.dirname(directory);
+    type = parent === directory ? 'commonjs' : packageType(parent);
+  }
+  packageTypes.set(directory, type);
+  return type;
+}
+
+/** The module format Node gives a TypeScript file: `.mts` / `.cts` by extension, `.ts` by the nearest package.json. */
+function formatOf(filename) {
+  if (filename.endsWith('.mts')) {
+    return 'module';
+  }
+  if (filename.endsWith('.cts')) {
+    return 'commonjs';
+  }
+  return packageType(path.dirname(filename));
+}
+
 /**
- * Register the ESM hooks (`ts-compiler-hooks.mjs`) for `import`ed TypeScript: an ESM project's entry and everything it
- * imports. Without them Node would hand a `.ts` entry to its own type stripping, which cannot lower decorators or emit
- * their metadata — NestJS needs both. Only on the main thread: the hooks run on a thread of their own, which loads this
- * file for its SWC options and must not register itself again.
+ * The specifiers to try after an `import` of `./x.js` from a TypeScript file failed: `./x.ts`, `./x.cts` (`./x.mjs`:
+ * `./x.mts`). `undefined` when the failure is not of that kind — a real `.js` file always wins, because this is asked
+ * only after Node's own resolution failed, and package specifiers are never touched.
+ */
+function typeScriptSpecifiers(specifier, context, error) {
+  const extension = specifier.match(/\.(c|m)?js$/)?.[0];
+  const fromTypeScript = TYPESCRIPT.test(context.parentURL ?? '');
+  const pathLike = /^\.{0,2}\//.test(specifier) || specifier.startsWith('file:');
+  if (error?.code !== 'ERR_MODULE_NOT_FOUND' || !extension || !fromTypeScript || !pathLike) {
+    return undefined;
+  }
+  const sources = { ...SOURCE_EXTENSIONS, '.mjs': ['.mts'] }[extension] ?? [];
+  return sources.map((sourceExtension) => specifier.slice(0, -extension.length) + sourceExtension);
+}
+
+/**
+ * What the `load` hook answers for a URL, or `undefined` for anything that is not a TypeScript file (Node loads it).
+ *
+ * A TypeScript file in ESM scope (`.mts`, or `.ts` under `"type": "module"`) is compiled with SWC to ESM, with the
+ * options of the CommonJS hook. One in CommonJS scope is handed back to the CommonJS loader WITHOUT a source, where the
+ * `require` hook compiles it: the same file must not be compiled two different ways, and only the CommonJS loader gives
+ * it a real `require` (`require.cache`, `require.extensions`) — a CommonJS source returned from here would run with
+ * the reduced one Node builds for it.
+ */
+function loadTypeScript(url) {
+  if (!url.startsWith('file:') || !TYPESCRIPT.test(new URL(url).pathname)) {
+    return undefined;
+  }
+  const filename = fileURLToPath(url);
+  if (formatOf(filename) === 'commonjs') {
+    return { format: 'commonjs', shortCircuit: true };
+  }
+  swc ??= loadSwc();
+  const { code } = swc.transformSync(fs.readFileSync(filename, 'utf8'), {
+    ...SWC_OPTIONS,
+    filename,
+    // SWC drops import attributes unless told to keep them, and Node refuses a JSON import without
+    // `with { type: 'json' }` (ERR_IMPORT_ATTRIBUTE_MISSING) — `import pkg from '../package.json' with { type: 'json' }`.
+    jsc: { ...SWC_OPTIONS.jsc, experimental: { keepImportAssertions: true } },
+    module: { type: 'es6' },
+  });
+  return { format: 'module', shortCircuit: true, source: code };
+}
+
+/** The synchronous `resolve` hook for `module.registerHooks()`; `ts-compiler-hooks.mjs` is its asynchronous twin. */
+function resolveHook(specifier, context, nextResolve) {
+  try {
+    return nextResolve(specifier, context);
+  } catch (error) {
+    for (const candidate of typeScriptSpecifiers(specifier, context, error) ?? []) {
+      try {
+        return nextResolve(candidate, context);
+      } catch {
+        // try the next one; the original error is the one worth reporting
+      }
+    }
+    throw error;
+  }
+}
+
+/** The synchronous `load` hook for `module.registerHooks()`; `ts-compiler-hooks.mjs` is its asynchronous twin. */
+function loadHook(url, context, nextLoad) {
+  return loadTypeScript(url) ?? nextLoad(url, context);
+}
+
+/**
+ * Whether this Node's `module.registerHooks()` takes a `load` result for a CommonJS module without `source`, i.e. hands
+ * it back to the CommonJS loader — what `loadTypeScript()` answers for CommonJS-scoped TypeScript imported from ESM.
+ * Measured (tests/unit/ts-compiler.spec.ts): 24.12.0 and 26.0.0 take it; 22.x, 23.x, 24.0–24.11 and 25.0 refuse it
+ * with ERR_INVALID_RETURN_PROPERTY_VALUE, and a source compiled for them crashes Node 22 and runs on 24 without
+ * `require.cache`. Those lines keep `module.register()`, which no Node before 26 deprecates at runtime. 25.x is
+ * end-of-life and stays on the older path.
+ *
+ * @param {string} [version] - A Node version, `process.versions.node` by default.
+ */
+function registerHooksHandsBackCommonJs(version = process.versions.node) {
+  const [major, minor] = version.split('.').map(Number);
+  return major >= 26 || (major === 24 && minor >= 12);
+}
+
+/**
+ * Register the module hooks for `import`ed TypeScript: an ESM project's entry and everything it imports. Without them
+ * Node would hand a `.ts` entry to its own type stripping, which cannot lower decorators or emit their metadata —
+ * NestJS needs both.
+ *
+ * `module.registerHooks()` (in-thread, synchronous) where it hands CommonJS back; there it replaces `module.register()`,
+ * which Node 26 deprecates at runtime (DEP0205, printed on every start). The CommonJS path needs neither: `require()`
+ * of a `.ts` file reaches the extension handler above, which does not consult module hooks.
+ *
+ * Only on the main thread: `module.register()` runs `ts-compiler-hooks.mjs` on a thread of its own, which loads this
+ * file for its helpers and must not register itself again.
  */
 function registerEsmHooks() {
-  if (!isMainThread || typeof Module.register !== 'function' || globalThis[ESM_MARKER]) {
+  if (!isMainThread || globalThis[ESM_MARKER]) {
     return;
   }
-  globalThis[ESM_MARKER] = true;
-  Module.register(pathToFileURL(path.join(__dirname, 'ts-compiler-hooks.mjs')).href);
+  if (typeof Module.registerHooks === 'function' && registerHooksHandsBackCommonJs()) {
+    globalThis[ESM_MARKER] = true;
+    Module.registerHooks({ load: loadHook, resolve: resolveHook });
+  } else if (typeof Module.register === 'function') {
+    globalThis[ESM_MARKER] = true;
+    Module.register(pathToFileURL(path.join(__dirname, 'ts-compiler-hooks.mjs')).href);
+  }
 }
 
 register();
@@ -181,3 +311,6 @@ module.exports = register;
 module.exports.loadSwc = loadSwc;
 module.exports.SWC_OPTIONS = SWC_OPTIONS;
 module.exports.SOURCE_EXTENSIONS = SOURCE_EXTENSIONS;
+module.exports.loadTypeScript = loadTypeScript;
+module.exports.registerHooksHandsBackCommonJs = registerHooksHandsBackCommonJs;
+module.exports.typeScriptSpecifiers = typeScriptSpecifiers;
