@@ -7216,6 +7216,17 @@
         "tests/unit/better-auth-mail-app-name.spec.ts"
       ],
       "driverSpecific": false
+    },
+    {
+      "id": "http-exception-filter-sends-cause",
+      "defect": "The REST body of HttpExceptionLogFilter spread the whole exception, so `options` and the `cause` passed to it (an internal error, a query, a connection string) reached the client whenever `logExceptions` registered the filter — the nest-server-starter default.",
+      "file": "src/core/common/filters/http-exception-log.filter.ts",
+      "find": "    delete body.options;\n    delete body.cause;\n",
+      "replace": "",
+      "specs": [
+        "tests/unit/http-exception-log-filter.spec.ts"
+      ],
+      "driverSpecific": false
     }
   ]
 }
