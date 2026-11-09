@@ -545,9 +545,11 @@ semantics for class fields), and type-checks nothing — `tsc` and the IDE do th
 (`pnpm add -D @swc/core`; starter-based projects have it), resolved from the working directory. The same file runs
 the dev server from source: `node -r <path>/ts-compiler.js src/main.ts`.
 
-It covers both module systems: a `require` hook for CommonJS, and Node module hooks (`ts-compiler-hooks.mjs`,
-registered on load) for ES modules — an ESM project's entry and everything it imports. Both map a `./x.js` specifier to
-`./x.ts` when only the source exists. The implementation is `ts-compiler.cjs`; `ts-compiler.js` is the established
+It covers both module systems: a `require` hook for CommonJS, and Node module hooks, registered on load, for ES
+modules — an ESM project's entry and everything it imports. Both map a `./x.js` specifier to `./x.ts` when only the
+source exists. The module hooks run through `module.registerHooks()` on Node 24.12+ and 26+, so Node 26 prints no
+`module.register()` deprecation (DEP0205) on every start and migration (12.8.3); Node 22, 24.0–24.11 and 25 keep
+`module.register()` with `ts-compiler-hooks.mjs`, which none of them deprecates. The implementation is `ts-compiler.cjs`; `ts-compiler.js` is the established
 entry path and forwards to it. `helpers/package.json` declares `"type": "commonjs"`, so that path works in CommonJS and
 ESM projects, in npm and vendor mode.
 
