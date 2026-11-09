@@ -45,6 +45,10 @@ const scenario3Config = {
   },
   betterAuth: {
     ...envConfig.betterAuth,
+    // The spec imports BetterAuthModule.forRoot() (the project's resolver) below; with the one-argument
+    // CoreModule.forRoot() CoreModule would register the default resolver as well. @nestjs/graphql 14.2+ refuses two
+    // unrelated resolvers for one field, and under vitest the duplicate-registration safety net is off — Pattern 3.
+    autoRegister: false,
     enabled: true, // BetterAuth enabled
   },
 };
