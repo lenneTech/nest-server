@@ -94,7 +94,7 @@ overrides:
 [GHSA-g3hv-75wg-m249](https://github.com/advisories/GHSA-g3hv-75wg-m249) (minimatch `< 11.0.1`, moderate, DoS
 through globparts amplification) and [GHSA-3g3m-2fjr-6pw4](https://github.com/advisories/GHSA-3g3m-2fjr-6pw4)
 (glob `<= 14.0.1`, moderate) are fixed only in new majors. Since 2026-11-09 the glob fix is reachable: rimraf 6.1.4
-pulls glob 14, and `@nestjs/cli` 12.0.12 moved to minimatch 11 — raise both and the glob advisory leaves your tree.
+pulls glob 14 — raise it and the glob advisory leaves your tree. `@nestjs/cli` 12.0.12 moved to minimatch 11.
 minimatch stays: ts-morph 28 (`@ts-morph/common` 0.29), nodemon and `@swc/cli` need the 9.x / 10.x lines, all on
 their newest release. An override across the major is no way out
 (minimatch 11 removed `makeRe()` and `Minimatch#regexp`). nest-server suppresses minimatch in its own repository with
