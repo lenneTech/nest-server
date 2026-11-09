@@ -93,11 +93,12 @@ overrides:
 
 [GHSA-g3hv-75wg-m249](https://github.com/advisories/GHSA-g3hv-75wg-m249) (minimatch `< 11.0.1`, moderate, DoS
 through globparts amplification) and [GHSA-3g3m-2fjr-6pw4](https://github.com/advisories/GHSA-3g3m-2fjr-6pw4)
-(glob `<= 14.0.1`, moderate) are fixed only in new majors that no consumer can take yet: `@nestjs/cli` 12.0.11
-pins minimatch 10.2.6 exactly, ts-morph 28 (`@ts-morph/common` 0.29), nodemon, `@swc/cli` and glob 13 need the 9.x /
-10.x lines, rimraf 6.1.3 needs glob 13 — all on their newest release. An override across the major is no way out
-(minimatch 11 removed `makeRe()` and `Minimatch#regexp`). nest-server suppresses both in its own repository with
-`auditConfig.unusableFixConsumers`, which `check:overrides` re-tests on every run. What it found for its own tree:
+(glob `<= 14.0.1`, moderate) are fixed only in new majors. Since 2026-11-09 the glob fix is reachable: rimraf 6.1.4
+pulls glob 14, and `@nestjs/cli` 12.0.12 moved to minimatch 11 — raise both and the glob advisory leaves your tree.
+minimatch stays: ts-morph 28 (`@ts-morph/common` 0.29), nodemon and `@swc/cli` need the 9.x / 10.x lines, all on
+their newest release. An override across the major is no way out
+(minimatch 11 removed `makeRe()` and `Minimatch#regexp`). nest-server suppresses minimatch in its own repository with
+`auditConfig.unusableFixConsumers`, which `check:overrides` re-tests on every run (glob until 12.8.4). What it found for its own tree:
 the only production path is `@lenne.tech/nest-server > ts-morph > @ts-morph/common > minimatch`, used by the
 Permissions module's scanner with globs the developer writes; every other path is dev tooling. Your project's tree
 may have other paths, so check `pnpm why minimatch --prod` and `pnpm why glob --prod` before you suppress the same
