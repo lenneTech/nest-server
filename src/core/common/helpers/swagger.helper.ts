@@ -28,6 +28,7 @@ import { mergeRolesMetadata } from '../../modules/tenant/core-tenant.helpers';
 import { RoleEnum } from '../enums/role.enum';
 import { ConfigService } from '../services/config.service';
 import { isCookiesEnabled } from './cookies.helper';
+import { isSwaggerEnabled } from './swagger-enabled.helper';
 
 import type { INestApplication, Type } from '@nestjs/common';
 import type {
@@ -139,10 +140,28 @@ const logger = new Logger('Swagger');
 /**
  * Build the enriched document and serve it — plus the API-token view, when configured. Both documents are
  * built on the first request, when every module is initialised.
+ *
+ * Since 11.45.0 only where `swagger` switches it on ({@link isSwaggerEnabled}): by default in `local`, `ci` and `e2e`,
+ * everywhere with `swagger: true`. Otherwise nothing is mounted — no UI, no JSON document — and one line in the log
+ * says so.
+ *
+ * @param config - server configuration; the running configuration by default
  */
-export function setupSwagger(app: INestApplication, options: ISwaggerSetupOptions): void {
+export function setupSwagger(
+  app: INestApplication,
+  options: ISwaggerSetupOptions,
+  config: Partial<IServerOptions> = ConfigService.configFastButReadOnly ?? {},
+): void {
+  if (!isSwaggerEnabled(config)) {
+    logger.log(
+      `Swagger is off in this environment (${config.env ?? process.env.NODE_ENV ?? 'unknown'}): nothing is served at ` +
+        `/${options.path ?? 'swagger'} or ${options.jsonDocumentUrl ?? '/api-docs-json'}. Set \`swagger: true\` ` +
+        `(NSC__SWAGGER=true) to serve the API documentation here.`,
+    );
+    return;
+  }
   let document: OpenAPIObject | undefined;
-  const fullDocument = () => (document ??= buildSwaggerDocument(app, options));
+  const fullDocument = () => (document ??= buildSwaggerDocument(app, options, config));
 
   SwaggerModule.setup(options.path ?? 'swagger', app, fullDocument, {
     ...options.customOptions,
@@ -154,10 +173,15 @@ export function setupSwagger(app: INestApplication, options: ISwaggerSetupOption
     return;
   }
   let viewDocument: OpenAPIObject | undefined;
-  SwaggerModule.setup(view.path, app, () => (viewDocument ??= buildApiTokenSwaggerDocument(fullDocument(), view)), {
-    ...options.customOptions,
-    jsonDocumentUrl: view.jsonDocumentUrl,
-  });
+  SwaggerModule.setup(
+    view.path,
+    app,
+    () => (viewDocument ??= buildApiTokenSwaggerDocument(fullDocument(), view, config)),
+    {
+      ...options.customOptions,
+      jsonDocumentUrl: view.jsonDocumentUrl,
+    },
+  );
 }
 
 /**

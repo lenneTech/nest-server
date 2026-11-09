@@ -51,6 +51,7 @@
   - `sha256?`: `boolean | undefined` — Whether to enable verification and automatic encryption for received passwords that are not in sha256 format
   - `shutdownDelayMs?`: `number | undefined` (default: `0 (no delay)`) — Delay in milliseconds between receiving a shutdown signal and starting the
   - `staticAssets?`: `{ options?: ServeStaticOptions; path?: string; } | undefined` — Configuration for useStaticAssets
+  - `swagger?`: `boolean | undefined` (default: `undefined (served only in `local`, `ci` and `e2e`)`) — Whether `setupSwagger()` serves the API documentation (11.45.0+), decided by `isSwaggerEnabled()`.
   - `systemSetup?`: `ISystemSetup | undefined` — System setup configuration for initial admin creation.
   - `templates?`: `{ engine?: string; path?: string; } | undefined` — Templates
   - `trustProxy?`: `string | number | boolean | string[] | undefined` (default: `false (Express default — the forwarded chain is not trusted)`) — Express `trust proxy` setting — how far up the `X-Forwarded-For` chain this app believes.
