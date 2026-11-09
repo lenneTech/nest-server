@@ -340,11 +340,14 @@ describe('Project (e2e)', () => {
   it('Validates common-error structure', async () => {
     const res: any = await testHelper.rest('/auth/signin', { method: 'POST', payload: {}, statusCode: 400 });
 
+    // Error responses carry no `options` / `cause`: HttpExceptionLogFilter leaves them out, the cause is for the log
+    expect(res).not.toHaveProperty('options');
+    expect(res).not.toHaveProperty('cause');
+
     // Test for generic object equality
     expect(res).toMatchObject({
       message: expect.any(String),
       name: expect.any(String),
-      options: expect.any(Object),
       response: {
         email: {
           isEmail: expect.any(String),
@@ -362,7 +365,6 @@ describe('Project (e2e)', () => {
     expect(res).toMatchObject({
       message: expect.stringContaining('Validation failed'),
       name: 'BadRequestException',
-      options: {},
       response: {
         email: {
           isEmail: 'email must be an email',
