@@ -3460,6 +3460,25 @@ export interface IServerOptions {
   };
 
   /**
+   * Whether `setupSwagger()` serves the API documentation (11.45.0+), decided by `isSwaggerEnabled()`.
+   *
+   * | Value | `local` / `ci` / `e2e` | every other environment (`develop`, `test`, `production`, …) |
+   * |-------|------------------------|---------------------------------------------------------------|
+   * | not set | served | **off** |
+   * | `true` | served | served |
+   * | `false` | off | off |
+   *
+   * Off mounts nothing: neither `/swagger` and `/swagger-api-tokens` nor `/api-docs-json` and
+   * `/api-docs-api-tokens-json` (or the paths `setupSwagger()` was given) — they answer 404. Before 11.45.0 every
+   * project that called `setupSwagger()` published its full API description on every stage. A value that is not a
+   * boolean counts as not set. Environment variable: `NSC__SWAGGER=true`.
+   *
+   * @default undefined (served only in `local`, `ci` and `e2e`)
+   * @since 11.45.0
+   */
+  swagger?: boolean;
+
+  /**
    * System setup configuration for initial admin creation.
    *
    * When enabled, provides REST endpoints for creating the first admin user

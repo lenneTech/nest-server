@@ -55,6 +55,7 @@ export * from './core/common/helpers/process-diagnostics.helper';
 export * from './core/common/helpers/register-enum.helper';
 export * from './core/common/helpers/scim.helper';
 export * from './core/common/helpers/service.helper';
+export * from './core/common/helpers/swagger-enabled.helper';
 export * from './core/common/helpers/swagger.helper';
 export * from './core/common/helpers/table.helper';
 export * from './core/common/inputs/combined-filter.input';
