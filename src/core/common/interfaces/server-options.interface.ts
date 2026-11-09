@@ -518,6 +518,10 @@ export interface IBetterAuthEmailVerificationConfig {
    * string is ignored with a warning. `twoFactor.appName` and `passkey.rpName` name the application in authenticator
    * apps and passkey prompts; they are separate settings.
    *
+   * With email verification switched off, write `emailVerification: { enabled: false, appName }`
+   * (`NSC__BETTER_AUTH__EMAIL_VERIFICATION__ENABLED=false` next to the variable): `false` keeps no settings, and an
+   * object without `enabled: false` switches verification on — every sign-in of an unverified user then answers 401.
+   *
    * **Environment Variable:** `NSC__BETTER_AUTH__EMAIL_VERIFICATION__APP_NAME`
    *
    * @default undefined (the formatted package.json name, 'Nest Server' without one)

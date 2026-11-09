@@ -144,7 +144,11 @@ CommonJS-scoped files back to the CommonJS loader without a source). It register
 `module.register()` with `ts-compiler-hooks.mjs`, an async adapter over the same functions, on 22.x, 24.0–24.11 and
 25.x — Node 26 deprecates `module.register()` at runtime (DEP0205), the older lines refuse a CommonJS `load` result
 without a source in synchronous hooks, and a source compiled for them crashes Node 22 and runs without `require.cache`
-on 24 (12.8.3, DEV-4134; mutations `ts-loader-uses-module-register`, `ts-hooks-commonjs-compiled-in-hook`).
+on 24.0–24.11 (12.8.3, DEV-4134; mutation `ts-loader-uses-module-register`; the hand-back itself is pinned by the
+`legacy.cts` case, which build.yml's loader job runs on 22.15.0). The loader also routes a `.ts` / `.cts` file that reaches the `.js`
+extension handler to SWC: Node 24.22+ and 26 choose the handler by the format a load hook named (`commonjs` → `.js`),
+which happens for a CommonJS entry as soon as a second, asynchronous loader runs next to this one (an instrumentation
+preload through `--import`) — mutation `ts-loader-typescript-reaches-js-handler`.
 `ts-compiler.js` is the established entry path, a one-line CommonJS shim that `helpers/package.json` keeps CommonJS in
 every project. The SWC build (`check:swc-tdz`) does not
 emit `.cjs` / `.mjs` sources; its guard places them like `tsc` does. That guard also pins the SWC build to CommonJS

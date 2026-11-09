@@ -3212,11 +3212,11 @@
       "driverSpecific": false
     },
     {
-      "id": "ts-hooks-commonjs-compiled-in-hook",
-      "defect": "12.8.3 (DEV-4134, pre-release) — a CommonJS-scoped TypeScript file imported from ESM must be handed back to the CommonJS loader without a source. Compiling it inside the load hook instead runs it with the reduced `require` Node builds for a CommonJS source from a hook (no `require.cache`, no `require.extensions`) on Node 24, and crashes Node 22's CommonJS translator.",
+      "id": "ts-loader-typescript-reaches-js-handler",
+      "defect": "12.8.3 (DEV-4134, pre-release) — next to a second, asynchronous loader (an instrumentation preload through `--import`), Node 24.22+ and 26 run the entry through the ESM loader and pick the CommonJS extension handler by the format the load hook named: `commonjs` is `.js`, so a CommonJS-scoped `.ts` / `.cts` file was compiled as plain JavaScript and the start failed with `SyntaxError: Cannot use import statement outside a module`. Found in the release review.",
       "file": "src/core/modules/migrate/helpers/ts-compiler.cjs",
-      "find": "    return { format: 'commonjs', shortCircuit: true };\n",
-      "replace": "    return { format: 'commonjs', shortCircuit: true, source: (swc ??= loadSwc()).transformSync(fs.readFileSync(filename, 'utf8'), { ...SWC_OPTIONS, filename }).code };\n",
+      "find": "  extensionHandlers['.js'] = compileTypeScriptReachingJavaScriptHandler;\n",
+      "replace": "",
       "specs": [
         "tests/unit/ts-compiler.spec.ts"
       ],

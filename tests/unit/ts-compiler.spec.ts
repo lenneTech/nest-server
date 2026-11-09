@@ -116,12 +116,11 @@ describe('TypeScript loader (ts-compiler.js)', () => {
    * @seen-failing Drop `keepImportAssertions` from src/core/modules/migrate/helpers/ts-compiler.cjs — registered
    *   as mutation `esm-hooks-drop-import-attributes` in tests/regression-mutations.json.
    *
-   * @regression   12.8.3 (DEV-4134, pre-release) — under `module.registerHooks()` a CommonJS-scoped TypeScript file
-   *   imported from ESM must go back to the CommonJS loader without a source. Compiled inside the load hook it runs
-   *   with the reduced `require` Node builds for such a source (no `require.cache`) on 24, and crashes Node 22.
-   * @seen-failing Return the compiled CommonJS source from `loadTypeScript()` in
-   *   src/core/modules/migrate/helpers/ts-compiler.cjs — registered as mutation `ts-hooks-commonjs-compiled-in-hook`
-   *   in tests/regression-mutations.json.
+   * The `legacy.cts` case pins that a CommonJS-scoped TypeScript file imported from ESM goes back to the CommonJS
+   * loader without a source (DEV-4134). Compiled inside the load hook instead, it crashes Node 22.15 and runs without
+   * `require.cache` on 24.13 and earlier; from about 24.19 Node routes it through the CommonJS loader either way, so
+   * on the CI runner's 24.x nothing tells the two apart. The loader job in build.yml runs this case on 22.15.0, where
+   * it does — no registered mutation, because the evidence gate runs on 24.x.
    */
   it('runs an ESM project from source: decorators, .js specifiers, JSON imports, CommonJS and top-level-await ESM packages', () => {
     const dir = tempDir();
@@ -242,6 +241,47 @@ describe('TypeScript loader (ts-compiler.js)', () => {
       dep: 'from dep.ts',
       legacy: 'from legacy.cts',
     });
+  });
+
+  /**
+   * @regression   12.8.3 (DEV-4134, pre-release) — next to a second, asynchronous loader (an instrumentation preload
+   *   through `--import` / `--experimental-loader`), Node 24.22+ and 26 run the entry through the ESM loader and pick
+   *   the CommonJS extension handler by the FORMAT the load hook named: `commonjs` is `.js`, so a CommonJS-scoped
+   *   `.ts` / `.cts` file was compiled as plain JavaScript (`SyntaxError: Cannot use import statement outside a
+   *   module`), in a CommonJS project's entry and in an ESM project's `.cts` import.
+   * @seen-failing Drop the `.js` handler that routes TypeScript files to the compiler in register() in
+   *   src/core/modules/migrate/helpers/ts-compiler.cjs — registered as mutation
+   *   `ts-loader-typescript-reaches-js-handler` in tests/regression-mutations.json.
+   */
+  it('runs next to a second, asynchronous loader: a CommonJS entry and an ESM import of CommonJS-scoped TypeScript', () => {
+    const otherLoader =
+      'data:text/javascript,export async function load(url, context, next) { return next(url, context); }';
+    const dir = tempDir();
+    mkdirSync(join(dir, 'cjs'));
+    mkdirSync(join(dir, 'esm'));
+    writeFileSync(join(dir, 'cjs', 'package.json'), '{"type":"commonjs"}\n');
+    writeFileSync(join(dir, 'cjs', 'dep.ts'), "export const dep: string = 'from dep.ts';\n");
+    writeFileSync(
+      join(dir, 'cjs', 'main.ts'),
+      "import { dep } from './dep.js';\nconst cache: string = typeof require.cache;\nconsole.log(JSON.stringify({ cache, dep }));\n",
+    );
+    writeFileSync(join(dir, 'esm', 'package.json'), '{"type":"module"}\n');
+    writeFileSync(join(dir, 'esm', 'legacy.cts'), "export const legacy: string = 'from legacy.cts';\n");
+    writeFileSync(
+      join(dir, 'esm', 'main.ts'),
+      "import legacyModule from './legacy.cjs';\nconsole.log(JSON.stringify({ legacy: (legacyModule as { legacy: string }).legacy }));\n",
+    );
+
+    // stderr is not asserted: the other loader's own warnings (ExperimentalWarning, DEP0205 on 26) land there
+    const commonJs = node(['--experimental-loader', otherLoader, '-r', LOADER, join(dir, 'cjs', 'main.ts')], dir);
+    expect(commonJs.stderr).not.toContain('SyntaxError');
+    expect(commonJs.code).toBe(0);
+    expect(JSON.parse(commonJs.stdout)).toEqual({ cache: 'object', dep: 'from dep.ts' });
+
+    const esm = node(['--experimental-loader', otherLoader, '-r', LOADER, join(dir, 'esm', 'main.ts')], dir);
+    expect(esm.stderr).not.toContain('SyntaxError');
+    expect(esm.code).toBe(0);
+    expect(JSON.parse(esm.stdout)).toEqual({ legacy: 'from legacy.cts' });
   });
 
   it('uses module.registerHooks() exactly on the Node lines that hand CommonJS back to the CommonJS loader', () => {

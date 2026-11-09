@@ -159,6 +159,18 @@ function register() {
   for (const extension of EXTENSIONS) {
     extensionHandlers[extension] = compileTypeScript;
   }
+  // Node 24.22+ and 26 pick the handler of a module whose load hook named its format BY THAT FORMAT, not by the file's
+  // extension: `commonjs` means `.js`. That happens when the ESM loader hands a CommonJS-scoped `.ts` / `.cts` file
+  // back (`loadTypeScript()`), which it does for a CommonJS entry as soon as a second, asynchronous loader runs next to
+  // this one (an instrumentation preload through `--import`), and for an ESM project's `.cts` import. Without this,
+  // the file would be compiled as plain JavaScript. Any other file keeps Node's own handler.
+  const javaScriptHandler = extensionHandlers['.js'];
+  function compileTypeScriptReachingJavaScriptHandler(module, filename) {
+    return /\.c?ts$/.test(filename)
+      ? compileTypeScript(module, filename)
+      : javaScriptHandler.call(this, module, filename);
+  }
+  extensionHandlers['.js'] = compileTypeScriptReachingJavaScriptHandler;
   patchResolver();
   registerEsmHooks();
 }
@@ -221,8 +233,8 @@ function typeScriptSpecifiers(specifier, context, error) {
  * A TypeScript file in ESM scope (`.mts`, or `.ts` under `"type": "module"`) is compiled with SWC to ESM, with the
  * options of the CommonJS hook. One in CommonJS scope is handed back to the CommonJS loader WITHOUT a source, where the
  * `require` hook compiles it: the same file must not be compiled two different ways, and only the CommonJS loader gives
- * it a real `require` (`require.cache`, `require.extensions`) — a CommonJS source returned from here would run with
- * the reduced one Node builds for it.
+ * it a real `require` (`require.cache`, `require.extensions`) — a CommonJS source returned from here crashes Node
+ * 22's CommonJS translator and runs with the reduced `require` Node builds for it on 24.13 and earlier.
  */
 function loadTypeScript(url) {
   if (!url.startsWith('file:') || !TYPESCRIPT.test(new URL(url).pathname)) {
@@ -269,8 +281,8 @@ function loadHook(url, context, nextLoad) {
  * Whether this Node's `module.registerHooks()` takes a `load` result for a CommonJS module without `source`, i.e. hands
  * it back to the CommonJS loader — what `loadTypeScript()` answers for CommonJS-scoped TypeScript imported from ESM.
  * Measured (tests/unit/ts-compiler.spec.ts): 24.12.0 and 26.0.0 take it; 22.x, 23.x, 24.0–24.11 and 25.0 refuse it
- * with ERR_INVALID_RETURN_PROPERTY_VALUE, and a source compiled for them crashes Node 22 and runs on 24 without
- * `require.cache`. Those lines keep `module.register()`, which no Node before 26 deprecates at runtime. 25.x is
+ * with ERR_INVALID_RETURN_PROPERTY_VALUE, and a source compiled for them crashes Node 22 and runs on 24.0–24.11
+ * without `require.cache`. Those lines keep `module.register()`, which no Node before 26 deprecates at runtime. 25.x is
  * end-of-life and stays on the older path.
  *
  * @param {string} [version] - A Node version, `process.versions.node` by default.

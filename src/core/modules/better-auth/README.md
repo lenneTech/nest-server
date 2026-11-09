@@ -549,7 +549,7 @@ const config = {
 
 **Custom Templates:** Create `templates/email-verification-{locale}.ejs` in your project. Available variables: `name`, `link`, `expiresIn`, `appName`.
 
-**Application name:** `appName` in the verification and password-reset mails (subject, EJS variable, Brevo parameter) is `emailVerification.appName` when set (12.8.3+, `NSC__BETTER_AUTH__EMAIL_VERIFICATION__APP_NAME`), otherwise the `name` of the `package.json` in the working directory, formatted (`my-app` → `My App`). In a monorepo that is the API package, so set it there. Authenticator apps and passkey prompts read `twoFactor.appName` and `passkey.rpName`.
+**Application name:** `appName` in the verification and password-reset mails (subject, EJS variable, Brevo parameter) is `emailVerification.appName` when set (12.8.3+, `NSC__BETTER_AUTH__EMAIL_VERIFICATION__APP_NAME`), otherwise the `name` of the `package.json` in the working directory, formatted (`my-app` → `My App`). In a monorepo that is the API package, so set it there. Authenticator apps and passkey prompts read `twoFactor.appName` and `passkey.rpName`. With email verification switched off, write `emailVerification: { enabled: false, appName: '…' }` (`NSC__BETTER_AUTH__EMAIL_VERIFICATION__ENABLED=false` next to the variable): `false` keeps no settings, and an object without `enabled: false` switches verification on, which answers every sign-in of an unverified user with 401.
 
 **Brevo Integration:** When `brevoTemplateId` is set and Brevo is configured (`config.brevo`), verification emails are sent via Brevo's transactional API instead of SMTP/EJS templates. The same template variables (`name`, `link`, `appName`, `expiresIn`) are passed to the Brevo template.
 
