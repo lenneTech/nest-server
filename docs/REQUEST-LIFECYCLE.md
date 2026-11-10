@@ -920,6 +920,14 @@ export class CreateUserInput extends CoreInput {
 }
 ```
 
+**Where the type comes from.** `type` when given; otherwise the compiler's `design:type`. The SWC dev start writes that
+per file and turns a union with `null` / `undefined`, a type alias or `boolean | null` into `Object` where the tsc build
+writes `Number` / `String` / `Boolean` — the field is then validated as a nested object in the dev API only. For an enum
+SWC writes the enum object, which the decorator reads as `String` / `Number` like tsc (12.8.7). Since 12.8.7 the
+decorator also warns at start for every other such field, and the package bin `nest-check-unified-field-types --fix`
+writes the declared type. An array field without `type` is refused at
+boot, as before.
+
 > **NestJS docs:** [Pipes](https://docs.nestjs.com/pipes), [Validation](https://docs.nestjs.com/techniques/validation)
 
 ---

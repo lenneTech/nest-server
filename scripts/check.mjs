@@ -140,6 +140,7 @@ function classify(cmd) {
     return { fatal: true, kind: 'build', label: 'build' };
   if (c.includes('check-server-start') || c.includes('server-start'))
     return { fatal: true, kind: 'server', label: 'server-start' };
+  if (c.includes('unified-field-types')) return { fatal: true, kind: 'other', label: 'unified-field-types' };
   return { fatal: true, kind: 'other', label: cmd.length > 32 ? `${cmd.slice(0, 29)}…` : cmd };
 }
 
