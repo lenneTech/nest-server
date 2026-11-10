@@ -4,6 +4,7 @@ import { AsyncLocalStorage } from 'node:async_hooks';
 import { createHash, createHmac, randomBytes, timingSafeEqual } from 'node:crypto';
 import type { Connection } from 'mongoose';
 
+import { looksLikeSystemRole } from '../../../common/enums/role.enum.js';
 import { isLocalEnv, resolveAppUrlFromConfig } from '../../../common/helpers/cookies.helper.js';
 import type { DataStore } from '../../../common/persistence/data-store.interface.js';
 import { getModelStore } from '../../../common/persistence/persistence-runtime.registry.js';
@@ -18,11 +19,16 @@ import {
   AI_MCP_OAUTH_REFRESH_TOKEN_MODEL,
 } from '../core-ai.constants.js';
 import {
+  consentNoticeLinkHref,
+  type IMcpOAuthConsentNotice,
+  type IMcpOAuthConsentNoticeView,
   IMcpOAuthConsentView,
   MCP_OAUTH_CONSENT_DECISION_FIELD,
   MCP_OAUTH_CONSENT_TOKEN_FIELD,
   mcpOAuthConsentHeaders,
   mcpOAuthConsentLocale,
+  mcpOAuthConsentRefusalTexts,
+  renderMcpOAuthConsentNoticePage,
   renderMcpOAuthConsentPage,
 } from '../helpers/ai-mcp-oauth-consent.helper.js';
 import { getMountedMcpOAuth } from '../helpers/ai-mcp-oauth.registry.js';
@@ -189,6 +195,9 @@ export class CoreAiMcpOAuthService implements OnModuleInit {
    */
   onModuleInit(): void {
     this.assertProductionSafe();
+    // A value of ai.mcp.roles that names no role fails the boot here rather than refusing (or, worse, admitting) at
+    // the first request — mayUseMcp() reads it again per request and refuses then, for a subclass that skips this.
+    this.mcpAccessRoles();
   }
 
   /** Throw when OAuth is enabled but no secret is configured outside local / ci / e2e. */
@@ -223,6 +232,50 @@ export class CoreAiMcpOAuthService implements OnModuleInit {
    */
   usesBuiltInConsent(): boolean {
     return this.authorizeConsent === CoreAiMcpOAuthService.prototype.authorizeConsent;
+  }
+
+  /**
+   * Whether `user` may use MCP at all. The framework asks on every request to `/ai/mcp` — whichever credential
+   * authenticated it: the user's session token or JWT as bearer, or an MCP OAuth access token —, on the consent route
+   * before the consent form, and when an authorization code or a refresh token is exchanged. A refusal answers
+   * `/ai/mcp` with 403, the consent route with the notice page of {@link consentRefusal} (403), and the token endpoint
+   * with `invalid_grant`; a revoked right therefore takes effect with the next request, for open sessions and grants
+   * issued earlier too.
+   *
+   * Default: `ai.mcp.roles` — unset, every signed-in user may (as before 12.8.6); set, only a user whose own `roles`
+   * hold one of them. Override it for any other rule (a flag in the database, a tenant rule) in the subclass
+   * registered via `CoreModule.forRoot(env, { ai: { mcpOAuthService } })`, and keep it fast: it runs per MCP request.
+   * Only an explicit `true` admits; a throw refuses (see {@link checkMcpAccess}). `user.roles` are the user's own
+   * global roles — on the token endpoint those {@link loadUser} reads —, never a tenant membership role.
+   */
+  async mayUseMcp(user: { id: string; roles?: string[] }, _req?: any): Promise<boolean> {
+    const allowed = this.mcpAccessRoles();
+    if (!allowed) {
+      return true;
+    }
+    const held = Array.isArray(user?.roles) ? user.roles : [];
+    return held.some((role) => typeof role === 'string' && allowed.includes(role));
+  }
+
+  /**
+   * {@link mayUseMcp}, fail-closed: `true` only for a user with an id and an explicit `true`; a throw is logged and
+   * refuses. What the framework calls — override {@link mayUseMcp}, not this.
+   */
+  async checkMcpAccess(user: { id: string; roles?: string[] } | null | undefined, req?: any): Promise<boolean> {
+    if (!user?.id) {
+      return false;
+    }
+    try {
+      return (await this.mayUseMcp(user, req)) === true;
+    } catch (err) {
+      this.logger.error(`MCP access check failed for user ${user.id}, refusing: ${(err as Error)?.message ?? err}`);
+      return false;
+    }
+  }
+
+  /** The roles `ai.mcp.roles` names, or `undefined` when it is unset. Throws on a value that names no role. */
+  protected mcpAccessRoles(): string[] | undefined {
+    return resolveMcpAccessRoles(ConfigService.get<unknown>('ai.mcp'));
   }
 
   /** Whether the OAuth 2.1 layer is enabled via `ai.mcp.oauth`. */
@@ -474,6 +527,26 @@ export class CoreAiMcpOAuthService implements OnModuleInit {
   }
 
   /**
+   * Whether the user of a grant (authorization code or refresh token) may use MCP — {@link checkMcpAccess} with the
+   * roles {@link loadUser} reads. A user it cannot load is checked with no roles: without `ai.mcp.roles` that admits as
+   * before (`/ai/mcp` then answers 401 for the token), with it the grant is refused.
+   */
+  protected async grantMayUseMcp(userId: string): Promise<boolean> {
+    const user = (await this.loadUser(userId)) ?? { id: userId, roles: [] };
+    return this.checkMcpAccess(user);
+  }
+
+  /** Delete a refresh token, e.g. the one a rotation issued for a user who may no longer use MCP. */
+  protected async revokeRefreshToken(token: string): Promise<void> {
+    const sql = this.sqlStore(AI_MCP_OAUTH_REFRESH_TOKEN_MODEL);
+    if (sql) {
+      await sql.deleteOne({ token });
+      return;
+    }
+    await this.db().collection(this.refreshCollection).deleteOne({ token });
+  }
+
+  /**
    * Load the minimal user shape ({ id, roles }) for a verified OAuth subject from
    * the `users` collection (read-only). Enough for tool role-filtering + ownership.
    */
@@ -541,6 +614,11 @@ export class CoreAiMcpOAuthService implements OnModuleInit {
             'Authorization code is invalid, expired, already used or issued to another client',
           );
         }
+        // The right may have been withdrawn between the consent and this exchange
+        if (!(await this.grantMayUseMcp(stored.userId))) {
+          const { InvalidGrantError } = await this.loadOAuthErrors();
+          throw new InvalidGrantError('This account may not use MCP');
+        }
         return {
           access_token: this.signAccessToken(stored.userId, stored.clientId, accessTtlSeconds),
           expires_in: accessTtlSeconds,
@@ -565,6 +643,13 @@ export class CoreAiMcpOAuthService implements OnModuleInit {
           // the user to sign in again — see loadOAuthErrors().
           const { InvalidGrantError } = await this.loadOAuthErrors();
           throw new InvalidGrantError('Refresh token is invalid, already used or issued to another client');
+        }
+        // A grant issued before the right was withdrawn must not refresh forever: refuse, and revoke the token the
+        // rotation just issued, so the client is left with nothing to present again
+        if (!(await this.grantMayUseMcp(rotated.userId))) {
+          await this.revokeRefreshToken(rotated.newToken);
+          const { InvalidGrantError } = await this.loadOAuthErrors();
+          throw new InvalidGrantError('This account may not use MCP');
         }
         return {
           access_token: this.signAccessToken(rotated.userId, rotated.clientId, accessTtlSeconds),
@@ -615,6 +700,10 @@ export class CoreAiMcpOAuthService implements OnModuleInit {
   protected async authorizeConsent(client: any, params: any, res: any): Promise<void> {
     const req = res?.req;
     const user = await this.consentUser(req);
+    // Before the form and before any decision: a user who may not use MCP gets neither a form nor a code
+    if (user && !(await this.checkMcpAccess(user, req))) {
+      return this.sendConsentNotice(res, this.consentRefusal(req));
+    }
     const decision = req?.method === 'POST' ? req.body?.[MCP_OAUTH_CONSENT_DECISION_FIELD] : undefined;
 
     let notice: IMcpOAuthConsentView['notice'];
@@ -659,9 +748,7 @@ export class CoreAiMcpOAuthService implements OnModuleInit {
 
     const view = this.buildConsentView(req, client, params, user, notice);
     res.status(200);
-    for (const [name, value] of Object.entries(mcpOAuthConsentHeaders(view.nonce))) {
-      res.setHeader(name, value);
-    }
+    setConsentPageHeaders(res, view.nonce);
     res.send(this.renderConsentPage(view));
   }
 
@@ -671,15 +758,101 @@ export class CoreAiMcpOAuthService implements OnModuleInit {
   }
 
   /**
+   * Answers the consent route with a notice page instead of the consent form — for a decision a project makes in its own
+   * {@link authorizeConsent} before calling `super`, e.g. while it takes no new MCP connections:
+   *
+   * ```typescript
+   * protected override async authorizeConsent(client: any, params: any, res: any): Promise<void> {
+   *   if (await this.maintenance.isActive()) {
+   *     return this.sendConsentNotice(res, { message: 'Please try again in an hour.', status: 503, title: 'Maintenance' });
+   *   }
+   *   return super.authorizeConsent(client, params, res);
+   * }
+   * ```
+   *
+   * The framework sets the status (default 403), a fresh nonce and the consent page's security headers (CSP,
+   * `frame-ancestors 'none'`, `X-Frame-Options`, `no-store`), so they keep receiving its fixes; the project supplies
+   * plain text. The page shows the signed-in account with "use another account" and issues nothing: no code, no
+   * redirect — the MCP client keeps waiting until the user signs in with another account or closes the window.
+   * Restyle it through {@link renderConsentNoticePage}.
+   *
+   * Not for deciding who may use MCP: a refusal here stops a new OAuth grant only, while `/ai/mcp` also accepts the
+   * user's own session token or JWT as bearer, which never passes `/authorize`. That rule is `ai.mcp.roles` or an
+   * overridden {@link mayUseMcp}, which the framework checks on `/ai/mcp`, here and on `/token` alike (and answers here
+   * with this page, worded by {@link consentRefusal}).
+   */
+  protected async sendConsentNotice(res: any, notice: IMcpOAuthConsentNotice): Promise<void> {
+    const req = res?.req;
+    const user = await this.consentUser(req);
+    const requested = notice.status;
+    const status =
+      typeof requested === 'number' && Number.isInteger(requested) && requested >= 400 && requested <= 599
+        ? requested
+        : 403;
+    if (requested !== undefined && status !== requested) {
+      this.logger.warn(`MCP OAuth consent notice: status ${requested} is not between 400 and 599, sending 403.`);
+    }
+    if (notice.link && !consentNoticeLinkHref(notice.link.href)) {
+      this.logger.warn(
+        'MCP OAuth consent notice: the link is neither an absolute http(s) URL nor a path on this origin, left out.',
+      );
+    }
+    const view: IMcpOAuthConsentNoticeView = {
+      appHost: this.consentAppHost(),
+      authBasePath: notice.switchAccount === false ? undefined : this.consentAuthBasePath(),
+      link: notice.link,
+      locale:
+        notice.locale === 'de' || notice.locale === 'en'
+          ? notice.locale
+          : mcpOAuthConsentLocale(req?.headers?.['accept-language']),
+      message: (Array.isArray(notice.message) ? notice.message : [notice.message]).map((paragraph) =>
+        String(paragraph ?? ''),
+      ),
+      nonce: randomBytes(16).toString('base64'),
+      title: String(notice.title ?? ''),
+      user: user ? { email: user.email, name: user.name } : undefined,
+    };
+    res.status(status);
+    setConsentPageHeaders(res, view.nonce);
+    res.send(this.renderConsentNoticePage(view));
+  }
+
+  /**
+   * Renders the notice page of {@link sendConsentNotice}. Override to change its wording or look via
+   * `renderMcpOAuthConsentNoticePage(view, { texts, styles })`; keep every dynamic value escaped.
+   */
+  protected renderConsentNoticePage(view: IMcpOAuthConsentNoticeView): string {
+    return renderMcpOAuthConsentNoticePage(view);
+  }
+
+  /**
+   * The notice the consent route answers a signed-in user {@link mayUseMcp} refuses with (403). Override to change its
+   * wording; its look changes through {@link renderConsentNoticePage}.
+   */
+  protected consentRefusal(req: any): IMcpOAuthConsentNotice {
+    const locale = mcpOAuthConsentLocale(req?.headers?.['accept-language']);
+    return { ...mcpOAuthConsentRefusalTexts(locale), locale, status: 403 };
+  }
+
+  /**
    * The user the consent is given for: whoever the Better-Auth middleware put on the request — or,
    * where it did not run, the session the request carries. Nest registers that middleware below a
    * global prefix, while the OAuth router sits at the root, so under `setGlobalPrefix()` it never
    * sees `/authorize`; the session is then resolved the way the middleware resolves it (bearer, then
    * session cookie). Never an API token — those carry their own, narrower rights.
    */
-  protected async consentUser(req: any): Promise<{ email?: string; id: string; name?: string } | undefined> {
+  protected async consentUser(
+    req: any,
+  ): Promise<{ email?: string; id: string; name?: string; roles?: string[] } | undefined> {
     const toConsentUser = (user: any) =>
-      user?.id && !getApiTokenContext(user) ? { email: user.email, id: String(user.id), name: user.name } : undefined;
+      user?.id && !getApiTokenContext(user)
+        ? {
+            email: user.email,
+            id: String(user.id),
+            name: user.name,
+            roles: Array.isArray(user.roles) ? user.roles : undefined,
+          }
+        : undefined;
     if (req?.user?.id) {
       return toConsentUser(req.user);
     }
@@ -722,9 +895,7 @@ export class CoreAiMcpOAuthService implements OnModuleInit {
     }
     return {
       appHost: this.consentAppHost(),
-      authBasePath: getBetterAuthTokenService()
-        ? getMountedMcpOAuth()?.authBasePath || ConfigService.get<string>('betterAuth.basePath') || '/iam'
-        : undefined,
+      authBasePath: this.consentAuthBasePath(),
       client: { id: String(client.client_id), name: client.client_name },
       csrfToken: user
         ? this.signConsentToken({
@@ -742,6 +913,13 @@ export class CoreAiMcpOAuthService implements OnModuleInit {
       redirect: { host: redirect.host, loopback: ['localhost', '127.0.0.1', '[::1]'].includes(redirect.hostname) },
       user: user ? { email: user.email, name: user.name } : undefined,
     };
+  }
+
+  /** Better-Auth's base path for the consent pages' sign-in and sign-out; `undefined` when Better-Auth is not active. */
+  protected consentAuthBasePath(): string | undefined {
+    return getBetterAuthTokenService()
+      ? getMountedMcpOAuth()?.authBasePath || ConfigService.get<string>('betterAuth.basePath') || '/iam'
+      : undefined;
   }
 
   /** The host users know the application by: the app's, else the server's. */
@@ -923,4 +1101,40 @@ export class CoreAiMcpOAuthService implements OnModuleInit {
     const store = getModelStore(this.connection, modelName);
     return store && !store.capabilities.mongoosePopulate ? store : undefined;
   }
+}
+
+/** Sets the consent pages' security headers on a response — the one place both pages get them from. */
+function setConsentPageHeaders(res: any, nonce: string): void {
+  for (const [name, value] of Object.entries(mcpOAuthConsentHeaders(nonce))) {
+    res.setHeader(name, value);
+  }
+}
+
+/**
+ * `ai.mcp.roles`, resolved: `undefined` when unset, else the role names (an array, or a comma-separated string as an
+ * `NSC__AI__MCP__ROLES` variable delivers it). Throws on a value that names no role or a system role: a
+ * misconfiguration of an access rule must stop the boot, never read as "everyone may".
+ */
+function resolveMcpAccessRoles(mcp: unknown): string[] | undefined {
+  const value = mcp && typeof mcp === 'object' ? (mcp as { roles?: unknown }).roles : undefined;
+  if (value === undefined || value === null) {
+    return undefined;
+  }
+  const entries: unknown[] | undefined =
+    typeof value === 'string' ? value.split(',') : Array.isArray(value) ? value : undefined;
+  const roles = entries?.map((role) => (typeof role === 'string' ? role.trim() : ''));
+  if (!roles?.length || roles.some((role) => !role)) {
+    throw new Error(
+      'ai.mcp.roles must name at least one role (an array of role names, or a comma-separated string) and no ' +
+        'empty entry. Remove it to let every signed-in user use MCP.',
+    );
+  }
+  const systemRoles = roles.filter((role) => looksLikeSystemRole(role));
+  if (systemRoles.length) {
+    throw new Error(
+      `ai.mcp.roles names system roles (${systemRoles.join(', ')}), which no user holds. List real roles, remove ` +
+        'ai.mcp.roles to let every signed-in user use MCP, or override mayUseMcp() for any other rule.',
+    );
+  }
+  return roles;
 }

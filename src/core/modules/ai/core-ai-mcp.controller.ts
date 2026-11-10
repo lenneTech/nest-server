@@ -130,6 +130,10 @@ export class CoreAiMcpController implements OnModuleDestroy {
       this.unauthorized(res);
       return;
     }
+    if (!(await this.oauthService.checkMcpAccess(user, req))) {
+      this.forbidden(res);
+      return;
+    }
 
     if (this.statelessEnabled()) {
       await this.handleStatelessPost(req, res, user);
@@ -401,6 +405,10 @@ export class CoreAiMcpController implements OnModuleDestroy {
       this.unauthorized(res);
       return;
     }
+    if (!(await this.oauthService.checkMcpAccess(user, req))) {
+      this.forbidden(res);
+      return;
+    }
     // Without sessions there is no stream to open and nothing to end (MCP spec: 405 for GET then).
     if (this.statelessEnabled()) {
       res.status(405).set('Allow', 'POST').json({ error: 'Method not allowed: this MCP server is stateless' });
@@ -590,6 +598,15 @@ export class CoreAiMcpController implements OnModuleDestroy {
       .status(401)
       .set({ 'WWW-Authenticate': oauth ? `Bearer resource_metadata="${oauth.resourceMetadataUrl}"` : 'Bearer' })
       .json({ error: 'Unauthorized: a valid Bearer token is required' });
+  }
+
+  /**
+   * 403 for an authenticated user who may not use MCP (`CoreAiMcpOAuthService.mayUseMcp()`, `ai.mcp.roles`) — checked on
+   * every request, whichever credential authenticated it, so a withdrawn right ends an open session with its next
+   * request. No `WWW-Authenticate`: signing in again with the same account changes nothing.
+   */
+  private forbidden(res: Response): void {
+    res.status(403).json({ error: 'Forbidden: this account may not use MCP' });
   }
 
   /**

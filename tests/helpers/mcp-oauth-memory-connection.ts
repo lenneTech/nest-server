@@ -1,7 +1,7 @@
 /**
  * In-memory stand-in for the Mongoose connection `CoreAiMcpOAuthService` reads its native
  * collections from. It mimics the subset of the MongoDB driver the service uses (`insertOne`,
- * `findOne`, `findOneAndDelete`, `createIndex`), so the OAuth flow runs without a database.
+ * `findOne`, `findOneAndDelete`, `deleteOne`, `createIndex`), so the OAuth flow runs without a database.
  *
  * `findOneAndDelete` returns the document itself, as driver 6+ does, and is atomic per call.
  */
@@ -25,6 +25,13 @@ function createCollection() {
   return {
     docs,
     createIndex: async () => ({}),
+    deleteOne: async (query: any) => {
+      const idx = docs.findIndex((d) => matches(d, query));
+      if (idx >= 0) {
+        docs.splice(idx, 1);
+      }
+      return { deletedCount: idx >= 0 ? 1 : 0 };
+    },
     findOne: async (query: any) => docs.find((d) => matches(d, query)) ?? null,
     findOneAndDelete: async (query: any) => {
       const idx = docs.findIndex((d) => matches(d, query));
