@@ -188,6 +188,10 @@ pnpm run check:swc-tdz  # SWC→CJS build, loads EVERY module as its own entry p
                         # The only step that catches a temporal-dead-zone crash from an
                         # import cycle — tsc, vitest and oxlint are all blind to it.
                         # See .claude/rules/architecture.md → "DI Token Placement (SWC-Safe)"
+pnpm run check:unified-field-types # Every @UnifiedField without type/isAny/enum whose type the SWC dev start and
+                        # the tsc build read differently (a union with null, a type alias): the dev API
+                        # validated it as a nested object. `-- --fix` writes the type tsc uses. Shipped to projects as
+                        # bin `nest-check-unified-field-types`; see .claude/rules/architecture.md → "Input Validation"
 
 # Package Development
 pnpm run build:dev      # Build for local development (use with pnpm link)

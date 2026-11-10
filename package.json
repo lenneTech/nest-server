@@ -34,14 +34,15 @@
     "check": "node scripts/check.mjs",
     "check:consumer": "node scripts/check-consumer.mjs",
     "check:esm": "node scripts/check-esm-core.mjs",
-    "check:fix": "pnpm install && pnpm run spectaql:sync && pnpm audit --fix && pnpm run check:overrides && pnpm peers check && pnpm run format && pnpm run lint:fix && pnpm run typecheck:tests && pnpm run typecheck:vendor && pnpm run check:vendor-lint && pnpm run check:esm && pnpm run check:swc-tdz && pnpm test && pnpm run build && pnpm run check:manifest && pnpm run check:without-mongodb && pnpm run check:server-start",
+    "check:fix": "pnpm install && pnpm run spectaql:sync && pnpm audit --fix && pnpm run check:overrides && pnpm peers check && pnpm run check:unified-field-types -- --fix && pnpm run format && pnpm run lint:fix && pnpm run typecheck:tests && pnpm run typecheck:vendor && pnpm run check:vendor-lint && pnpm run check:esm && pnpm run check:swc-tdz && pnpm test && pnpm run build && pnpm run check:manifest && pnpm run check:without-mongodb && pnpm run check:server-start",
     "check:manifest": "node scripts/check-package-manifest.mjs",
     "check:mutations": "node scripts/check-mutations.mjs",
-    "check:naf": "pnpm install && pnpm run spectaql:sync && pnpm run check:overrides && pnpm peers check && pnpm run format && pnpm run lint:fix && pnpm run typecheck:tests && pnpm run typecheck:vendor && pnpm run check:vendor-lint && pnpm run check:esm && pnpm run check:swc-tdz && pnpm test && pnpm run build && pnpm run check:manifest && pnpm run check:without-mongodb && pnpm run check:server-start",
+    "check:naf": "pnpm install && pnpm run spectaql:sync && pnpm run check:overrides && pnpm peers check && pnpm run check:unified-field-types -- --fix && pnpm run format && pnpm run lint:fix && pnpm run typecheck:tests && pnpm run typecheck:vendor && pnpm run check:vendor-lint && pnpm run check:esm && pnpm run check:swc-tdz && pnpm test && pnpm run build && pnpm run check:manifest && pnpm run check:without-mongodb && pnpm run check:server-start",
     "check:overrides": "node scripts/check-overrides.mjs",
-    "check:raw": "pnpm install --frozen-lockfile && pnpm run spectaql:sync && pnpm audit && pnpm run check:overrides && pnpm peers check && pnpm run format:check && pnpm run lint && pnpm run typecheck:tests && pnpm run typecheck:vendor && pnpm run check:vendor-lint && pnpm run check:esm && pnpm run check:swc-tdz && pnpm test && pnpm run build && pnpm run check:manifest && pnpm run check:without-mongodb && pnpm run check:server-start",
+    "check:raw": "pnpm install --frozen-lockfile && pnpm run spectaql:sync && pnpm audit && pnpm run check:overrides && pnpm peers check && pnpm run format:check && pnpm run lint && pnpm run typecheck:tests && pnpm run typecheck:vendor && pnpm run check:vendor-lint && pnpm run check:esm && pnpm run check:swc-tdz && pnpm run check:unified-field-types && pnpm test && pnpm run build && pnpm run check:manifest && pnpm run check:without-mongodb && pnpm run check:server-start",
     "check:server-start": "cross-env NODE_ENV=local node scripts/check-server-start.mjs --entry=dist/main.js --port-env=NSC__PORT --ready=\"Server starte[dt] at\" --path=/",
     "check:swc-tdz": "nest build -b swc -p tsconfig.swc-tdz.json && node scripts/check-swc-tdz.mjs",
+    "check:unified-field-types": "node bin/check-unified-field-types.js",
     "check:vendor-lint": "node scripts/check-vendor-lint.mjs",
     "check:without-mongodb": "node scripts/check-without-mongodb.mjs --dist",
     "check:without-mongodb:package": "node scripts/check-without-mongodb.mjs --package",
@@ -280,7 +281,8 @@
   "types": "dist/index.d.ts",
   "bin": {
     "nest-migrate": "./bin/migrate.js",
-    "migrate": "./bin/migrate.js"
+    "migrate": "./bin/migrate.js",
+    "nest-check-unified-field-types": "./bin/check-unified-field-types.js"
   },
   "files": [
     "dist/**/*",
