@@ -270,6 +270,64 @@ function warnIfLikelyMisconfiguredEnumOptions(value: unknown, propertyHint: stri
   }
 }
 
+/**
+ * `design:type` as the tsc build writes it. For a field typed with an enum, tsc writes `String` (string enum) or
+ * `Number` (numeric enum); the SWC loader of the dev start writes the enum OBJECT. Read as is, that object became the
+ * Mongoose path type (`SchemaFactory` refused it: "'active' is not a valid type") and a nested-object validation target.
+ * tsc never writes a plain object here, so only the dev start is affected; a heterogeneous enum stays as it is.
+ */
+function designTypeOf(metadataType: unknown): unknown {
+  if (typeof metadataType !== 'object' || metadataType === null || Array.isArray(metadataType)) {
+    return metadataType;
+  }
+  const values = Object.values(metadataType);
+  if (values.length === 0) {
+    return metadataType;
+  }
+  const numbers = values.filter((value) => typeof value === 'number');
+  const strings = values.filter((value) => typeof value === 'string') as string[];
+  if (numbers.length === 0 && strings.length === values.length) {
+    return String;
+  }
+  // A numeric enum carries its reverse mapping: every string value is the name of a numeric member
+  if (
+    numbers.length > 0 &&
+    strings.every((name) => typeof (metadataType as Record<string, unknown>)[name] === 'number')
+  ) {
+    return Number;
+  }
+  return metadataType;
+}
+
+/** Fields already warned about by {@link warnIfAmbiguousMetadataType}: one line per field, not per decoration. */
+const ambiguousTypeWarned = new Set<string>();
+
+/**
+ * Warn when a field without `type` / `isAny` / `enum` takes its type from compiler metadata that is only `Object`. The
+ * SWC loader of the dev start writes `design:type` syntactically, file by file: a union with `null` / `undefined` (also
+ * with an enum), a type alias or an interface become `Object` there, where the tsc build writes `Number`, `String` or
+ * the class — a plain enum is read like tsc does, see {@link designTypeOf}. The dev API then validates the field as a
+ * nested object while the deployed one does not — `max: 5` refused in development, accepted in production.
+ *
+ * The package bin `nest-check-unified-field-types --fix` (`check:unified-field-types` in nest-server-starter
+ * projects; vendor mode: `node ./bin/check-unified-field-types.js --fix`) writes the declared type into every such
+ * field; a later release refuses them at boot.
+ */
+function warnIfAmbiguousMetadataType(metadataType: unknown, propertyHint: string): void {
+  const ambiguous = metadataType === Object || (typeof metadataType === 'object' && metadataType !== null);
+  if (!ambiguous || ambiguousTypeWarned.has(propertyHint)) return;
+  ambiguousTypeWarned.add(propertyHint);
+  // eslint-disable-next-line no-console
+  console.warn(
+    `[@UnifiedField] "${propertyHint}" has no explicit type, and the compiler metadata says only "Object". The SWC ` +
+      'dev start and the tsc build can disagree here (a union with null/undefined, a type alias, an interface), so ' +
+      'the dev API may validate it as a nested object. Declare it: type: () => Number / String / Boolean / ' +
+      'Date / <Class>, type: () => Object for a free-form object, or isAny: true. `nest-check-unified-field-types ' +
+      '--fix` (vendor mode: `node ./bin/check-unified-field-types.js --fix`) writes the declared type; a later ' +
+      'release refuses such a field at boot.',
+  );
+}
+
 export function UnifiedField(opts: UnifiedFieldOptions = {}): PropertyDecorator {
   // Normalize the shortcut form `enum: MyEnum` into the long form
   // `enum: { enum: MyEnum }` so the rest of the decorator can assume a uniform
@@ -353,13 +411,17 @@ export function UnifiedField(opts: UnifiedFieldOptions = {}): PropertyDecorator 
       Reflect.defineMetadata(UNIFIED_FIELD_KEYS, [...existingKeys, key], target);
     }
 
-    const metadataType = Reflect.getMetadata('design:type', target, propertyKey);
+    const metadataType = designTypeOf(Reflect.getMetadata('design:type', target, propertyKey));
     const userType = opts.type;
     const isArrayField = opts.isArray === true || metadataType === Array;
 
     // Throwing because meta type only returns the generic array, but not the type of the array items
     if (metadataType === Array && !userType) {
       throw new Error(`Array field '${String(propertyKey)}' of '${String(target)}' must have an explicit type`);
+    }
+
+    if (!userType && !opts.isAny && !normalizedEnum) {
+      warnIfAmbiguousMetadataType(metadataType, `${target.constructor?.name || '?'}.${key}`);
     }
 
     const resolvedTypeFn = (): any => {

@@ -7271,6 +7271,105 @@
         "tests/unit/ai-mcp-access.spec.ts"
       ],
       "driverSpecific": false
+    },
+    {
+      "id": "unified-field-types-trusts-every-reference",
+      "defect": "Until 12.8.6 nothing pointed at a @UnifiedField whose type the SWC dev start reads as Object (a type alias, an enum, a union with null) while the tsc build reads Number / String — the dev API validated such a field as a nested object. A checker that trusts every type reference would miss aliases and enums again.",
+      "file": "bin/check-unified-field-types.js",
+      "find": "  return isLibDate(target) || (target.flags & ts.SymbolFlags.Class) !== 0;\n",
+      "replace": "  return true;\n",
+      "specs": [
+        "tests/unit/check-unified-field-types.spec.ts"
+      ],
+      "driverSpecific": false
+    },
+    {
+      "id": "unified-field-ambiguous-type-silent",
+      "defect": "Until 12.8.6 @UnifiedField accepted a field whose only type information was design:type Object (or an enum object, as the SWC dev start writes it) without a word, and the dev API validated it as a nested object.",
+      "file": "src/core/common/decorators/unified-field.decorator.ts",
+      "find": "      warnIfAmbiguousMetadataType(metadataType, `${target.constructor?.name || '?'}.${key}`);\n",
+      "replace": "",
+      "specs": [
+        "tests/unit/unified-field-ambiguous-type.spec.ts"
+      ],
+      "driverSpecific": false
+    },
+    {
+      "id": "unified-field-types-refuses-double-dash",
+      "defect": "`pnpm run check:unified-field-types -- --fix` hands the script ['--', '--fix'] (npm drops the separator); a parser that refuses `--` ends with exit code 2 and stops check:fix and check:naf before format.",
+      "file": "bin/check-unified-field-types.js",
+      "find": "    if (arg === '--') {\n      // `pnpm run <script> -- --fix` passes the separator through (npm and yarn drop it)\n      continue;\n    }\n",
+      "replace": "",
+      "specs": [
+        "tests/unit/check-unified-field-types.spec.ts"
+      ],
+      "driverSpecific": false
+    },
+    {
+      "id": "unified-field-types-fixes-class-by-name",
+      "defect": "`--fix` picked a class by its name: a class imported under another name (`import { Settings as TenantSettings }`, `import * as tenant`) next to a local class `Settings` got `type: () => Settings`, so the deployed build would validate and restrict the field with the wrong class.",
+      "file": "bin/check-unified-field-types.js",
+      "find": "function classValueReference(ts, checker, property, classSymbol) {\n",
+      "replace": "function classValueReference(ts, checker, property, classSymbol) {\n  return classSymbol.getName();\n",
+      "specs": [
+        "tests/unit/check-unified-field-types.spec.ts"
+      ],
+      "driverSpecific": false
+    },
+    {
+      "id": "unified-field-enum-object-kept",
+      "defect": "SWC writes the enum OBJECT as design:type where tsc writes String / Number; read as is, it became the Mongoose path type of `@UnifiedField({ enum: Status, mongoose: true })` and SchemaFactory refused the schema, so the dev start crashed while the tsc build booted.",
+      "file": "src/core/common/decorators/unified-field.decorator.ts",
+      "find": "    const metadataType = designTypeOf(Reflect.getMetadata('design:type', target, propertyKey));\n",
+      "replace": "    const metadataType = Reflect.getMetadata('design:type', target, propertyKey);\n",
+      "specs": [
+        "tests/unit/unified-field-ambiguous-type.spec.ts"
+      ],
+      "driverSpecific": false
+    },
+    {
+      "id": "unified-field-types-ignores-bom",
+      "defect": "TypeScript strips a leading UTF-8 BOM from the text it parses; edits placed by those positions into the file as read from disk landed one character early — `roles: 'admin'` became `roles: 'admin, type: () => Number'`, valid TypeScript, a role nobody holds, exit code 0.",
+      "file": "bin/check-unified-field-types.js",
+      "find": "    const offset = text.charCodeAt(0) === 0xfeff ? 1 : 0;\n",
+      "replace": "    const offset = 0;\n",
+      "specs": [
+        "tests/unit/check-unified-field-types.spec.ts"
+      ],
+      "driverSpecific": false
+    },
+    {
+      "id": "unified-field-types-ignores-deployed-metadata",
+      "defect": "The deployed-build marker of `--fix` was a guess from `strictNullChecks` alone; TypeScript 6 is strict without a `strict` key, and tsc writes Object for a generic alias or a field without annotation in any mode, so `--fix` changed those deployed fields without a word.",
+      "file": "bin/check-unified-field-types.js",
+      "find": "    finding.changesDeployed = designTypeKind(deployed) !== designTypeKind(finding.name);\n",
+      "replace": "    finding.changesDeployed = false;\n",
+      "specs": [
+        "tests/unit/check-unified-field-types.spec.ts"
+      ],
+      "driverSpecific": false
+    },
+    {
+      "id": "unified-field-types-indents-with-code",
+      "defect": "`--fix` copied everything before the next property on its line as indentation: `@UnifiedField({ validator: …` became a second decorator, `description: 'a', isOptional: true })` a duplicated key.",
+      "file": "bin/check-unified-field-types.js",
+      "find": "  const ownLine = (node) => /^[ \\t]*$/.test(linePrefix(node));\n",
+      "replace": "  const ownLine = () => true;\n",
+      "specs": [
+        "tests/unit/check-unified-field-types.spec.ts"
+      ],
+      "driverSpecific": false
+    },
+    {
+      "id": "unified-field-types-isany-false-stops-reading",
+      "defect": "`isAny: false` ended the scan of the decorator options, so a `type` after it went unseen and `--fix` added a second `type` key (TS1117).",
+      "file": "bin/check-unified-field-types.js",
+      "find": "    if (\n      name === 'isAny' &&\n      !(ts.isPropertyAssignment(property) && property.initializer.kind === ts.SyntaxKind.FalseKeyword)\n    ) {\n      return true;\n    }\n",
+      "replace": "    if (name === 'isAny') {\n      return !(ts.isPropertyAssignment(property) && property.initializer.kind === ts.SyntaxKind.FalseKeyword);\n    }\n",
+      "specs": [
+        "tests/unit/check-unified-field-types.spec.ts"
+      ],
+      "driverSpecific": false
     }
   ]
 }
