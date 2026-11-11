@@ -484,6 +484,49 @@ describe('downloadAbortSignal', () => {
     expect(quiet.aborted).toBe(false);
     expect(fired.aborted).toBe(true);
   });
+
+  /**
+   * @regression   12.6.10 (found in the k6 run with request bodies) — once a body was read, the request's own close no
+   *   longer counts, and the signal listened to nothing else but the response. About one in six aborted downloads
+   *   never gets a response close (measured under an abort storm), so their S3 requests kept waiting for a socket and
+   *   took one later for nobody — the pool peaked higher than without bodies.
+   * @seen-failing Do not listen to the socket in downloadAbortSignal() (src/core/modules/file/core-file.controller.ts)
+   *   — registered as mutation `download-abort-signal-ignores-socket` in tests/regression-mutations.json.
+   */
+  it('aborts when the socket reports the client gone after the request body was read', () => {
+    for (const event of ['end', 'close'] as const) {
+      const { res } = responseStub(true);
+      const socket = Object.assign(new EventEmitter(), { destroyed: false });
+      Object.defineProperty(res, 'req', { value: Object.assign(new EventEmitter(), { readableEnded: true }) });
+      Object.defineProperty(res, 'socket', { value: socket });
+      const signal = downloadAbortSignal(res);
+
+      socket.emit(event);
+      expect(signal.aborted, event).toBe(true);
+    }
+  });
+
+  /**
+   * @regression   12.6.10 (found in review) — listeners left on a keep-alive socket pile up with every request it
+   *   carries, until Node warns about a listener leak.
+   * @seen-failing Never remove the socket listeners in downloadAbortSignal()
+   *   (src/core/modules/file/core-file.controller.ts) — registered as mutation
+   *   `download-abort-signal-leaks-socket-listeners` in tests/regression-mutations.json.
+   */
+  it('leaves a keep-alive socket without listeners once the response is done', () => {
+    const { res } = responseStub(true);
+    const socket = Object.assign(new EventEmitter(), { destroyed: false });
+    Object.defineProperty(res, 'req', { value: Object.assign(new EventEmitter(), { readableEnded: true }) });
+    Object.defineProperty(res, 'socket', { value: socket });
+    const signal = downloadAbortSignal(res);
+
+    Object.defineProperty(res, 'writableFinished', { value: true });
+    res.emit('finish');
+    socket.emit('end');
+
+    expect(signal.aborted).toBe(false);
+    expect(socket.listenerCount('end') + socket.listenerCount('close')).toBe(0);
+  });
 });
 
 describe('download delivery over a real Node HTTP server', () => {

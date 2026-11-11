@@ -265,11 +265,13 @@ function isRequestAborted(req: undefined | { destroyed?: boolean; readableEnded?
 }
 
 /**
- * An `AbortSignal` that fires when the client of a download has gone: the response closes, or the request closes
- * before its end and before the response finished (see {@link isResponseGone} for why the response alone is not
- * enough, and why a request read to the end is not a gone client). Pass it as
- * `abortSignal` to `getFileStream()` / `CoreS3Service.getObject()` from a project's own download route, so an S3
- * request that still waits for a free socket is dropped instead of taking one later for nobody.
+ * An `AbortSignal` that fires when the client of a download has gone — on the same signals `pipeFileToResponse()`
+ * releases a source on: the response closes, the request closes before its end, or the socket ends or closes before
+ * the response finished (see {@link isResponseGone} for why the response alone is not enough, and why a request read
+ * to the end is not a gone client). Pass it as `abortSignal` to `getFileStream()` / `CoreS3Service.getObject()` from
+ * a project's own download route, so an S3 request that still waits for a free socket is dropped instead of taking
+ * one later for nobody. The socket listeners are removed once the response is done, so a keep-alive socket carries
+ * none of them into its next request.
  */
 export function downloadAbortSignal(res: Response): AbortSignal {
   const controller = new AbortController();
@@ -277,15 +279,34 @@ export function downloadAbortSignal(res: Response): AbortSignal {
     controller.abort();
     return controller.signal;
   }
-  res.once('close', () => controller.abort());
-  if (typeof res.req?.once === 'function') {
-    res.req.once('close', () => {
-      // A request read to the end is closed by Node itself on a healthy connection — not the client leaving
-      if (!res.writableFinished && !res.req.readableEnded) {
-        controller.abort();
-      }
-    });
+  const req = res.req;
+  const socket = res.socket;
+  const abortWhileUnfinished = () => {
+    if (!res.writableFinished) {
+      controller.abort();
+    }
+  };
+  // A request read to the end is closed by Node itself on a healthy connection — not the client leaving. A client
+  // that leaves after its body was read is reported by the socket (and usually the response)
+  const abortOnRequestClose = () => {
+    if (!req?.readableEnded) {
+      abortWhileUnfinished();
+    }
+  };
+  if (typeof req?.once === 'function') {
+    req.once('close', abortOnRequestClose);
   }
+  socket?.once('end', abortWhileUnfinished);
+  socket?.once('close', abortWhileUnfinished);
+  const cleanUp = () => {
+    socket?.removeListener('end', abortWhileUnfinished);
+    socket?.removeListener('close', abortWhileUnfinished);
+  };
+  res.once('finish', cleanUp);
+  res.once('close', () => {
+    cleanUp();
+    controller.abort();
+  });
   return controller.signal;
 }
 
