@@ -1,7 +1,10 @@
 import { Injectable, Logger, OnApplicationShutdown, OnModuleInit } from '@nestjs/common';
+import { Agent as HttpAgent } from 'http';
+import { Agent as HttpsAgent } from 'https';
 import { PassThrough } from 'stream';
 
 import { buildContentDisposition } from '../helpers/content-disposition.helper.js';
+import { DEFAULT_STREAM_IDLE_TIMEOUT_MS, guardIdleStream, MAX_TIMER_DELAY_MS } from '../helpers/idle-stream.helper.js';
 import { ConfigService } from './config.service.js';
 
 import type { IS3Config } from '../interfaces/server-options.interface.js';
@@ -28,17 +31,54 @@ const MAX_PRESIGNED_EXPIRY_SECONDS = 604_800;
  */
 const PRESIGNED_EXPIRY_ADVISORY_SECONDS = 900;
 
+/** Defaults of the S3 connection pool (see `IS3Config`): why each value, is documented there. */
+const S3_DEFAULT_MAX_SOCKETS = 200;
+const S3_DEFAULT_CONNECTION_TIMEOUT_MS = 15_000;
+const S3_DEFAULT_SOCKET_TIMEOUT_MS = 120_000;
+
+/** How often the pool is checked for requests waiting on a socket, and how often a saturation is reported. */
+const S3_POOL_CHECK_INTERVAL_MS = 5_000;
+const S3_POOL_REPORT_INTERVAL_MS = 60_000;
+
+/**
+ * Usage of the S3 socket pool, summed over both protocols and every origin.
+ */
+export interface S3SocketPoolStats {
+  /** Sockets currently carrying a request (or a response body nobody has finished reading) */
+  active: number;
+  /** Open keep-alive sockets waiting for the next request */
+  free: number;
+  /** Configured maximum per origin and protocol (`s3.maxSockets`) */
+  maxSockets: number;
+  /** Requests waiting for a socket because the pool is exhausted */
+  waiting: number;
+}
+
 /**
  * Fully normalized S3 configuration with defaults applied
  */
 export type NormalizedS3Config = Omit<IS3Config, 'enabled' | 'presignedDownloads'> & {
   bucket: string;
+  connectionTimeoutMs: number;
+  downloadIdleTimeoutMs: number;
   forcePathStyle: boolean;
+  maxSockets: number;
   /** undefined = presigned downloads disabled */
   presignedDownloads?: { expiresInSeconds: number };
   region: string;
+  socketTimeoutMs: number;
   stagingBucket: string;
 };
+
+/**
+ * A positive, finite number, or the default — never "unbounded" for a misconfigured value. Capped at the longest delay
+ * a Node timer accepts: a larger one is clamped by Node to 1 ms, which would fire every timeout at once.
+ */
+function positiveOrDefault(value: unknown, fallback: number): number {
+  return typeof value === 'number' && Number.isFinite(value) && value > 0
+    ? Math.min(value, MAX_TIMER_DELAY_MS)
+    : fallback;
+}
 
 /**
  * Central S3-compatible object storage service (see IServerOptions.s3).
@@ -84,6 +124,19 @@ export class CoreS3Service implements OnApplicationShutdown, OnModuleInit {
    */
   protected multipartUploader?: null | typeof import('@aws-sdk/lib-storage');
 
+  /**
+   * The agents the S3 client's request handler uses, one per protocol. Kept so the pool can be measured
+   * ({@link CoreS3Service.getSocketPoolStats}) and closed at shutdown.
+   */
+  protected agents?: { http: HttpAgent; https: HttpsAgent };
+
+  /** Periodic check of the pool for waiting requests, see {@link CoreS3Service.checkSocketPool} */
+  protected poolMonitor?: NodeJS.Timeout;
+
+  /** When a saturation was last reported, and how many download streams were closed idle since the last report */
+  protected lastPoolReportAt = 0;
+  protected idleClosedSinceReport = 0;
+
   constructor(protected readonly configService: ConfigService) {
     const raw = this.configService.getFastButReadOnly<IS3Config | undefined>('s3');
     if (!raw || raw.enabled === false) {
@@ -115,8 +168,11 @@ export class CoreS3Service implements OnApplicationShutdown, OnModuleInit {
       accessKeyId: raw.accessKeyId,
       autoCreateBucket: raw.autoCreateBucket ?? false,
       bucket: raw.bucket,
+      connectionTimeoutMs: positiveOrDefault(raw.connectionTimeoutMs, S3_DEFAULT_CONNECTION_TIMEOUT_MS),
+      downloadIdleTimeoutMs: positiveOrDefault(raw.downloadIdleTimeoutMs, DEFAULT_STREAM_IDLE_TIMEOUT_MS),
       endpoint: raw.endpoint,
       forcePathStyle: raw.forcePathStyle ?? false,
+      maxSockets: Math.floor(positiveOrDefault(raw.maxSockets, S3_DEFAULT_MAX_SOCKETS)) || S3_DEFAULT_MAX_SOCKETS,
       presignedDownloads: presigned
         ? {
             expiresInSeconds: this.clampPresignedExpiry(
@@ -126,6 +182,7 @@ export class CoreS3Service implements OnApplicationShutdown, OnModuleInit {
         : undefined,
       region: raw.region ?? 'us-east-1',
       secretAccessKey: raw.secretAccessKey,
+      socketTimeoutMs: positiveOrDefault(raw.socketTimeoutMs, S3_DEFAULT_SOCKET_TIMEOUT_MS),
       stagingBucket: raw.stagingBucket ?? raw.bucket,
     };
   }
@@ -194,6 +251,7 @@ export class CoreS3Service implements OnApplicationShutdown, OnModuleInit {
     this.client = new this.sdk.S3Client({
       ...(endpoint ? { endpoint } : {}),
       forcePathStyle,
+      requestHandler: this.buildRequestHandlerOptions(),
       // Without a logger the SDK writes some warnings straight to `console` — "An error was encountered in
       // a non-retryable streaming request." on every failed or aborted upload stream — outside the app's
       // log levels and format. Warnings go through this service's logger instead. Everything else stays
@@ -217,7 +275,99 @@ export class CoreS3Service implements OnApplicationShutdown, OnModuleInit {
     // where operators look — the startup log — instead of during the first large upload.
     await this.loadMultipartUploader();
 
+    this.startPoolMonitor();
+
     await this.verifyBuckets();
+  }
+
+  /**
+   * Options for the S3 client's HTTP request handler (`NodeHttpHandler`, created by the SDK from them).
+   *
+   * WHY NOT THE SDK DEFAULTS: they are a pool of 50 sockets and no timeout that frees a socket whose
+   * response body nobody reads. A download stream that is dropped, or piped with a bare `stream.pipe(res)` to
+   * a client that aborts, then holds its socket forever; after `maxSockets` such downloads every further S3
+   * request waits without end. The defaults here bound both: own agents with `s3.maxSockets`, a connection
+   * timeout, and a socket inactivity timeout as the backstop. The main guard for downloads is the idle guard
+   * on the body ({@link CoreS3Service.getObject}): the SDK's `requestTimeout` stops counting once the headers
+   * have arrived, and its socket timeout destroys the body WITH an error — which ends the process when nothing
+   * listens on that body. The guard listens, and it ends a stalled download much earlier.
+   *
+   * Passed as options rather than a handler instance, so the core does not import `@smithy/node-http-handler`
+   * itself (a transitive dependency of the optional peer, not resolvable from every project layout).
+   * Override to tune further, e.g. an agent with a CA bundle.
+   */
+  protected buildRequestHandlerOptions(): Record<string, unknown> {
+    const { connectionTimeoutMs, maxSockets, socketTimeoutMs } = this.config;
+    this.agents = {
+      http: new HttpAgent({ keepAlive: true, maxSockets }),
+      https: new HttpsAgent({ keepAlive: true, maxSockets }),
+    };
+    return {
+      connectionTimeout: connectionTimeoutMs,
+      httpAgent: this.agents.http,
+      httpsAgent: this.agents.https,
+      socketTimeout: socketTimeoutMs,
+    };
+  }
+
+  /**
+   * Usage of the S3 socket pool right now. `undefined` while S3 is disabled or not initialized.
+   *
+   * `waiting > 0` means requests are queued for a socket: the pool is exhausted. That is reported as an error
+   * in the log (see {@link CoreS3Service.checkSocketPool}); a project can also expose it to its monitoring.
+   */
+  getSocketPoolStats(): S3SocketPoolStats | undefined {
+    if (!this.agents || !this.config) {
+      return undefined;
+    }
+    const count = (map: NodeJS.ReadOnlyDict<unknown[]> | undefined) =>
+      Object.values(map ?? {}).reduce<number>((sum, list) => sum + (list?.length ?? 0), 0);
+    const agents = [this.agents.http, this.agents.https];
+    return {
+      active: agents.reduce((sum, agent) => sum + count(agent.sockets), 0),
+      free: agents.reduce((sum, agent) => sum + count(agent.freeSockets), 0),
+      maxSockets: this.config.maxSockets,
+      waiting: agents.reduce((sum, agent) => sum + count(agent.requests), 0),
+    };
+  }
+
+  /**
+   * Start the periodic pool check. The interval never keeps the process alive.
+   */
+  protected startPoolMonitor(): void {
+    if (this.poolMonitor) {
+      return;
+    }
+    this.poolMonitor = setInterval(() => this.checkSocketPool(), S3_POOL_CHECK_INTERVAL_MS);
+    this.poolMonitor.unref?.();
+  }
+
+  /**
+   * Report an exhausted pool as an ERROR, at most once per minute and with numbers.
+   *
+   * An exhausted pool makes every S3 request wait — downloads, uploads, existence checks — while the health
+   * check, which does not touch S3, stays green. The log line is what an alert can fire on. Deliberately NOT a
+   * health-check failure: a short S3 disturbance would then take the whole API (sign-in included) out of the
+   * load balancer, which costs far more than slow downloads.
+   */
+  protected checkSocketPool(): void {
+    const stats = this.getSocketPoolStats();
+    if (!stats || stats.waiting === 0) {
+      return;
+    }
+    const now = Date.now();
+    if (now - this.lastPoolReportAt < S3_POOL_REPORT_INTERVAL_MS) {
+      return;
+    }
+    this.lastPoolReportAt = now;
+    this.logger.error(
+      `S3 socket pool exhausted: ${stats.active}/${stats.maxSockets} sockets in use, ${stats.waiting} request(s) ` +
+        `waiting for a socket, ${this.idleClosedSinceReport} download stream(s) closed for lack of progress since the ` +
+        'last report. Every S3 request waits until a socket is free. Raise s3.maxSockets if this is genuine load; ' +
+        'a growing count without load points to download streams that are not consumed or destroyed — deliver files ' +
+        'with pipeFileToResponse().',
+    );
+    this.idleClosedSinceReport = 0;
   }
 
   /**
@@ -552,11 +702,37 @@ export class CoreS3Service implements OnApplicationShutdown, OnModuleInit {
    * Get an object stream (plus metadata) from the main bucket.
    * Throws the SDK's NoSuchKey error when the object does not exist.
    */
-  async getObject(key: string): Promise<{ body: Readable; contentLength?: number; contentType?: string }> {
+  async getObject(
+    key: string,
+    options?: {
+      abortSignal?: AbortSignal;
+      /**
+       * Idle time of the returned stream for THIS call (default `s3.downloadIdleTimeoutMs`). `false` returns the body
+       * unguarded — only for a caller that reads the stream late on purpose (an archive that pipes each entry when
+       * its turn comes) AND is certain to read it to the end or destroy it; such a body holds its socket until then.
+       */
+      idleTimeoutMs?: false | number;
+    },
+  ): Promise<{ body: Readable; contentLength?: number; contentType?: string }> {
     const { client, config, sdk } = this.requireInit();
-    const result = await client.send(new sdk.GetObjectCommand({ Bucket: config.bucket, Key: key }));
+    // `abortSignal`: a caller whose client has gone aborts the request, also while it still waits for a socket —
+    // otherwise it stays queued and takes a socket and a body later, for nobody (see `IS3Config.maxSockets`)
+    const idleMs = options?.idleTimeoutMs;
+    const result = await client.send(
+      new sdk.GetObjectCommand({ Bucket: config.bucket, Key: key }),
+      options?.abortSignal ? { abortSignal: options.abortSignal } : undefined,
+    );
     return {
-      body: result.Body as Readable,
+      // Guarded: a body nobody reads releases its socket after `s3.downloadIdleTimeoutMs` instead of holding it
+      // for the life of the process. Destroying the returned stream releases it at once.
+      // `idleTimeoutMs: false` keeps the guard WITHOUT its timer: an unread body is destroyed with an error by the
+      // SDK's socket timeout (`s3.socketTimeoutMs`), which ends the process when nothing listens on it
+      body: guardIdleStream(result.Body as Readable, {
+        idleMs: idleMs === false ? false : (idleMs ?? config.downloadIdleTimeoutMs),
+        onIdle: () => {
+          this.idleClosedSinceReport++;
+        },
+      }),
       contentLength: result.ContentLength,
       contentType: result.ContentType,
     };
@@ -648,8 +824,15 @@ export class CoreS3Service implements OnApplicationShutdown, OnModuleInit {
    * Destroy the shared client
    */
   async onApplicationShutdown(): Promise<void> {
+    if (this.poolMonitor) {
+      clearInterval(this.poolMonitor);
+      this.poolMonitor = undefined;
+    }
     this.client?.destroy();
     this.client = undefined;
+    this.agents?.http.destroy();
+    this.agents?.https.destroy();
+    this.agents = undefined;
   }
 
   /**

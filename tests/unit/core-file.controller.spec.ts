@@ -1,16 +1,23 @@
 import { NotFoundException } from '@nestjs/common';
+import { EventEmitter } from 'events';
 import type { Response } from 'express';
-import { validateHeaderValue } from 'http';
+import { createServer, request as httpRequest, validateHeaderValue } from 'http';
+import type { AddressInfo } from 'net';
 import { PassThrough, Readable } from 'stream';
 import { beforeEach, describe, expect, it } from 'vitest';
 
+import { StreamIdleTimeoutError } from '../../src/core/common/helpers/idle-stream.helper';
 import type { CoreFileService } from '../../src/core/modules/file/core-file.service';
 import { captureExpectedLogs } from '../helpers/expected-log-output';
 import {
   buildContentDisposition,
   CoreFileController,
+  downloadAbortSignal,
+  isResponseGone,
   pipeFileToResponse,
 } from '../../src/core/modules/file/core-file.controller';
+
+const tick = () => new Promise((resolve) => setImmediate(resolve));
 
 /**
  * Build a response stub that records what the handler did to it.
@@ -342,5 +349,448 @@ describe('pipeFileToResponse (stream lifecycle)', () => {
     await new Promise((resolve) => setImmediate(resolve));
 
     expect(stream.destroyed).toBe(true);
+  });
+
+  /**
+   * @regression   12.8.9 — a client that left BEFORE the stream was handed over (it waited for a free S3 socket)
+   *   has a response that already closed; the `close` listener registered then never fired, and the source kept
+   *   its socket. Under load: the production avalanche.
+   * @seen-failing Drop the early `isResponseGone()` check in pipeFileToResponse()
+   *   (src/core/modules/file/core-file.controller.ts) — registered as mutation
+   *   `pipe-file-to-response-ignores-closed-response` in tests/regression-mutations.json.
+   */
+  it('destroys the source at once when the response has already closed', async () => {
+    const stream = new Readable({ read() {} });
+    const { res } = responseStub(false);
+    res.emit('close');
+    Object.defineProperty(res, 'closed', { value: true });
+
+    pipeFileToResponse(stream, res);
+    await tick();
+
+    expect(stream.destroyed).toBe(true);
+  });
+});
+
+describe('pipeFileToResponse (idle close)', () => {
+  /**
+   * @regression   12.8.9 (found in the k6 run against S3) — every download the idle guard closed was logged as an
+   *   ERROR with a stack: under an abort storm 20 lines per second, an alert storm for clients that merely stopped
+   *   reading. Since then one aggregated warning per minute.
+   * @seen-failing Treat an idle close like any other stream error in pipeFileToResponse()
+   *   (src/core/modules/file/core-file.controller.ts) — registered as mutation `idle-close-logged-as-error` in
+   *   tests/regression-mutations.json.
+   */
+  it('closes the connection after the first byte without logging an ERROR', async () => {
+    const errors = captureExpectedLogs();
+    const stream = new Readable({ read() {} });
+    const { calls, res } = responseStub(true);
+
+    pipeFileToResponse(stream, res);
+    stream.emit('error', new StreamIdleTimeoutError(30_000));
+    await tick();
+
+    expect(calls.destroyed).toBe(true);
+    expect(errors).toEqual([]);
+  });
+
+  it('answers 503 with Retry-After when the store delivered nothing before the idle time', async () => {
+    const errors = captureExpectedLogs();
+    const stream = new Readable({ read() {} });
+    const { calls, res } = responseStub(false);
+
+    pipeFileToResponse(stream, res);
+    stream.emit('error', new StreamIdleTimeoutError(30_000));
+    await tick();
+
+    expect(calls.status).toBe(503);
+    expect(calls.set['Retry-After']).toBe('5');
+    expect(errors).toEqual([]);
+  });
+});
+
+describe('isResponseGone', () => {
+  /**
+   * @regression   12.8.9 (found in the k6 run against S3) — some aborted downloads reached delivery with the request
+   *   and the socket already destroyed while the response still read `destroyed: false, closed: false` and never
+   *   emitted `close`; judged by the response alone they were delivered to nobody and held their S3 socket for 30 s.
+   * @seen-failing Judge by the response alone in isResponseGone() (src/core/modules/file/core-file.controller.ts) —
+   *   registered as mutation `response-gone-ignores-request-state` in tests/regression-mutations.json.
+   */
+  it('reads a destroyed request or socket as a gone client, even when the response still looks open', async () => {
+    const goneRequest = responseStub(true).res;
+    Object.defineProperty(goneRequest, 'req', { value: { destroyed: true } });
+    const goneSocket = responseStub(true).res;
+    Object.defineProperty(goneSocket, 'socket', { value: { destroyed: true } });
+    const healthy = responseStub(true).res;
+    Object.defineProperty(healthy, 'req', { value: { destroyed: false } });
+    Object.defineProperty(healthy, 'socket', { value: { destroyed: false } });
+
+    expect(isResponseGone(goneRequest)).toBe(true);
+    expect(isResponseGone(goneSocket)).toBe(true);
+    expect(isResponseGone(healthy)).toBe(false);
+
+    // pipeFileToResponse releases the source at once for such a response
+    const stream = new Readable({ read() {} });
+    pipeFileToResponse(stream, goneRequest);
+    await tick();
+    expect(stream.destroyed).toBe(true);
+  });
+
+  /**
+   * @regression   12.8.9 (found in review) — Node destroys a request by itself once its body was read to the end, on a
+   *   healthy connection. Read as "client gone", every download answering a request with a body (a POST export, a GET
+   *   carrying `Content-Length: 0` that a body parser read) was destroyed before the first byte, and the client waited
+   *   for an answer that never came.
+   * @seen-failing Count every destroyed request as aborted in isResponseGone()
+   *   (src/core/modules/file/core-file.controller.ts) — registered as mutation `response-gone-counts-completed-request`
+   *   in tests/regression-mutations.json.
+   */
+  it('does not read a request destroyed after its body was read to the end as a gone client', () => {
+    const completed = responseStub(true).res;
+    Object.defineProperty(completed, 'req', { value: { destroyed: true, readableEnded: true } });
+    Object.defineProperty(completed, 'socket', { value: { destroyed: false } });
+    const aborted = responseStub(true).res;
+    Object.defineProperty(aborted, 'req', { value: { destroyed: true, readableEnded: false } });
+    Object.defineProperty(aborted, 'socket', { value: { destroyed: false } });
+
+    expect(isResponseGone(completed)).toBe(false);
+    expect(isResponseGone(aborted)).toBe(true);
+  });
+});
+
+describe('downloadAbortSignal', () => {
+  /**
+   * @regression   12.8.9 (found in review) — the signal aborted on every request close before the response finished,
+   *   including Node's own close after a body was read to the end: a project route that passes it to the store had its
+   *   S3 request aborted for a client still waiting.
+   * @seen-failing Abort on every request close in downloadAbortSignal() (src/core/modules/file/core-file.controller.ts)
+   *   — registered as mutation `abort-signal-request-close-after-body-read` in tests/regression-mutations.json.
+   */
+  it('aborts when the request closes before its end, and not when it closes after its body was read', () => {
+    const completed = responseStub(true).res;
+    const completedReq = Object.assign(new EventEmitter(), { readableEnded: false });
+    Object.defineProperty(completed, 'req', { value: completedReq });
+    const quiet = downloadAbortSignal(completed);
+    completedReq.readableEnded = true;
+    completedReq.emit('close');
+
+    const aborted = responseStub(true).res;
+    const abortedReq = Object.assign(new EventEmitter(), { readableEnded: false });
+    Object.defineProperty(aborted, 'req', { value: abortedReq });
+    const fired = downloadAbortSignal(aborted);
+    abortedReq.emit('close');
+
+    expect(quiet.aborted).toBe(false);
+    expect(fired.aborted).toBe(true);
+  });
+
+  /**
+   * @regression   12.8.9 (found in the k6 run with request bodies) — once a body was read, the request's own close no
+   *   longer counts, and the signal listened to nothing else but the response. About one in six aborted downloads
+   *   never gets a response close (measured under an abort storm), so their S3 requests kept waiting for a socket and
+   *   took one later for nobody — the pool peaked higher than without bodies.
+   * @seen-failing Do not listen to the socket in downloadAbortSignal() (src/core/modules/file/core-file.controller.ts)
+   *   — registered as mutation `download-abort-signal-ignores-socket` in tests/regression-mutations.json.
+   */
+  it('aborts when the socket reports the client gone after the request body was read', () => {
+    for (const event of ['end', 'close'] as const) {
+      const { res } = responseStub(true);
+      const socket = Object.assign(new EventEmitter(), { destroyed: false });
+      Object.defineProperty(res, 'req', { value: Object.assign(new EventEmitter(), { readableEnded: true }) });
+      Object.defineProperty(res, 'socket', { value: socket });
+      const signal = downloadAbortSignal(res);
+
+      socket.emit(event);
+      expect(signal.aborted, event).toBe(true);
+    }
+  });
+
+  /**
+   * @regression   12.8.9 (found in review) — listeners left on a keep-alive socket pile up with every request it
+   *   carries, until Node warns about a listener leak.
+   * @seen-failing Never remove the socket listeners in downloadAbortSignal()
+   *   (src/core/modules/file/core-file.controller.ts) — registered as mutation
+   *   `download-abort-signal-leaks-socket-listeners` in tests/regression-mutations.json.
+   */
+  it('leaves a keep-alive socket without listeners once the response is done', () => {
+    const { res } = responseStub(true);
+    const socket = Object.assign(new EventEmitter(), { destroyed: false });
+    Object.defineProperty(res, 'req', { value: Object.assign(new EventEmitter(), { readableEnded: true }) });
+    Object.defineProperty(res, 'socket', { value: socket });
+    const signal = downloadAbortSignal(res);
+
+    Object.defineProperty(res, 'writableFinished', { value: true });
+    res.emit('finish');
+    socket.emit('end');
+
+    expect(signal.aborted).toBe(false);
+    expect(socket.listenerCount('end') + socket.listenerCount('close')).toBe(0);
+  });
+});
+
+describe('download delivery over a real Node HTTP server', () => {
+  /** Answers every request after reading its body to the end, the way a body-parsing middleware does */
+  async function serve(deliver: (res: Response) => void) {
+    const server = createServer((req, res) => {
+      req.resume();
+      // The request is closed by Node right after its end: deliver once that happened
+      req.once('end', () => setImmediate(() => deliver(res as unknown as Response)));
+    });
+    await new Promise<void>((resolve) => server.listen(0, '127.0.0.1', resolve));
+    return { port: (server.address() as AddressInfo).port, server };
+  }
+
+  function send(port: number, method: string, body: string): Promise<string> {
+    return new Promise((resolve, reject) => {
+      const req = httpRequest(
+        {
+          agent: false,
+          headers: { 'content-length': Buffer.byteLength(body), 'content-type': 'application/json' },
+          host: '127.0.0.1',
+          method,
+          path: '/',
+          port,
+          timeout: 3000,
+        },
+        (res) => {
+          const parts: Buffer[] = [];
+          res.on('data', (chunk: Buffer) => parts.push(chunk));
+          res.on('end', () => resolve(Buffer.concat(parts).toString()));
+          res.on('error', reject);
+        },
+      );
+      req.on('timeout', () => req.destroy(new Error('no answer within 3 s')));
+      req.on('error', reject);
+      req.end(body);
+    });
+  }
+
+  it('delivers a file and keeps the abort signal quiet when the request body was read to the end', async () => {
+    // Whether the signal had fired when delivery began (it fires later, when the finished response closes)
+    const abortedAtDelivery: boolean[] = [];
+    const { port, server } = await serve((res) => {
+      abortedAtDelivery.push(downloadAbortSignal(res).aborted);
+      pipeFileToResponse(Readable.from([Buffer.from('file-bytes')]), res);
+    });
+    try {
+      // A POST export with a JSON body, and a GET whose `Content-Length: 0` a body parser reads
+      expect(await send(port, 'POST', '{"ids":["a"]}')).toBe('file-bytes');
+      expect(await send(port, 'GET', '')).toBe('file-bytes');
+      expect(abortedAtDelivery).toEqual([false, false]);
+    } finally {
+      server.closeAllConnections();
+      await new Promise((resolve) => server.close(resolve));
+    }
+  });
+});
+
+describe('pipeFileToResponse (client-gone signals)', () => {
+  /**
+   * @regression   12.8.9 (found in the k6 run against S3) — about one in six aborted downloads never got a `close` on
+   *   the response although the client had gone; only the request and the socket reported it. Listening on the
+   *   response alone left ~790 of 4800 aborted downloads holding an S3 socket for 30 s and filled the pool.
+   * @seen-failing Do not listen for the request's close in pipeFileToResponse()
+   *   (src/core/modules/file/core-file.controller.ts) — registered as mutation
+   *   `pipe-file-to-response-ignores-request-close` in tests/regression-mutations.json.
+   */
+  it('releases the source when the request or the socket reports the client gone, not only the response', async () => {
+    for (const signal of ['request', 'socket-end', 'socket-close'] as const) {
+      const { res } = responseStub(true);
+      const req = new EventEmitter();
+      const socket = Object.assign(new EventEmitter(), { destroyed: false });
+      Object.defineProperty(res, 'req', { value: req });
+      Object.defineProperty(res, 'socket', { value: socket });
+      const stream = new Readable({ read() {} });
+
+      pipeFileToResponse(stream, res);
+      if (signal === 'request') {
+        req.emit('close');
+      } else {
+        socket.emit(signal === 'socket-end' ? 'end' : 'close');
+      }
+      await tick();
+      expect(stream.destroyed, signal).toBe(true);
+    }
+  });
+
+  /**
+   * @regression   12.8.9 (found in review) — Node closes a request by itself once its body was read to the end. Read as
+   *   "client gone", a download started before that close (a body still streaming in while the file is piped) was
+   *   destroyed mid-flight on a healthy connection.
+   * @seen-failing Treat every request close as the client leaving in watchClientGone()
+   *   (src/core/modules/file/core-file.controller.ts) — registered as mutation `request-close-after-body-read-releases`
+   *   in tests/regression-mutations.json.
+   */
+  it('keeps delivering when the request closes only because its body was read to the end', async () => {
+    const { res } = responseStub(true);
+    const req = Object.assign(new EventEmitter(), { readableEnded: false });
+    Object.defineProperty(res, 'req', { value: req });
+    const stream = new Readable({ read() {} });
+
+    pipeFileToResponse(stream, res);
+    req.readableEnded = true;
+    req.emit('close');
+    await tick();
+
+    expect(stream.destroyed).toBe(false);
+    stream.destroy();
+  });
+
+  it('ignores a request close that follows a finished response, and leaves a keep-alive socket without listeners', async () => {
+    const { res } = responseStub(true);
+    const req = new EventEmitter();
+    const socket = Object.assign(new EventEmitter(), { destroyed: false });
+    Object.defineProperty(res, 'req', { value: req });
+    Object.defineProperty(res, 'socket', { value: socket });
+    const stream = new Readable({ read() {} });
+
+    pipeFileToResponse(stream, res);
+    Object.defineProperty(res, 'writableFinished', { value: true });
+    res.emit('finish');
+    req.emit('close');
+    await tick();
+
+    expect(stream.destroyed).toBe(false);
+    expect(socket.listenerCount('end') + socket.listenerCount('close')).toBe(0);
+    stream.destroy();
+  });
+});
+
+describe('download routes (client gone)', () => {
+  const file = { contentType: 'image/png', filename: 'a.png', id: 'abc', length: 3 };
+
+  function route(service: Partial<CoreFileService>, piped: Readable[]) {
+    return Object.create(CoreFileController.prototype, {
+      fileService: { value: service },
+      pipeFileToResponse: { value: (stream: Readable, res: Response) => (piped.push(stream), res) },
+    }) as CoreFileController;
+  }
+
+  /**
+   * @regression   12.8.9 — a stream that arrived after the client had gone was handed on as if somebody were
+   *   still waiting for it; with a project's own delivery code that is a source nobody reads or destroys.
+   * @seen-failing Hand a late stream on in openDownloadStream() (src/core/modules/file/core-file.controller.ts) —
+   *   registered as mutation `download-route-keeps-late-stream` in tests/regression-mutations.json.
+   */
+  it('destroys a stream that arrives after the client left, and delivers nothing', async () => {
+    const { res } = responseStub(false);
+    const late = new Readable({ read() {} });
+    const piped: Readable[] = [];
+    let signal: AbortSignal | undefined;
+    const controller = route(
+      {
+        getFileStream: async (_id: string, options?: { abortSignal?: AbortSignal }) => {
+          signal = options?.abortSignal;
+          // The client leaves while the store request is pending
+          res.emit('close');
+          Object.defineProperty(res, 'closed', { value: true });
+          return late;
+        },
+        resolveFile: async () => ({ info: file, store: 's3' }),
+      } as unknown as Partial<CoreFileService>,
+      piped,
+    );
+
+    await controller.getFileById('abc', res);
+
+    expect(piped).toEqual([]);
+    expect(late.destroyed).toBe(true);
+    // The store request was told: an S3 request still waiting for a socket is dropped
+    expect(signal?.aborted).toBe(true);
+  });
+
+  it('answers 503 with Retry-After when the store hands out no connection in time', async () => {
+    const { calls, res } = responseStub(false);
+    const controller = route(
+      {
+        getFileStream: async () => {
+          throw Object.assign(new Error('did not establish a connection within 30000 ms'), { name: 'TimeoutError' });
+        },
+        resolveFile: async () => ({ info: file, store: 's3' }),
+      } as unknown as Partial<CoreFileService>,
+      [],
+    );
+    const error = await controller.getFileById('abc', res).catch((e: unknown) => e);
+    expect((error as { getStatus?: () => number }).getStatus?.()).toBe(503);
+    expect(calls.set['Retry-After']).toBe('5');
+  });
+
+  it('does not ask the store at all when the client left during the rights check', async () => {
+    const { res } = responseStub(false);
+    let opened = false;
+    const controller = route(
+      {
+        getFileStream: async () => {
+          opened = true;
+          return new Readable({ read() {} });
+        },
+        resolveFile: async () => {
+          res.emit('close');
+          Object.defineProperty(res, 'closed', { value: true });
+          return { info: file, store: 's3' };
+        },
+      } as unknown as Partial<CoreFileService>,
+      [],
+    );
+
+    await controller.getFileById('abc', res);
+    expect(opened).toBe(false);
+  });
+
+  it('answers 304 to a matching If-None-Match only after the rights check, without opening the store', async () => {
+    const { calls, res } = responseStub(false);
+    let ended = false;
+    Object.assign(res, {
+      end: () => {
+        ended = true;
+        return res;
+      },
+      req: { headers: { 'if-none-match': '"abc"' } },
+      status: (code: number) => {
+        calls.status = code;
+        return res;
+      },
+    });
+    let opened = false;
+    const order: string[] = [];
+    const controller = route(
+      {
+        getFileStream: async () => {
+          opened = true;
+          return new Readable({ read() {} });
+        },
+        resolveFile: async () => {
+          order.push('rights');
+          return { info: file, store: 's3' };
+        },
+      } as unknown as Partial<CoreFileService>,
+      [],
+    );
+
+    await controller.getFileById('abc', res);
+    expect(order).toEqual(['rights']);
+    expect(calls.status).toBe(304);
+    expect(ended).toBe(true);
+    expect(opened).toBe(false);
+    expect(calls.set.ETag).toBe('W/"abc"');
+  });
+
+  it('sends ETag and Content-Length with a delivered file, and keeps no-store by default', async () => {
+    const { calls, res } = responseStub(false);
+    const piped: Readable[] = [];
+    const controller = route(
+      {
+        getFileStream: async () => Readable.from([Buffer.from('abc')]),
+        resolveFile: async () => ({ info: file, store: 'gridfs' }),
+      } as unknown as Partial<CoreFileService>,
+      piped,
+    );
+
+    await controller.getFileById('abc', res);
+    expect(piped).toHaveLength(1);
+    expect(calls.set.ETag).toBe('W/"abc"');
+    expect(calls.set['Content-Length']).toBe('3');
+    expect(calls.set['Cache-Control']).toBe('private, no-store');
   });
 });
