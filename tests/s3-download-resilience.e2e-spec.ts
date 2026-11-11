@@ -130,7 +130,7 @@ describe('S3 downloads keep the socket pool usable (real RustFS)', () => {
   }, 60_000);
 
   /**
-   * @regression   12.8.9 — a download stream obtained and dropped (never read, never destroyed) held its S3 socket
+   * @regression   12.6.10 — a download stream obtained and dropped (never read, never destroyed) held its S3 socket
    *   for the life of the process; enough of them and every S3 request hung.
    * @seen-failing Return the raw body from CoreS3Service.getObject() (src/core/common/services/core-s3.service.ts) —
    *   registered as mutation `s3-get-object-body-unguarded` in tests/regression-mutations.json.
@@ -206,7 +206,7 @@ describe('S3 downloads keep the socket pool usable (real RustFS)', () => {
     }, 60_000);
 
     /**
-     * @regression   12.8.9 — a client that gave up while its download waited for a free S3 socket left a queued
+     * @regression   12.6.10 — a client that gave up while its download waited for a free S3 socket left a queued
      *   request behind; it later took a socket and a body for nobody. Under load each leak made the next downloads
      *   slower, and every waiter that gave up added one more (the production avalanche).
      * @seen-failing Ignore the abort signal in CoreS3Service.getObject() (src/core/common/services/core-s3.service.ts)
@@ -243,7 +243,7 @@ describe('S3 downloads keep the socket pool usable (real RustFS)', () => {
     }, 30_000);
 
     /**
-     * @regression   12.8.9 — pipeFileToResponse() must release the source when the response closes, not leave it to
+     * @regression   12.6.10 — pipeFileToResponse() must release the source when the response closes, not leave it to
      *   the idle guard: the time an aborted download holds its socket bounds how many aborts the pool can absorb.
      * @seen-failing Drop the release on client-gone in pipeFileToResponse() — the response's close destroy and the
      *   request/socket signals (src/core/modules/file/core-file.controller.ts) — registered as mutation

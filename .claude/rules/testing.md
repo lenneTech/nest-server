@@ -501,7 +501,7 @@ exactly the environment where the answer matters.
 
 ### The cost is vitest's cold start, not the tests
 
-Worth knowing before optimising the wrong thing: the specs behind all 230 e2e mutations add up to
+Worth knowing before optimising the wrong thing: the specs behind all 233 e2e mutations add up to
 **~40 seconds**. The step takes ~740s. The remaining ~700s is paying vitest's startup — process
 spawn, transform, module graph, mongod connect, DB create and drop — once per mutation, 632 times.
 That work is largely single-threaded I/O and barely scales with cores: the full registry measures

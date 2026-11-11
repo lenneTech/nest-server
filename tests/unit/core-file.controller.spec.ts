@@ -352,7 +352,7 @@ describe('pipeFileToResponse (stream lifecycle)', () => {
   });
 
   /**
-   * @regression   12.8.9 — a client that left BEFORE the stream was handed over (it waited for a free S3 socket)
+   * @regression   12.6.10 — a client that left BEFORE the stream was handed over (it waited for a free S3 socket)
    *   has a response that already closed; the `close` listener registered then never fired, and the source kept
    *   its socket. Under load: the production avalanche.
    * @seen-failing Drop the early `isResponseGone()` check in pipeFileToResponse()
@@ -374,7 +374,7 @@ describe('pipeFileToResponse (stream lifecycle)', () => {
 
 describe('pipeFileToResponse (idle close)', () => {
   /**
-   * @regression   12.8.9 (found in the k6 run against S3) — every download the idle guard closed was logged as an
+   * @regression   12.6.10 (found in the k6 run against S3) — every download the idle guard closed was logged as an
    *   ERROR with a stack: under an abort storm 20 lines per second, an alert storm for clients that merely stopped
    *   reading. Since then one aggregated warning per minute.
    * @seen-failing Treat an idle close like any other stream error in pipeFileToResponse()
@@ -411,7 +411,7 @@ describe('pipeFileToResponse (idle close)', () => {
 
 describe('isResponseGone', () => {
   /**
-   * @regression   12.8.9 (found in the k6 run against S3) — some aborted downloads reached delivery with the request
+   * @regression   12.6.10 (found in the k6 run against S3) — some aborted downloads reached delivery with the request
    *   and the socket already destroyed while the response still read `destroyed: false, closed: false` and never
    *   emitted `close`; judged by the response alone they were delivered to nobody and held their S3 socket for 30 s.
    * @seen-failing Judge by the response alone in isResponseGone() (src/core/modules/file/core-file.controller.ts) —
@@ -438,7 +438,7 @@ describe('isResponseGone', () => {
   });
 
   /**
-   * @regression   12.8.9 (found in review) — Node destroys a request by itself once its body was read to the end, on a
+   * @regression   12.6.10 (found in review) — Node destroys a request by itself once its body was read to the end, on a
    *   healthy connection. Read as "client gone", every download answering a request with a body (a POST export, a GET
    *   carrying `Content-Length: 0` that a body parser read) was destroyed before the first byte, and the client waited
    *   for an answer that never came.
@@ -461,7 +461,7 @@ describe('isResponseGone', () => {
 
 describe('downloadAbortSignal', () => {
   /**
-   * @regression   12.8.9 (found in review) — the signal aborted on every request close before the response finished,
+   * @regression   12.6.10 (found in review) — the signal aborted on every request close before the response finished,
    *   including Node's own close after a body was read to the end: a project route that passes it to the store had its
    *   S3 request aborted for a client still waiting.
    * @seen-failing Abort on every request close in downloadAbortSignal() (src/core/modules/file/core-file.controller.ts)
@@ -544,7 +544,7 @@ describe('download delivery over a real Node HTTP server', () => {
 
 describe('pipeFileToResponse (client-gone signals)', () => {
   /**
-   * @regression   12.8.9 (found in the k6 run against S3) — about one in six aborted downloads never got a `close` on
+   * @regression   12.6.10 (found in the k6 run against S3) — about one in six aborted downloads never got a `close` on
    *   the response although the client had gone; only the request and the socket reported it. Listening on the
    *   response alone left ~790 of 4800 aborted downloads holding an S3 socket for 30 s and filled the pool.
    * @seen-failing Do not listen for the request's close in pipeFileToResponse()
@@ -572,7 +572,7 @@ describe('pipeFileToResponse (client-gone signals)', () => {
   });
 
   /**
-   * @regression   12.8.9 (found in review) — Node closes a request by itself once its body was read to the end. Read as
+   * @regression   12.6.10 (found in review) — Node closes a request by itself once its body was read to the end. Read as
    *   "client gone", a download started before that close (a body still streaming in while the file is piped) was
    *   destroyed mid-flight on a healthy connection.
    * @seen-failing Treat every request close as the client leaving in watchClientGone()
@@ -625,7 +625,7 @@ describe('download routes (client gone)', () => {
   }
 
   /**
-   * @regression   12.8.9 — a stream that arrived after the client had gone was handed on as if somebody were
+   * @regression   12.6.10 — a stream that arrived after the client had gone was handed on as if somebody were
    *   still waiting for it; with a project's own delivery code that is a source nobody reads or destroys.
    * @seen-failing Hand a late stream on in openDownloadStream() (src/core/modules/file/core-file.controller.ts) —
    *   registered as mutation `download-route-keeps-late-stream` in tests/regression-mutations.json.

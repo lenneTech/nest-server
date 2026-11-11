@@ -40,7 +40,7 @@ afterEach(() => {
 
 describe('guardIdleStream', () => {
   /**
-   * @regression   12.8.9 — an S3 download stream that was dropped, or piped with a bare `pipe()` to a client that
+   * @regression   12.6.10 — an S3 download stream that was dropped, or piped with a bare `pipe()` to a client that
    *   aborted, held its socket for the life of the process; 50 of them filled the SDK's pool (production outage).
    * @seen-failing Never start the idle timer in guardIdleStream() (src/core/common/helpers/idle-stream.helper.ts) —
    *   registered as mutation `idle-guard-never-fires` in tests/regression-mutations.json.
@@ -72,14 +72,14 @@ describe('guardIdleStream', () => {
   });
 
   /**
-   * @regression   12.8.9 — the idle guard must measure PROGRESS, not age: a slow client that keeps reading must
+   * @regression   12.6.10 — the idle guard must measure PROGRESS, not age: a slow client that keeps reading must
    *   receive the whole file.
    * @seen-failing Reset the timer on neither consumer reads nor source data in guardIdleStream()
    *   (src/core/common/helpers/idle-stream.helper.ts) — registered as mutation `idle-guard-ignores-progress` in
    *   tests/regression-mutations.json.
    */
   /**
-   * @regression   12.8.9 (found while testing) — progress was judged by the source alone; a slow reader working
+   * @regression   12.6.10 (found while testing) — progress was judged by the source alone; a slow reader working
    *   through the buffers between source and consumer (several chunks) made progress without the source
    *   delivering, and was cut off.
    * @seen-failing Stop resetting the timer on consumer reads in guardIdleStream()
@@ -181,7 +181,7 @@ describe('guardIdleStream', () => {
   });
 
   /**
-   * @regression   12.8.9 (found in review) — an idle time above 2^31 - 1 ms ("practically forever") was clamped by
+   * @regression   12.6.10 (found in review) — an idle time above 2^31 - 1 ms ("practically forever") was clamped by
    *   Node to 1 ms: every download closed within a millisecond.
    * @seen-failing Drop the cap at MAX_TIMER_DELAY_MS in guardIdleStream() (src/core/common/helpers/idle-stream.helper.ts)
    *   — registered as mutation `idle-guard-timer-overflow` in tests/regression-mutations.json.

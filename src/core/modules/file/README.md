@@ -41,11 +41,11 @@ file: {
 
 `storage` and the role knobs are orthogonal: one picks the driver, the others the access.
 
-Downloads (12.8.9+): `downloadIdleTimeoutMs` (30 000) closes a download stream that makes no read progress, so an
+Downloads (12.6.10+): `downloadIdleTimeoutMs` (30 000) closes a download stream that makes no read progress, so an
 aborted or dropped download releases its file handle or GridFS cursor; `downloadCaching: 'revalidate'` lets the browser
 keep a file and revalidate it (`304` after the rights check, no store read). S3 has its own pool settings under `s3`
 (`maxSockets`, `connectionTimeoutMs`, `socketTimeoutMs`, `downloadIdleTimeoutMs`) — see
-[Delivering a file from your own route](#delivering-a-file-from-your-own-route-1289).
+[Delivering a file from your own route](#delivering-a-file-from-your-own-route-12610).
 
 ## Storage drivers
 
@@ -494,13 +494,13 @@ server-side even though the client answer stays deliberately generic.
 To change the status, the body or the logging, override the `protected pipeFileToResponse()` method
 on the controller rather than the exported function of the same name.
 
-| Situation (12.8.9+)                                                                         | Status | Body / headers                                                                 |
+| Situation (12.6.10+)                                                                        | Status | Body / headers                                                                 |
 | ------------------------------------------------------------------------------------------- | ------ | ------------------------------------------------------------------------------ |
 | `If-None-Match` names the file's weak `ETag` (`W/"<id>"`), after the rights check           | `304`  | No body; the store is not read                                                 |
 | The store hands out no connection within 3 attempts of `s3.connectionTimeoutMs` (pool busy) | `503`  | `Retry-After: 5`; the store is busy, not broken                                |
 | The client left before the stream was handed over                                           | —      | Nothing is sent; the stream is destroyed at once, a pending S3 request aborted |
 
-### Delivering a file from your own route (12.8.9)
+### Delivering a file from your own route (12.6.10)
 
 **Use `pipeFileToResponse(stream, res)` for every download route of your own — never `stream.pipe(res)`.**
 When the client aborts, `pipe()` only unpipes: the source stays open and keeps what it holds — for S3 a socket of the

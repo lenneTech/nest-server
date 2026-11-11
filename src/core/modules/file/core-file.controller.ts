@@ -160,9 +160,9 @@ export { buildContentDisposition };
  * WHY NOT `stream.pipe(res)`: when the client aborts, `pipe()` only unpipes. The source stays open and
  * paused, and it holds what it was given — for S3 a socket of the client's pool. Enough aborted downloads
  * and the pool is full: every further S3 request waits forever while the health check stays green (a
- * production outage with exactly this cause preceded 12.8.9). This function destroys the source as soon as
+ * production outage with exactly this cause preceded 12.6.10). This function destroys the source as soon as
  * the response closes, and answers a store error before the first byte with a 404 instead of a dropped
- * connection. (Since 12.8.9 the streams of `CoreFileService` and `CoreS3Service` also release themselves
+ * connection. (Since 12.6.10 the streams of `CoreFileService` and `CoreS3Service` also release themselves
  * after an idle time — a second layer, not a reason to skip this one.)
  *
  * A GridFS record and its chunks are two separate writes, so a file document can
