@@ -111,3 +111,7 @@ minimumReleaseAgeExclude:
   - '@better-auth/telemetry@1.7.16'
   - better-auth@1.7.16
   - better-call@1.4.5
+  # 2026-11-11 (nest-server 12.6.9): GHSA-2g53-87p2-4qq8 + GHSA-3q53-mvfw-q9v8 (nodemailer <= 10.4.0, medium),
+  # published 2026-11-10; 10.4.1 (2026-11-10 08:17 UTC, provenance: GitHub Actions OIDC) is the fix. Inert from
+  # 2026-11-11 08:17 UTC on.
+  - nodemailer@10.4.1
