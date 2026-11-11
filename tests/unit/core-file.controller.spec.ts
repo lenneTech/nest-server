@@ -14,7 +14,9 @@ import {
   CoreFileController,
   downloadAbortSignal,
   isResponseGone,
+  openDownloadStream,
   pipeFileToResponse,
+  RESPONSE_GONE,
 } from '../../src/core/modules/file/core-file.controller';
 
 const tick = () => new Promise((resolve) => setImmediate(resolve));
@@ -653,6 +655,84 @@ describe('pipeFileToResponse (client-gone signals)', () => {
 
     expect(stream.destroyed).toBe(false);
     expect(socket.listenerCount('end') + socket.listenerCount('close')).toBe(0);
+    stream.destroy();
+  });
+});
+
+describe('openDownloadStream (a project\'s own download route)', () => {
+  /**
+   * @regression   12.9.2 (found in a consumer project) — the documented pattern for an own route passed
+   *   `downloadAbortSignal(res)` to `getFileStream()`. When the client left before S3 answered, the aborted request
+   *   rejected with `AbortError`, nothing caught it, and every aborted download became an ERROR with a stack trace
+   *   plus a 500 sent into a closed response — under the load the pool-exhausted log line has to stand out in.
+   * @seen-failing Rethrow a store error although the client has gone in openDownloadStream()
+   *   (src/core/modules/file/core-file.controller.ts) — registered as mutation `open-download-abort-rethrown` in
+   *   tests/regression-mutations.json.
+   */
+  it('answers RESPONSE_GONE, without an error, when the store request is aborted because the client left', async () => {
+    const { res } = responseStub(false);
+    const signal = downloadAbortSignal(res);
+    // What the S3 SDK does with an aborted request: it rejects with AbortError
+    const pending = openDownloadStream(
+      res,
+      () =>
+        new Promise<Readable>((_resolve, reject) => {
+          signal.addEventListener('abort', () =>
+            reject(Object.assign(new Error('Request aborted'), { name: 'AbortError' })),
+          );
+        }),
+    );
+    Object.defineProperty(res, 'closed', { value: true });
+    res.emit('close');
+
+    await expect(pending).resolves.toBe(RESPONSE_GONE);
+  });
+
+  it('does not ask the store when the client has already gone', async () => {
+    const { res } = responseStub(false);
+    Object.defineProperty(res, 'destroyed', { value: true });
+    let asked = false;
+
+    const answer = await openDownloadStream(res, async () => {
+      asked = true;
+      return new Readable({ read() {} });
+    });
+
+    expect(answer).toBe(RESPONSE_GONE);
+    expect(asked).toBe(false);
+  });
+
+  /**
+   * @regression   12.9.2 — an own route had no way to the 503 the framework's routes answer when the store hands out
+   *   no connection in time; `TimeoutError` reached Nest as a 500.
+   * @seen-failing Treat TimeoutError like any other error in openDownloadStream()
+   *   (src/core/modules/file/core-file.controller.ts) — registered as mutation `open-download-timeout-not-503` in
+   *   tests/regression-mutations.json.
+   */
+  it('answers 503 with Retry-After when the store hands out no connection in time, and rethrows other errors', async () => {
+    const { calls, res } = responseStub(false);
+    const errors = captureExpectedLogs();
+    const timeout = openDownloadStream(res, async () => {
+      throw Object.assign(new Error('did not establish a connection within 15000 ms'), { name: 'TimeoutError' });
+    });
+    await expect(timeout).rejects.toMatchObject({ status: 503 });
+    expect(calls.set['Retry-After']).toBe('5');
+
+    const broken = new Error('missing chunks');
+    await expect(
+      openDownloadStream(responseStub(false).res, async () => {
+        throw broken;
+      }),
+    ).rejects.toBe(broken);
+    expect(errors).toEqual([]);
+  });
+
+  it('passes a refusal (null) on unchanged and hands out a stream while the client waits', async () => {
+    const { res } = responseStub(false);
+    const stream = new Readable({ read() {} });
+
+    expect(await openDownloadStream(res, async () => null)).toBeNull();
+    expect(await openDownloadStream(res, async () => stream)).toBe(stream);
     stream.destroy();
   });
 });
