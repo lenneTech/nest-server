@@ -41,6 +41,12 @@ file: {
 
 `storage` and the role knobs are orthogonal: one picks the driver, the others the access.
 
+Downloads (12.6.10+): `downloadIdleTimeoutMs` (30 000) closes a download stream that makes no read progress, so an
+aborted or dropped download releases its file handle or GridFS cursor; `downloadCaching: 'revalidate'` lets the browser
+keep a file and revalidate it (`304` after the rights check, no store read). S3 has its own pool settings under `s3`
+(`maxSockets`, `connectionTimeoutMs`, `socketTimeoutMs`, `downloadIdleTimeoutMs`) — see
+[Delivering a file from your own route](#delivering-a-file-from-your-own-route-12610).
+
 ## Storage drivers
 
 Three equivalent options. They differ only in where the bytes end up:
@@ -487,6 +493,48 @@ server-side even though the client answer stays deliberately generic.
 
 To change the status, the body or the logging, override the `protected pipeFileToResponse()` method
 on the controller rather than the exported function of the same name.
+
+| Situation (12.6.10+)                                                                        | Status | Body / headers                                                                 |
+| ------------------------------------------------------------------------------------------- | ------ | ------------------------------------------------------------------------------ |
+| `If-None-Match` names the file's weak `ETag` (`W/"<id>"`), after the rights check           | `304`  | No body; the store is not read                                                 |
+| The store hands out no connection within 3 attempts of `s3.connectionTimeoutMs` (pool busy) | `503`  | `Retry-After: 5`; the store is busy, not broken                                |
+| The client left before the stream was handed over                                           | —      | Nothing is sent; the stream is destroyed at once, a pending S3 request aborted |
+
+### Delivering a file from your own route (12.6.10)
+
+**Use `pipeFileToResponse(stream, res)` for every download route of your own — never `stream.pipe(res)`.**
+When the client aborts, `pipe()` only unpipes: the source stays open and keeps what it holds — for S3 a socket of the
+client's pool. Enough aborted downloads and the pool is full; every S3 request then waits forever while the health
+check stays green. A production outage had exactly this cause. `pipeFileToResponse()` destroys the source when the
+client goes — on the response's `close`, the request's `close` before its end or the socket's `end`/`close`, and at once when the client
+had already gone before the call — and answers a store error before the first byte with `404`.
+
+```typescript
+import { downloadAbortSignal, pipeFileToResponse } from '@lenne.tech/nest-server';
+
+const stream = await this.fileService.getFileStream(id, { abortSignal: downloadAbortSignal(res), currentUser });
+return pipeFileToResponse(stream, res);
+```
+
+Layers below it, each effective on its own:
+
+- Every stream from `CoreFileService.getFileStream()` / `getFileStreamByName()` and `CoreS3Service.getObject()` closes
+  itself after `downloadIdleTimeoutMs` (30 s) without read progress. A slow reader that keeps reading is never cut off.
+  **Read a stream right after obtaining it**: code that collects streams and reads them later (a ZIP export appending
+  every file first) breaks — the closed stream ends without `end`. Open each stream right before it is read, or opt out
+  for that call with `downloadIdleTimeoutMs: false` (`getObject(key, { idleTimeoutMs: false })`) when the code is
+  certain to read it to the end or destroy it.
+- The S3 client runs with its own agents: `s3.maxSockets` (200 instead of the SDK's 50), `s3.connectionTimeoutMs`
+  (15 s per attempt — the bound for waiting for a socket, too; the SDK makes 3 attempts, so a download that gets no
+  socket answers `503` after about 46 s, below the common 60 s proxy timeout), `s3.socketTimeoutMs` (120 s inactivity
+  backstop).
+- An exhausted pool is logged as an ERROR once per minute with numbers (`S3 socket pool exhausted: …`) — alert on it.
+  Downloads closed for lack of progress are one WARN line per minute, never an ERROR per download.
+  `CoreS3Service.getSocketPoolStats()` gives the same numbers to a project's monitoring. It is deliberately not a
+  health-check failure: a short S3 disturbance would take the whole API out of the load balancer.
+- Pass `abortSignal` (aborted when the response closes) so an S3 request whose client has gone is dropped while it
+  waits for a socket instead of taking one later. The framework's routes do this.
+- `s3.presignedDownloads` moves the bytes off the API entirely (a `302` to S3) — consider it for public files.
 
 ### Upload filtering
 
