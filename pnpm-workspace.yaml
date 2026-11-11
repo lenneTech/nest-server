@@ -90,4 +90,7 @@ minimumReleaseAge: 1440
 # Exact versions exempted from the hold-back. `pnpm audit --fix` writes a security fix here so it can
 # be installed the same day. Keep it empty otherwise: every entry names one exact version and goes dead
 # the moment that version stops resolving.
-minimumReleaseAgeExclude: []
+minimumReleaseAgeExclude:
+  # GHSA-2g53-87p2-4qq8 + GHSA-3q53-mvfw-q9v8 (nodemailer <= 10.4.0, medium), published 2026-11-10; 10.4.1
+  # (2026-11-10 08:17 UTC, provenance: GitHub Actions OIDC) is the fix. Remove once it is older than a day.
+  - nodemailer@10.4.1
