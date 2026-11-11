@@ -48,10 +48,10 @@ async function bootstrap() {
     if (typeof envConfig.compression === 'object') {
       envCompressionOptions = envConfig.compression;
     }
+    // `compression.filter` is the package's own default: JSON, GraphQL, text, SSE and SVG are compressed, already
+    // compressed formats (JPEG, PNG, PDF, ZIP) are not — gzipping them only burns CPU under many parallel downloads
     const compressionOptions = {
-      filter: () => {
-        return true;
-      },
+      filter: compression.filter,
       threshold: 0,
       ...envCompressionOptions,
     };

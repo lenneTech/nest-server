@@ -1263,6 +1263,33 @@ export interface IFileConfig {
   deleteRoles?: string[];
 
   /**
+   * Browser caching of file downloads (`GET /files/id/:id`, `GET /files/:filename`).
+   *
+   * - `'none'`: `Cache-Control: private, no-store` — nothing is kept, every view reads the store again.
+   * - `'revalidate'`: `Cache-Control: private, no-cache` plus `ETag` — the browser keeps the file but asks
+   *   again on every use; the request runs the full role and rights check and is answered `304 Not Modified`
+   *   without reading the store. Recommended for image-heavy apps: it removes most store reads (S3 sockets)
+   *   while every view stays authorized. Shared caches stay excluded (`private`). Note that the browser then
+   *   stores authorized file content on the device.
+   *
+   * Both modes send a weak `ETag` (`W/"<file id>"`) and answer a matching `If-None-Match` with 304.
+   * @default 'none'
+   * @since 12.8.9
+   */
+  downloadCaching?: 'none' | 'revalidate';
+
+  /**
+   * Time in milliseconds a download stream from `CoreFileService.getFileStream()` / `getFileStreamByName()` may
+   * go without ANY read progress before it is destroyed, releasing the file handle (filesystem) or the cursor
+   * (GridFS) it holds. Protects against a stream piped with a bare `stream.pipe(res)` to a client that aborts,
+   * and a stream obtained and never read. A slow reader that keeps reading is never cut off. S3 streams use
+   * `s3.downloadIdleTimeoutMs`. A non-positive or non-numeric value uses the default.
+   * @default 30000
+   * @since 12.8.9
+   */
+  downloadIdleTimeoutMs?: number;
+
+  /**
    * Roles allowed to DOWNLOAD files and read file info
    * (`GET /files/id/:id`, `GET /files/:filename`, `getFileInfo` query).
    *
@@ -3872,6 +3899,34 @@ export interface IS3Config {
   bucket: string;
 
   /**
+   * Upper bound in milliseconds for ONE attempt of a request to get a socket: the time it WAITS for a free socket of
+   * the pool (see `maxSockets`) plus the time to connect. The SDK starts this timer when the request is created, not
+   * when it gets a socket, so it bounds the queue wait as well — which keeps the queue from growing without end under
+   * overload (each waiting request holds memory). The SDK retries a timed-out attempt (3 attempts in all), so a
+   * download that cannot get a socket is answered `503` with `Retry-After` after up to about 3 × this value plus a
+   * short backoff — with the default about 46 s, below the common 60 s read timeout of reverse proxies. Keep
+   * 3 × this value below your proxy's read timeout, and well above normal queue waits: a short value fails healthy
+   * downloads under load. A non-positive or non-numeric value uses the default.
+   * @default 15000
+   * @since 12.8.9
+   */
+  connectionTimeoutMs?: number;
+
+  /**
+   * Time in milliseconds a download stream from S3 (`CoreS3Service.getObject()`, and with it
+   * `CoreFileService.getFileStream()` for S3-stored files) may go without ANY read progress before it is
+   * destroyed and its socket returns to the pool.
+   *
+   * A stream that is obtained and never read, or piped with a bare `stream.pipe(res)` to a client that
+   * aborts, otherwise holds its socket for the life of the process — and the pool is finite (see
+   * `maxSockets`). A slow reader that keeps reading is never cut off: every chunk resets the timer.
+   * A non-positive or non-numeric value uses the default; the guard cannot be switched off.
+   * @default 30000
+   * @since 12.8.9
+   */
+  downloadIdleTimeoutMs?: number;
+
+  /**
    * Whether S3 is enabled.
    * Presence of the config object implies true.
    * @default true (when config object is present)
@@ -3890,6 +3945,19 @@ export interface IS3Config {
    * @default false
    */
   forcePathStyle?: boolean;
+
+  /**
+   * Maximum number of concurrent sockets to the S3 endpoint (per protocol). Requests beyond it wait for a
+   * free socket — and are reported as an error in the log while they do (pool saturation).
+   *
+   * The AWS SDK's own default is 50, which a single process reaches with 50 simultaneous downloads; every
+   * stream holds its socket until it is read to the end or destroyed. 200 lets that many transfers run at
+   * once — each costs one file descriptor and a few KB — while staying far below what S3 and S3-compatible
+   * stores accept per client. A non-positive or non-numeric value uses the default.
+   * @default 200
+   * @since 12.8.9
+   */
+  maxSockets?: number;
 
   /**
    * Serve downloads as presigned URL redirects instead of streaming
@@ -3941,6 +4009,16 @@ export interface IS3Config {
    * @default undefined
    */
   secretAccessKey?: string;
+
+  /**
+   * Time in milliseconds a socket to S3 may stay without any traffic before the SDK destroys it — the
+   * backstop under `downloadIdleTimeoutMs` for every request, uploads and copies included. Kept well above
+   * the download idle time, because an S3-compatible store may take a while without sending a byte to
+   * finish a large copy or multipart upload. A non-positive or non-numeric value uses the default.
+   * @default 120000
+   * @since 12.8.9
+   */
+  socketTimeoutMs?: number;
 
   /**
    * Bucket used as staging area for resumable TUS uploads.
