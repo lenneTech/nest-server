@@ -3909,8 +3909,30 @@
       "id": "abort-signal-request-close-after-body-read",
       "defect": "downloadAbortSignal() aborted on every request close before the response finished, including Node's own close after a body was read to the end: the store request of a client still waiting was aborted.",
       "file": "src/core/modules/file/core-file.controller.ts",
-      "find": "      if (!res.writableFinished && !res.req.readableEnded) {\n",
-      "replace": "      if (!res.writableFinished) {\n",
+      "find": "    if (!req?.readableEnded) {\n      abortWhileUnfinished();\n    }\n",
+      "replace": "    abortWhileUnfinished();\n",
+      "specs": [
+        "tests/unit/core-file.controller.spec.ts"
+      ],
+      "driverSpecific": false
+    },
+    {
+      "id": "download-abort-signal-ignores-socket",
+      "defect": "downloadAbortSignal() listened to the response and the request only. Once a request body was read, the request's own close no longer counts, and about one in six aborted downloads never gets a response close: their S3 requests kept waiting for a socket and took one later for nobody.",
+      "file": "src/core/modules/file/core-file.controller.ts",
+      "find": "  socket?.once('end', abortWhileUnfinished);\n  socket?.once('close', abortWhileUnfinished);\n",
+      "replace": "",
+      "specs": [
+        "tests/unit/core-file.controller.spec.ts"
+      ],
+      "driverSpecific": false
+    },
+    {
+      "id": "download-abort-signal-leaks-socket-listeners",
+      "defect": "downloadAbortSignal() left its listeners on the socket after the response was done: a keep-alive socket collected them with every request it carried.",
+      "file": "src/core/modules/file/core-file.controller.ts",
+      "find": "  const cleanUp = () => {\n    socket?.removeListener('end', abortWhileUnfinished);\n    socket?.removeListener('close', abortWhileUnfinished);\n  };\n",
+      "replace": "  const cleanUp = () => undefined;\n",
       "specs": [
         "tests/unit/core-file.controller.spec.ts"
       ],
