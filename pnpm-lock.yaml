@@ -120,8 +120,8 @@ importers:
         specifier: 6.0.11
         version: 6.0.11(debug@4.4.3(supports-color@5.5.0))(supports-color@5.5.0)
       nodemailer:
-        specifier: 10.4.0
-        version: 10.4.0
+        specifier: 10.4.1
+        version: 10.4.1
       passport:
         specifier: 0.7.0
         version: 0.7.0
@@ -144,8 +144,8 @@ importers:
         specifier: 28.0.0
         version: 28.0.0
       undici:
-        specifier: 7.30.1
-        version: 7.30.1
+        specifier: 7.30.2
+        version: 7.30.2
       ws:
         specifier: 8.22.1
         version: 8.22.1
@@ -4049,8 +4049,8 @@ packages:
     resolution: {integrity: sha512-uF0AFsJC07Y1vdW7p580DKAnh7rAO+4UPSSB3mDCPNDufoiaOebV6JmrzpxB14OjEEEiBsNdYoM2Y+fN8M7BBA==}
     engines: {node: '>=20.0.0'}
 
-  nodemailer@10.4.0:
-    resolution: {integrity: sha512-fyy6r4Q5euRJ9Qr3Cts9K7SZrfe9zmz9oLOYiAR02MEJRDRci+99y0OoYBYBgpLffOqkkjXrB/d26VfiMje/kA==}
+  nodemailer@10.4.1:
+    resolution: {integrity: sha512-CyGM/J+n6W72v2B44BOkIrrQ/cvhm2fOa7fkQDHYOqtjM8stumU5ey3uv9oJ2ryShNit79NaEW/vXznvt/35vA==}
     engines: {node: '>=20.0.0'}
 
   nodemon@3.1.14:
@@ -4882,8 +4882,8 @@ packages:
   undici-types@8.9.0:
     resolution: {integrity: sha512-KTDyRTYX8sWmKXAikPHHSyc63CRPETMctyjKFupcC6OBLXT3xsN0e9aF7m+mIXutFWpUXuedtowG7iLOzp0kQg==}
 
-  undici@7.30.1:
-    resolution: {integrity: sha512-03KrMbjIFDWQR5RNPrSw3bd1r12JpyFQl9/yxjUbJtqkjmllqC5lFjZh6ujeuJCKr8EOQvRW872Oy/az+nLYxg==}
+  undici@7.30.2:
+    resolution: {integrity: sha512-mLyPQnHwUxaM/rideoK/+KL8DaAJLRl4aBCfmX444aCSLnIaomqPLtNRe2jdCYcsk5wZzXrDIQC8ZeYNRAYyIA==}
     engines: {node: '>=20.18.1'}
 
   unicode-emoji-modifier-base@1.0.0:
@@ -7309,7 +7309,7 @@ snapshots:
       parse5: 7.3.0
       parse5-htmlparser2-tree-adapter: 7.1.0
       parse5-parser-stream: 7.1.2
-      undici: 7.30.1
+      undici: 7.30.2
       whatwg-mimetype: 4.0.0
 
   chokidar@3.6.0:
@@ -8516,7 +8516,7 @@ snapshots:
 
   nodemailer@10.3.1: {}
 
-  nodemailer@10.4.0: {}
+  nodemailer@10.4.1: {}
 
   nodemon@3.1.14:
     dependencies:
@@ -9349,7 +9349,7 @@ snapshots:
 
   undici-types@8.9.0: {}
 
-  undici@7.30.1: {}
+  undici@7.30.2: {}
 
   unicode-emoji-modifier-base@1.0.0: {}
 
