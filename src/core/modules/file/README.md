@@ -496,10 +496,25 @@ check stays green. A production outage had exactly this cause. `pipeFileToRespon
 client goes — on the response's `close`, the request's `close` before its end or the socket's `end`/`close`, and at once when the client
 had already gone before the call — and answers a store error before the first byte with `404`.
 
-```typescript
-import { downloadAbortSignal, pipeFileToResponse } from '@lenne.tech/nest-server';
+**Open the stream with `openDownloadStream(res, open)` (11.46.4+)**, the function the framework's own routes use. It
+does not ask the store when the client has already gone, destroys a stream that arrives after the client left, and
+answers `503` with `Retry-After` when the store hands out no connection in time. It also turns a store request that
+failed BECAUSE the client left into `RESPONSE_GONE`: an S3 request aborted through `downloadAbortSignal(res)` rejects
+with `AbortError`, and without it every aborted download is an ERROR with a stack trace in the log and a `500` sent
+into a closed response — under the load the `S3 socket pool exhausted:` line has to stand out in.
 
-const stream = await this.fileService.getFileStream(id, { abortSignal: downloadAbortSignal(res), currentUser });
+```typescript
+import { downloadAbortSignal, openDownloadStream, pipeFileToResponse, RESPONSE_GONE } from '@lenne.tech/nest-server';
+
+const stream = await openDownloadStream(res, () =>
+  this.fileService.getFileStream(id, { abortSignal: downloadAbortSignal(res), currentUser }),
+);
+if (stream === RESPONSE_GONE) {
+  return res; // nobody left to deliver to
+}
+if (!stream) {
+  throw new NotFoundException();
+}
 return pipeFileToResponse(stream, res);
 ```
 
