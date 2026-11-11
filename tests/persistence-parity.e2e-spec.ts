@@ -122,7 +122,7 @@ class ParitySyncedItem extends CorePersistenceModel {
   @UnifiedField({ isOptional: true, roles: RoleEnum.S_EVERYONE })
   name?: string = undefined;
 
-  @UnifiedField({ isOptional: true, roles: RoleEnum.S_EVERYONE })
+  @UnifiedField({ isOptional: true, roles: RoleEnum.S_EVERYONE, type: () => Object })
   parentId?: any = undefined;
 
   @UnifiedField({ isOptional: true, roles: RoleEnum.S_EVERYONE })

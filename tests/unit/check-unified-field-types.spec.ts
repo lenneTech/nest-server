@@ -368,6 +368,52 @@ export class Flags {
     expect(ts.transpileModule(fixed, { reportDiagnostics: true }).diagnostics).toEqual([]);
   });
 
+  /**
+   * @regression   12.9.0 (DEV-4182) — a mixed enum (string and number members) counted as a plain enum, so `check`
+   *   passed while @UnifiedField refuses the field at boot: SWC writes the enum object, tsc writes Object, and neither
+   *   reads as String / Number.
+   * @seen-failing Treat every enum as safe in emitsTheSameType() (bin/check-unified-field-types.js) — registered as
+   *   mutation `unified-field-types-trusts-mixed-enum` in tests/regression-mutations.json.
+   */
+  it('reports a field typed with a mixed enum, and leaves an enum of strings or of numbers alone', () => {
+    const model = `import { UnifiedField } from './decorator';
+enum Mixed { Low = 0, High = 'high' }
+enum Level { Low = 1, High = 2 }
+enum Mode { On = 'on', Off = 'off' }
+export class Settings {
+  @UnifiedField() mixed?: Mixed;
+  @UnifiedField() level?: Level;
+  @UnifiedField() mode?: Mode;
+}
+`;
+    write({ 'decorator.ts': DECORATOR, 'settings.ts': model });
+    const { lines, out } = captureOutput();
+
+    expect(main([], dir, out)).toBe(1);
+    const report = lines.join('\n');
+    expect(report).toMatch(/Settings\.mixed \(an enum\)/);
+    expect(report).not.toContain('Settings.level');
+    expect(report).not.toContain('Settings.mode');
+  });
+
+  it('checks spec and test files too, since the boot refuses such a field wherever it is declared', () => {
+    const fixture = `import { UnifiedField } from './decorator';
+export class Fixture {
+  @UnifiedField() max?: null | number;
+}
+`;
+    write({
+      'decorator.ts': DECORATOR,
+      'fixture.spec.ts': fixture,
+      'story.test.ts': fixture.replace('Fixture', 'Story'),
+    });
+    const { lines, out } = captureOutput();
+
+    expect(main([], dir, out)).toBe(1);
+    expect(lines.join('\n')).toMatch(/Fixture\.max/);
+    expect(lines.join('\n')).toMatch(/Story\.max/);
+  });
+
   it('passes a project whose fields both compilers read alike', () => {
     write({
       'decorator.ts': DECORATOR,
