@@ -68,8 +68,8 @@ class InputWithPlainNested {
   @UnifiedField({ description: 'Label', isOptional: true })
   label?: string;
 
-  // Plain object without type — no nestedTypeRegistry entry
-  @UnifiedField({ description: 'Metadata', isOptional: true })
+  // Free-form object: `type: () => Object` (required since 12.9.0) — no class, so no nestedTypeRegistry entry
+  @UnifiedField({ description: 'Metadata', isOptional: true, type: () => Object })
   metadata?: Record<string, any>;
 }
 
