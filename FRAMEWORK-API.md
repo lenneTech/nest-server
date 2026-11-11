@@ -167,6 +167,8 @@ When `passkey` is enabled, `trustedOrigins` is required (compile-time enforcemen
 
   - `access?`: `"authenticated" | "custom" | "owner" | "public" | "tenant"` (default: `'custom'`) — WHICH PROJECT CLASS this deployment is — the per-file rule, as a declaration instead of code.
   - `deleteRoles?`: `string[]` (default: `['admin']`) — Roles allowed to DELETE files (`deleteFile` mutation).
+  - `downloadCaching?`: `"none" | "revalidate"` (default: `'none'`) — Browser caching of file downloads (`GET /files/id/:id`, `GET /files/:filename`).
+  - `downloadIdleTimeoutMs?`: `number` (default: `30000`) — Time in milliseconds a download stream from `CoreFileService.getFileStream()` / `getFileStreamByName()` may
   - `downloadRoles?`: `string[]` (default: `['admin']`) — Roles allowed to DOWNLOAD files and read file info
   - `storage?`: `"filesystem" | "gridfs" | "s3"` (default: `derived — see above`) — Storage driver for CoreFileService. Three equivalent options:
   - `storageDir?`: `string` (default: `'uploads/files'`) — Directory for the `'filesystem'` storage driver.
@@ -189,12 +191,16 @@ When `passkey` is enabled, `trustedOrigins` is required (compile-time enforcemen
   - `accessKeyId?`: `string` (default: `undefined`) — Access key ID.
   - `autoCreateBucket?`: `boolean` (default: `false`) — Create the configured buckets at startup when they do not exist.
   - `bucket`: `string` — Bucket for files stored via CoreFileService
+  - `connectionTimeoutMs?`: `number` (default: `15000`) — Upper bound in milliseconds for ONE attempt of a request to get a socket: the time it WAITS for a free socket of
+  - `downloadIdleTimeoutMs?`: `number` (default: `30000`) — Time in milliseconds a download stream from S3 (`CoreS3Service.getObject()`, and with it
   - `enabled?`: `boolean` (default: `true (when config object is present)`) — Whether S3 is enabled.
   - `endpoint?`: `string` (default: `undefined`) — Custom endpoint URL for S3-compatible services (MinIO, RustFS, ...).
   - `forcePathStyle?`: `boolean` (default: `false`) — Use path-style addressing (required by most self-hosted S3 services).
+  - `maxSockets?`: `number` (default: `200`) — Maximum number of concurrent sockets to the S3 endpoint (per protocol). Requests beyond it wait for a
   - `presignedDownloads?`: `boolean | { enabled?: boolean; expiresInSeconds?: number; }` (default: `false`) — Serve downloads as presigned URL redirects instead of streaming
   - `region?`: `string` (default: `'us-east-1'`) — AWS region
   - `secretAccessKey?`: `string` (default: `undefined`) — Secret access key.
+  - `socketTimeoutMs?`: `number` (default: `120000`) — Time in milliseconds a socket to S3 may stay without any traffic before the SDK destroys it — the
   - `stagingBucket?`: `string` (default: `same as `bucket``) — Bucket used as staging area for resumable TUS uploads.
 
 ### ITusConfig

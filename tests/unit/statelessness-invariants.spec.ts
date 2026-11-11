@@ -219,6 +219,15 @@ const INVENTORY: StateEntry[] = [
   },
   {
     because:
+      'The periodic check of THIS process\'s S3 socket pool: it reads the agents of this process\'s S3 client and '
+      + 'reports an exhausted pool to this process\'s log. Each replica has its own pool, so each checks and reports '
+      + 'its own — there is nothing to share. Cleared on shutdown and unref-ed.',
+    classification: 'local',
+    file: 'common/services/core-s3.service.ts',
+    name: 'poolMonitor',
+  },
+  {
+    because:
       'The interval of one expiry sweep (expired rows of SQL tables, expired IAM sessions). Every replica runs its own '
       + 'timer, and that is the intended shape: with a SQL default source a lease in the shared lease table lets one '
       + 'replica per interval do the work, otherwise each one does — harmless, because a sweep deletes only what '
