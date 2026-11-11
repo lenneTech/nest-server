@@ -93,7 +93,9 @@ export class CoreAiController {
     @Body() input: CoreAiPromptInput,
     @Res() res: Response,
   ): Promise<void> {
-    res.setHeader('Cache-Control', 'no-cache');
+    // `no-transform` keeps a `compression` middleware out of the stream: gzip would otherwise hold every event until
+    // the response ends (measured: events written at 0, 300 and 600 ms all arrived together at about 900 ms)
+    res.setHeader('Cache-Control', 'no-cache, no-transform');
     res.setHeader('Connection', 'keep-alive');
     res.setHeader('Content-Type', 'text/event-stream');
     // Disable proxy-side response buffering (nginx and friends honour this); without
@@ -107,17 +109,23 @@ export class CoreAiController {
     // idle connection at 60 s, which the client then sees as a turn that silently
     // vanished. Comment frames are ignored by every SSE client and keep the
     // connection observably alive.
+    // A compressor that ignores `no-transform` still sends what was written once it is flushed (`compression` adds
+    // `flush()` to the response)
+    const send = (chunk: string) => {
+      res.write(chunk);
+      (res as Response & { flush?: () => void }).flush?.();
+    };
     const heartbeat = setInterval(() => {
-      res.write(': keep-alive\n\n');
+      send(': keep-alive\n\n');
     }, 15_000);
     heartbeat.unref?.();
 
     try {
       for await (const event of this.aiService.promptStream(input, serviceOptions)) {
-        res.write(`data: ${JSON.stringify(event)}\n\n`);
+        send(`data: ${JSON.stringify(event)}\n\n`);
       }
     } catch (err) {
-      res.write(`data: ${JSON.stringify({ message: (err as Error).message, type: 'error' })}\n\n`);
+      send(`data: ${JSON.stringify({ message: (err as Error).message, type: 'error' })}\n\n`);
     } finally {
       clearInterval(heartbeat);
       res.end();
