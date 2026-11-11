@@ -7012,8 +7012,30 @@
       "id": "download-route-keeps-late-stream",
       "defect": "A download stream that arrived after the client had left was handed on for delivery; with a project's own delivery code it was a source nobody read or destroyed.",
       "file": "src/core/modules/file/core-file.controller.ts",
-      "find": "    if (stream && isResponseGone(res)) {\n      stream.destroy();\n      return RESPONSE_GONE;\n    }\n",
+      "find": "  if (stream && isResponseGone(res)) {\n    stream.destroy();\n    return RESPONSE_GONE;\n  }\n",
       "replace": "",
+      "specs": [
+        "tests/unit/core-file.controller.spec.ts"
+      ],
+      "driverSpecific": false
+    },
+    {
+      "id": "open-download-abort-rethrown",
+      "defect": "openDownloadStream() was only a protected controller method, and the documented pattern for an own download route passed downloadAbortSignal(res) to getFileStream() without it. A client leaving before S3 answered made the aborted request reject with AbortError: an ERROR with a stack trace per aborted download and a 500 sent into a closed response.",
+      "file": "src/core/modules/file/core-file.controller.ts",
+      "find": "  } catch (error) {\n    if (isResponseGone(res)) {\n      return RESPONSE_GONE;\n    }\n",
+      "replace": "  } catch (error) {\n",
+      "specs": [
+        "tests/unit/core-file.controller.spec.ts"
+      ],
+      "driverSpecific": false
+    },
+    {
+      "id": "open-download-timeout-not-503",
+      "defect": "A store that handed out no connection in time (TimeoutError) reached Nest as a 500 instead of a 503 with Retry-After.",
+      "file": "src/core/modules/file/core-file.controller.ts",
+      "find": "    if ((error as { name?: string })?.name === 'TimeoutError') {\n",
+      "replace": "    if ((error as { name?: string })?.name === 'NoSuchError') {\n",
       "specs": [
         "tests/unit/core-file.controller.spec.ts"
       ],
@@ -7148,6 +7170,28 @@
       "replace": "",
       "specs": [
         "tests/unit/core-file.controller.spec.ts"
+      ],
+      "driverSpecific": false
+    },
+    {
+      "id": "ai-stream-compressed",
+      "defect": "POST /ai/stream sent its events without Cache-Control: no-transform. Behind compression (registered by nest-server-starter and the reference main.ts) gzip held every event until the run ended, so a client saw nothing for the whole run and then everything at once.",
+      "file": "src/core/modules/ai/core-ai.controller.ts",
+      "find": "    res.setHeader('Cache-Control', 'no-cache, no-transform');\n",
+      "replace": "    res.setHeader('Cache-Control', 'no-cache');\n",
+      "specs": [
+        "tests/unit/ai-stream-sse.spec.ts"
+      ],
+      "driverSpecific": false
+    },
+    {
+      "id": "ai-stream-never-flushes",
+      "defect": "POST /ai/stream wrote its events without flushing them; a compressor that ignores no-transform held the stream back until the run ended.",
+      "file": "src/core/modules/ai/core-ai.controller.ts",
+      "find": "      (res as Response & { flush?: () => void }).flush?.();\n",
+      "replace": "",
+      "specs": [
+        "tests/unit/ai-stream-sse.spec.ts"
       ],
       "driverSpecific": false
     }

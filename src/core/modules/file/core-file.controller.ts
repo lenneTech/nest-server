@@ -311,6 +311,66 @@ export function downloadAbortSignal(res: Response): AbortSignal {
 }
 
 /**
+ * Open a download stream unless the client has already gone, and release a stream that arrives after it left — the
+ * framework's download routes use it, and so should a project's own (with {@link pipeFileToResponse} for delivery):
+ *
+ * ```typescript
+ * const stream = await openDownloadStream(res, () =>
+ *   this.fileService.getFileStream(id, { abortSignal: downloadAbortSignal(res), currentUser }),
+ * );
+ * if (stream === RESPONSE_GONE) {
+ *   return res;
+ * }
+ * if (!stream) {
+ *   throw new NotFoundException();
+ * }
+ * return pipeFileToResponse(stream, res);
+ * ```
+ *
+ * Answers {@link RESPONSE_GONE} when there is nobody left to deliver to — end the route with `return res` then:
+ * - the client had gone before the store was asked;
+ * - the store request failed because the client left meanwhile. An S3 request aborted through
+ *   {@link downloadAbortSignal} rejects with `AbortError`; rethrown, every aborted download became an ERROR with a
+ *   stack trace in the log and a 500 sent into a closed response, under exactly the load the log line
+ *   `S3 socket pool exhausted:` has to stand out in;
+ * - the stream arrived after the client left — it is destroyed here, so its socket, file handle or cursor is free at
+ *   once.
+ *
+ * A store that handed out no connection in time (`TimeoutError`, see `s3.connectionTimeoutMs`) answers `503` with
+ * `Retry-After: 5`. Any other error is rethrown. `null` or `undefined` (the service's rights check refused) is passed
+ * on unchanged.
+ */
+export async function openDownloadStream<T extends null | Readable | undefined>(
+  res: Response,
+  open: () => Promise<T>,
+): Promise<T | typeof RESPONSE_GONE> {
+  if (isResponseGone(res)) {
+    return RESPONSE_GONE;
+  }
+  let stream: T;
+  try {
+    stream = await open();
+  } catch (error) {
+    if (isResponseGone(res)) {
+      return RESPONSE_GONE;
+    }
+    // The store did not hand out a connection in time (`s3.connectionTimeoutMs`, which includes the wait for a
+    // free socket): the store is busy, not broken, and the client may try again — 503, not 500
+    if ((error as { name?: string })?.name === 'TimeoutError') {
+      fileStreamLogger.warn(`File store busy, download answered 503: ${(error as Error).message}`);
+      res.header('Retry-After', '5');
+      throw new ServiceUnavailableException('File storage is busy, please retry');
+    }
+    throw error;
+  }
+  if (stream && isResponseGone(res)) {
+    stream.destroy();
+    return RESPONSE_GONE;
+  }
+  return stream;
+}
+
+/**
  * File controller
  *
  * TENANT SCOPING: the class carries `@SkipTenantCheck()`, so the roles below are
@@ -517,40 +577,14 @@ export abstract class CoreFileController {
   }
 
   /**
-   * Open the download stream unless the client has already gone, and release a stream that arrives after it left.
-   *
-   * Answers {@link RESPONSE_GONE} when there is nobody left to deliver to: before the store is asked, when the
-   * store request was aborted because the response closed, or when the stream arrived after it closed (then the
-   * stream is destroyed here, so its socket, file handle or cursor is free at once).
+   * Open the download stream unless the client has already gone, and release a stream that arrives after it left —
+   * see the exported {@link openDownloadStream}, which a project's own download route uses the same way.
    */
   protected async openDownloadStream(
     res: Response,
     open: () => Promise<Readable>,
   ): Promise<Readable | typeof RESPONSE_GONE> {
-    if (isResponseGone(res)) {
-      return RESPONSE_GONE;
-    }
-    let stream: Readable;
-    try {
-      stream = await open();
-    } catch (error) {
-      if (isResponseGone(res)) {
-        return RESPONSE_GONE;
-      }
-      // The store did not hand out a connection in time (`s3.connectionTimeoutMs`, which includes the wait for a
-      // free socket): the store is busy, not broken, and the client may try again — 503, not 500
-      if ((error as { name?: string })?.name === 'TimeoutError') {
-        fileStreamLogger.warn(`File store busy, download answered 503: ${(error as Error).message}`);
-        res.header('Retry-After', '5');
-        throw new ServiceUnavailableException('File storage is busy, please retry');
-      }
-      throw error;
-    }
-    if (stream && isResponseGone(res)) {
-      stream.destroy();
-      return RESPONSE_GONE;
-    }
-    return stream;
+    return openDownloadStream(res, open);
   }
 
   /**
