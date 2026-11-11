@@ -247,11 +247,23 @@ function emitsTheSameType(ts, checker, node) {
     return false;
   }
   const target = symbol.flags & ts.SymbolFlags.Alias ? checker.getAliasedSymbol(symbol) : symbol;
-  // An enum: SWC writes the enum object, which @UnifiedField reads as String / Number like tsc does (12.8.7)
+  // An enum: SWC writes the enum object, which @UnifiedField reads as String / Number like tsc does (12.8.7) — but only
+  // an enum whose members are all strings or all numbers; tsc writes Object for a mixed one, and so does the decorator
   if (target.flags & ts.SymbolFlags.Enum) {
-    return true;
+    return isHomogeneousEnum(ts, checker, target);
   }
   return isLibDate(target) || (target.flags & ts.SymbolFlags.Class) !== 0;
+}
+
+/** Whether every member of the enum is a string, or every member a number (what @UnifiedField reads as String / Number). */
+function isHomogeneousEnum(ts, checker, enumSymbol) {
+  const values = (enumSymbol.declarations ?? [])
+    .filter((declaration) => ts.isEnumDeclaration(declaration))
+    .flatMap((declaration) => declaration.members.map((member) => checker.getConstantValue(member)));
+  return (
+    values.length > 0 &&
+    (values.every((value) => typeof value === 'string') || values.every((value) => typeof value === 'number'))
+  );
 }
 
 function everyMember(type, predicate) {
@@ -461,7 +473,7 @@ function analyze(ts, program, cwd, include) {
     if (
       sourceFile.isDeclarationFile ||
       fileName.includes(`${path.sep}node_modules${path.sep}`) ||
-      /\.(spec|test)\.[cm]?tsx?$/.test(fileName) ||
+      // Spec and test files are checked too (12.9.0): @UnifiedField refuses such a field at boot wherever it is declared
       !roots.some((root) => fileName.startsWith(root))
     ) {
       continue;

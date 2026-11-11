@@ -299,32 +299,30 @@ function designTypeOf(metadataType: unknown): unknown {
   return metadataType;
 }
 
-/** Fields already warned about by {@link warnIfAmbiguousMetadataType}: one line per field, not per decoration. */
-const ambiguousTypeWarned = new Set<string>();
-
 /**
- * Warn when a field without `type` / `isAny` / `enum` takes its type from compiler metadata that is only `Object`. The
- * SWC loader of the dev start writes `design:type` syntactically, file by file: a union with `null` / `undefined` (also
- * with an enum), a type alias or an interface become `Object` there, where the tsc build writes `Number`, `String` or
- * the class — a plain enum is read like tsc does, see {@link designTypeOf}. The dev API then validates the field as a
- * nested object while the deployed one does not — `max: 5` refused in development, accepted in production.
+ * Refuse a field without `type` / `isAny` / `enum` whose type would come from compiler metadata that is only `Object`
+ * (12.9.0; 12.8.7 warned). The SWC loader of the dev start writes `design:type` syntactically, file by file: a union
+ * with `null` / `undefined` (also with an enum), a type alias or an interface become `Object` there, where the tsc build
+ * writes `Number`, `String` or the class — a plain enum is read like tsc does, see {@link designTypeOf}. Taken as is,
+ * the dev API validated such a field as a nested object while the deployed one did not — `max: 5` refused in
+ * development, accepted in production — and a field tsc also writes as `Object` (`any`, `Record`, an interface) was
+ * validated as an object nobody declared. Like an array field without `type`, the field has to say what it holds.
  *
  * The package bin `nest-check-unified-field-types --fix` (`check:unified-field-types` in nest-server-starter
- * projects; vendor mode: `node ./bin/check-unified-field-types.js --fix`) writes the declared type into every such
- * field; a later release refuses them at boot.
+ * projects; vendor mode: `node ./bin/check-unified-field-types.js --fix`) writes the declared type into every field it
+ * can resolve and names the rest.
  */
-function warnIfAmbiguousMetadataType(metadataType: unknown, propertyHint: string): void {
+function assertExplicitTypeForObjectMetadata(metadataType: unknown, propertyHint: string): void {
   const ambiguous = metadataType === Object || (typeof metadataType === 'object' && metadataType !== null);
-  if (!ambiguous || ambiguousTypeWarned.has(propertyHint)) return;
-  ambiguousTypeWarned.add(propertyHint);
-  // eslint-disable-next-line no-console
-  console.warn(
-    `[@UnifiedField] "${propertyHint}" has no explicit type, and the compiler metadata says only "Object". The SWC ` +
-      'dev start and the tsc build can disagree here (a union with null/undefined, a type alias, an interface), so ' +
-      'the dev API may validate it as a nested object. Declare it: type: () => Number / String / Boolean / ' +
-      'Date / <Class>, type: () => Object for a free-form object, or isAny: true. `nest-check-unified-field-types ' +
-      '--fix` (vendor mode: `node ./bin/check-unified-field-types.js --fix`) writes the declared type; a later ' +
-      'release refuses such a field at boot.',
+  if (!ambiguous) return;
+  throw new Error(
+    `[@UnifiedField] "${propertyHint}" has no explicit type, and the compiler metadata says only "Object", which ` +
+      'names no type — and the SWC dev start and the tsc build can write different ones here (a union with ' +
+      'null/undefined, a type alias, an interface, a mixed enum, a class not yet defined because of an import ' +
+      'cycle). Declare it: type: () => Number / String / ' +
+      'Boolean / Date / <Class>, type: () => Object for a free-form object, or isAny: true. ' +
+      '`nest-check-unified-field-types --fix` (vendor mode: `node ./bin/check-unified-field-types.js --fix`) writes ' +
+      'the declared type where it can resolve one and names the rest. See migration-guides/12.8.x-to-12.9.x.md.',
   );
 }
 
@@ -421,7 +419,7 @@ export function UnifiedField(opts: UnifiedFieldOptions = {}): PropertyDecorator 
     }
 
     if (!userType && !opts.isAny && !normalizedEnum) {
-      warnIfAmbiguousMetadataType(metadataType, `${target.constructor?.name || '?'}.${key}`);
+      assertExplicitTypeForObjectMetadata(metadataType, `${target.constructor?.name || '?'}.${key}`);
     }
 
     const resolvedTypeFn = (): any => {

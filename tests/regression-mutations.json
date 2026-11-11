@@ -7285,9 +7285,9 @@
     },
     {
       "id": "unified-field-ambiguous-type-silent",
-      "defect": "Until 12.8.6 @UnifiedField accepted a field whose only type information was design:type Object (or an enum object, as the SWC dev start writes it) without a word, and the dev API validated it as a nested object.",
+      "defect": "A field without type / isAny / enum whose design:type is only Object (the SWC dev start writes it for `null | number`, a type alias, `boolean | null`) was taken as a nested object: the dev API refused `max: 5` while the tsc build accepted it. 12.9.0 refuses such a field at boot.",
       "file": "src/core/common/decorators/unified-field.decorator.ts",
-      "find": "      warnIfAmbiguousMetadataType(metadataType, `${target.constructor?.name || '?'}.${key}`);\n",
+      "find": "      assertExplicitTypeForObjectMetadata(metadataType, `${target.constructor?.name || '?'}.${key}`);\n",
       "replace": "",
       "specs": [
         "tests/unit/unified-field-ambiguous-type.spec.ts"
@@ -7366,6 +7366,17 @@
       "file": "bin/check-unified-field-types.js",
       "find": "    if (\n      name === 'isAny' &&\n      !(ts.isPropertyAssignment(property) && property.initializer.kind === ts.SyntaxKind.FalseKeyword)\n    ) {\n      return true;\n    }\n",
       "replace": "    if (name === 'isAny') {\n      return !(ts.isPropertyAssignment(property) && property.initializer.kind === ts.SyntaxKind.FalseKeyword);\n    }\n",
+      "specs": [
+        "tests/unit/check-unified-field-types.spec.ts"
+      ],
+      "driverSpecific": false
+    },
+    {
+      "id": "unified-field-types-trusts-mixed-enum",
+      "defect": "A field typed with a mixed enum counted as a plain enum, so `check:unified-field-types` passed while @UnifiedField refuses the field at boot (SWC writes the enum object, tsc writes Object).",
+      "file": "bin/check-unified-field-types.js",
+      "find": "    return isHomogeneousEnum(ts, checker, target);\n",
+      "replace": "    return true;\n",
       "specs": [
         "tests/unit/check-unified-field-types.spec.ts"
       ],
