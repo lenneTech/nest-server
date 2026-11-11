@@ -7,7 +7,7 @@ export interface FileServiceOptions {
    *
    * For S3 this matters under load: a request that waits for a free socket of the client's pool stays queued
    * after its HTTP client has gone, and every one of them later takes a socket and allocates a body. The
-   * framework's download routes abort it when the response closes. Since 12.8.9.
+   * framework's download routes abort it when the response closes. Since 11.46.3.
    */
   abortSignal?: AbortSignal;
 
@@ -22,7 +22,7 @@ export interface FileServiceOptions {
    * every file first and pipes each entry when its turn comes) AND is certain to read it to the end or destroy it:
    * such a stream holds its socket, handle or cursor until then. Prefer opening each stream right before it is read.
    * The guard's error handling stays; for S3 the SDK still closes a socket idle for `s3.socketTimeoutMs`.
-   * Since 12.8.9.
+   * Since 11.46.3.
    */
   downloadIdleTimeoutMs?: false | number;
   force?: boolean;

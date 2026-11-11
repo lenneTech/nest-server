@@ -1,7 +1,7 @@
 /**
  * The per-call opt-out of the download idle guard reaches every store.
  *
- * Since 12.8.9 every download stream closes itself after `downloadIdleTimeoutMs` without read progress. Code that
+ * Since 11.46.3 every download stream closes itself after `downloadIdleTimeoutMs` without read progress. Code that
  * reads streams LATE on purpose (a ZIP export that appends every file first) is told to pass
  * `downloadIdleTimeoutMs: false` — for S3 that option has to travel through four hops (`FileServiceOptions` →
  * `s3StreamOptions()` → `S3FileHelper.getStream()` → `CoreS3Service.getObject()`) and be honoured by two guards.
@@ -60,7 +60,7 @@ function fileService(s3Service: CoreS3Service): CoreFileService {
 
 describe('per-call opt-out of the download idle guard', () => {
   /**
-   * @regression   12.8.9 (found in review) — the documented opt-out for late readers must reach the S3 body: losing
+   * @regression   11.46.3 (found in review) — the documented opt-out for late readers must reach the S3 body: losing
    *   it on one of the four hops leaves S3 streams guarded while filesystem and GridFS honour it, and a ZIP export
    *   that followed the migration guide hangs anyway.
    * @seen-failing Drop `idleTimeoutMs` from s3StreamOptions() (src/core/modules/file/core-file.service.ts) —
@@ -79,7 +79,7 @@ describe('per-call opt-out of the download idle guard', () => {
   });
 
   /**
-   * @regression   12.8.9 (found in review) — the opt-out first handed back the RAW S3 body. The SDK's socket timeout
+   * @regression   11.46.3 (found in review) — the opt-out first handed back the RAW S3 body. The SDK's socket timeout
    *   destroys an unread body WITH an error, and a checksum-wrapped body re-emits it on a stream nobody listens to:
    *   an uncaught exception that ends the API process. The opt-out now keeps the guard (error handling, release on
    *   close) and only skips its timer.

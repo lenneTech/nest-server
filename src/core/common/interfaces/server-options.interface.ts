@@ -1269,7 +1269,7 @@ export interface IFileConfig {
    *
    * Both modes send a weak `ETag` (`W/"<file id>"`) and answer a matching `If-None-Match` with 304.
    * @default 'none'
-   * @since 12.8.9
+   * @since 11.46.3
    */
   downloadCaching?: 'none' | 'revalidate';
 
@@ -1280,7 +1280,7 @@ export interface IFileConfig {
    * and a stream obtained and never read. A slow reader that keeps reading is never cut off. S3 streams use
    * `s3.downloadIdleTimeoutMs`. A non-positive or non-numeric value uses the default.
    * @default 30000
-   * @since 12.8.9
+   * @since 11.46.3
    */
   downloadIdleTimeoutMs?: number;
 
@@ -3765,7 +3765,7 @@ export interface IS3Config {
    * 3 × this value below your proxy's read timeout, and well above normal queue waits: a short value fails healthy
    * downloads under load. A non-positive or non-numeric value uses the default.
    * @default 15000
-   * @since 12.8.9
+   * @since 11.46.3
    */
   connectionTimeoutMs?: number;
 
@@ -3779,7 +3779,7 @@ export interface IS3Config {
    * `maxSockets`). A slow reader that keeps reading is never cut off: every chunk resets the timer.
    * A non-positive or non-numeric value uses the default; the guard cannot be switched off.
    * @default 30000
-   * @since 12.8.9
+   * @since 11.46.3
    */
   downloadIdleTimeoutMs?: number;
 
@@ -3812,7 +3812,7 @@ export interface IS3Config {
    * once — each costs one file descriptor and a few KB — while staying far below what S3 and S3-compatible
    * stores accept per client. A non-positive or non-numeric value uses the default.
    * @default 200
-   * @since 12.8.9
+   * @since 11.46.3
    */
   maxSockets?: number;
 
@@ -3873,7 +3873,7 @@ export interface IS3Config {
    * the download idle time, because an S3-compatible store may take a while without sending a byte to
    * finish a large copy or multipart upload. A non-positive or non-numeric value uses the default.
    * @default 120000
-   * @since 12.8.9
+   * @since 11.46.3
    */
   socketTimeoutMs?: number;
 
