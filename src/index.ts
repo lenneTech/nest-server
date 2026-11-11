@@ -46,6 +46,7 @@ export * from './core/common/helpers/graphql-ws-connection.helper';
 export * from './core/common/helpers/graphql-ws-context.helper';
 export * from './core/common/helpers/interceptor.helper';
 export * from './core/common/helpers/gridfs.helper';
+export * from './core/common/helpers/idle-stream.helper';
 export * from './core/common/helpers/input.helper';
 export * from './core/common/helpers/logging.helper';
 export * from './core/common/helpers/meta.helper';

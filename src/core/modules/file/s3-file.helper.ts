@@ -214,9 +214,13 @@ export class S3FileHelper {
   /**
    * Get the download stream of a file
    */
-  static async getStream(s3Service: CoreS3Service, id: string | Types.ObjectId): Promise<Readable> {
+  static async getStream(
+    s3Service: CoreS3Service,
+    id: string | Types.ObjectId,
+    options?: { abortSignal?: AbortSignal; idleTimeoutMs?: false | number },
+  ): Promise<Readable> {
     const objectId = typeof id === 'string' ? new Types.ObjectId(id) : id;
-    return (await s3Service.getObject(objectId.toHexString())).body;
+    return (await s3Service.getObject(objectId.toHexString(), options)).body;
   }
 
   /**

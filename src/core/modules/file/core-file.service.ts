@@ -7,6 +7,7 @@ import { accessDeniedException } from '../../common/exceptions/access-denied.exc
 import { getObjectIds, getStringIds } from '../../common/helpers/db.helper';
 import { convertFilterArgsToQuery } from '../../common/helpers/filter.helper';
 import { GridFSHelper } from '../../common/helpers/gridfs.helper';
+import { guardIdleStream } from '../../common/helpers/idle-stream.helper';
 import { check } from '../../common/helpers/input.helper';
 import { prepareOutput } from '../../common/helpers/service.helper';
 import { ConfigService } from '../../common/services/config.service';
@@ -493,12 +494,44 @@ export abstract class CoreFileService {
     // Omitting it keeps the previous behaviour exactly.
     const store = knownStore ?? (await this.locateFile(id));
     if (store === 's3') {
-      return S3FileHelper.getStream(this.options.s3Service, id);
+      return this.guardDownloadStream(
+        await S3FileHelper.getStream(this.options.s3Service, id, this.s3StreamOptions(serviceOptions)),
+        serviceOptions,
+      );
     }
     if (store === 'filesystem') {
-      return FilesystemFileHelper.getStream(this.filesystemDir, id);
+      return this.guardDownloadStream(FilesystemFileHelper.getStream(this.filesystemDir, id), serviceOptions);
     }
-    return GridFSHelper.openDownloadStream(this.files, getObjectIds(id)) as mongo.GridFSBucketReadStream;
+    return this.guardDownloadStream(
+      GridFSHelper.openDownloadStream(this.files, getObjectIds(id)) as mongo.GridFSBucketReadStream,
+      serviceOptions,
+    );
+  }
+
+  /**
+   * Guard a download stream against a caller that stops reading (see `guardIdleStream()`).
+   *
+   * Every store holds something finite while its stream is open — S3 a socket of the client's pool, the
+   * filesystem a file handle, GridFS a server-side cursor. A stream piped with a bare `stream.pipe(res)` to a
+   * client that aborts, or one that is obtained and dropped, would hold it for the life of the process. The
+   * guard releases it after `file.downloadIdleTimeoutMs` without read progress (S3 streams are already guarded
+   * by `CoreS3Service` with `s3.downloadIdleTimeoutMs`; guarding twice is a no-op). Errors of the store — a
+   * GridFS file without chunks, a missing file on disk — reach the returned stream as before.
+   */
+  protected guardDownloadStream(stream: Readable, serviceOptions?: FileServiceOptions): Readable {
+    const idleMs = serviceOptions?.downloadIdleTimeoutMs;
+    // `false` keeps the guard without its timer — the error handling and the release on close stay
+    return guardIdleStream(stream, {
+      idleMs: idleMs === false ? false : (idleMs ?? ConfigService.configFastButReadOnly?.file?.downloadIdleTimeoutMs),
+    });
+  }
+
+  /** Options for the S3 stream of a download: the caller's abort signal and idle time. */
+  protected s3StreamOptions(serviceOptions?: FileServiceOptions): {
+    abortSignal?: AbortSignal;
+    idleTimeoutMs?: false | number;
+  } {
+    return { abortSignal: serviceOptions?.abortSignal, idleTimeoutMs: serviceOptions?.downloadIdleTimeoutMs };
   }
 
   /**
@@ -611,19 +644,25 @@ export abstract class CoreFileService {
     }
     const s3FileInfo = await this.findS3FileByName(filename);
     if (s3FileInfo) {
-      return S3FileHelper.getStream(this.options.s3Service, s3FileInfo._id);
+      return this.guardDownloadStream(
+        await S3FileHelper.getStream(this.options.s3Service, s3FileInfo._id, this.s3StreamOptions(serviceOptions)),
+        serviceOptions,
+      );
     }
     const fsFileInfo = await this.findFilesystemFileByName(filename);
     if (fsFileInfo) {
-      return FilesystemFileHelper.getStream(this.filesystemDir, fsFileInfo._id);
+      return this.guardDownloadStream(
+        FilesystemFileHelper.getStream(this.filesystemDir, fsFileInfo._id),
+        serviceOptions,
+      );
     }
     const gridFsInfo = await GridFSHelper.findFileByName(this.files, filename);
     if (!gridFsInfo) {
       // Unchanged answer for an unknown name: GridFS is the terminal store and reports the miss
       // itself, asynchronously on the stream, which the controller turns into a 404.
-      return GridFSHelper.openDownloadStreamByName(this.files, filename);
+      return this.guardDownloadStream(GridFSHelper.openDownloadStreamByName(this.files, filename), serviceOptions);
     }
-    return GridFSHelper.openDownloadStream(this.files, gridFsInfo._id);
+    return this.guardDownloadStream(GridFSHelper.openDownloadStream(this.files, gridFsInfo._id), serviceOptions);
   }
 
   /**

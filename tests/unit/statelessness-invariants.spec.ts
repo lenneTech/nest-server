@@ -120,6 +120,15 @@ const INVENTORY: StateEntry[] = [
   },
   {
     because:
+      'The periodic check of THIS process\'s S3 socket pool: it reads the agents of this process\'s S3 client and '
+      + 'reports an exhausted pool to this process\'s log. Each replica has its own pool, so each checks and reports '
+      + 'its own — there is nothing to share. Cleared on shutdown and unref-ed.',
+    classification: 'local',
+    file: 'common/services/core-s3.service.ts',
+    name: 'poolMonitor',
+  },
+  {
+    because:
       'Subscriber callbacks — functions cannot be serialized, so they are local by definition. '
       + 'What crosses replicas is the MESSAGE, published through Redis; these maps only route it '
       + 'to the handlers registered in THIS process.',
