@@ -4,10 +4,11 @@ import * as path from 'path';
 import { Module } from '@nestjs/common';
 import { MongooseModule, Prop, Schema, SchemaFactory, getModelToken } from '@nestjs/mongoose';
 import { Test, TestingModule } from '@nestjs/testing';
-import { Model } from 'mongoose';
+import { Model, Types } from 'mongoose';
 
 import { RoleEnum } from '../src/core/common/enums/role.enum';
 import { mongooseAuditFieldsPlugin } from '../src/core/common/plugins/mongoose-audit-fields.plugin';
+import { mongooseIdPlugin } from '../src/core/common/plugins/mongoose-id.plugin';
 import { hashPassword, mongoosePasswordPlugin } from '../src/core/common/plugins/mongoose-password.plugin';
 import { mongooseRoleGuardPlugin } from '../src/core/common/plugins/mongoose-role-guard.plugin';
 import { ConfigService } from '../src/core/common/services/config.service';
@@ -446,6 +447,103 @@ describe('mongooseAuditFieldsPlugin — bulk operations (e2e)', () => {
     const doc = await userModel.findOne({ email: 'sys@test.com' }).lean().exec();
     expect(doc.createdBy).toBeUndefined();
     expect(doc.updatedBy).toBeUndefined();
+  });
+});
+
+// =============================================================================
+// Id Plugin Tests
+// =============================================================================
+@Schema({ timestamps: true })
+class PluginTestIdItem {
+  @Prop({ type: String })
+  label: string;
+
+  @Prop({ type: Types.ObjectId })
+  ref: Types.ObjectId;
+}
+
+const PluginTestIdItemSchema = SchemaFactory.createForClass(PluginTestIdItem);
+
+@Module({
+  imports: [
+    MongooseModule.forRoot(TEST_DB_URI, {
+      connectionFactory: (connection) => {
+        connection.plugin(mongooseIdPlugin);
+        return connection;
+      },
+    }),
+    MongooseModule.forFeature([{ name: PluginTestIdItem.name, schema: PluginTestIdItemSchema }]),
+  ],
+})
+class IdPluginTestModule {}
+
+describe('mongooseIdPlugin (e2e)', () => {
+  let itemModel: Model<PluginTestIdItem>;
+  let app: import('@nestjs/common').INestApplication;
+
+  beforeAll(async () => {
+    const moduleFixture: TestingModule = await Test.createTestingModule({
+      imports: [IdPluginTestModule],
+    }).compile();
+    app = moduleFixture.createNestApplication();
+    await app.init();
+    itemModel = moduleFixture.get<Model<PluginTestIdItem>>(getModelToken(PluginTestIdItem.name));
+  });
+
+  beforeEach(async () => {
+    await itemModel.deleteMany({});
+  });
+
+  afterAll(async () => {
+    await itemModel.deleteMany({});
+    await app.close();
+  });
+
+  it('should stamp a string id on documents returned by find and findOne', async () => {
+    const created = await itemModel.create({ label: 'a', ref: new Types.ObjectId() });
+
+    const found: any = await itemModel.findOne({ _id: created._id }).lean();
+    expect(found.id).toBe(created._id.toHexString());
+
+    const list: any[] = await itemModel.find({}).lean();
+    expect(list.map((doc) => doc.id)).toEqual([created._id.toHexString()]);
+  });
+
+  /**
+   * @regression   11.42.15 (mongodb 7.7 / bson 7.3) — distinct() over an ObjectId field yields bare
+   *   ObjectId VALUES. Mongoose gives ObjectId.prototype an `_id` getter returning the ObjectId
+   *   itself, so the plugin treated each value as a document and assigned `value.id = hex` — which
+   *   is bson's own `id` setter for the 12-byte buffer. bson >= 7.3 throws there
+   *   (`BSONError: Cannot create Buffer from the passed potentialBuffer`), so every distinct() over
+   *   an ObjectId field rejected.
+   * @seen-failing Remove the `_bsontype === 'ObjectId'` skip from
+   *   src/core/common/plugins/mongoose-id.plugin.ts — registered as mutation
+   *   `id-plugin-stamps-bare-objectid` in tests/regression-mutations.json.
+   */
+  it('should not throw on distinct() over an ObjectId field and leave the values intact', async () => {
+    const refA = new Types.ObjectId();
+    const refB = new Types.ObjectId();
+    await itemModel.create([
+      { label: 'a', ref: refA },
+      { label: 'b', ref: refA },
+      { label: 'c', ref: refB },
+    ]);
+
+    const refs = await itemModel.distinct('ref');
+
+    expect(refs).toHaveLength(2);
+    for (const ref of refs) {
+      expect(ref).toBeInstanceOf(Types.ObjectId);
+    }
+    expect(refs.map((ref) => ref.toHexString()).sort()).toEqual([refA.toHexString(), refB.toHexString()].sort());
+  });
+
+  it('should not throw on distinct() over _id', async () => {
+    const created = await itemModel.create({ label: 'a', ref: new Types.ObjectId() });
+
+    const ids = (await itemModel.distinct('_id')) as Types.ObjectId[];
+
+    expect(ids.map((id) => id.toHexString())).toEqual([created._id.toHexString()]);
   });
 });
 
