@@ -7590,6 +7590,28 @@
         "tests/unit/core-file.controller.spec.ts"
       ],
       "driverSpecific": false
+    },
+    {
+      "id": "ai-stream-compressed",
+      "defect": "POST /ai/stream sent its events without Cache-Control: no-transform. Behind compression (registered by nest-server-starter and the reference main.ts) gzip held every event until the run ended, so a client saw nothing for the whole run and then everything at once.",
+      "file": "src/core/modules/ai/core-ai.controller.ts",
+      "find": "    res.setHeader('Cache-Control', 'no-cache, no-transform');\n",
+      "replace": "    res.setHeader('Cache-Control', 'no-cache');\n",
+      "specs": [
+        "tests/unit/ai-stream-sse.spec.ts"
+      ],
+      "driverSpecific": false
+    },
+    {
+      "id": "ai-stream-never-flushes",
+      "defect": "POST /ai/stream wrote its events without flushing them; a compressor that ignores no-transform held the stream back until the run ended.",
+      "file": "src/core/modules/ai/core-ai.controller.ts",
+      "find": "      (res as Response & { flush?: () => void }).flush?.();\n",
+      "replace": "",
+      "specs": [
+        "tests/unit/ai-stream-sse.spec.ts"
+      ],
+      "driverSpecific": false
     }
   ]
 }
