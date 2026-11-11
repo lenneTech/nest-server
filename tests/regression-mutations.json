@@ -7370,6 +7370,215 @@
         "tests/unit/check-unified-field-types.spec.ts"
       ],
       "driverSpecific": false
+    },
+    {
+      "id": "s3-get-object-body-unguarded",
+      "defect": "CoreS3Service.getObject() returned the raw S3 body: a stream that was dropped, or bare-piped to a client that aborted, held its socket for the life of the process, and after maxSockets of them every S3 request waited forever (production outage, 12.8.x).",
+      "file": "src/core/common/services/core-s3.service.ts",
+      "find": "      body: guardIdleStream(result.Body as Readable, {\n        idleMs: idleMs === false ? false : (idleMs ?? config.downloadIdleTimeoutMs),\n        onIdle: () => {\n          this.idleClosedSinceReport++;\n        },\n      }),\n",
+      "replace": "      body: result.Body as Readable,\n",
+      "specs": [
+        "tests/s3-download-resilience.e2e-spec.ts"
+      ],
+      "driverSpecific": false
+    },
+    {
+      "id": "pipe-file-to-response-keeps-source",
+      "defect": "pipeFileToResponse() did not release the source when the client went away (neither on the response's close nor on the request or socket signals): an aborted download kept its S3 socket, file handle or GridFS cursor until the idle guard ran out, so a burst of aborts could still exhaust the pool.",
+      "file": "src/core/modules/file/core-file.controller.ts",
+      "find": "  res.on('close', () => {\n    state.responseClosed = true;\n    if (!stream.destroyed) {\n      stream.destroy();\n    }\n  });\n  watchClientGone(stream, res, state);\n",
+      "replace": "  res.on('close', () => {\n    state.responseClosed = true;\n  });\n",
+      "specs": [
+        "tests/s3-download-resilience.e2e-spec.ts"
+      ],
+      "driverSpecific": false
+    },
+    {
+      "id": "idle-guard-never-fires",
+      "defect": "The idle guard never closed a download stream nobody read, so its socket, file handle or cursor stayed taken for the life of the process.",
+      "file": "src/core/common/helpers/idle-stream.helper.ts",
+      "find": "  timer = setTimeout(onIdle, idleMs);\n",
+      "replace": "  timer = setTimeout(() => undefined, idleMs);\n",
+      "specs": [
+        "tests/unit/idle-stream.spec.ts"
+      ],
+      "driverSpecific": false
+    },
+    {
+      "id": "idle-guard-ignores-progress",
+      "defect": "The idle guard measured the age of a download instead of its progress, cutting off a slow client that kept reading.",
+      "file": "src/core/common/helpers/idle-stream.helper.ts",
+      "find": "  guarded.onConsumerRead = () => timer?.refresh();\n  source.on('data', () => timer?.refresh());\n",
+      "replace": "  guarded.onConsumerRead = undefined;\n  source.on('data', () => undefined);\n",
+      "specs": [
+        "tests/unit/idle-stream.spec.ts"
+      ],
+      "driverSpecific": false
+    },
+    {
+      "id": "idle-guard-judges-source-only",
+      "defect": "The idle guard judged progress by the source alone: a slow reader working through the buffers between source and consumer made progress without the source delivering, and was cut off after the idle time.",
+      "file": "src/core/common/helpers/idle-stream.helper.ts",
+      "find": "  guarded.onConsumerRead = () => timer?.refresh();\n",
+      "replace": "  guarded.onConsumerRead = undefined;\n",
+      "specs": [
+        "tests/unit/idle-stream.spec.ts"
+      ],
+      "driverSpecific": false
+    },
+    {
+      "id": "pipe-file-to-response-ignores-closed-response",
+      "defect": "pipeFileToResponse() registered its close listener on a response that had already closed (the client left while the download waited for a socket); the listener never fired and the source kept its S3 socket — under load an avalanche of leaks.",
+      "file": "src/core/modules/file/core-file.controller.ts",
+      "find": "  if (isResponseGone(res)) {\n    stream.destroy();\n    return res;\n  }\n  const state = { attachedAt: Date.now(), clientGoneSignal: '', responseClosed: false };\n",
+      "replace": "  const state = { attachedAt: Date.now(), clientGoneSignal: '', responseClosed: false };\n",
+      "specs": [
+        "tests/unit/core-file.controller.spec.ts"
+      ],
+      "driverSpecific": false
+    },
+    {
+      "id": "download-route-keeps-late-stream",
+      "defect": "A download stream that arrived after the client had left was handed on for delivery; with a project's own delivery code it was a source nobody read or destroyed.",
+      "file": "src/core/modules/file/core-file.controller.ts",
+      "find": "    if (stream && isResponseGone(res)) {\n      stream.destroy();\n      return RESPONSE_GONE;\n    }\n",
+      "replace": "",
+      "specs": [
+        "tests/unit/core-file.controller.spec.ts"
+      ],
+      "driverSpecific": false
+    },
+    {
+      "id": "s3-get-object-ignores-abort-signal",
+      "defect": "CoreS3Service.getObject() ignored the abort signal: a request whose client had left stayed queued for a socket and later took one, with a body for nobody.",
+      "file": "src/core/common/services/core-s3.service.ts",
+      "find": "      options?.abortSignal ? { abortSignal: options.abortSignal } : undefined,\n",
+      "replace": "      undefined,\n",
+      "specs": [
+        "tests/s3-download-resilience.e2e-spec.ts"
+      ],
+      "driverSpecific": false
+    },
+    {
+      "id": "file-stream-drops-idle-opt-out",
+      "defect": "The per-call opt-out of the download idle guard (FileServiceOptions.downloadIdleTimeoutMs: false) did not reach the S3 body: S3 streams stayed guarded while filesystem and GridFS honoured it, so a ZIP export that followed the migration guide still hung.",
+      "file": "src/core/modules/file/core-file.service.ts",
+      "find": "    return { abortSignal: serviceOptions?.abortSignal, idleTimeoutMs: serviceOptions?.downloadIdleTimeoutMs };\n",
+      "replace": "    return { abortSignal: serviceOptions?.abortSignal };\n",
+      "specs": [
+        "tests/unit/download-idle-opt-out.spec.ts"
+      ],
+      "driverSpecific": false
+    },
+    {
+      "id": "idle-close-logged-as-error",
+      "defect": "Every download the idle guard closed was logged as an ERROR with a stack: under an abort storm 20 lines per second, an alert storm for clients that merely stopped reading.",
+      "file": "src/core/modules/file/core-file.controller.ts",
+      "find": "    if (isStreamIdleTimeout(err)) {\n",
+      "replace": "    if (false) {\n",
+      "specs": [
+        "tests/unit/core-file.controller.spec.ts"
+      ],
+      "driverSpecific": false
+    },
+    {
+      "id": "s3-opt-out-returns-raw-body",
+      "defect": "getObject(key, { idleTimeoutMs: false }) handed back the RAW S3 body: the SDK's socket timeout destroys an unread body with an error, and a checksum-wrapped body re-emits it on a stream nobody listens to — an uncaught exception that ends the API process.",
+      "file": "src/core/common/services/core-s3.service.ts",
+      "find": "      body: guardIdleStream(result.Body as Readable, {\n        idleMs: idleMs === false ? false : (idleMs ?? config.downloadIdleTimeoutMs),\n        onIdle: () => {\n          this.idleClosedSinceReport++;\n        },\n      }),\n",
+      "replace": "      body:\n        idleMs === false\n          ? (result.Body as Readable)\n          : guardIdleStream(result.Body as Readable, {\n              idleMs: idleMs ?? config.downloadIdleTimeoutMs,\n            }),\n",
+      "specs": [
+        "tests/unit/download-idle-opt-out.spec.ts"
+      ],
+      "driverSpecific": false
+    },
+    {
+      "id": "idle-guard-timer-overflow",
+      "defect": "An idle time above 2^31 - 1 ms was clamped by Node to 1 ms: every download closed within a millisecond.",
+      "file": "src/core/common/helpers/idle-stream.helper.ts",
+      "find": "        ? Math.min(options.idleMs, MAX_TIMER_DELAY_MS)\n",
+      "replace": "        ? options.idleMs\n",
+      "specs": [
+        "tests/unit/idle-stream.spec.ts"
+      ],
+      "driverSpecific": false
+    },
+    {
+      "id": "response-gone-ignores-request-state",
+      "defect": "isResponseGone() judged by the response alone: aborted downloads whose request and socket were already destroyed while the response still read destroyed: false, closed: false were handed over to nobody and held their S3 socket for 30 s.",
+      "file": "src/core/modules/file/core-file.controller.ts",
+      "find": "  return !!(r.destroyed || r.closed || isRequestAborted(r.req) || r.socket?.destroyed);\n",
+      "replace": "  return !!(r.destroyed || r.closed);\n",
+      "specs": [
+        "tests/unit/core-file.controller.spec.ts"
+      ],
+      "driverSpecific": false
+    },
+    {
+      "id": "response-gone-counts-completed-request",
+      "defect": "isResponseGone() read every destroyed request as a gone client. Node destroys a request by itself once its body was read to the end, so every download answering a request with a body (a POST export, a GET with Content-Length: 0 a body parser read) was destroyed before the first byte and the client never got an answer.",
+      "file": "src/core/modules/file/core-file.controller.ts",
+      "find": "  return !!req?.destroyed && !req.readableEnded;\n",
+      "replace": "  return !!req?.destroyed;\n",
+      "specs": [
+        "tests/unit/core-file.controller.spec.ts"
+      ],
+      "driverSpecific": false
+    },
+    {
+      "id": "request-close-after-body-read-releases",
+      "defect": "pipeFileToResponse() released the source on every request close before the response finished, including Node's own close after a body was read to the end: a download on a healthy connection was destroyed mid-flight.",
+      "file": "src/core/modules/file/core-file.controller.ts",
+      "find": "    if (res.writableFinished || (signal === 'request close' && req?.readableEnded)) {\n",
+      "replace": "    if (res.writableFinished) {\n",
+      "specs": [
+        "tests/unit/core-file.controller.spec.ts"
+      ],
+      "driverSpecific": false
+    },
+    {
+      "id": "abort-signal-request-close-after-body-read",
+      "defect": "downloadAbortSignal() aborted on every request close before the response finished, including Node's own close after a body was read to the end: the store request of a client still waiting was aborted.",
+      "file": "src/core/modules/file/core-file.controller.ts",
+      "find": "    if (!req?.readableEnded) {\n      abortWhileUnfinished();\n    }\n",
+      "replace": "    abortWhileUnfinished();\n",
+      "specs": [
+        "tests/unit/core-file.controller.spec.ts"
+      ],
+      "driverSpecific": false
+    },
+    {
+      "id": "download-abort-signal-ignores-socket",
+      "defect": "downloadAbortSignal() listened to the response and the request only. Once a request body was read, the request's own close no longer counts, and about one in six aborted downloads never gets a response close: their S3 requests kept waiting for a socket and took one later for nobody.",
+      "file": "src/core/modules/file/core-file.controller.ts",
+      "find": "  socket?.once('end', abortWhileUnfinished);\n  socket?.once('close', abortWhileUnfinished);\n",
+      "replace": "",
+      "specs": [
+        "tests/unit/core-file.controller.spec.ts"
+      ],
+      "driverSpecific": false
+    },
+    {
+      "id": "download-abort-signal-leaks-socket-listeners",
+      "defect": "downloadAbortSignal() left its listeners on the socket after the response was done: a keep-alive socket collected them with every request it carried.",
+      "file": "src/core/modules/file/core-file.controller.ts",
+      "find": "  const cleanUp = () => {\n    socket?.removeListener('end', abortWhileUnfinished);\n    socket?.removeListener('close', abortWhileUnfinished);\n  };\n",
+      "replace": "  const cleanUp = () => undefined;\n",
+      "specs": [
+        "tests/unit/core-file.controller.spec.ts"
+      ],
+      "driverSpecific": false
+    },
+    {
+      "id": "pipe-file-to-response-ignores-request-close",
+      "defect": "pipeFileToResponse() listened only for the response's close: about one in six aborted downloads never got one (only the request and the socket reported the client gone), and held their S3 socket for 30 s — enough to fill the pool under an abort storm.",
+      "file": "src/core/modules/file/core-file.controller.ts",
+      "find": "  if (typeof req?.once === 'function') {\n    req.once('close', onRequestClose);\n  }\n",
+      "replace": "",
+      "specs": [
+        "tests/unit/core-file.controller.spec.ts"
+      ],
+      "driverSpecific": false
     }
   ]
 }
