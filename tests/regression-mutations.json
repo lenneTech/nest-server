@@ -7496,8 +7496,8 @@
       "id": "file-stream-drops-idle-opt-out",
       "defect": "The per-call opt-out of the download idle guard (FileServiceOptions.downloadIdleTimeoutMs: false) did not reach the S3 body: S3 streams stayed guarded while filesystem and GridFS honoured it, so a ZIP export that followed the migration guide still hung.",
       "file": "src/core/modules/file/core-file.service.ts",
-      "find": "    return { abortSignal: serviceOptions?.abortSignal, idleTimeoutMs: serviceOptions?.downloadIdleTimeoutMs };\n",
-      "replace": "    return { abortSignal: serviceOptions?.abortSignal };\n",
+      "find": "      idleTimeoutMs: serviceOptions?.downloadIdleTimeoutMs,\n",
+      "replace": "",
       "specs": [
         "tests/unit/download-idle-opt-out.spec.ts"
       ],
@@ -7632,6 +7632,104 @@
       "replace": "",
       "specs": [
         "tests/unit/ai-stream-sse.spec.ts"
+      ],
+      "driverSpecific": false
+    },
+    {
+      "id": "gridfs-range-end-exclusive",
+      "defect": "12.9.3 — GridFS counts a stream's end EXCLUSIVE while a byte range counts it inclusive; without the + 1 every ranged GridFS read loses its last byte, and a one-byte range (Safari's bytes=0-1 probe reads two) comes back short.",
+      "file": "src/core/common/helpers/gridfs.helper.ts",
+      "find": "    return range ? { end: range.end + 1, start: range.start } : undefined;\n",
+      "replace": "    return range ? { end: range.end, start: range.start } : undefined;\n",
+      "specs": [
+        "tests/file-storage-parity.e2e-spec.ts"
+      ],
+      "driverSpecific": true,
+      "drivers": [
+        "gridfs"
+      ]
+    },
+    {
+      "id": "s3-get-object-ignores-range",
+      "defect": "12.9.3 — CoreS3Service.getObject() sent no Range, so a route could answer a Range request from S3 only with the whole object; Safari does not play a video from such a server.",
+      "file": "src/core/common/services/core-s3.service.ts",
+      "find": "        ...(range ? { Range: `bytes=${range.start}-${range.end}` } : {}),\n",
+      "replace": "",
+      "specs": [
+        "tests/s3-download-resilience.e2e-spec.ts",
+        "tests/file-storage-parity.e2e-spec.ts"
+      ],
+      "driverSpecific": true,
+      "drivers": [
+        "s3"
+      ]
+    },
+    {
+      "id": "filesystem-range-ignored",
+      "defect": "12.9.3 — the filesystem store opened the whole file for a ranged read, so a 206 carried the bytes from the start of the file under a Content-Range naming others.",
+      "file": "src/core/modules/file/filesystem-file.helper.ts",
+      "find": "      range ? { end: range.end, start: range.start } : undefined,\n",
+      "replace": "      undefined,\n",
+      "specs": [
+        "tests/file-storage-parity.e2e-spec.ts"
+      ],
+      "driverSpecific": true,
+      "drivers": [
+        "filesystem"
+      ]
+    },
+    {
+      "id": "download-route-ignores-range",
+      "defect": "12.9.3 — the download routes answered every Range request with 200 and the whole file; Safari refuses to play a video from such a server.",
+      "file": "src/core/modules/file/core-file.controller.ts",
+      "find": "  const header = headers?.range;\n",
+      "replace": "  const header: string | undefined = undefined;\n",
+      "specs": [
+        "tests/unit/file-download-range.spec.ts"
+      ],
+      "driverSpecific": false
+    },
+    {
+      "id": "range-unsatisfiable-served-whole",
+      "defect": "12.9.3 — a range starting past the end of the file was answered with the whole file instead of 416 with the real size; a player asking for the tail decodes bytes from the start.",
+      "file": "src/core/common/helpers/byte-range.helper.ts",
+      "find": "  if (start >= length) {\n    return 'unsatisfiable';\n  }\n",
+      "replace": "  if (start >= length) {\n    return undefined;\n  }\n",
+      "specs": [
+        "tests/unit/file-download-range.spec.ts"
+      ],
+      "driverSpecific": false
+    },
+    {
+      "id": "range-response-compressible",
+      "defect": "12.9.3 — a 206 without no-transform is gzipped by the compression middleware like any other response, and the compressed body no longer matches the offsets its Content-Range names.",
+      "file": "src/core/modules/file/core-file.controller.ts",
+      "find": "    res.setHeader('Cache-Control', directives.trim() ? `${directives}, no-transform` : 'no-transform');\n",
+      "replace": "    res.setHeader('Cache-Control', directives);\n",
+      "specs": [
+        "tests/unit/file-download-range.spec.ts"
+      ],
+      "driverSpecific": false
+    },
+    {
+      "id": "range-headers-survive-error",
+      "defect": "12.9.3 — a ranged response that failed before its first byte was answered 404 with a JSON body while its Content-Range still named bytes of the file.",
+      "file": "src/core/modules/file/core-file.controller.ts",
+      "find": "  'Content-Range',\n  'Content-Type',\n",
+      "replace": "  'Content-Type',\n",
+      "specs": [
+        "tests/unit/file-download-range.spec.ts"
+      ],
+      "driverSpecific": false
+    },
+    {
+      "id": "download-routes-skip-range",
+      "defect": "12.9.3 — GET /files/id/:id and GET /files/:filename answered every Range request with 200 and the whole file, on every store; Safari refuses to play a video from such a server.",
+      "file": "src/core/modules/file/core-file.controller.ts",
+      "find": "    return resolveDownloadRange(res, length);\n",
+      "replace": "    return undefined;\n",
+      "specs": [
+        "tests/file-storage-http-parity.e2e-spec.ts"
       ],
       "driverSpecific": false
     }

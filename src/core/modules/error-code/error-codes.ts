@@ -578,6 +578,19 @@ export const LtnsErrors = {
     },
   },
 
+  /**
+   * A download asked for a byte range that starts at or past the end of the file (`Range` header, HTTP 416). The
+   * response carries `Content-Range: bytes * /<length>` (without the space), so the client learns the real size.
+   */
+  FILE_RANGE_NOT_SATISFIABLE: {
+    code: 'LTNS_0503',
+    message: 'Requested range not satisfiable',
+    translations: {
+      de: 'Der angeforderte Bereich liegt außerhalb der Datei.',
+      en: 'The requested range lies outside the file.',
+    },
+  },
+
   // =====================================================
   // Internal Errors (LTNS_0900-LTNS_0999)
   // =====================================================

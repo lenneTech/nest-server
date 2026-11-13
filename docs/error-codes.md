@@ -446,6 +446,20 @@ All error codes follow the format: `#PREFIX_XXXX: Description`
 
 ---
 
+### LTNS_0503: fileRangeNotSatisfiable
+
+**Message:** Requested range not satisfiable
+
+**Description:** Answered with HTTP 416 by the file download routes (and by `resolveDownloadRange()` in a project's own route) when the `Range` header asks for bytes that start at or past the end of the file, or for a suffix of length 0. The response carries `Content-Range: bytes */<length>` with the real size, so the client can ask again. Since 12.9.3.
+
+**Solution:** Request a range inside the file (`bytes=0-` is always satisfiable for a non-empty file). An empty file has no satisfiable range — request it without `Range`.
+
+**Translations:**
+- DE: Der angeforderte Bereich liegt außerhalb der Datei.
+- EN: The requested range lies outside the file.
+
+---
+
 ## Internal Errors (LTNS_0900-LTNS_0999)
 
 ### LTNS_0900: internalError

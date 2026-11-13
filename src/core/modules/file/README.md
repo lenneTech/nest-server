@@ -11,6 +11,9 @@ File upload and download functionality with MongoDB GridFS storage.
 | GET    | `/files/id/:id`    | Download file by ID       | `downloadRoles` |
 | GET    | `/files/:filename` | Download file by filename | `downloadRoles` |
 
+Both answer a `Range` request with `206 Partial Content` (12.9.3+) — see
+[Byte ranges](#byte-ranges-video-audio-resumed-downloads-1293).
+
 ### GraphQL members (via CoreFileResolver)
 
 | Member        | Kind     | Gated by        |
@@ -487,7 +490,8 @@ export class FileController extends CoreFileController {
 The mid-stream failure case is handled by `pipeFileToResponse()`. Without it the stream error would
 go unhandled, Node would destroy the socket, and a reverse proxy would report **502 Bad Gateway** —
 i.e. "the server is down", while every other route keeps answering. On the error path the headers
-describing the file (`Content-Type`, `Content-Disposition`, `Cache-Control`, `ETag`) are removed, so
+describing the file (`Content-Type`, `Content-Disposition`, `Cache-Control`, `ETag`, and since 12.9.3 `Content-Range`
+and `Accept-Ranges`) are removed, so
 the JSON body is not labelled as the image it failed to deliver. The error itself is logged
 server-side even though the client answer stays deliberately generic.
 
@@ -499,6 +503,8 @@ on the controller rather than the exported function of the same name.
 | `If-None-Match` names the file's weak `ETag` (`W/"<id>"`), after the rights check           | `304`  | No body; the store is not read                                                 |
 | The store hands out no connection within 3 attempts of `s3.connectionTimeoutMs` (pool busy) | `503`  | `Retry-After: 5`; the store is busy, not broken                                |
 | The client left before the stream was handed over                                           | —      | Nothing is sent; the stream is destroyed at once, a pending S3 request aborted |
+| `Range` names one range inside the file (12.9.3+)                                           | `206`  | `Content-Range: bytes <start>-<end>/<length>`, only those bytes                |
+| `Range` starts at or past the end of the file (12.9.3+)                                     | `416`  | `Content-Range: bytes */<length>`, `ErrorCode.FILE_RANGE_NOT_SATISFIABLE`      |
 
 ### Delivering a file from your own route (12.8.9)
 
@@ -550,6 +556,72 @@ Layers below it, each effective on its own:
 - Pass `abortSignal` (aborted when the response closes) so an S3 request whose client has gone is dropped while it
   waits for a socket instead of taking one later. The framework's routes do this.
 - `s3.presignedDownloads` moves the bytes off the API entirely (a `302` to S3) — consider it for public files.
+
+### Byte ranges: video, audio, resumed downloads (12.9.3)
+
+Safari refuses to play a video — and stalls audio — from a server that answers a `Range` request with `200` and the
+whole file. Chrome plays it anyway, so the problem does not show locally or in a Chromium-based Playwright run. Media
+players seek with ranges, download managers resume with them.
+
+The framework's download routes answer ranges on every store. For a route of your own, three pieces:
+
+| Piece                                         | What it does                                                                                                                                                                                                                                                               |
+| --------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `resolveDownloadRange(res, length)`           | Reads `Range` from the request. Returns the range (`{ start, end }`, both inclusive) or `undefined` for the whole file; THROWS `416` with `Content-Range: bytes */<length>` for a range past the end. Call it after the rights check — a 416 confirms that the file exists |
+| `getFileStream(id, { range })`                | Reads only those bytes: S3 with a ranged `GetObject`, GridFS from the chunk holding the first byte, the filesystem from that offset. Same idle guard and abort signal as a whole file; `getFileStreamByName()` and `CoreS3Service.getObject(key, { range })` take it too   |
+| `setDownloadRangeHeaders(res, range, length)` | `Accept-Ranges: bytes`; for a range `206`, `Content-Range`, the range's `Content-Length` and `no-transform` in `Cache-Control`. Call it after your own headers, right before `pipeFileToResponse()`                                                                        |
+
+```typescript
+import {
+  downloadAbortSignal,
+  openDownloadStream,
+  pipeFileToResponse,
+  resolveDownloadRange,
+  RESPONSE_GONE,
+  setDownloadRangeHeaders,
+} from '@lenne.tech/nest-server';
+
+@Get('video/:id')
+async video(@Param('id') id: string, @Res() res: Response, @CurrentUser() currentUser) {
+  const serviceOptions = { abortSignal: downloadAbortSignal(res), currentUser };
+  const resolved = await this.fileService.resolveFile(id, serviceOptions); // rights check, length, store
+  if (!resolved) {
+    throw new NotFoundException();
+  }
+  const range = resolveDownloadRange(res, resolved.info.length); // throws 416 past the end
+  const stream = await openDownloadStream(res, () =>
+    this.fileService.getFileStream(id, { ...serviceOptions, range }, resolved.store),
+  );
+  if (stream === RESPONSE_GONE) {
+    return res;
+  }
+  if (!stream) {
+    throw new NotFoundException();
+  }
+  res.header('Content-Type', resolved.info.contentType || 'video/mp4');
+  res.header('Cache-Control', 'private, no-store');
+  setDownloadRangeHeaders(res, range, resolved.info.length);
+  return pipeFileToResponse(stream, res);
+}
+```
+
+What is served, and why:
+
+- **One range per request.** Several ranges (`bytes=0-1,5-9`) get the whole file with `200` — a `multipart/byteranges`
+  answer is not built, the way Express's `send` handles it. Every media player asks for one range at a time.
+- **A range past the end is cut at the last byte** (`bytes=0-999999999` is the whole file), a suffix longer than the
+  file is the whole file. Only a range STARTING at or past the end is `416`, and every range of an empty file.
+- **An invalid header** (`bytes=5-2`, another unit) is ignored: the whole file with `200`, which every client can use.
+- **`If-Range` gets the whole file.** The routes' validator is a weak `ETag`, which `If-Range` never matches
+  (RFC 9110 §13.1.5). A route with a strong validator can decide `If-Range` itself and call `parseRangeHeader()`.
+- **`no-transform` on a `206`** keeps `compression` away: a gzipped partial body would no longer match the offsets in
+  its `Content-Range`. A whole file is compressed as before (when its type is compressible).
+- **`range` on the service must lie inside the file** — `resolveDownloadRange()` guarantees it. A malformed range
+  (negative, not an integer, `start > end`) throws a `RangeError` before any store is asked; a range reaching past the
+  end of the file is not checked by the service and fails per store (GridFS: an error on the stream, S3: `InvalidRange`
+  for a start past the end).
+- **Presigned downloads** (`s3.presignedDownloads`) redirect before any of this: the browser sends its `Range` to S3,
+  which answers it itself.
 
 ### Upload filtering
 

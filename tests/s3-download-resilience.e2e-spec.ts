@@ -173,7 +173,11 @@ describe('S3 downloads keep the socket pool usable (real RustFS)', () => {
           await httpService.getObject('big.bin', { abortSignal: aborter.signal }).catch(() => null);
           return;
         }
-        const { body } = await httpService.getObject('big.bin');
+        // `/range`: a ranged read in the middle of the object, as a video player seeking asks for it
+        const { body } = await httpService.getObject(
+          'big.bin',
+          req.url === '/range' ? { range: { end: 3 * 1024 * 1024 - 1, start: 1024 * 1024 } } : undefined,
+        );
         if (req.url === '/raw') {
           // The project code that caused the outage: a bare pipe, nothing destroys the body on abort
           body.pipe(res);
@@ -254,7 +258,47 @@ describe('S3 downloads keep the socket pool usable (real RustFS)', () => {
       // Well below the idle time: the response's close destroyed the source
       expect(await poolDrained(httpService, IDLE_MS / 2)).toBe(true);
     }, 30_000);
+
+    it('releases the sockets of RANGED downloads aborted mid-range at once, like whole ones', async () => {
+      await Promise.all(Array.from({ length: MAX_SOCKETS * 3 }, () => downloadAndAbort(port, '/range')));
+      expect(await poolDrained(httpService, IDLE_MS / 2)).toBe(true);
+      // …and the pool serves the next ranged read at once
+      const started = Date.now();
+      const { body } = await httpService.getObject('big.bin', { range: { end: 1023, start: 0 } });
+      expect((await sha256(body)).bytes).toBe(1024);
+      expect(Date.now() - started).toBeLessThan(1_000);
+    }, 30_000);
   });
+
+  /**
+   * @regression   12.9.3 — `getObject()` sent no `Range`, so a route could not answer a `Range` request from S3 with
+   *   anything but the whole object; Safari does not play a video from such a server.
+   * @seen-failing Drop the Range from the GetObjectCommand in CoreS3Service.getObject()
+   *   (src/core/common/services/core-s3.service.ts) — registered as mutation `s3-get-object-ignores-range` in
+   *   tests/regression-mutations.json.
+   */
+  it('reads exactly a byte range of an object, with S3\'s Content-Range and the length of the range', async () => {
+    const mib = 1024 * 1024;
+    for (const range of [
+      { end: 0, start: 0 },
+      { end: 2 * mib + 99, start: mib - 7 },
+      { end: big.length - 1, start: big.length - 5 },
+    ]) {
+      const result = await service.getObject('big.bin', { range });
+      const expected = big.subarray(range.start, range.end + 1);
+      expect(result.contentLength).toBe(expected.length);
+      expect(result.contentRange).toBe(`bytes ${range.start}-${range.end}/${big.length}`);
+      const read = await sha256(result.body);
+      expect(read.bytes).toBe(expected.length);
+      expect(read.hash).toBe(createHash('sha256').update(expected).digest('hex'));
+    }
+    // A malformed range is refused before S3 is asked
+    await expect(service.getObject('big.bin', { range: { end: 1, start: 2 } })).rejects.toThrow(RangeError);
+    // A whole read carries no Content-Range
+    const whole = await service.getObject('small.txt');
+    expect(whole.contentRange).toBeUndefined();
+    whole.body.destroy();
+  }, 30_000);
 
   it('delivers 500 parallel downloads (far more than maxSockets) completely and byte-identical, with bounded heap', async () => {
     const heapBefore = process.memoryUsage().heapUsed;
