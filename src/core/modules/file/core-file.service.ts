@@ -4,6 +4,7 @@ import type { mongo, Types } from 'mongoose';
 import { Readable } from 'stream';
 
 import { FilterArgs } from '../../common/args/filter.args.js';
+import { assertByteRange } from '../../common/helpers/byte-range.helper.js';
 import { accessDeniedException } from '../../common/exceptions/access-denied.exception.js';
 import { getObjectIds, getStringIds } from '../../common/helpers/db.helper.js';
 import { convertFilterArgsToQuery } from '../../common/helpers/filter.helper.js';
@@ -484,6 +485,10 @@ export abstract class CoreFileService {
 
   /**
    * Get file stream (for big files) via file ID
+   *
+   * With `serviceOptions.range`, only those bytes (both inclusive) — from every store: S3 with a ranged
+   * `GetObject`, GridFS from the chunk that holds the first byte, the filesystem from that offset. See
+   * {@link FileServiceOptions.range} for the contract and `resolveDownloadRange()` for producing one from a request.
    */
   async getFileStream(
     id: string | Types.ObjectId,
@@ -493,6 +498,8 @@ export abstract class CoreFileService {
     if (this.isMalformedFileId(id)) {
       return null;
     }
+    // Checked before anything is asked: a malformed range is a caller's bug, answered the same for every store
+    assertByteRange(serviceOptions?.range);
     if (!(await this.checkRights(id, { ...serviceOptions, checkInputType: 'id' }))) {
       return null;
     }
@@ -502,6 +509,19 @@ export abstract class CoreFileService {
     // the same one-to-three metadata round trips are not repeated per download.
     // Omitting it keeps the previous behaviour exactly.
     const store = knownStore ?? (await this.locateFile(id));
+    return this.openStoreStream(store, id, serviceOptions);
+  }
+
+  /**
+   * Open the download stream of a file in the store that holds it — the whole file, or `serviceOptions.range` —
+   * guarded against a caller that stops reading. The rights check is the caller's: this only reads bytes.
+   */
+  protected async openStoreStream(
+    store: FileStorageDriver,
+    id: string | Types.ObjectId,
+    serviceOptions?: FileServiceOptions,
+  ): Promise<Readable> {
+    const range = assertByteRange(serviceOptions?.range);
     if (store === 's3') {
       return this.guardDownloadStream(
         await S3FileHelper.getStream(this.options.s3Service, id, this.s3StreamOptions(serviceOptions)),
@@ -509,10 +529,10 @@ export abstract class CoreFileService {
       );
     }
     if (store === 'filesystem') {
-      return this.guardDownloadStream(FilesystemFileHelper.getStream(this.filesystemDir, id), serviceOptions);
+      return this.guardDownloadStream(FilesystemFileHelper.getStream(this.filesystemDir, id, range), serviceOptions);
     }
     return this.guardDownloadStream(
-      GridFSHelper.openDownloadStream(this.files, getObjectIds(id)) as mongo.GridFSBucketReadStream,
+      GridFSHelper.openDownloadStream(this.files, getObjectIds(id), range) as mongo.GridFSBucketReadStream,
       serviceOptions,
     );
   }
@@ -535,12 +555,17 @@ export abstract class CoreFileService {
     });
   }
 
-  /** Options for the S3 stream of a download: the caller's abort signal and idle time. */
+  /** Options for the S3 stream of a download: the caller's abort signal, idle time and byte range. */
   protected s3StreamOptions(serviceOptions?: FileServiceOptions): {
     abortSignal?: AbortSignal;
     idleTimeoutMs?: false | number;
+    range?: FileServiceOptions['range'];
   } {
-    return { abortSignal: serviceOptions?.abortSignal, idleTimeoutMs: serviceOptions?.downloadIdleTimeoutMs };
+    return {
+      abortSignal: serviceOptions?.abortSignal,
+      idleTimeoutMs: serviceOptions?.downloadIdleTimeoutMs,
+      ...(serviceOptions?.range ? { range: serviceOptions.range } : {}),
+    };
   }
 
   /**
@@ -648,22 +673,17 @@ export abstract class CoreFileService {
    * unchanged; what changed is that the document authorization inspected is the one being served.
    */
   async getFileStreamByName(filename: string, serviceOptions?: FileServiceOptions): Promise<Readable> {
+    assertByteRange(serviceOptions?.range);
     if (!(await this.checkRights(filename, { ...serviceOptions, checkInputType: 'filename' }))) {
       return null;
     }
     const s3FileInfo = await this.findS3FileByName(filename);
     if (s3FileInfo) {
-      return this.guardDownloadStream(
-        await S3FileHelper.getStream(this.options.s3Service, s3FileInfo._id, this.s3StreamOptions(serviceOptions)),
-        serviceOptions,
-      );
+      return this.openStoreStream('s3', s3FileInfo._id, serviceOptions);
     }
     const fsFileInfo = await this.findFilesystemFileByName(filename);
     if (fsFileInfo) {
-      return this.guardDownloadStream(
-        FilesystemFileHelper.getStream(this.filesystemDir, fsFileInfo._id),
-        serviceOptions,
-      );
+      return this.openStoreStream('filesystem', fsFileInfo._id, serviceOptions);
     }
     const gridFsInfo = await GridFSHelper.findFileByName(this.files, filename);
     if (!gridFsInfo) {
@@ -671,7 +691,7 @@ export abstract class CoreFileService {
       // itself, asynchronously on the stream, which the controller turns into a 404.
       return this.guardDownloadStream(GridFSHelper.openDownloadStreamByName(this.files, filename), serviceOptions);
     }
-    return this.guardDownloadStream(GridFSHelper.openDownloadStream(this.files, gridFsInfo._id), serviceOptions);
+    return this.openStoreStream('gridfs', gridFsInfo._id, serviceOptions);
   }
 
   /**

@@ -1,3 +1,5 @@
+import type { ByteRange } from '../../../common/helpers/byte-range.helper.js';
+
 /**
  * Interface for service options in file services
  */
@@ -39,6 +41,17 @@ export interface FileServiceOptions {
    * file's content type under that key and will overwrite whatever is passed.
    */
   metadata?: Record<string, any>;
+
+  /**
+   * Read only these bytes of the file (both inclusive) — `getFileStream()` / `getFileStreamByName()`, every store.
+   *
+   * What a route needs to answer a `Range` request with `206 Partial Content` (video and audio in Safari and every
+   * media player, resumed downloads). The range must lie inside the file (`end` below its `length`): produce it with
+   * `resolveDownloadRange(res, file.length)`, which also answers an unsatisfiable range with `416`. A malformed range
+   * (negative, not an integer, `start > end`) throws a `RangeError` before any store is asked. The rights check runs
+   * first, as for a whole file. Since 12.9.3.
+   */
+  range?: ByteRange;
 
   roles?: string | string[];
 }

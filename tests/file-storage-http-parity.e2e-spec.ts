@@ -308,6 +308,65 @@ describe('File storage parity — download routes (e2e)', () => {
           expect(refused.statusCode, `${other} refusal`).toBe(404);
         }
       });
+
+      /**
+       * @regression   12.9.3 — both download routes answered a `Range` request with 200 and the whole file. Safari
+       *   refuses to play a video from such a server (Chrome plays it anyway, so it went unnoticed).
+       * @seen-failing Let the routes ignore the Range header — CoreFileController.resolveDownloadRange() in
+       *   src/core/modules/file/core-file.controller.ts answering undefined — registered as mutation
+       *   `download-routes-skip-range` in tests/regression-mutations.json.
+       */
+      parityIt('http.rangeRequests', column, async () => {
+        const length = Buffer.byteLength(ownContent);
+        const get = (url: string, range?: string, token = owner.token) =>
+          testHelper.download(url, { headers: range ? { Range: range } : {}, token });
+
+        for (const url of [`/files/id/${ownFile.id}`, `/files/${ownFile.filename}`]) {
+          const head = await get(url, 'bytes=0-4');
+          expect(head.statusCode, `${url} first bytes`).toBe(206);
+          expect(head.headers['content-range']).toBe(`bytes 0-4/${length}`);
+          expect(head.headers['content-length']).toBe('5');
+          expect(head.headers['accept-ranges']).toBe('bytes');
+          expect(head.headers['content-type']).toContain('text/plain');
+          // Still not storable by a shared cache, and no longer transformable (compression would break the offsets)
+          expect(head.headers['cache-control']).toBe('private, no-store, no-transform');
+          expect(head.data).toBe(ownContent.slice(0, 5));
+
+          const tail = await get(url, 'bytes=6-');
+          expect(tail.statusCode, `${url} open-ended`).toBe(206);
+          expect(tail.headers['content-range']).toBe(`bytes 6-${length - 1}/${length}`);
+          expect(tail.data).toBe(ownContent.slice(6));
+
+          const suffix = await get(url, 'bytes=-3');
+          expect(suffix.statusCode, `${url} suffix`).toBe(206);
+          expect(suffix.data).toBe(ownContent.slice(-3));
+
+          // Past the end: 416 with the real size, and nothing of the file
+          const beyond = await get(url, `bytes=${length}-`);
+          expect(beyond.statusCode, `${url} past the end`).toBe(416);
+          expect(beyond.headers['content-range']).toBe(`bytes */${length}`);
+          expect(beyond.headers['content-disposition']).toBeUndefined();
+          expect(beyond.data).toContain('LTNS_0503');
+          expect(beyond.data).not.toContain(ownContent);
+
+          // Several ranges are not served as multipart/byteranges: the whole file, which every client can use
+          const several = await get(url, 'bytes=0-1,4-5');
+          expect(several.statusCode, `${url} several ranges`).toBe(200);
+          expect(several.data).toBe(ownContent);
+
+          const whole = await get(url);
+          expect(whole.statusCode, `${url} without Range`).toBe(200);
+          expect(whole.headers['accept-ranges']).toBe('bytes');
+          expect(whole.headers['content-range']).toBeUndefined();
+          expect(whole.data).toBe(ownContent);
+        }
+
+        // A Range header changes nothing about the refusal: same 404 as without
+        const refused = await get(`/files/id/${ownFile.id}`, 'bytes=0-1', stranger.token);
+        expect(refused.statusCode).toBe(404);
+        expect(refused.headers['content-range']).toBeUndefined();
+        expect(refused.data).toBe((await get(`/files/id/${ownFile.id}`, undefined, stranger.token)).data);
+      });
     });
   }
 });

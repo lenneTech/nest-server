@@ -4,6 +4,7 @@ import { Agent as HttpsAgent } from 'https';
 import { PassThrough } from 'stream';
 
 import { buildContentDisposition } from '../helpers/content-disposition.helper.js';
+import { assertByteRange, type ByteRange } from '../helpers/byte-range.helper.js';
 import { DEFAULT_STREAM_IDLE_TIMEOUT_MS, guardIdleStream, MAX_TIMER_DELAY_MS } from '../helpers/idle-stream.helper.js';
 import { ConfigService } from './config.service.js';
 
@@ -701,6 +702,11 @@ export class CoreS3Service implements OnApplicationShutdown, OnModuleInit {
   /**
    * Get an object stream (plus metadata) from the main bucket.
    * Throws the SDK's NoSuchKey error when the object does not exist.
+   *
+   * With `range`, only those bytes are read (`Range: bytes=<start>-<end>`, end inclusive): `contentLength` is then
+   * the length of the range and `contentRange` S3's `bytes <start>-<end>/<total>`. The range must lie inside the
+   * object — a range starting past its end is refused by S3 with `InvalidRange`; `resolveDownloadRange()` produces a
+   * valid one from a request's `Range` header. A malformed range throws a `RangeError` before S3 is asked.
    */
   async getObject(
     key: string,
@@ -712,14 +718,21 @@ export class CoreS3Service implements OnApplicationShutdown, OnModuleInit {
        * its turn comes) AND is certain to read it to the end or destroy it; such a body holds its socket until then.
        */
       idleTimeoutMs?: false | number;
+      /** Read only these bytes (both inclusive). Since 12.9.3. */
+      range?: ByteRange;
     },
-  ): Promise<{ body: Readable; contentLength?: number; contentType?: string }> {
+  ): Promise<{ body: Readable; contentLength?: number; contentRange?: string; contentType?: string }> {
     const { client, config, sdk } = this.requireInit();
+    const range = assertByteRange(options?.range);
     // `abortSignal`: a caller whose client has gone aborts the request, also while it still waits for a socket —
     // otherwise it stays queued and takes a socket and a body later, for nobody (see `IS3Config.maxSockets`)
     const idleMs = options?.idleTimeoutMs;
     const result = await client.send(
-      new sdk.GetObjectCommand({ Bucket: config.bucket, Key: key }),
+      new sdk.GetObjectCommand({
+        Bucket: config.bucket,
+        Key: key,
+        ...(range ? { Range: `bytes=${range.start}-${range.end}` } : {}),
+      }),
       options?.abortSignal ? { abortSignal: options.abortSignal } : undefined,
     );
     return {
@@ -734,6 +747,7 @@ export class CoreS3Service implements OnApplicationShutdown, OnModuleInit {
         },
       }),
       contentLength: result.ContentLength,
+      ...(result.ContentRange ? { contentRange: result.ContentRange } : {}),
       contentType: result.ContentType,
     };
   }

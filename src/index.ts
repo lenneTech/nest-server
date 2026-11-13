@@ -30,6 +30,7 @@ export * from './core/common/enums/sort-order.emum.js';
 export * from './core/common/exceptions/access-denied.exception.js';
 export * from './core/common/filters/http-exception-log.filter.js';
 export * from './core/common/filters/mongoose-cast-error.filter.js';
+export * from './core/common/helpers/byte-range.helper.js';
 export * from './core/common/helpers/common.helper.js';
 export * from './core/common/helpers/config.helper.js';
 export * from './core/common/helpers/config-endpoint.helper.js';

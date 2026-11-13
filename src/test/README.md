@@ -205,10 +205,11 @@ await fs.promises.writeFile('/tmp/downloaded.bin', buffer);
 
 The second parameter accepts either a plain token string or a `TestDownloadOptions` object:
 
-| Option    | Type     | Description                                                   |
-| --------- | -------- | ------------------------------------------------------------- |
-| `token`   | `string` | Bearer token via Authorization header (JWT)                   |
-| `cookies` | `string` | Plain session token, converted via `buildBetterAuthCookies()` |
+| Option    | Type                     | Description                                                   |
+| --------- | ------------------------ | ------------------------------------------------------------- |
+| `token`   | `string`                 | Bearer token via Authorization header (JWT)                   |
+| `cookies` | `string`                 | Plain session token, converted via `buildBetterAuthCookies()` |
+| `headers` | `Record<string, string>` | Additional request headers, e.g. `Range` (since 12.9.3)       |
 
 Both can be used simultaneously — `token` sets the Authorization header while `cookies` sets the Cookie header.
 
@@ -224,6 +225,9 @@ await testHelper.download('/files/id/abc123', { cookies: sessionToken });
 
 // Both simultaneously
 await testHelper.download('/files/id/abc123', { cookies: sessionToken, token: jwtToken });
+
+// A byte range: 206, `Content-Range: bytes 0-1/<length>`, two bytes in `res.data`
+const res = await testHelper.download('/files/id/abc123', { headers: { Range: 'bytes=0-1' }, token: jwtToken });
 ```
 
 ## GraphQL Testing (`testHelper.graphQl()`)

@@ -1,6 +1,7 @@
 import type { Types } from 'mongoose';
 import { Readable } from 'stream';
 
+import type { ByteRange } from '../../common/helpers/byte-range.helper.js';
 import { CoreS3Service } from '../../common/services/core-s3.service.js';
 import {
   ensureFilenameIndex,
@@ -216,12 +217,12 @@ export class S3FileHelper {
   }
 
   /**
-   * Get the download stream of a file
+   * Get the download stream of a file — with `range`, only those bytes (both inclusive)
    */
   static async getStream(
     s3Service: CoreS3Service,
     id: string | Types.ObjectId,
-    options?: { abortSignal?: AbortSignal; idleTimeoutMs?: false | number },
+    options?: { abortSignal?: AbortSignal; idleTimeoutMs?: false | number; range?: ByteRange },
   ): Promise<Readable> {
     const objectId = typeof id === 'string' ? newObjectId(id) : id;
     return (await s3Service.getObject(objectId.toHexString(), options)).body;
