@@ -1,5 +1,6 @@
 import { mongo, Types } from 'mongoose';
 import { Readable } from 'stream';
+import type { ByteRange } from './byte-range.helper';
 
 // Use Mongoose's MongoDB types to avoid BSON version conflicts
 const ObjectId = Types.ObjectId;
@@ -279,18 +280,31 @@ export class GridFSHelper {
   }
 
   /**
-   * Open download stream by ID
+   * Open download stream by ID — with `range`, only those bytes (both inclusive). The range must lie inside the
+   * file: GridFS refuses a start or end past its length with an error on the stream.
    */
-  static openDownloadStream(bucket: GridFSBucket, id: string | Types.ObjectId): GridFSBucketReadStream {
+  static openDownloadStream(
+    bucket: GridFSBucket,
+    id: string | Types.ObjectId,
+    range?: ByteRange,
+  ): GridFSBucketReadStream {
     const objectId = typeof id === 'string' ? new ObjectId(id) : id;
-    return bucket.openDownloadStream(objectId);
+    return bucket.openDownloadStream(objectId, GridFSHelper.streamRange(range));
   }
 
   /**
-   * Open download stream by name
+   * Open download stream by name — with `range`, only those bytes (both inclusive)
    */
-  static openDownloadStreamByName(bucket: GridFSBucket, filename: string): GridFSBucketReadStream {
-    return bucket.openDownloadStreamByName(filename);
+  static openDownloadStreamByName(bucket: GridFSBucket, filename: string, range?: ByteRange): GridFSBucketReadStream {
+    return bucket.openDownloadStreamByName(filename, GridFSHelper.streamRange(range));
+  }
+
+  /**
+   * The GridFS stream options of a range. GridFS counts `end` EXCLUSIVE (the byte after the last one), HTTP and
+   * `ByteRange` count it inclusive — hence the `+ 1`.
+   */
+  static streamRange(range?: ByteRange): undefined | { end: number; start: number } {
+    return range ? { end: range.end + 1, start: range.start } : undefined;
   }
 
   /**

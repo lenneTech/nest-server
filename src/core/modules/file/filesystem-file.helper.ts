@@ -14,6 +14,7 @@ import {
   findMetadataByName,
 } from './file-metadata.helper';
 import { streamToBuffer } from './s3-file.helper';
+import type { ByteRange } from '../../common/helpers/byte-range.helper';
 
 /** Metadata collection for files stored on the local filesystem */
 export const FILESYSTEM_FILES_COLLECTION = 'filesystem-files';
@@ -169,10 +170,14 @@ export class FilesystemFileHelper {
   }
 
   /**
-   * Get the download stream of a file
+   * Get the download stream of a file — with `range`, only those bytes (both inclusive, as `createReadStream()`
+   * counts them)
    */
-  static getStream(directory: string, id: string | Types.ObjectId): Readable {
-    return createReadStream(FilesystemFileHelper.filePath(directory, id));
+  static getStream(directory: string, id: string | Types.ObjectId, range?: ByteRange): Readable {
+    return createReadStream(
+      FilesystemFileHelper.filePath(directory, id),
+      range ? { end: range.end, start: range.start } : undefined,
+    );
   }
 
   /**
