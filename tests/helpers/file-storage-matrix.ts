@@ -257,6 +257,14 @@ export const PARITY_CASES: readonly ParityCase[] = [
     layer: 'service',
     title: 'getDownloadUrl answers undefined (never throws) while presigned downloads are off',
   },
+  // A range is read by each store with its own primitive (S3 `Range`, GridFS start/end with an EXCLUSIVE end, the
+  // filesystem's inclusive `createReadStream` options) — exactly the shape where one store is off by one byte.
+  {
+    drivers: EVERY_COLUMN,
+    id: 'service.rangedRead',
+    layer: 'service',
+    title: 'reads exactly the requested byte range by id and by name, across chunk boundaries',
+  },
 
   // -------------------------------------------------------------------------------------------
   // HTTP layer — the two inherited download routes, through the real app.
@@ -308,6 +316,12 @@ export const PARITY_CASES: readonly ParityCase[] = [
     id: 'http.crossDriverDownload',
     layer: 'http',
     title: 'downloads a file written under another driver, by id and by name',
+  },
+  {
+    drivers: EVERY_COLUMN,
+    id: 'http.rangeRequests',
+    layer: 'http',
+    title: 'answers a Range request with 206 and Content-Range, an unsatisfiable one with 416, on both routes',
   },
 ] as const;
 

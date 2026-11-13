@@ -93,6 +93,27 @@ function largeFileStream(): Readable {
   );
 }
 
+/** GridFS's default chunk size: the ranges below cross it, the first byte of a range is found by skipping chunks */
+const GRIDFS_CHUNK = 255 * 1024;
+
+/** A little over two GridFS chunks, patterned so a range shifted by one byte reads different bytes */
+const RANGE_FILE = (() => {
+  const buffer = Buffer.alloc(2 * GRIDFS_CHUNK + 7777);
+  for (let i = 0; i < buffer.length; i++) {
+    buffer[i] = (i * 17 + 3) % 253;
+  }
+  return buffer;
+})();
+
+/** Read a stream to a Buffer */
+async function readBytes(stream: NodeJS.ReadableStream): Promise<Buffer> {
+  const chunks: Buffer[] = [];
+  for await (const chunk of stream) {
+    chunks.push(Buffer.from(chunk));
+  }
+  return Buffer.concat(chunks);
+}
+
 function filterArgs(partial: Partial<FilterArgs>): FilterArgs {
   return partial as FilterArgs;
 }
@@ -694,6 +715,73 @@ describe('File storage parity — service contract (e2e)', () => {
       // ---------------------------------------------------------------------------------------
       // Presigned downloads (off in this configuration)
       // ---------------------------------------------------------------------------------------
+
+      /**
+       * @regression   12.9.3 — the core could not read a byte range from any store, so a route had to answer every
+       *   `Range` request with 200 and the whole file, which Safari refuses for video. Each store reads a range with its
+       *   own primitive and counts the end differently (GridFS exclusive, HTTP and `createReadStream()` inclusive).
+       * @seen-failing Drop the `+ 1` in GridFSHelper.streamRange() (src/core/common/helpers/gridfs.helper.ts) —
+       *   registered as mutation `gridfs-range-end-exclusive` in tests/regression-mutations.json; drop the Range from
+       *   CoreS3Service.getObject() — mutation `s3-get-object-ignores-range`; drop the range from
+       *   FilesystemFileHelper.getStream() — mutation `filesystem-range-ignored`.
+       */
+      parityIt('service.rangedRead', column, async () => {
+        const filename = name('ranged');
+        const info = await service.createFile({
+          createReadStream: () => Readable.from([RANGE_FILE]),
+          filename,
+          mimetype: 'application/octet-stream',
+          size: RANGE_FILE.length,
+        });
+        const last = RANGE_FILE.length - 1;
+        const ranges = [
+          { end: 0, start: 0 },
+          { end: 1, start: 1 },
+          // Across the first chunk boundary, and starting exactly on the second
+          { end: GRIDFS_CHUNK + 2, start: GRIDFS_CHUNK - 3 },
+          { end: GRIDFS_CHUNK * 2 + 10, start: GRIDFS_CHUNK },
+          // Several chunks, then the tail and the very last byte
+          { end: GRIDFS_CHUNK * 2 + 5000, start: 1000 },
+          { end: last, start: GRIDFS_CHUNK * 2 + 1 },
+          { end: last, start: last },
+          { end: last, start: 0 },
+        ];
+        for (const range of ranges) {
+          const expected = RANGE_FILE.subarray(range.start, range.end + 1);
+          const byId = await readBytes(await service.getFileStream(info.id, { range }));
+          expect(byId.length, `${range.start}-${range.end} by id`).toBe(expected.length);
+          expect(byId.equals(expected), `${range.start}-${range.end} by id`).toBe(true);
+          const byName = await readBytes(await service.getFileStreamByName(filename, { range }));
+          expect(byName.equals(expected), `${range.start}-${range.end} by name`).toBe(true);
+        }
+        // With the store already known — the controller's path
+        const resolved = await service.resolveFile(info.id);
+        const known = await readBytes(
+          await service.getFileStream(info.id, { range: { end: 9, start: 5 } }, resolved.store),
+        );
+        expect(known.equals(RANGE_FILE.subarray(5, 10))).toBe(true);
+
+        // A malformed range is refused the same way by every store, before any of them is asked
+        for (const range of [
+          { end: 2, start: 5 },
+          { end: 3, start: -1 },
+          { end: 2, start: 0.5 },
+        ]) {
+          await expect(service.getFileStream(info.id, { range }), JSON.stringify(range)).rejects.toThrow(RangeError);
+          await expect(service.getFileStreamByName(filename, { range })).rejects.toThrow(RangeError);
+        }
+
+        // A range does not get past the rights check
+        service.useRule(ownerOnlyRule(service));
+        try {
+          expect(await service.getFileStream(info.id, { currentUser: STRANGER, range: { end: 1, start: 0 } })).toBeNull();
+          expect(
+            await service.getFileStreamByName(filename, { currentUser: STRANGER, range: { end: 1, start: 0 } }),
+          ).toBeNull();
+        } finally {
+          service.useRule(undefined);
+        }
+      });
 
       parityIt('service.downloadUrlWithoutPresigning', column, async () => {
         // The property is "answers, never throws". Under gridfs/filesystem the S3 branch must not

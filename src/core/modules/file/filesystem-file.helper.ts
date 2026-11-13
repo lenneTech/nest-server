@@ -14,6 +14,7 @@ import {
   findMetadataByName,
 } from './file-metadata.helper.js';
 import { streamToBuffer } from './s3-file.helper.js';
+import type { ByteRange } from '../../common/helpers/byte-range.helper.js';
 import { newObjectId } from '../../common/persistence/mongo/mongoose-compat.js';
 
 /** Metadata collection for files stored on the local filesystem (on a SQL source: the table `filesystem_files`) */
@@ -172,10 +173,14 @@ export class FilesystemFileHelper {
   }
 
   /**
-   * Get the download stream of a file
+   * Get the download stream of a file — with `range`, only those bytes (both inclusive, as `createReadStream()`
+   * counts them)
    */
-  static getStream(directory: string, id: string | Types.ObjectId): Readable {
-    return createReadStream(FilesystemFileHelper.filePath(directory, id));
+  static getStream(directory: string, id: string | Types.ObjectId, range?: ByteRange): Readable {
+    return createReadStream(
+      FilesystemFileHelper.filePath(directory, id),
+      range ? { end: range.end, start: range.start } : undefined,
+    );
   }
 
   /**

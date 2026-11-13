@@ -2,6 +2,8 @@ import {
   BadRequestException,
   Controller,
   Get,
+  HttpException,
+  HttpStatus,
   Logger,
   NotFoundException,
   Param,
@@ -14,6 +16,7 @@ import type { Readable } from 'stream';
 import { CurrentUser } from '../../common/decorators/current-user.decorator.js';
 import { Roles } from '../../common/decorators/roles.decorator.js';
 import { RoleEnum } from '../../common/enums/role.enum.js';
+import { type ByteRange, contentRangeValue, parseRangeHeader } from '../../common/helpers/byte-range.helper.js';
 import { buildContentDisposition } from '../../common/helpers/content-disposition.helper.js';
 import { StreamIdleTimeoutError } from '../../common/helpers/idle-stream.helper.js';
 import { ConfigService } from '../../common/services/config.service.js';
@@ -141,7 +144,15 @@ export const RESPONSE_GONE = Symbol('lt.responseGone');
  * ofetch/`$fetch` client picks its parser from that header and hands the caller a
  * Blob instead of the error message.
  */
-const FILE_DELIVERY_HEADERS = ['Cache-Control', 'Content-Disposition', 'Content-Length', 'Content-Type', 'ETag'];
+const FILE_DELIVERY_HEADERS = [
+  'Accept-Ranges',
+  'Cache-Control',
+  'Content-Disposition',
+  'Content-Length',
+  'Content-Range',
+  'Content-Type',
+  'ETag',
+];
 
 /**
  * Re-exported from the leaf it now lives in, so no import path broke.
@@ -371,6 +382,92 @@ export async function openDownloadStream<T extends null | Readable | undefined>(
 }
 
 /**
+ * Which bytes of a file a download request asks for — the `Range` header, resolved against the file's `length`.
+ *
+ * WHY: a server that answers a `Range` request with `200` and the whole file works in Chrome and fails in Safari,
+ * which refuses to play a video (and stalls audio) from a server that does not answer ranges with `206 Partial
+ * Content`. Media players seek with ranges, download managers resume with them.
+ *
+ * Returns the range to read (pass it as `range` to `getFileStream()` / `getFileStreamByName()`, then call
+ * {@link setDownloadRangeHeaders}), or `undefined` for the whole file: no `Range` header, an invalid one, several
+ * ranges, a unit other than `bytes`, an unknown `length`, or an `If-Range` precondition — the framework's file
+ * validator is a weak `ETag`, which `If-Range` never matches (RFC 9110 §13.1.5), so such a request gets the whole
+ * file, which is always correct. See `parseRangeHeader()` for every rule.
+ *
+ * A range that starts at or past the end of the file THROWS `416 Range Not Satisfiable` with
+ * `Content-Range: bytes *\/<length>` and `#LTNS_0503`. Call it only AFTER the file was resolved with the rights
+ * check, like {@link CoreFileController.answerNotModified}: a 416 confirms that the file exists.
+ *
+ * ```typescript
+ * const resolved = await this.fileService.resolveFile(id, serviceOptions);
+ * if (!resolved) throw new NotFoundException();
+ * const range = resolveDownloadRange(res, resolved.info.length);
+ * const stream = await openDownloadStream(res, () =>
+ *   this.fileService.getFileStream(id, { ...serviceOptions, range }, resolved.store),
+ * );
+ * // RESPONSE_GONE / null as in openDownloadStream()
+ * res.header('Content-Type', resolved.info.contentType);
+ * setDownloadRangeHeaders(res, range, resolved.info.length);
+ * return pipeFileToResponse(stream, res);
+ * ```
+ */
+export function resolveDownloadRange(res: Response, length: number | undefined): ByteRange | undefined {
+  const headers = (res as Response & { req?: { headers?: Record<string, string | string[] | undefined> } }).req
+    ?.headers;
+  const header = headers?.range;
+  if (!header) {
+    return undefined;
+  }
+  // `If-Range` asks for the range only if the file is still the one the client holds part of. The only validator these
+  // routes send is a WEAK `ETag`, and `If-Range` compares strongly — it never matches, so the Range is ignored and the
+  // whole file sent (RFC 9110 §13.1.5). A project route with a strong validator decides `If-Range` itself.
+  if (headers['if-range'] !== undefined) {
+    return undefined;
+  }
+  const decision = parseRangeHeader(header, length);
+  if (decision === 'unsatisfiable') {
+    res.setHeader('Content-Range', `bytes */${length}`);
+    res.setHeader('Accept-Ranges', 'bytes');
+    throw new HttpException(ErrorCode.FILE_RANGE_NOT_SATISFIABLE, HttpStatus.REQUESTED_RANGE_NOT_SATISFIABLE);
+  }
+  return decision;
+}
+
+/**
+ * The headers of a ranged (or rangeable) file response — call it after the stream was opened, right before
+ * {@link pipeFileToResponse}, AFTER the project's own `Content-Length` (it overrides it for a range):
+ *
+ * - always (with a known `length`): `Accept-Ranges: bytes`, so a client knows it may ask for ranges;
+ * - with a range: status `206`, `Content-Range: bytes <start>-<end>/<length>`, `Content-Length` of the range, and
+ *   `no-transform` added to `Cache-Control`. The last one keeps a `compression` middleware from gzipping a partial
+ *   body: `compression` skips a response marked `no-transform`, and a compressed range would no longer match the
+ *   byte positions its `Content-Range` names. It also tells proxies not to transform it.
+ *
+ * Without a range and without a known `length` it does nothing.
+ */
+export function setDownloadRangeHeaders(res: Response, range: ByteRange | undefined, length: number | undefined): void {
+  const knownLength = typeof length === 'number' && Number.isSafeInteger(length) && length >= 0;
+  if (knownLength) {
+    res.setHeader('Accept-Ranges', 'bytes');
+  }
+  if (!range) {
+    return;
+  }
+  res.status(HttpStatus.PARTIAL_CONTENT);
+  // A 206 must carry Content-Range; `*` stands for a complete length nobody knows (RFC 9110 §14.4)
+  res.setHeader(
+    'Content-Range',
+    knownLength ? contentRangeValue(range, length) : `bytes ${range.start}-${range.end}/*`,
+  );
+  res.setHeader('Content-Length', String(range.end - range.start + 1));
+  const cacheControl = res.getHeader?.('Cache-Control');
+  const directives = Array.isArray(cacheControl) ? cacheControl.join(', ') : String(cacheControl ?? '');
+  if (!/(?:^|,)\s*no-transform\s*(?:,|$)/i.test(directives)) {
+    res.setHeader('Cache-Control', directives.trim() ? `${directives}, no-transform` : 'no-transform');
+  }
+}
+
+/**
  * File controller
  *
  * TENANT SCOPING: the class carries `@SkipTenantCheck()`, so the roles below are
@@ -502,8 +599,11 @@ export abstract class CoreFileController {
       res.redirect(302, url);
       return res;
     }
+    // A `Range` request (Safari's video player, a resumed download) reads only those bytes — decided after the rights
+    // check and the 304, because a 416 confirms that the file exists
+    const range = this.resolveDownloadRange(res, file.length);
     const filestream = await this.openDownloadStream(res, () =>
-      this.fileService.getFileStream(id, serviceOptions, resolved.store),
+      this.fileService.getFileStream(id, range ? { ...serviceOptions, range } : serviceOptions, resolved.store),
     );
     if (filestream === RESPONSE_GONE) {
       return res;
@@ -514,6 +614,7 @@ export abstract class CoreFileController {
       throw new NotFoundException(ErrorCode.FILE_NOT_FOUND);
     }
     this.setFileHeaders(res, file);
+    this.setDownloadRangeHeaders(res, range, file.length);
     return this.pipeFileToResponse(filestream, res);
   }
 
@@ -555,8 +656,9 @@ export abstract class CoreFileController {
       res.redirect(302, url);
       return res;
     }
+    const range = this.resolveDownloadRange(res, file.length);
     const filestream = await this.openDownloadStream(res, () =>
-      this.fileService.getFileStream(file.id, serviceOptions),
+      this.fileService.getFileStream(file.id, range ? { ...serviceOptions, range } : serviceOptions),
     );
     if (filestream === RESPONSE_GONE) {
       return res;
@@ -565,6 +667,7 @@ export abstract class CoreFileController {
       throw new NotFoundException(ErrorCode.FILE_NOT_FOUND);
     }
     this.setFileHeaders(res, file);
+    this.setDownloadRangeHeaders(res, range, file.length);
     return this.pipeFileToResponse(filestream, res);
   }
 
@@ -585,6 +688,22 @@ export abstract class CoreFileController {
     open: () => Promise<Readable>,
   ): Promise<Readable | typeof RESPONSE_GONE> {
     return openDownloadStream(res, open);
+  }
+
+  /**
+   * The byte range a download request asks for — see the exported {@link resolveDownloadRange}. Throws `416` for an
+   * unsatisfiable range. Override it to serve ranges differently (or not at all: return `undefined`).
+   */
+  protected resolveDownloadRange(res: Response, length: number | undefined): ByteRange | undefined {
+    return resolveDownloadRange(res, length);
+  }
+
+  /**
+   * `Accept-Ranges`, and for a range `206` with `Content-Range` — see the exported {@link setDownloadRangeHeaders}.
+   * Called after {@link setFileHeaders}, whose `Content-Length` it replaces for a range.
+   */
+  protected setDownloadRangeHeaders(res: Response, range: ByteRange | undefined, length: number | undefined): void {
+    setDownloadRangeHeaders(res, range, length);
   }
 
   /**
