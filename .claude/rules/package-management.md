@@ -179,7 +179,7 @@ entry, `ws`: GHSA-37g9-w4hg-h9qr (high, pre-auth memory-exhaustion DoS, patched 
 `@nestjs/graphql` 14.2.1 exact-pins, and the GraphQL WebSocket server runs on that copy. The advisory was published
 by the ws maintainers on 2026-11-12 and was not yet in GitHub's global database when the entry was added, so
 `pnpm audit` did not report it — read the advisories of a package's own repository when a release announces a
-security fix. Its target moves in lockstep with the declared `ws` dependency (`docs/security-overrides.md`). An override is only necessary if removing it lets the package resolve
+security fix. Its target moves in lockstep with the declared `ws` dependency (`docs/security-overrides.md`). Since 12.9.5 a second entry, `minimatch` 11 -> 11.0.8: `@nestjs/cli` 12.0.13 exact-pins 11.0.5, covered by three moderate advisories (dev tooling only). An override is only necessary if removing it lets the package resolve
 back INTO its vulnerable range (verify with a with/without lockfile diff; `pnpm audit` is the arbiter).
 "Cheap insurance against a parent re-pinning downwards" is not a reason to keep one: `pnpm audit` and
 `check:overrides` run on every `check` and report such a regression the day it happens. Each surviving entry carries its CVE rationale as a comment. Remove an entry once its parent dependency ships a fixed version.
