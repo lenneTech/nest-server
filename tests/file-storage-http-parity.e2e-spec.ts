@@ -22,10 +22,11 @@
  * store is also the honest model of the state under test: a project that switched drivers has rows
  * in a store nothing writes to any more.
  */
+import { Logger } from '@nestjs/common';
 import { Test, TestingModule } from '@nestjs/testing';
 import { MongoClient, ObjectId } from 'mongodb';
 import mongoose, { Connection } from 'mongoose';
-import { afterAll, afterEach, beforeAll, describe, expect } from 'vitest';
+import { afterAll, afterEach, beforeAll, describe, expect, vi } from 'vitest';
 
 import { TestGraphQLType, TestHelper } from '../src';
 import envConfig from '../src/config.env';
@@ -246,6 +247,58 @@ describe('File storage parity — download routes (e2e)', () => {
           const res = await testHelper.download(url, { token: admin.token });
           expect(res.statusCode, url).toBe(200);
           expect(res.data).toBe(ownContent);
+        }
+      });
+
+      /**
+       * @regression   12.9.4 — every download the client aborted on S3 logged `ERROR File download failed: aborted` with
+       *   a stack: `downloadAbortSignal()` aborts the S3 request before pipeFileToResponse() has seen the client leave,
+       *   and the SDK fails the body inside that dispatch. A video player aborts a running range on every seek.
+       * @seen-failing Count only the response's own close as the client leaving in pipeFileToResponse()'s error
+       *   handler (src/core/modules/file/core-file.controller.ts) — registered as mutation
+       *   `download-route-logs-abort-after-client-left` in tests/regression-mutations.json.
+       */
+      parityIt('http.abortedDownloadLogsNoError', driver, async () => {
+        // Large enough that every response is still streaming when its client leaves
+        const video = await env.plant(driver, {
+          content: 'v'.repeat(6 * 1024 * 1024),
+          contentType: 'video/mp4',
+          filename: `${testId}-${driver}-video.mp4`,
+          metadata: { ownerId: owner.id },
+        });
+        const errors: string[] = [];
+        vi.spyOn(Logger.prototype, 'error').mockImplementation(((message: unknown) => {
+          errors.push(String(message));
+        }) as never);
+        const server = app.getHttpServer();
+        await new Promise<void>((resolve) => server.listen(0, '127.0.0.1', () => resolve()));
+        try {
+          const { port } = server.address();
+          let aborted = 0;
+          for (let round = 0; round < 2; round++) {
+            await Promise.all(
+              Array.from({ length: 10 }, async (_, i) => {
+                const controller = new AbortController();
+                const res = await fetch(`http://127.0.0.1:${port}/files/id/${video.id}`, {
+                  headers: { authorization: `Bearer ${owner.token}`, range: `bytes=${i * 1000}-` },
+                  signal: controller.signal,
+                });
+                expect(res.status).toBe(206);
+                const reader = res.body.getReader();
+                await reader.read();
+                controller.abort();
+                await reader.cancel().catch(() => undefined);
+                aborted++;
+              }),
+            );
+          }
+          // Let every store error of the aborted requests arrive
+          await new Promise((resolve) => setTimeout(resolve, 1000));
+          expect(aborted).toBe(20);
+          expect(errors).toEqual([]);
+        } finally {
+          server.closeAllConnections?.();
+          await new Promise<void>((resolve) => server.close(() => resolve()));
         }
       });
 
