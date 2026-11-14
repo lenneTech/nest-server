@@ -22,10 +22,11 @@
  * store is also the honest model of the state under test: a project that switched drivers has rows
  * in a store nothing writes to any more.
  */
+import { Logger } from '@nestjs/common';
 import { Test, TestingModule } from '@nestjs/testing';
 import { MongoClient, ObjectId } from 'mongodb';
 import mongoose, { Connection } from 'mongoose';
-import { afterAll, afterEach, beforeAll, describe, expect } from 'vitest';
+import { afterAll, afterEach, beforeAll, describe, expect, vi } from 'vitest';
 
 import { TestGraphQLType, TestHelper } from '../src';
 import envConfig from '../src/config.env';
@@ -283,6 +284,58 @@ describe('File storage parity — download routes (e2e)', () => {
         }
       });
 
+      /**
+       * @regression   12.9.4 — every download the client aborted on S3 logged `ERROR File download failed: aborted` with
+       *   a stack: `downloadAbortSignal()` aborts the S3 request before pipeFileToResponse() has seen the client leave,
+       *   and the SDK fails the body inside that dispatch. A video player aborts a running range on every seek.
+       * @seen-failing Count only the response's own close as the client leaving in pipeFileToResponse()'s error
+       *   handler (src/core/modules/file/core-file.controller.ts) — registered as mutation
+       *   `download-route-logs-abort-after-client-left` in tests/regression-mutations.json.
+       */
+      parityIt('http.abortedDownloadLogsNoError', column, async () => {
+        // Large enough that every response is still streaming when its client leaves
+        const video = await env.plant(driver, {
+          content: 'v'.repeat(6 * 1024 * 1024),
+          contentType: 'video/mp4',
+          filename: `${testId}-${slug}-video.mp4`,
+          metadata: { ownerId: owner.id },
+        });
+        const errors: string[] = [];
+        vi.spyOn(Logger.prototype, 'error').mockImplementation(((message: unknown) => {
+          errors.push(String(message));
+        }) as never);
+        const server = app.getHttpServer();
+        await new Promise<void>((resolve) => server.listen(0, '127.0.0.1', () => resolve()));
+        try {
+          const { port } = server.address();
+          let aborted = 0;
+          for (let round = 0; round < 2; round++) {
+            await Promise.all(
+              Array.from({ length: 10 }, async (_, i) => {
+                const controller = new AbortController();
+                const res = await fetch(`http://127.0.0.1:${port}/files/id/${video.id}`, {
+                  headers: { authorization: `Bearer ${owner.token}`, range: `bytes=${i * 1000}-` },
+                  signal: controller.signal,
+                });
+                expect(res.status).toBe(206);
+                const reader = res.body.getReader();
+                await reader.read();
+                controller.abort();
+                await reader.cancel().catch(() => undefined);
+                aborted++;
+              }),
+            );
+          }
+          // Let every store error of the aborted requests arrive
+          await new Promise((resolve) => setTimeout(resolve, 1000));
+          expect(aborted).toBe(20);
+          expect(errors).toEqual([]);
+        } finally {
+          server.closeAllConnections?.();
+          await new Promise<void>((resolve) => server.close(() => resolve()));
+        }
+      });
+
       parityIt('http.crossDriverDownload', column, async () => {
         for (const other of others) {
           const filename = `${testId}-${slug}-from-${other}.txt`;
@@ -307,6 +360,65 @@ describe('File storage parity — download routes (e2e)', () => {
           const refused = await testHelper.download(`/files/id/${planted.id}`, { token: stranger.token });
           expect(refused.statusCode, `${other} refusal`).toBe(404);
         }
+      });
+
+      /**
+       * @regression   12.9.3 — both download routes answered a `Range` request with 200 and the whole file. Safari
+       *   refuses to play a video from such a server (Chrome plays it anyway, so it went unnoticed).
+       * @seen-failing Let the routes ignore the Range header — CoreFileController.resolveDownloadRange() in
+       *   src/core/modules/file/core-file.controller.ts answering undefined — registered as mutation
+       *   `download-routes-skip-range` in tests/regression-mutations.json.
+       */
+      parityIt('http.rangeRequests', column, async () => {
+        const length = Buffer.byteLength(ownContent);
+        const get = (url: string, range?: string, token = owner.token) =>
+          testHelper.download(url, { headers: range ? { Range: range } : {}, token });
+
+        for (const url of [`/files/id/${ownFile.id}`, `/files/${ownFile.filename}`]) {
+          const head = await get(url, 'bytes=0-4');
+          expect(head.statusCode, `${url} first bytes`).toBe(206);
+          expect(head.headers['content-range']).toBe(`bytes 0-4/${length}`);
+          expect(head.headers['content-length']).toBe('5');
+          expect(head.headers['accept-ranges']).toBe('bytes');
+          expect(head.headers['content-type']).toContain('text/plain');
+          // Still not storable by a shared cache, and no longer transformable (compression would break the offsets)
+          expect(head.headers['cache-control']).toBe('private, no-store, no-transform');
+          expect(head.data).toBe(ownContent.slice(0, 5));
+
+          const tail = await get(url, 'bytes=6-');
+          expect(tail.statusCode, `${url} open-ended`).toBe(206);
+          expect(tail.headers['content-range']).toBe(`bytes 6-${length - 1}/${length}`);
+          expect(tail.data).toBe(ownContent.slice(6));
+
+          const suffix = await get(url, 'bytes=-3');
+          expect(suffix.statusCode, `${url} suffix`).toBe(206);
+          expect(suffix.data).toBe(ownContent.slice(-3));
+
+          // Past the end: 416 with the real size, and nothing of the file
+          const beyond = await get(url, `bytes=${length}-`);
+          expect(beyond.statusCode, `${url} past the end`).toBe(416);
+          expect(beyond.headers['content-range']).toBe(`bytes */${length}`);
+          expect(beyond.headers['content-disposition']).toBeUndefined();
+          expect(beyond.data).toContain('LTNS_0503');
+          expect(beyond.data).not.toContain(ownContent);
+
+          // Several ranges are not served as multipart/byteranges: the whole file, which every client can use
+          const several = await get(url, 'bytes=0-1,4-5');
+          expect(several.statusCode, `${url} several ranges`).toBe(200);
+          expect(several.data).toBe(ownContent);
+
+          const whole = await get(url);
+          expect(whole.statusCode, `${url} without Range`).toBe(200);
+          expect(whole.headers['accept-ranges']).toBe('bytes');
+          expect(whole.headers['content-range']).toBeUndefined();
+          expect(whole.data).toBe(ownContent);
+        }
+
+        // A Range header changes nothing about the refusal: same 404 as without
+        const refused = await get(`/files/id/${ownFile.id}`, 'bytes=0-1', stranger.token);
+        expect(refused.statusCode).toBe(404);
+        expect(refused.headers['content-range']).toBeUndefined();
+        expect(refused.data).toBe((await get(`/files/id/${ownFile.id}`, undefined, stranger.token)).data);
       });
     });
   }
