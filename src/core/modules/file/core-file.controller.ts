@@ -233,6 +233,23 @@ export function pipeFileToResponse(stream: Readable, res: Response): Response {
         .json({ error: 'Service Unavailable', message: 'File storage is busy, please retry', statusCode: 503 });
       return;
     }
+    // The client has gone, and the store reports the abort that followed. Not a server error: nobody receives an
+    // answer any more, so no ERROR line per aborted download and no status. The order is the reason this cannot be
+    // left to the release listeners above: `downloadAbortSignal()` registers its listeners first (it must, the client
+    // may leave during the rights check), so on the event that reports the client gone it aborts the S3 request
+    // BEFORE this function's own listener runs, and the SDK fails the body with `aborted` inside that same dispatch.
+    // Measured through the Nest route (a GET whose request is not read to its end, so its `close` reports the
+    // abort): every aborted S3 download logged `File download failed: aborted` — one ERROR per seek of a video
+    // player, burying the `S3 socket pool exhausted:` line. A store error while the client is still there stays an
+    // ERROR below.
+    if (state.responseClosed || state.clientGoneSignal || isResponseGone(res)) {
+      state.clientGoneSignal ||= 'store error after the client left';
+      fileStreamLogger.debug(`File download ended after the client left: ${err.message}`);
+      if (!res.destroyed) {
+        res.destroy();
+      }
+      return;
+    }
     // The answer to the CLIENT stays deliberately indistinguishable from an
     // unknown id, but the server must not lose the event: a files document
     // without its chunks is data corruption, and an error silently converted

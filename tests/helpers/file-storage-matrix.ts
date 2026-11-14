@@ -323,6 +323,13 @@ export const PARITY_CASES: readonly ParityCase[] = [
     layer: 'http',
     title: 'answers a Range request with 206 and Content-Range, an unsatisfiable one with 416, on both routes',
   },
+  // A video player aborts a running range on every seek; on S3 the abort reaches the store first
+  {
+    drivers: EVERY_COLUMN,
+    id: 'http.abortedDownloadLogsNoError',
+    layer: 'http',
+    title: 'logs no ERROR for downloads the client aborts mid-range',
+  },
 ] as const;
 
 /**
