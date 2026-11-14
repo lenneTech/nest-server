@@ -503,6 +503,7 @@ on the controller rather than the exported function of the same name.
 | `If-None-Match` names the file's weak `ETag` (`W/"<id>"`), after the rights check           | `304`  | No body; the store is not read                                                 |
 | The store hands out no connection within 3 attempts of `s3.connectionTimeoutMs` (pool busy) | `503`  | `Retry-After: 5`; the store is busy, not broken                                |
 | The client left before the stream was handed over                                           | —      | Nothing is sent; the stream is destroyed at once, a pending S3 request aborted |
+| The client left mid-transfer and the store reports the abort (S3: `aborted`) (12.9.4+)      | —      | Nothing is sent; logged at debug, never as ERROR                               |
 | `Range` names one range inside the file (12.9.3+)                                           | `206`  | `Content-Range: bytes <start>-<end>/<length>`, only those bytes                |
 | `Range` starts at or past the end of the file (12.9.3+)                                     | `416`  | `Content-Range: bytes */<length>`, `ErrorCode.FILE_RANGE_NOT_SATISFIABLE`      |
 
