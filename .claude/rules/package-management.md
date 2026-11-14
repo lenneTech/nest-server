@@ -173,8 +173,13 @@ load-bearing (it has since grown back to as many as 20, mostly as new advisories
 2026-10-24 (nest-server 12.0.0) two fresh resolves showed that 16 of the remaining 18 changed nothing,
 and they were removed, leaving `@graphql-tools/utils` and `multer`, both on an upstream EXACT pin with
 an open advisory. Those two left on 2026-10-29 (nest-server 12.1.0), once `@nestjs/graphql` 14.1.0 and
-`@nestjs/platform-express` 12.3.2 moved their pins past the fixes: **the set is empty** (`overrides: {}`,
-written explicitly so `check:overrides` reads it as a decision). An override is only necessary if removing it lets the package resolve
+`@nestjs/platform-express` 12.3.2 moved their pins past the fixes: the set was empty (`overrides: {}`,
+written explicitly so `check:overrides` reads it as a decision) from 12.1.0 to 12.9.3. Since 12.9.4 it holds one
+entry, `ws`: GHSA-37g9-w4hg-h9qr (high, pre-auth memory-exhaustion DoS, patched 8.23.0) covers the 8.22.1 that
+`@nestjs/graphql` 14.2.1 exact-pins, and the GraphQL WebSocket server runs on that copy. The advisory was published
+by the ws maintainers on 2026-11-12 and was not yet in GitHub's global database when the entry was added, so
+`pnpm audit` did not report it — read the advisories of a package's own repository when a release announces a
+security fix. Its target moves in lockstep with the declared `ws` dependency (`docs/security-overrides.md`). An override is only necessary if removing it lets the package resolve
 back INTO its vulnerable range (verify with a with/without lockfile diff; `pnpm audit` is the arbiter).
 "Cheap insurance against a parent re-pinning downwards" is not a reason to keep one: `pnpm audit` and
 `check:overrides` run on every `check` and report such a regression the day it happens. Each surviving entry carries its CVE rationale as a comment. Remove an entry once its parent dependency ships a fixed version.
