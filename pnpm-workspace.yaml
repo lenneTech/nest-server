@@ -213,7 +213,9 @@ overrides:
   # `^6.14.1`) and so PINNED 6.16.0 while a fresh resolve takes 6.16.1 — a hold-back on the request
   # path. 6.16.1 is fixes only (parse no longer mutates an object input, bounded strictMerge nesting,
   # arrayLimit applied to colliding values); no new advisory.
-  'qs@<6.16.1': '6.16.1'
+  # Target raised 6.16.1 -> 6.17.1 on 2026-11-14, key with it: GHSA-w4cr-vjpx-p82q (low) covers 6.16.0 – 6.16.1
+  # (patched 6.16.2); 6.17.1 is the newest 6.x and inside every requester's caret.
+  'qs@<6.17.1': '6.17.1'
   # Security: multer - four advisories, patched >=2.3.0 (added 2026-09-14)
   #   GHSA-wc9g-mqfw-jrwm, GHSA-535w-7cp7-47q4, GHSA-qfvm-cv95-jqjf  DoS via crafted / oversized /
   #                                                                  file-count multipart input (high)
@@ -313,7 +315,9 @@ overrides:
   # All three targets raised on 2026-09-26, key upper bounds with them (5.0.9 -> 5.0.12,
   # 2.1.4 -> 2.1.7, 1.1.18 -> 1.1.21): a clean resolve picks the newer patches, so the 1.x and 5.x
   # entries had become hold-backs. The 2.x one is raised to stay consistent while it is latent.
-  'brace-expansion@>=5.0.0 <5.0.12': '5.0.12'
+  # 2026-11-14: all three raised again, keys with them (5.0.12 -> 5.0.13, 2.1.7 -> 2.1.8, 1.1.21 -> 1.1.22) for
+  # GHSA-6jwq-xf8q-xcwh (high, unbounded parsing and expansion work): each old target lay inside the advisory.
+  'brace-expansion@>=5.0.0 <5.0.13': '5.0.13'
   # The 2.x line no longer resolves at all since the minimatch lift below removed its only parent.
   # Kept anyway, and deliberately: it is not inert because the dependency was fixed, but because
   # ANOTHER override happens to hide it. Drop the minimatch entry and 2.x returns immediately, so
@@ -322,8 +326,8 @@ overrides:
   # GHSA-mh99-v99m-4gvg is 2.1.3, so the old target pinned this line one patch BELOW its own
   # advisory - the "stale override" shape `pnpm run check:overrides` now catches. Latent rather
   # than exploitable, since nothing resolves in 2.x today; raised so it cannot become live silently.
-  'brace-expansion@>=2.0.0 <2.1.7': '2.1.7'
-  'brace-expansion@<1.1.21': '1.1.21'
+  'brace-expansion@>=2.0.0 <2.1.8': '2.1.8'
+  'brace-expansion@<1.1.22': '1.1.22'
   # Security: the real lever for GHSA-mh99-v99m-4gvg. Only brace-expansion 5.0.8 carries the fix, and
   # forcing it onto a minimatch@3 consumer throws "expand is not a function" (5.x exports a namespace
   # object, not a callable). minimatch 10.2.6 REQUESTS ^5.0.8, so lifting every 9.x consumer onto it
