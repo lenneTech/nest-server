@@ -279,7 +279,14 @@ overrides:
   # the build uses webpack (tsc, and swc for check:swc-tdz). Mirrors nest-server-starter.
   # Remove once @nestjs/cli requests webpack >=5.112 itself, or with @nestjs/cli 12 (peer there).
   '@nestjs/cli>webpack': '5.112.0'
-  'ws@>=8.0.0 <8.21.0': '8.21.3'
+  # Security: ws — GHSA-37g9-w4hg-h9qr (high, published 2026-11-12): memory-exhaustion DoS through unbounded
+  #   automatic pong replies — a client floods ping frames without reading, before any authentication.
+  #   Patched in 8.23.0 and 7.5.14. The GraphQL WebSocket server runs on @nestjs/graphql's own ws, and
+  #   @nestjs/graphql 13.4.5 (newest 13.x) exact-pins ws 8.21.3, so the declared `ws` dependency alone cannot lift it. Target in lockstep with the
+  #   declared `ws` version (11.46.5); key and target move together. Verified 2026-11-14.
+  'ws@>=8.0.0 <8.23.0': '8.23.0'
+  # The 7.x copy comes from @nestjs/graphql 13 > subscriptions-transport-ws (legacy transport), same advisory.
+  'ws@>=7.0.0 <7.5.14': '7.5.14'
   # Security: Axios formDataToJSON recursion DoS + prototype pollution in auth subfields (3x moderate, patched >=1.18.0) - transitive via node-mailjet>axios (@getbrevo/brevo dropped all runtime deps in v6)
   # Target raised 1.18.1 -> 1.19.0 on 2026-08-22, and the key upper bound with it. NOT cosmetic: an
   # override key matches the REQUESTED RANGE, not the resolved version, so `axios@<1.18.0` still
@@ -460,7 +467,10 @@ overrides:
   # has cleared the hold-back and is the newest 4.x (no new advisory; pure hold-back).
   # Target raised 4.13.12 -> 4.13.13 on 2026-10-06 (11.42.4 maintenance run), key with it: 4.13.13
   # (published 2026-10-04) is the newest 4.x past the hold-back (no new advisory; pure hold-back).
-  'hono@>=4.0.0 <4.13.13': '4.13.13'
+  # Target raised 4.13.13 -> 4.13.18 on 2026-11-14 (11.46.5 backport), key with it: the old entry PINNED
+  # 4.13.13, below five advisories patched >=4.13.16 (GHSA-4m76-xfj5-7975, GHSA-h7mg-cq63-vhpq,
+  # GHSA-46wx-v44x-9hh2, GHSA-4h7h-rv7c-7m2v moderate; GHSA-3gg2-335m-rxc6 low). 4.13.18 is the newest 4.x.
+  'hono@>=4.0.0 <4.13.18': '4.13.18'
   # Security: body-parser DoS on malformed urlencoded input (GHSA-v422-hmwv-36x6, low, patched >=2.3.0) - transitive via @apollo/server, @as-integrations/express5 and express itself (22 paths)
   # Inert today. Remove once express / @apollo/server request >=2.3.0.
   # 2026-10-29 (11.43.4): raised 2.3.0 -> 2.4.0 for GHSA-27r3-jxmh-p828 (high, patched >=2.4.0): the old

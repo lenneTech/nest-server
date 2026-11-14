@@ -190,6 +190,12 @@ export interface TestDownloadOptions {
   cookies?: string;
 
   /**
+   * Additional request headers, e.g. `{ Range: 'bytes=0-1' }` for a ranged download or `If-None-Match`.
+   * Set before `cookies` and `token`, which win for their own header. Since 11.46.5.
+   */
+  headers?: Record<string, string>;
+
+  /**
    * Bearer token via Authorization header (JWT authentication).
    * Can be used simultaneously with `cookies` — token sets the Authorization header
    * while cookies sets the Cookie header.
@@ -379,6 +385,9 @@ export class TestHelper {
       if (typeof tokenOrOptions === 'string') {
         request.set('Authorization', `bearer ${tokenOrOptions}`);
       } else if (tokenOrOptions) {
+        for (const [name, value] of Object.entries(tokenOrOptions.headers ?? {})) {
+          request.set(name, value);
+        }
         if (tokenOrOptions.cookies) {
           const cookieRecord = TestHelper.buildBetterAuthCookies(tokenOrOptions.cookies);
           request.set(
@@ -424,6 +433,9 @@ export class TestHelper {
       if (typeof tokenOrOptions === 'string') {
         request.set('Authorization', `bearer ${tokenOrOptions}`);
       } else if (tokenOrOptions) {
+        for (const [name, value] of Object.entries(tokenOrOptions.headers ?? {})) {
+          request.set(name, value);
+        }
         if (tokenOrOptions.cookies) {
           const cookieRecord = TestHelper.buildBetterAuthCookies(tokenOrOptions.cookies);
           request.set(

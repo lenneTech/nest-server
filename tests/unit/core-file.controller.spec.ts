@@ -639,6 +639,53 @@ describe('pipeFileToResponse (client-gone signals)', () => {
     stream.destroy();
   });
 
+  /**
+   * @regression   12.9.4 (found by a project's video route on S3) — `downloadAbortSignal()` registers its listeners
+   *   before delivery, so on the request close that reports an abort it aborts the S3 request FIRST, and the SDK fails
+   *   the body with `aborted` inside that dispatch, before pipeFileToResponse()'s own listener has run. Every aborted
+   *   download (every seek of a video player) logged `ERROR File download failed: aborted` with a stack.
+   * @seen-failing Count only the response's own close as the client leaving in pipeFileToResponse()'s error handler
+   *   (src/core/modules/file/core-file.controller.ts) — registered as mutation `pipe-file-logs-abort-after-client-left`
+   *   in tests/regression-mutations.json.
+   */
+  it('logs no ERROR and sends nothing for the store error the client leaving caused, whichever listener ran first', async () => {
+    const errors = captureExpectedLogs();
+    const { calls, res } = responseStub(true);
+    const req = Object.assign(new EventEmitter(), { destroyed: false, readableEnded: false });
+    Object.defineProperty(res, 'req', { value: req });
+    const stream = new Readable({ read() {} });
+    // What downloadAbortSignal() and the SDK do: registered before delivery, they fail the body inside the dispatch
+    req.once('close', () => stream.emit('error', Object.assign(new Error('aborted'), { code: 'ECONNRESET' })));
+
+    pipeFileToResponse(stream, res);
+    req.destroyed = true;
+    req.emit('close');
+    await tick();
+
+    expect(errors).toEqual([]);
+    expect(calls.status).toBe(0);
+    expect(calls.json).toBeUndefined();
+    expect(calls.destroyed).toBe(true);
+    expect(stream.destroyed).toBe(true);
+  });
+
+  it('still logs a store error as ERROR while the client is there', async () => {
+    const errors = captureExpectedLogs();
+    const { calls, res } = responseStub(true);
+    const req = Object.assign(new EventEmitter(), { destroyed: false, readableEnded: true });
+    const socket = Object.assign(new EventEmitter(), { destroyed: false });
+    Object.defineProperty(res, 'req', { value: req });
+    Object.defineProperty(res, 'socket', { value: socket });
+    const stream = new Readable({ read() {} });
+
+    pipeFileToResponse(stream, res);
+    stream.emit('error', new Error('chunks missing'));
+    await tick();
+
+    expect(errors.join('\n')).toContain('chunks missing');
+    expect(calls.destroyed).toBe(true);
+  });
+
   it('ignores a request close that follows a finished response, and leaves a keep-alive socket without listeners', async () => {
     const { res } = responseStub(true);
     const req = new EventEmitter();

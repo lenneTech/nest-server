@@ -21,6 +21,17 @@ used to **exact-pin**, to a vulnerable version:
 | `@graphql-tools/utils` | [GHSA-7mx3-vvmw-hjmv](https://github.com/advisories/GHSA-7mx3-vvmw-hjmv) — high: prototype pollution in `mergeDeep`, which runs while the GraphQL schema is assembled. Covers `<=12.0.0`, patched `>=12.0.1` (added 2026-10-06) | `@nestjs/graphql` 13.4.5 — the version this framework declares, and the newest 13.x — declares `"@graphql-tools/utils": "12.0.0"`, an **exact pin**. Only `@nestjs/graphql` 14.x moves it, so **this entry is load-bearing**. `@apollo/server` reaches it too, through `@graphql-tools/schema` / `merge` — and in a lockfile that still holds schema 10.0.x (resolved before 2026-08-12), as **utils 11.x**: vulnerable too, with no 11.x fix, and outside the override key. Lift it with `pnpm update --depth Infinity @graphql-tools/schema @graphql-tools/merge`; the current releases request utils `^12.0.3`, which needs Node >=22.15 — the framework's own floor since 11.42.10, which is why the snippet below targets 12.0.3 |
 | `multer` | [GHSA-wc9g-mqfw-jrwm](https://github.com/advisories/GHSA-wc9g-mqfw-jrwm), [GHSA-535w-7cp7-47q4](https://github.com/advisories/GHSA-535w-7cp7-47q4), [GHSA-qfvm-cv95-jqjf](https://github.com/advisories/GHSA-qfvm-cv95-jqjf) — high: DoS via crafted multipart input; [GHSA-qvfw-j98x-7q72](https://github.com/advisories/GHSA-qvfw-j98x-7q72) — low: file size limit bypass. Patched `>=2.3.0`. [GHSA-q7qp-rjg7-q26m](https://github.com/advisories/GHSA-q7qp-rjg7-q26m) — high: DoS via a pending asynchronous `fileFilter` after request teardown, covers 2.4.0, patched `>=2.5.0` (published 2026-10-23) | `@nestjs/platform-express` up to 11.2.5 declares `"multer": "2.2.0"` — an **exact pin**. A direct `multer` dependency does not move it: you get both copies, and FileInterceptor uses the vulnerable one. 11.2.6 to 11.2.8, the newest 11.x, pin `2.4.0`, which GHSA-q7qp-rjg7-q26m covers. No 11.x update reaches the fix, so **this entry is load-bearing again since 11.43.4** |
 
+**Status since 11.46.5** (verified 2026-11-14): **`ws` needs a new entry.**
+[GHSA-37g9-w4hg-h9qr](https://github.com/websockets/ws/security/advisories/GHSA-37g9-w4hg-h9qr) — high: a client
+floods ping frames without reading the replies, the server buffers the automatic pongs, and the process runs out of
+memory, before any authentication. Patched in `ws` 8.23.0 (and 7.5.14). `@nestjs/graphql` 13.4.5 (newest 13.x) exact-pins `8.21.3`, and the GraphQL WebSocket server
+runs on that copy, so the `ws` dependency nest-server declares (`8.23.0` since 11.46.5) does not lift it. Use the
+`ws` entry from "The fix" — and **replace** an existing `ws` 8.x entry rather than raising only its target: pnpm
+matches the key against the requested exact version, so a key whose upper bound stays below it leaves the vulnerable
+copy in the tree. Until GitHub's global advisory database lists the advisory, `pnpm audit` does not report it.
+`@nestjs/common` and `@nestjs/platform-express` 11.2.10 (declared since 11.46.5) also close GHSA-jgpx-8x6j-fcpf and
+GHSA-c8fr-c7pf-58pf (high, process crashes): raise your own `@nestjs/*` pins to them.
+
 **Status since 11.42.4:** `@graphql-tools/utils` joins `js-yaml` as load-bearing — no `@nestjs/graphql`
 13.x resolves past the exact pin. The 11.42.4 release also covers `proxy-addr` (GHSA-jqcg-44mw-7w3h,
 critical: IP spoofing through an IPv4-mapped IPv6 address in a trusted subnet — it is what
@@ -46,11 +57,13 @@ Add this to your project's `pnpm-workspace.yaml` (pnpm 11+; in pnpm 10 and earli
 
 ```yaml
 overrides:
-  # @nestjs/graphql exact-pins ws@8.20.1 (GHSA-96hv-2xvq-fx4p, high, patched >=8.21.0).
+  # @nestjs/graphql 13 exact-pins ws (13.4.5: 8.21.3) — GHSA-37g9-w4hg-h9qr (high, patched 8.23.0 / 7.5.14).
   # An exact pin cannot resolve forward — the override is the only fix.
-  # Keep the target in LOCKSTEP with your direct `ws` dependency (see the note below).
-  # Remove once @nestjs/graphql stops pinning it.
-  'ws@>=8.0.0 <8.21.0': '8.21.3'
+  # Keep the target in LOCKSTEP with the ws version @lenne.tech/nest-server declares (8.23.0 since 11.46.5);
+  # key and target move together (see the note below). Remove once @nestjs/graphql stops pinning it.
+  'ws@>=8.0.0 <8.23.0': '8.23.0'
+  # The 7.x copy comes from @nestjs/graphql 13 > subscriptions-transport-ws.
+  'ws@>=7.0.0 <7.5.14': '7.5.14'
 
   # @nestjs/swagger exact-pins js-yaml (11.4.7: 5.3.0) — GHSA-r3ph-w7gj-g6xm (moderate, patched >=5.4.1)
   # and, for older swagger releases, GHSA-pm4m-ph32-ghv5 (high, patched >=5.2.2).
@@ -105,7 +118,7 @@ tree to `2.0.11` even though nothing needed help any more.
 
 ### The `ws` target must stay in lockstep with the declared `ws` version
 
-`8.21.3` is not an arbitrary "latest patch" — it is the version `@lenne.tech/nest-server` declares as
+`8.23.0` (since 11.46.5; `8.21.3` before) is not an arbitrary "latest patch" — it is the version `@lenne.tech/nest-server` declares as
 an ordinary **dependency**, so it is already in your tree whether or not you list `ws` yourself.
 The override target has to equal it.
 
@@ -117,7 +130,9 @@ when you read a manifest. The target was raised `8.21.1` → `8.21.3` on 2026-08
 reason.
 
 **Rule:** whenever the `ws` version declared by `@lenne.tech/nest-server` (or by your own
-`package.json`, if you list it) moves, move this override target with it in the same commit. The
+`package.json`, if you list it) moves, move this override's target **and the upper bound of its key** with it in the
+same commit — pnpm matches the key against the requested range, so a key that stays below an exact pin no longer
+reaches it. The
 same applies to any other override whose package also appears as a declared dependency.
 
 Then:
