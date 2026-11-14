@@ -41,13 +41,13 @@ allowBuilds:
 # fixed-target rule, and minimatch 11 removed `makeRe()` and `Minimatch#regexp`. Every path matches patterns the
 # DEVELOPER writes (tsconfig and scanner globs, CLI file arguments, cleanup paths), never request input.
 # Re-verify when any of these consumers releases a version on minimatch 11 / glob 14 — the guard reports it as RE-TEST.
+# 2026-11-14: rimraf 6.1.3 -> 6.1.4 moved to glob ^14.0.3 (resolves 14.0.6, past GHSA-3g3m and GHSA-qxr8-q827-836c),
+# so GHSA-3g3m left the list and glob left the GHSA-g3hv consumers, as on develop with 12.8.4.
 auditConfig:
   ignoreGhsas:
     - GHSA-g3hv-75wg-m249
-    - GHSA-3g3m-2fjr-6pw4
   unusableFixConsumers:
-    GHSA-g3hv-75wg-m249: '@nestjs/cli@12.0.11 + @swc/cli@0.8.2 + @ts-morph/common@0.29.0 + glob@13.0.6 + nodemon@3.1.14 cannot use 11.0.1'
-    GHSA-3g3m-2fjr-6pw4: 'rimraf@6.1.3 cannot use 14.0.2'
+    GHSA-g3hv-75wg-m249: '@nestjs/cli@12.0.11 + @swc/cli@0.8.2 + @ts-morph/common@0.29.0 + nodemon@3.1.14 cannot use 11.0.1'
 
 peerDependencyRules:
   allowedVersions:
