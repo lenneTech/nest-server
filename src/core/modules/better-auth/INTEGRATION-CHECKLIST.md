@@ -459,6 +459,17 @@ After integration, verify:
       an existing user still signs in through it. A provider meant for self-registration carries
       `disableSignUp: false` (12.3.0+)
 
+### Optional: Social provider with its own options (12.9.5+, e.g. Microsoft Entra ID)
+
+- [ ] `GET /iam/features` lists the provider in `socialProviders`
+- [ ] `POST /iam/sign-in/social` with `{ "provider": "microsoft", "disableRedirect": true }` answers a `url` with the
+      configured tenant in the path (`login.microsoftonline.com/<tenantId>/…`, not `common`) and exactly the
+      configured scopes in `scope` (`openid profile email` for an identity-only sign-in)
+- [ ] The app registration's redirect URI is `<baseUrl>/iam/callback/<provider>`
+- [ ] A failed sign-in lands in the app (12.9.5+): `GET <baseUrl>/iam/callback/<provider>` without parameters answers
+      `302` to `<appUrl>/auth/login?error=state_not_found`, not the API's "Error" page (`betterAuth.errorUrl`)
+- [ ] The login page shows a text of its own for each `error` code and never renders `error_description`
+
 ### Additional checks for Migration scenario:
 
 - [ ] Sign-in via Legacy Auth works for BetterAuth-created users

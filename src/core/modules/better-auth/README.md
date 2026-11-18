@@ -494,6 +494,7 @@ export default {
 
     // Social Providers (enabled by default when credentials are configured)
     // Set enabled: false to explicitly disable a provider
+    // Every other option reaches Better-Auth unchanged since 12.9.5 (see "Social providers" below)
     socialProviders: {
       google: {
         clientId: 'your-google-client-id',
@@ -502,6 +503,11 @@ export default {
       github: {
         clientId: 'your-github-client-id',
         clientSecret: 'your-github-client-secret',
+      },
+      microsoft: {
+        clientId: 'your-microsoft-client-id',
+        clientSecret: 'your-microsoft-client-secret',
+        tenantId: 'your-directory-tenant-id', // unset: `common`, every organization and personal accounts
       },
     },
 
@@ -685,6 +691,127 @@ Only a boolean counts on the provider; any other value follows `emailAndPassword
 accounts whatever `disableSignUp` said.
 
 **Default:** `false` (sign-up enabled) - fully backward compatible.
+
+### Social providers
+
+A provider is switched on by its `clientId` and `clientSecret`; `enabled: false` switches a configured one off.
+**Since 12.9.5 every other option set on a provider reaches Better-Auth unchanged:** Microsoft's `tenantId`, Google's
+`hd` and `accessType`, `scope` with `disableDefaultScope`, `prompt`, `mapProfileToUser` and the other options
+[Better-Auth documents per provider](https://www.better-auth.com/docs/authentication/social-sign-in). Before 12.9.5
+`buildSocialProviders()` handed Better-Auth `clientId`, `clientSecret` and `disableSignUp` only and dropped the rest
+without a warning. `enabled` is the framework's own switch and is not handed on. `disableSignUp` follows
+[Disable Sign-Up](#disable-sign-up) whatever else the provider sets.
+
+`betterAuth.options.socialProviders` is not the place for provider options: it replaces the whole block, so the
+provider disappears from `GET /iam/features` and `emailAndPassword.disableSignUp` no longer closes it.
+
+#### Microsoft Entra ID: one organization, identity only
+
+```typescript
+betterAuth: {
+  socialProviders: {
+    microsoft: {
+      clientId: '<application (client) id>',
+      clientSecret: '<client secret>',
+      tenantId: '<directory (tenant) id>',
+      disableDefaultScope: true,
+      scope: ['openid', 'profile', 'email'],
+      disableProfilePhoto: true,
+    },
+  },
+},
+```
+
+- `tenantId` names the organization whose accounts may sign in. **Without it Better-Auth uses `common`, which admits
+  accounts of every organization and personal Microsoft accounts.** Use the directory (tenant) id. A verified domain
+  works for the redirect flow, but sign-in with an `idToken` compares the token's issuer with
+  `https://login.microsoftonline.com/<tenantId>/v2.0`, and Microsoft writes the id there.
+- `disableDefaultScope: true` with `scope: ['openid', 'profile', 'email']` asks for the sign-in and nothing else.
+  Better-Auth's default adds `User.Read` and `offline_access`, so each sign-in would store a Microsoft Graph access
+  token and a refresh token with the user's `account` record.
+- `disableProfilePhoto: true` skips the Microsoft Graph request Better-Auth otherwise makes on every sign-in to fetch
+  the profile photo.
+- The app registration needs `<baseUrl>/iam/callback/microsoft` as its redirect URI (`baseUrl` of the API, `/iam` the
+  default `basePath`).
+
+To close e-mail sign-up and still let the organization's members create their account on the first Microsoft sign-in,
+combine `emailAndPassword: { disableSignUp: true }` with `microsoft: { disableSignUp: false }`.
+
+**Deployed stages** set the same options through `NSC__*` variables:
+
+```bash
+NSC__BETTER_AUTH__SOCIAL_PROVIDERS__MICROSOFT__CLIENT_ID=<application (client) id>
+NSC__BETTER_AUTH__SOCIAL_PROVIDERS__MICROSOFT__CLIENT_SECRET=<client secret>
+NSC__BETTER_AUTH__SOCIAL_PROVIDERS__MICROSOFT__TENANT_ID=<directory (tenant) id>
+NSC__BETTER_AUTH__SOCIAL_PROVIDERS__MICROSOFT__DISABLE_DEFAULT_SCOPE=true
+NSC__BETTER_AUTH__SOCIAL_PROVIDERS__MICROSOFT__SCOPE=openid,profile,email
+NSC__BETTER_AUTH__SOCIAL_PROVIDERS__MICROSOFT__DISABLE_PROFILE_PHOTO=true
+```
+
+The `NSC__*` reader converts `true`, `false` and numbers and passes everything else on as a string, so `SCOPE` arrives
+as a string. Since 12.9.5 a provider's `scope` string is split on commas and whitespace: `openid,profile,email` and
+`openid profile email` ask for the same three scopes. `NSC__*` variables cannot write a list. Indexed names
+(`…__SCOPE__0`, `…__SCOPE__1`) build an object with the keys `0`, `1`, … where `config.env.ts` holds no list, and an
+empty `…__SCOPE=` becomes the number `0`. A `scope` that is neither a string nor a list is dropped with one error per
+provider at boot, and the provider asks for its default scopes; with `disableDefaultScope: true` the request then
+carries no scope, and the provider refuses it. Before, Better-Auth threw a `TypeError` on every `/iam/sign-in/social`
+for such an object. `NEST_SERVER_CONFIG` (JSON) can carry a list.
+
+**Provider claims** are mapped in `mapProfileToUser`. Better-Auth calls it with the claims of the ID token and merges
+its return value over the `name`, `email`, `image` and `emailVerified` it read from them. That user is created on the
+first sign-in; an existing user is updated only with `overrideUserInfoOnSignIn: true` on the provider. It is a
+function, so it goes into `config.env.ts`; an `NSC__*` variable cannot carry it.
+
+```typescript
+import type { MicrosoftEntraIDProfile } from 'better-auth/social-providers';
+
+microsoft: {
+  // ...
+  mapProfileToUser: (profile: MicrosoftEntraIDProfile) => ({ name: profile.name || profile.preferred_username }),
+},
+```
+
+### Where a failed sign-in lands
+
+When an OAuth sign-in fails, Better-Auth redirects the browser to an error URL with `?error=<code>` and, when the
+provider sent one, `&error_description=…`. The flow's own `errorCallbackURL` (a field of `POST /iam/sign-in/social`)
+travels inside the flow's state, which Better-Auth keeps for ten minutes. A user who needs longer on the provider's
+sign-in page comes back with a state Better-Auth no longer has, and the `errorCallbackURL` is gone with it. Better-Auth
+then uses its fallback, `onAPIError.errorURL`, and without one its own English "Error" page on the API host, which
+offers no way back into the app.
+
+**Since 12.9.5 the framework sets that fallback from `betterAuth.errorUrl`:**
+
+| `betterAuth.errorUrl` | Where the browser lands                                                                                                                                                                                                                                      |
+| --------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| unset                 | `<appUrl>/auth/login?error=<code>`. The app URL resolves like the other derived links: explicit `appUrl`, the localhost default in `local` / `ci` / `e2e`, else derived from `baseUrl` unless `cors.deriveAppUrl: false`. No app URL: Better-Auth's own page |
+| `'https://…'`         | that URL                                                                                                                                                                                                                                                     |
+| `'/sign-in'`          | `<appUrl>/sign-in`; no app URL: Better-Auth's own page and a warning at boot                                                                                                                                                                                 |
+| `false`               | Better-Auth's own page, `<baseUrl>/iam/error`, as before 12.9.5                                                                                                                                                                                              |
+| anything else         | refused with a warning at boot (another scheme, `//host`, the number `0` an empty `NSC__BETTER_AUTH__ERROR_URL=` becomes); Better-Auth's own page                                                                                                            |
+
+`betterAuth.options.onAPIError.errorURL` wins over all of these. Other keys of `options.onAPIError` (`onError`, `throw`,
+`customizeDefaultErrorPage`) are merged with the derived URL instead of replacing it. With an error URL, Better-Auth's
+page is no longer shown, so a project that customized it (`customizeDefaultErrorPage`) sets `betterAuth.errorUrl: false`
+to keep it. A deployed stage sets the option with `NSC__BETTER_AUTH__ERROR_URL`.
+
+Better-Auth 1.7.x reads `onAPIError.errorURL` in these places, so these redirects change:
+
+- the OAuth callback `GET /iam/callback/:provider`, also for Generic OAuth providers, when its state is missing
+  (`state_not_found`), unreadable, expired or does not match (`state_mismatch`, `state_invalid`), or when the callback
+  request itself is malformed (`invalid_callback_request`);
+- every later failure of a flow started without `errorCallbackURL`: the provider's refusal (`access_denied`,
+  `login_required`, `interaction_required`, …), `no_code`, a failed token exchange, `email_not_found`,
+  `signup_disabled`, a failed account link;
+- `internal_server_error` when Better-Auth cannot create or link the user, also on sign-in with an `idToken`;
+- `GET /iam/error` itself, which no longer renders its page and forwards `error` and `error_description` to the
+  error URL;
+- the `oauthProxy()` plugin, if a project adds it.
+
+A flow that sent its own `errorCallbackURL` and whose state Better-Auth can still read lands there, as before.
+
+**A login page maps `error` to a text of its own and never renders `error_description`.** Anyone can link to
+`<baseUrl>/iam/error?error=…&error_description=<any text>`, and Better-Auth forwards the description as given.
 
 ### Additional User Fields
 
@@ -1273,6 +1400,63 @@ curl -X GET https://api.example.com/iam/token \
 | ------------------------- | ------ | --------------------- |
 | `/iam/sign-in/social`     | POST   | Initiate social login |
 | `/iam/callback/:provider` | GET    | OAuth callback        |
+
+`POST /iam/sign-in/social` is Better-Auth's own route. Besides `provider` it reads these fields:
+
+| Field              | Meaning                                                                                                                                                                                                                                                                                                             |
+| ------------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `callbackURL`      | Where the browser lands after a successful sign-in. Unset: the API's base URL                                                                                                                                                                                                                                       |
+| `errorCallbackURL` | Where it lands when the provider or Better-Auth refuses, with `?error=<code>` and `&error_description=…` when the provider sent one. Unset: `betterAuth.errorUrl`, see [Where a failed sign-in lands](#where-a-failed-sign-in-lands)                                                                                |
+| `loginHint`        | Sent as `login_hint`: the account the provider should offer                                                                                                                                                                                                                                                         |
+| `additionalParams` | Further query parameters (strings) for the provider's authorization URL. A `prompt` here replaces the provider's `prompt` for this request. The parameters Better-Auth sets itself (`state`, `client_id`, `redirect_uri`, `response_type`, `code_challenge`, `code_challenge_method`, `nonce`, `scope`) are refused |
+| `disableRedirect`  | `true` answers `{ url, redirect: false }` without a `Location` header                                                                                                                                                                                                                                               |
+| `idToken`          | Sign-in without a redirect, see below                                                                                                                                                                                                                                                                               |
+
+Better-Auth checks `callbackURL` and `errorCallbackURL` against the trusted origins and answers `403` for any other.
+It accepts a relative path as well, but the browser follows it from the callback, which runs on the API host. A
+frontend on a host of its own therefore sends absolute URLs of its own origin. Send the request from the browser with
+credentials: Better-Auth sets a signed `<cookiePrefix>.state` cookie for five minutes, and the callback refuses a
+browser without it (`error=state_mismatch`).
+
+#### Silent sign-in with fallback
+
+A page can try to sign the user in without showing anything and fall back to the interactive sign-in when that fails.
+The recipe uses Better-Auth's own fields only:
+
+```typescript
+async function signInWithMicrosoft(silent: boolean): Promise<void> {
+  const response = await fetch(`${apiUrl}/iam/sign-in/social`, {
+    body: JSON.stringify({
+      ...(silent ? { additionalParams: { prompt: 'none' } } : {}),
+      callbackURL: `${appUrl}/`,
+      disableRedirect: true,
+      errorCallbackURL: `${appUrl}/auth/login${silent ? '?silent=1' : ''}`,
+      provider: 'microsoft',
+    }),
+    credentials: 'include',
+    headers: { 'Content-Type': 'application/json' },
+    method: 'POST',
+  });
+  window.location.assign((await response.json()).url);
+}
+```
+
+1. The page calls `signInWithMicrosoft(true)`. With `prompt=none` Microsoft shows nothing: either the browser comes
+   back through the callback, signed in, at `callbackURL`, or Microsoft answers `login_required` or
+   `interaction_required`, and the callback sends the browser to `errorCallbackURL` with that code in `error`.
+2. The login page sees `silent=1` and one of those two codes and calls `signInWithMicrosoft(false)`, optionally with a
+   `loginHint`. Codes from Better-Auth itself, such as `signup_disabled`, are refusals an interactive sign-in does not
+   change.
+
+With Better-Auth's client the same fields go into `authClient.signIn.social({ … })`.
+
+#### Sign-in with an ID token
+
+A client that already holds a Microsoft ID token, such as a native app using MSAL, sends
+`{ provider: 'microsoft', idToken: { token } }` and gets the session in the answer, without a redirect. Better-Auth
+checks the signature against Microsoft's keys, the audience against `clientId` and the issuer against the configured
+tenant (`https://login.microsoftonline.com/<tenantId>/v2.0`), so with `tenantId` set to the directory id a token of
+another organization is refused.
 
 ### Two-Factor Authentication Endpoints (Native Better Auth)
 
@@ -2211,6 +2395,26 @@ See **[ARCHITECTURE.md](./ARCHITECTURE.md)** for detailed documentation on why c
 - Verify `clientId` and `clientSecret` are correct
 - Check that redirect URLs are configured in provider settings
 - Ensure `trustedOrigins` includes your application URL
+- **Provider options have no effect (before 12.9.5).** Up to 12.9.4 a provider received `clientId`, `clientSecret`
+  and `disableSignUp` only. `tenantId`, `scope`, `disableDefaultScope`, `prompt` and every other option were dropped,
+  so a Microsoft sign-in ran against `common` with Better-Auth's default scope. Update to 12.9.5 or later. To see what
+  the provider receives, read the authorization URL:
+  `POST /iam/sign-in/social` with `{ "provider": "microsoft", "disableRedirect": true }` answers it in `url`, with the
+  tenant in the path and the scopes in `scope`.
+- **The authorization URL asks for single letters** (`scope=o p e n i d …`): `scope` reached Better-Auth as a string,
+  which it spreads into one scope per character. Since 12.9.5 `socialProviders.<name>.scope` accepts a comma- or
+  space-separated string, which is what an `NSC__…__SCOPE` variable delivers. `betterAuth.options.socialProviders`
+  goes to Better-Auth unchanged and needs a list.
+- **The log says `socialProviders.<name>.scope is neither a string nor a list`**: indexed variables
+  (`NSC__…__SCOPE__0`) build an object, an empty `NSC__…__SCOPE=` the number `0`. The value is ignored and the
+  provider asks for its default scopes, or, with `disableDefaultScope: true`, for none, which the provider refuses.
+  Before 12.9.5 an object made every `/iam/sign-in/social` fail with a `TypeError`. Write one comma-separated
+  `NSC__…__SCOPE` instead.
+- **A failed sign-in shows an English "Error" page on the API host**: the OAuth flow failed (state expired after ten
+  minutes on the provider's page, provider refused) and no error URL applied. Since 12.9.5 the browser lands on
+  `<appUrl>/auth/login?error=<code>` instead; if it still lands on the API, no app URL resolves (set `appUrl`, or
+  `baseUrl` without `cors.deriveAppUrl: false`) or `betterAuth.errorUrl` is `false` or was refused (see the boot log).
+  See [Where a failed sign-in lands](#where-a-failed-sign-in-lands).
 
 ### 2FA/Passkey not working
 

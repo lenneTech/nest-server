@@ -5754,6 +5754,50 @@
       "driverSpecific": false
     },
     {
+      "id": "iam-social-provider-options-dropped",
+      "defect": "12.9.5 — only clientId, clientSecret and disableSignUp reached a social provider: tenantId, scope and every other option a project set were dropped, so a Microsoft sign-in ran against the common endpoint with the default scope.",
+      "file": "src/core/modules/better-auth/better-auth.config.ts",
+      "find": "          ...providerOptions,\n          clientId: provider.clientId,\n",
+      "replace": "          clientId: provider.clientId,\n",
+      "specs": [
+        "tests/unit/better-auth-social-provider-options.spec.ts"
+      ],
+      "driverSpecific": false
+    },
+    {
+      "id": "iam-social-provider-options-override-sign-up",
+      "defect": "12.9.5 — written together with the pass-through of provider options: spread after the computed disableSignUp, the project's raw value reaches Better-Auth again, and a string from NEST_SERVER_CONFIG opens a registration the project closed.",
+      "file": "src/core/modules/better-auth/better-auth.config.ts",
+      "find": "          ...providerOptions,\n          clientId: provider.clientId,\n          clientSecret: provider.clientSecret,\n          disableSignUp: typeof provider.disableSignUp === 'boolean' ? provider.disableSignUp : signUpClosed,\n",
+      "replace": "          clientId: provider.clientId,\n          clientSecret: provider.clientSecret,\n          disableSignUp: typeof provider.disableSignUp === 'boolean' ? provider.disableSignUp : signUpClosed,\n          ...providerOptions,\n",
+      "specs": [
+        "tests/unit/better-auth-social-provider-options.spec.ts"
+      ],
+      "driverSpecific": false
+    },
+    {
+      "id": "iam-oauth-error-url-not-derived",
+      "defect": "12.9.5 — nest-server set no onAPIError.errorURL, so an OAuth callback that failed without an error URL of its own (state expired after ten minutes, missing or tampered) sent the browser to Better-Auth's built-in error page on the API host, with no way back into the app.",
+      "file": "src/core/modules/better-auth/better-auth.config.ts",
+      "find": "    ...(errorUrl && { onAPIError: { errorURL: errorUrl } }),\n",
+      "replace": "",
+      "specs": [
+        "tests/unit/better-auth-error-url.spec.ts"
+      ],
+      "driverSpecific": false
+    },
+    {
+      "id": "iam-oauth-error-url-options-replace",
+      "defect": "12.9.5 — written together with the derived error URL: a project's options.onAPIError replaced the framework's object, so a project that set it for another reason (onError, throw) sent failed OAuth callbacks to the API's error page again.",
+      "file": "src/core/modules/better-auth/better-auth.config.ts",
+      "find": "      finalConfig.onAPIError = {\n        ...(betterAuthConfig.onAPIError as Record<string, unknown> | undefined),\n        ...projectOnApiError,\n        errorURL: projectOnApiError.errorURL ?? errorUrl,\n      };\n",
+      "replace": "      finalConfig.onAPIError = projectOnApiError;\n",
+      "specs": [
+        "tests/unit/better-auth-error-url.spec.ts"
+      ],
+      "driverSpecific": false
+    },
+    {
       "id": "ai-auto-mode-skips-authorize",
       "defect": "12.3.0 — auto mode, the default, called a tool's execute() without its authorize(), so a data-level check placed there (ownership, tenant) ran in plan mode only.",
       "file": "src/core/modules/ai/services/core-ai.service.ts",
