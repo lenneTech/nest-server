@@ -2,6 +2,8 @@ import { ExecutionContext } from '@nestjs/common';
 import { GqlExecutionContext } from '@nestjs/graphql';
 import { Request as RequestType } from 'express';
 
+import { isAgentCallContext, resolveAgentCallRequest } from './execution-context-request.helper.js';
+
 /**
  * Helper for context processing
  * @deprecated use functions directly
@@ -31,6 +33,18 @@ export function getContextData(context: ExecutionContext): {
   // Check context
   if (!context) {
     return { args: null, currentUser: null, request: null };
+  }
+
+  // An agent function / MCP call (nestjs-ai plan §1): the user is the one of the request the call runs in — never a
+  // `user` in the call's arguments, which the model or the MCP client wrote. A request-less call has no user, so the
+  // interceptors filter its result for an anonymous caller (the strictest view).
+  if (isAgentCallContext(context)) {
+    const agentRequest = resolveAgentCallRequest(context);
+    return {
+      args: context.getArgByIndex(0),
+      currentUser: agentRequest?.user,
+      request: (agentRequest ?? null) as RequestType,
+    };
   }
 
   // Init data

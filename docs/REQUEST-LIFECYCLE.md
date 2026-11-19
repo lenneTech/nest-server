@@ -217,7 +217,7 @@ JWT-based authentication for existing projects:
 | **Subscription re-check** | Since 11.42.3 that context is not trusted for the life of the socket. Every connection a `CoreModule` `onConnect` accepts is registered (`registerWsConnection()`) and checked again — at once on an invalidation (tenant guard, role change, password reset, Better-Auth deleting the session), otherwise before the next operation or event once `graphQl.subscriptionRevalidationMs` (30 s) has passed. The check re-runs the handshake's authentication and the tenant resolution; a connection whose rights changed is closed with 4403 (retried by the graphql-ws client, which then reconnects with its current rights) and the event that triggered the check is dropped. Before, a removed membership, a deactivated tenant, a withdrawn role or a revoked session kept receiving events on an open socket until the client reconnected. See `.claude/rules/role-system.md` → "Open WebSockets" |
 | **Complexity Analysis** | Query cost calculation to prevent DoS attacks |
 | **Enum Registration** | `registerEnum()` helper for GraphQL enum types |
-| **Upload Support** | `graphqlUploadExpress()` for multipart file uploads |
+| **Upload Support** | `graphqlUploadExpress()` for multipart file uploads, with the framework's `processGraphQlUploadRequest` (graphql-upload's parser with the GHSA-5vm7-vc2x-p3w2 and GHSA-qwwm-252j-9whw fixes; `map` bounded to 64 keys per path and 10,000 entries and path keys together) |
 
 ### Development & Operations
 
@@ -364,6 +364,8 @@ The following diagram shows the exact order of execution from HTTP request to re
   |                                                         |
   |  3. graphqlUploadExpress()  [GraphQL only]              |
   |     - Handles multipart file uploads                    |
+  |     - processGraphQlUploadRequest: bad map path -> 400  |
+  |     - map: 64 keys/path, 10,000 entries + keys          |
   +----------------------------+----------------------------+
                                |
   +----------------------------v----------------------------+
@@ -592,7 +594,7 @@ NestJS middleware runs for every request after Express-level middleware. Registr
 // src/core.module.ts
 configure(consumer: MiddlewareConsumer) {
   consumer.apply(RequestContextMiddleware).forRoutes('*');
-  consumer.apply(graphqlUploadExpress()).forRoutes('graphql');
+  consumer.apply(graphqlUploadExpress({ processRequest: processGraphQlUploadRequest })).forRoutes('graphql');
 }
 ```
 
@@ -739,6 +741,24 @@ session cookie riding along can never turn a token request into a session reques
 #### 3. graphqlUploadExpress
 
 Only for GraphQL routes. Handles multipart file upload requests according to the [GraphQL multipart request specification](https://github.com/jaydenseric/graphql-multipart-request-spec).
+
+It runs before every guard, so whatever it parses comes from an anonymous client. `CoreModule` passes
+the framework's `processGraphQlUploadRequest` (`common/helpers/graphql-upload.helper.ts`) instead of graphql-upload's
+own `processRequest`: graphql-upload 17.1.0's parser with both hunks of the fix in graphql-upload 18.0.2 (which needs
+graphql 17). A `map` path with a `__proto__` key, or one that goes through an already placed upload, is answered with
+400 "Invalid object path" (GHSA-5vm7-vc2x-p3w2 — before, `{"1":["variables.file"],"2":["variables.file.reject"]}`
+without file fields made the parser throw an uncaught `TypeError` and the process exit), and a second file field with
+the name of an already resolved upload is ignored (GHSA-qwwm-252j-9whw — before, its temporary file leaked). A project
+that registers `graphqlUploadExpress()` itself passes `{ processRequest: processGraphQlUploadRequest }` too.
+
+It also bounds the `map`: at most `GRAPHQL_UPLOAD_MAX_PATH_KEYS` (64) keys per path, and at most
+`GRAPHQL_UPLOAD_MAX_MAP_KEYS` (10,000) entries and path keys together — each entry counts one, each key of its paths
+one more. A path over a bound is answered with 400 "Invalid object path", an entry over the map bound with 400
+"Invalid ‘map’ multipart field entry key …" before its upload is created. The parser places each upload with
+object-path's `set()`, which costs O(n²) for a path of n keys, and creates an upload per entry that it rejects with an
+error of its own when the file never arrives: before, one anonymous request with an 80 KB path exhausted a 1 GB heap
+and ended the process, 1 MB of paths just under a per-path bound blocked the event loop for up to 640 ms, and 1 MB of
+entries without a path for 410 ms with 230 MB. graphql-upload 18.0.2 has the same flaws.
 
 > **NestJS docs:** [Middleware](https://docs.nestjs.com/middleware)
 
@@ -1649,13 +1669,15 @@ export class UserService extends CoreUserService<User> {
 
 ### Guard Context Detection
 
-Guards handle both REST and GraphQL contexts:
+Guards, the response interceptors and `@CurrentUser()` resolve the request through ONE helper,
+`resolveGuardRequest()` (`common/helpers/execution-context-request.helper.ts`):
 
-```typescript
-// Inside RolesGuard
-const gqlContext = GqlExecutionContext.create(context).getContext();
-const request = gqlContext?.req || context.switchToHttp().getRequest();
-```
+| Context type | Request a guard decides on |
+|--------------|----------------------------|
+| `http` | `context.switchToHttp().getRequest()` |
+| `graphql` (HTTP) | `GqlExecutionContext.create(context).getContext().req` |
+| `graphql` (WebSocket subscription) | the graphql-ws context `CoreModule`'s `onConnect` recorded the user on |
+| `ai` (`@nestjs/ai` agent function) / `mcp` (`@nestjs/mcp` primitive) | `args[1].request` — the HTTP request the call runs in; never `args[0]`, the model's / MCP client's arguments. Without a request the caller is anonymous (401 on every role-gated method, also in `CoreTenantGuard`); `HttpExceptionLogFilter` hands the exception back instead of writing a response |
 
 > **NestJS docs:** [REST Controllers](https://docs.nestjs.com/controllers), [GraphQL Resolvers](https://docs.nestjs.com/graphql/resolvers)
 

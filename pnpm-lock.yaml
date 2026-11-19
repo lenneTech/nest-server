@@ -65,6 +65,9 @@ importers:
       bcrypt:
         specifier: 6.0.0
         version: 6.0.0
+      busboy:
+        specifier: 1.6.0
+        version: 1.6.0
       class-transformer:
         specifier: 0.5.1
         version: 0.5.1
@@ -89,6 +92,9 @@ importers:
       express:
         specifier: 5.3.0
         version: 5.3.0(supports-color@5.5.0)
+      fs-capacitor:
+        specifier: 8.0.0
+        version: 8.0.0
       graphql:
         specifier: 16.14.2
         version: 16.14.2
@@ -104,6 +110,9 @@ importers:
       graphql-ws:
         specifier: 6.3.0
         version: 6.3.0(graphql@16.14.2)(ws@8.23.0)
+      http-errors:
+        specifier: 2.0.1
+        version: 2.0.1
       jose:
         specifier: 6.2.15
         version: 6.2.15
@@ -125,6 +134,9 @@ importers:
       nodemailer:
         specifier: 10.4.1
         version: 10.4.1
+      object-path:
+        specifier: 0.11.8
+        version: 0.11.8
       passport:
         specifier: 0.7.0
         version: 0.7.0
@@ -195,6 +207,9 @@ importers:
       '@tus/s3-store':
         specifier: 2.1.0
         version: 2.1.0(supports-color@5.5.0)
+      '@types/busboy':
+        specifier: 1.5.5
+        version: 1.5.5
       '@types/compression':
         specifier: 1.8.1
         version: 1.8.1
@@ -207,6 +222,9 @@ importers:
       '@types/express':
         specifier: 5.0.6
         version: 5.0.6
+      '@types/http-errors':
+        specifier: 2.0.5
+        version: 2.0.5
       '@types/lodash':
         specifier: 4.17.27
         version: 4.17.27
@@ -216,6 +234,9 @@ importers:
       '@types/node':
         specifier: 26.6.6
         version: 26.6.6
+      '@types/object-path':
+        specifier: 0.11.4
+        version: 0.11.4
       '@types/passport':
         specifier: 1.0.17
         version: 1.0.17

@@ -7317,6 +7317,204 @@
       "drivers": [
         "s3"
       ]
+    },
+    {
+      "id": "agent-call-guard-reads-arguments",
+      "defect": "12.6.x backport of 12.10.0 — on an `@nestjs/ai` agent function or `@nestjs/mcp` tool call the role guards resolved the request through `switchToHttp().getRequest()`, which on those contexts is the MODEL's (or MCP client's) tool arguments. Arguments carrying `{ user: { roles: ['admin'] } }` were the authenticated caller: BetterAuthRolesGuard granted `@Roles(ADMIN)`, RolesGuard granted `@Roles(S_USER)`, in every project that installed either package.",
+      "file": "src/core/common/helpers/execution-context-request.helper.ts",
+      "find": "  if (isAgentCallContext(context)) {\n    return resolveAgentCallRequest(context);\n  }\n",
+      "replace": "",
+      "specs": [
+        "tests/unit/agent-call-context.spec.ts"
+      ],
+      "driverSpecific": false
+    },
+    {
+      "id": "auth-guard-reads-agent-arguments",
+      "defect": "12.6.x backport of 12.10.0 — the AuthGuard() mixin (`@UseGuards(AuthGuard(JWT))`) took an agent call's arguments as the request: a forged `{ user: { _authenticatedViaBetterAuth: true } }` passed it without any credential.",
+      "file": "src/core/modules/auth/guards/auth.guard.ts",
+      "find": "      if (isAgentCallContext(context)) {\n        return (resolveAgentCallRequest(context) ?? null) as T;\n      }\n",
+      "replace": "",
+      "specs": [
+        "tests/unit/agent-call-context.spec.ts"
+      ],
+      "driverSpecific": false
+    },
+    {
+      "id": "agent-call-context-data-reads-arguments",
+      "defect": "12.6.x backport of 12.10.0 — `getContextData()` (CheckResponseInterceptor, CheckSecurityInterceptor, CheckInputPipe) read the current user from `switchToHttp().getRequest().user`, i.e. a `user` in the tool arguments, so the model chose whose view of the result the secret and `@Restricted` filtering applied.",
+      "file": "src/core/common/helpers/context.helper.ts",
+      "find": "      currentUser: agentRequest?.user,\n",
+      "replace": "      currentUser: agentRequest?.user ?? context.getArgByIndex(0)?.user,\n",
+      "specs": [
+        "tests/unit/agent-call-context.spec.ts"
+      ],
+      "driverSpecific": false
+    },
+    {
+      "id": "current-user-reads-agent-arguments",
+      "defect": "12.6.x backport of 12.10.0 — `@CurrentUser()` read `switchToHttp().getRequest().user` on an agent function call, i.e. a `user` the model wrote into the tool arguments, and handed it to the service as `currentUser`.",
+      "file": "src/core/common/helpers/decorator.helper.ts",
+      "find": "  if (isAgentCallContext(ctx)) {\n    return resolveAgentCallRequest(ctx)?.user;\n  }\n",
+      "replace": "",
+      "specs": [
+        "tests/unit/agent-call-context.spec.ts"
+      ],
+      "driverSpecific": false
+    },
+    {
+      "id": "rest-user-reads-agent-arguments",
+      "defect": "12.6.x backport of 12.10.0 — `@RESTUser()` read `switchToHttp().getRequest().user` on an agent function call, i.e. a `user` the model wrote into the tool arguments.",
+      "file": "src/core/common/decorators/rest-user.decorator.ts",
+      "find": "  if (isAgentCallContext(ctx)) {\n    return resolveAgentCallRequest(ctx)?.user;\n  }\n",
+      "replace": "",
+      "specs": [
+        "tests/unit/agent-call-context.spec.ts"
+      ],
+      "driverSpecific": false
+    },
+    {
+      "id": "tenant-guard-requestless-agent-grants",
+      "defect": "12.6.x backport of 12.10.0 — CoreTenantGuard answered a context without a request with `return true`. On a request-less `@nestjs/ai` / `@nestjs/mcp` call (`caller: { user }`, a durable run, stdio) \"no request\" became permission for every role the role guards delegate to it.",
+      "file": "src/core/modules/tenant/core-tenant.guard.ts",
+      "find": "        if (effective?.some((role) => !!role) && !effective.includes(RoleEnum.S_EVERYONE)) {\n          throw new UnauthorizedException(ErrorCode.UNAUTHORIZED);\n        }\n",
+      "replace": "",
+      "specs": [
+        "tests/unit/agent-call-context.spec.ts"
+      ],
+      "driverSpecific": false
+    },
+    {
+      "id": "http-exception-filter-writes-agent-response",
+      "defect": "12.6.x backport of 12.10.0 — HttpExceptionLogFilter wrote every HttpException to switchToHttp().getResponse(), which on an agent function / MCP call is the call object: the filter threw a TypeError, and the model read \"Internal server error\" for every refusal.",
+      "file": "src/core/common/filters/http-exception-log.filter.ts",
+      "find": "    if (isAgentCallContext(host)) {\n      return undefined;\n    }\n",
+      "replace": "",
+      "specs": [
+        "tests/unit/agent-call-context.spec.ts"
+      ],
+      "driverSpecific": false
+    },
+    {
+      "id": "agent-call-requestless-class-everyone-opens-roles-guard",
+      "defect": "12.6.x backport of 12.10.0 (review) — RolesGuard's request-less agent branch tested the MERGED class and method roles for S_EVERYONE: a class open to everybody opened its method that asks for S_USER to a request-less agent / MCP call, while the method decides elsewhere.",
+      "file": "src/core/modules/auth/guards/roles.guard.ts",
+      "find": "      const effective = reflectorRoles?.[0]?.some((value) => !!value) ? reflectorRoles[0] : roles;\n",
+      "replace": "      const effective = roles;\n",
+      "specs": [
+        "tests/unit/agent-call-context.spec.ts"
+      ],
+      "driverSpecific": false
+    },
+    {
+      "id": "agent-call-requestless-class-everyone-opens-tenant-guard",
+      "defect": "12.6.x backport of 12.10.0 (review) — with multiTenancy, CoreTenantGuard's request-less agent branch tested the merged roles: a class-level S_EVERYONE opened a method that asks for S_USER or a tenant role to a request-less call, which then ran without a tenant scope; the HTTP path lets the method's own roles decide (`systemCheckRoles`).",
+      "file": "src/core/modules/tenant/core-tenant.guard.ts",
+      "find": "        const effective = rolesMetadata?.[0]?.some((role) => !!role) ? rolesMetadata[0] : roles;\n",
+      "replace": "        const effective = roles;\n",
+      "specs": [
+        "tests/unit/agent-call-context.spec.ts"
+      ],
+      "driverSpecific": false
+    },
+    {
+      "id": "graphql-upload-map-path-unchecked",
+      "defect": "12.6.x backport of 12.10.0 — graphql-upload 17.1.0's processRequest (GHSA-5vm7-vc2x-p3w2) set an Upload at any `map` path: a path into a placed upload replaced its `reject` / `file` (an uncaught TypeError in the parser's `finish` or the response's `close` handler, the process exits), a `__proto__` key forged an Upload. Both checks of graphql-upload 18.0.2 gone.",
+      "file": "src/core/common/helpers/graphql-upload.helper.ts",
+      "find": "                for (const [keyIndex, key] of keys.entries()) {\n",
+      "replace": "                for (const [keyIndex, key] of ([] as string[]).entries()) {\n",
+      "specs": [
+        "tests/unit/graphql-upload-process-request.spec.ts"
+      ],
+      "driverSpecific": false
+    },
+    {
+      "id": "graphql-upload-map-proto-key-allowed",
+      "defect": "12.6.x backport of 12.10.0 — GHSA-5vm7-vc2x-p3w2, `__proto__` half: a `map` path `variables.file.__proto__` gave a client-supplied object an Upload prototype, so it passed the GraphQLUpload scalar's `instanceof` check and its own `promise` reached the resolver.",
+      "file": "src/core/common/helpers/graphql-upload.helper.ts",
+      "find": "                  if (key === '__proto__') {\n",
+      "replace": "                  if (key === '__proto__' && keyIndex < 0) {\n",
+      "specs": [
+        "tests/unit/graphql-upload-process-request.spec.ts"
+      ],
+      "driverSpecific": false
+    },
+    {
+      "id": "graphql-upload-map-traverses-upload",
+      "defect": "12.6.x backport of 12.10.0 — GHSA-5vm7-vc2x-p3w2, traversal half: a `map` path into an already placed Upload (`variables.file.reject`) replaced the upload's method; without the file fields the parser's `finish` handler threw `TypeError: upload.reject is not a function` outside any request and the process exited.",
+      "file": "src/core/common/helpers/graphql-upload.helper.ts",
+      "find": "                    if (pathValue instanceof Upload) {\n",
+      "replace": "                    if (pathValue instanceof Upload && keyIndex < 0) {\n",
+      "specs": [
+        "tests/unit/graphql-upload-process-request.spec.ts"
+      ],
+      "driverSpecific": false
+    },
+    {
+      "id": "graphql-upload-map-path-depth-unbounded",
+      "defect": "12.6.13 — processGraphQlUploadRequest() did not bound how many keys a `map` path has. object-path's `set()` recurses once per key with a copy of the remaining keys (O(n²)): one anonymous request with an 80 KB path (40,000 keys) exhausted a 1 GB heap and ended the process, 16 KB took 300 MB and blocked the event loop for half a second. graphql-upload 18.0.2 has the same flaw.",
+      "file": "src/core/common/helpers/graphql-upload.helper.ts",
+      "find": "                if (keys.length > GRAPHQL_UPLOAD_MAX_PATH_KEYS) {\n",
+      "replace": "                if (keys.length < 0) {\n",
+      "specs": [
+        "tests/unit/graphql-upload-process-request.spec.ts"
+      ],
+      "driverSpecific": false
+    },
+    {
+      "id": "graphql-upload-map-path-total-unbounded",
+      "defect": "12.6.13 — processGraphQlUploadRequest() did not check path keys against a bound for the whole `map`: 1 MB of paths that each stay under the per-path bound (the default maxFieldSize) blocked the event loop for up to 640 ms per anonymous request.",
+      "file": "src/core/common/helpers/graphql-upload.helper.ts",
+      "find": "                if (mapKeyCount > GRAPHQL_UPLOAD_MAX_MAP_KEYS) {\n",
+      "replace": "                if (mapKeyCount < 0) {\n",
+      "specs": [
+        "tests/unit/graphql-upload-process-request.spec.ts"
+      ],
+      "driverSpecific": false
+    },
+    {
+      "id": "graphql-upload-map-entries-uncounted",
+      "defect": "12.6.13 — processGraphQlUploadRequest() did not count `map` entries: each becomes an Upload that the parser rejects with an error of its own when its file never arrives, so 1 MB of entries without a path (83,000 of them) took 230 MB and blocked the event loop for 410 ms per anonymous request.",
+      "file": "src/core/common/helpers/graphql-upload.helper.ts",
+      "find": "            mapKeyCount += 1;\n",
+      "replace": "            mapKeyCount += 0;\n",
+      "specs": [
+        "tests/unit/graphql-upload-process-request.spec.ts"
+      ],
+      "driverSpecific": false
+    },
+    {
+      "id": "graphql-upload-duplicate-file-field-kept",
+      "defect": "12.6.x backport of 12.10.0 — GHSA-qwwm-252j-9whw: a second file field with the name of an already resolved upload created a new capacitor and resolved the upload again; `upload.file` pointed at the duplicate and only its temporary file was released when the response closed — the first one leaked with its file descriptor.",
+      "file": "src/core/common/helpers/graphql-upload.helper.ts",
+      "find": "        if (!upload || upload.file) {\n",
+      "replace": "        if (!upload) {\n",
+      "specs": [
+        "tests/unit/graphql-upload-process-request.spec.ts"
+      ],
+      "driverSpecific": false
+    },
+    {
+      "id": "graphql-upload-wiring-default-process-request",
+      "defect": "12.6.x backport of 12.10.0 — CoreModule registered `graphqlUploadExpress()` for the graphql route with graphql-upload's default processRequest (17.1.0, GHSA-5vm7-vc2x-p3w2 / GHSA-qwwm-252j-9whw), in front of every guard.",
+      "file": "src/core.module.ts",
+      "find": "      consumer.apply(graphqlUploadExpress({ processRequest: processGraphQlUploadRequest })).forRoutes('graphql');\n",
+      "replace": "      consumer.apply(graphqlUploadExpress()).forRoutes('graphql');\n",
+      "specs": [
+        "tests/unit/graphql-upload-process-request.spec.ts"
+      ],
+      "driverSpecific": false
+    },
+    {
+      "id": "graphql-upload-route-default-process-request",
+      "defect": "12.6.x backport of 12.10.0 — the same wiring defect seen from the assembled ServerModule: an anonymous multipart request to /graphql whose `map` reaches into an upload is not refused with 400 but crashes the parser with an uncaught TypeError.",
+      "file": "src/core.module.ts",
+      "find": "      consumer.apply(graphqlUploadExpress({ processRequest: processGraphQlUploadRequest })).forRoutes('graphql');\n",
+      "replace": "      consumer.apply(graphqlUploadExpress()).forRoutes('graphql');\n",
+      "specs": [
+        "tests/file.e2e-spec.ts"
+      ],
+      "driverSpecific": false
     }
   ]
 }

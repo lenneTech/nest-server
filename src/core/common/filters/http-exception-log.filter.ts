@@ -8,6 +8,7 @@ import {
 } from '@nestjs/common';
 import { GqlContextType } from '@nestjs/graphql';
 import { Response } from 'express';
+import { isAgentCallContext } from '../helpers/execution-context-request.helper.js';
 
 /**
  * Nest's logger rather than `console.debug` (12.0.0): the stack carries the filter as its context, honours the
@@ -29,6 +30,14 @@ export class HttpExceptionLogFilter implements ExceptionFilter {
     const type = host.getType<GqlContextType>();
     if (type === 'graphql') {
       return exception;
+    }
+
+    // An agent function call (`@nestjs/ai`, `'ai'`) or an MCP call (`@nestjs/mcp`, `'mcp'`): the second argument is
+    // the CALL, not a response (nestjs-ai plan §1). Returning nothing hands the exception back to the package, which
+    // tells the model or MCP client its message. Writing to `switchToHttp()` there threw a TypeError instead, and the
+    // model read "Internal server error" for every 401 / 403 / 404. Every other transport is unchanged.
+    if (isAgentCallContext(host)) {
+      return undefined;
     }
 
     // REST
