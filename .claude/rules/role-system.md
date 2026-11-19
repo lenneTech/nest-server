@@ -502,6 +502,16 @@ reserved for a socket whose rights changed while it was open (above). Pinned by
 `tests/subscription-session-iam.e2e-spec.ts` / `tests/subscription-session-legacy.e2e-spec.ts` (mutations
 `iam-ws-handshake-refusal-throws`, `legacy-ws-handshake-refusal-throws`).
 
+## Agent function and MCP calls (12.6.x backport of 12.10.0)
+
+`@nestjs/ai` (`@AgentFunction()`) and `@nestjs/mcp` (`@Tool()` …) run every global guard around their methods with the
+context types `'ai'` / `'mcp'` and the arguments `[input, call]`. Index 0 is what the model or the MCP client wrote.
+`resolveGuardRequest()` answers `call.request` there — never index 0, which the HTTP fallback returned before (tool
+arguments `{ "user": { "roles": ["admin"] } }` were the caller). A REQUEST-LESS caller (`caller: { user }`, a durable
+run, stdio) is anonymous: public methods run, everything else is 401 in every guard, `CoreTenantGuard` included.
+Nothing changes for any other transport. Pinned by `tests/unit/agent-call-context.spec.ts`.
+**When you add a guard, resolve the request through `resolveGuardRequest()`; never `switchToHttp()` on its own.**
+
 ## Role Check Implementation
 
 The role system is evaluated in:

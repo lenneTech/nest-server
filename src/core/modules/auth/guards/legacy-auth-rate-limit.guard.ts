@@ -2,6 +2,10 @@ import { CanActivate, ExecutionContext, HttpException, HttpStatus, Injectable } 
 import { GqlExecutionContext } from '@nestjs/graphql';
 
 import { LegacyAuthRateLimiter } from '../services/legacy-auth-rate-limiter.service.js';
+import {
+  isAgentCallContext,
+  resolveAgentCallRequest,
+} from '../../../common/helpers/execution-context-request.helper.js';
 
 /**
  * Guard for rate limiting Legacy Auth endpoints
@@ -72,8 +76,11 @@ export class LegacyAuthRateLimitGuard implements CanActivate {
       return { endpoint, ip };
     }
 
-    // HTTP context
-    const request = context.switchToHttp().getRequest();
+    // HTTP context — or an agent function / MCP call, whose request is the one it runs in, never its arguments
+    // (nestjs-ai plan §1)
+    const request = isAgentCallContext(context)
+      ? resolveAgentCallRequest(context)
+      : context.switchToHttp().getRequest();
     const ip = this.getClientIp(request);
 
     // The handler, never the URL: the URL carries the query string and the client's spelling of the path

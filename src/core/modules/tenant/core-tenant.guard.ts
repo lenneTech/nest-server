@@ -17,7 +17,7 @@ import { firstValueFrom, isObservable } from 'rxjs';
 
 import { RoleEnum } from '../../common/enums/role.enum.js';
 import { ROLE_GUARD } from '../auth/guards/role-guard.token.js';
-import { resolveGuardRequest } from '../../common/helpers/execution-context-request.helper.js';
+import { isAgentCallContext, resolveGuardRequest } from '../../common/helpers/execution-context-request.helper.js';
 import {
   revalidateAllWsConnections,
   revalidateWsConnectionsForTenant,
@@ -431,6 +431,18 @@ export class CoreTenantGuard implements CanActivate, OnApplicationBootstrap, OnM
 
     const request = this.getRequest(context);
     if (!request) {
+      // An agent function / MCP call without a request is anonymous (nestjs-ai plan §1). "No request" is never
+      // permission there: only a public method runs, every other one is refused like an unauthenticated request.
+      if (isAgentCallContext(context)) {
+        const rolesMetadata = this.reflector.getAll<string[][]>('roles', [context.getHandler(), context.getClass()]);
+        const roles = mergeRolesMetadata(rolesMetadata);
+        // The method's own roles win over the class's (as `systemCheckRoles` below): a class-level S_EVERYONE does
+        // not open a method that asks for S_USER or a tenant role
+        const effective = rolesMetadata?.[0]?.some((role) => !!role) ? rolesMetadata[0] : roles;
+        if (effective?.some((role) => !!role) && !effective.includes(RoleEnum.S_EVERYONE)) {
+          throw new UnauthorizedException(ErrorCode.UNAUTHORIZED);
+        }
+      }
       return true;
     }
 
