@@ -34,6 +34,9 @@ export class RequestContextMiddleware implements NestMiddleware {
         return (req as any).isAdminBypass ?? false;
       },
       fromRequest: true,
+      get request() {
+        return req;
+      },
     };
     RequestContext.run(context, () => next());
   }

@@ -276,6 +276,22 @@ the client's registered URI, so an unprotected Deny lets a cross-site POST send 
 An error before your method runs (a malformed request) is answered with 400 by the framework and never
 redirected.
 
+### NestJS AI / AI SDK (optional, 12.10.0)
+
+Only when the project wants one of the integrations (README → "NestJS AI and the AI SDK"):
+
+- [ ] Install exactly what the integration needs, in the tested range: `ai` (`>=7.0.0 <8`) for
+      `registerAiSdkModel()`; additionally `@nestjs/ai` (`>=0.0.2 <0.0.3`) and `@nestjs/resilience`
+      (`>=0.0.3 <0.0.4`) for `providerType: 'nestjs-ai'` and `ai.agentFunctions`, with `AiModule.forRoot({ models })`
+      imported. Outside the range the boot (or the first call) fails with `AiSdkPackageError` naming it.
+- [ ] `registerAiSdkModel()`: hand the provider the `fetch` from the builder context — otherwise
+      `ai.allowedBaseUrlHosts` does not cover it.
+- [ ] `ai.agentFunctions`: put `@Roles()` or `@AiAgentFunction({ roles })` on every agent function that is not for
+      every signed-in user, and `mutating` / `destructive` on those that change data. **WHY:** the bridge offers an
+      agent function to every user its roles allow, and confirmation applies only to flagged tools.
+- [ ] Vendor mode: the core names `ai`, `@nestjs/ai` and `@nestjs/resilience` in literal `import()` calls, so the
+      project declares them (the lt CLI adds them when vendoring).
+
 ## Verification Checklist
 
 - [ ] Build succeeds (`pnpm run build`)

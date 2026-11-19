@@ -12,6 +12,7 @@ import { AiToolRegistry, AiToolUser } from '../tools/ai-tool.registry.js';
 import type { AiToolPolicyDecision } from './core-ai-tool-policy.service.js';
 import { CoreAiToolPolicyService } from './core-ai-tool-policy.service.js';
 import { CoreAiUserSettingService } from './core-ai-user-setting.service.js';
+import { sanitizeToolResultForModel } from '../tools/ai-tool-result.helper.js';
 
 /**
  * MCP tool descriptor (name + description + JSON-schema input + behaviour hints).
@@ -148,7 +149,8 @@ export class CoreAiMcpService {
 
     try {
       const result = await tool.execute(callArgs, tool.authorize ? { ...context, authorization } : context);
-      return { content: [{ text: JSON.stringify(result), type: 'text' }] };
+      // The same filtering the chat loop applies: securityCheck() and no secret field reaches the client (12.10.0)
+      return { content: [{ text: JSON.stringify(sanitizeToolResultForModel(result, user)), type: 'text' }] };
     } catch (err) {
       this.logger.warn(`MCP tool "${name}" failed: ${(err as Error).message}`);
       return this.errorResult((err as Error).message);

@@ -19,6 +19,7 @@ import { CoreAiResponse } from '../models/core-ai-response.model.js';
 import { CoreAiUsage } from '../models/core-ai-usage.model.js';
 import { CoreAiPromptInput } from '../inputs/core-ai-prompt.input.js';
 import { LlmProviderFactory } from '../providers/llm-provider.factory.js';
+import { sanitizeToolResultForModel } from '../tools/ai-tool-result.helper.js';
 import { AiHookRegistry } from '../hooks/ai-hook.registry.js';
 import { AiHookEvent } from '../interfaces/ai-hook.interface.js';
 import { AiToolRegistry } from '../tools/ai-tool.registry.js';
@@ -1827,12 +1828,9 @@ export class CoreAiService {
    * model instances.
    */
   protected sanitizeResult(value: unknown, user: AiToolContext['currentUser']): unknown {
-    if (Array.isArray(value)) {
-      return value.map((v) => this.sanitizeResult(v, user));
-    }
-    if (value && typeof (value as { securityCheck?: unknown }).securityCheck === 'function') {
-      return (value as { securityCheck: (u: unknown) => unknown }).securityCheck(user);
-    }
-    return value;
+    // securityCheck() on model instances, then the secret fields (password hash, reset tokens, encrypted API keys,
+    // `security.secretFields`) leave the result whatever shape the tool returned them in — a plain object or a lean
+    // document skipped securityCheck() and reached the model with them until 12.10.0
+    return sanitizeToolResultForModel(value, user);
   }
 }

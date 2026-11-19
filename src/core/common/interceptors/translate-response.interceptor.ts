@@ -4,6 +4,7 @@ import { Observable } from 'rxjs';
 import { map } from 'rxjs/operators';
 
 import { applyTranslationsRecursively } from '../helpers/service.helper.js';
+import { isAgentCallContext } from '../helpers/execution-context-request.helper.js';
 
 /**
  * Interceptor that automatically applies translations from _translations
@@ -82,6 +83,13 @@ export class TranslateResponseInterceptor implements NestInterceptor {
   }
 
   private getLanguage(context: ExecutionContext): string | null {
+    // An agent function / MCP call (nestjs-ai plan §1): this interceptor shapes HTTP and GraphQL responses for a
+    // reader's language; a model reads the result as it is. Without this the HTTP fallback below read
+    // `accept-language` from the call's ARGUMENTS.
+    if (isAgentCallContext(context)) {
+      return null;
+    }
+
     // GraphQL context
     try {
       if (context.getType<GqlContextType>() === 'graphql') {

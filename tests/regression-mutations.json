@@ -1124,10 +1124,10 @@
     {
       "id": "ai-allowlist-string-fails-open",
       "defect": "11.39.x — `ai.allowedBaseUrlHosts` is reachable through the framework's own `NSC__AI__ALLOWED_BASE_URL_HOSTS` mapping, which delivers a STRING. `getEnvironmentObject()` plus lodash `merge` assigns that scalar straight over the configured array, and the old `!Array.isArray(...) -> return` read it as \"no allowlist configured\" and skipped the SSRF egress check entirely. An operator using the canonical `NSC__` spelling silently disabled egress control, with no log line and no error.",
-      "file": "src/core/modules/ai/providers/openai-compatible.provider.ts",
-      "after": "protected resolveAllowedBaseUrlHosts(): string[] {",
-      "find": "    const entries = typeof configured === 'string' ? configured.split(',') : configured;",
-      "replace": "    const entries = configured;",
+      "file": "src/core/modules/ai/providers/ai-egress.helper.ts",
+      "after": "export function resolveAiEgressAllowlist(",
+      "find": "  const entries = typeof configured === 'string' ? configured.split(',') : configured;",
+      "replace": "  const entries = configured;",
       "specs": [
         "tests/unit/ai-egress-allowlist.spec.ts"
       ],
@@ -1136,10 +1136,10 @@
     {
       "id": "ai-allowlist-case-sensitive",
       "defect": "11.39.x — `URL.host` / `URL.hostname` are always lowercase, so an allowlist entry written `LLM.Example.com` in a .env would never match. It fails CLOSED, so it is not an egress hole — but the only symptom is a WARN plus \"the AI stopped working\", which is a slow and confusing incident for a purely cosmetic difference.",
-      "file": "src/core/modules/ai/providers/openai-compatible.provider.ts",
-      "after": "protected normaliseHostEntry(value: string): string {",
-      "find": "      .toLowerCase()\n      .replace(/\\.(?=$|:)/, '');",
-      "replace": "      .replace(/\\.(?=$|:)/, '');",
+      "file": "src/core/modules/ai/providers/ai-egress.helper.ts",
+      "after": "export function normaliseAiEgressHost(value: string): string {",
+      "find": "    .toLowerCase()\n    .replace(/\\.(?=$|:)/, '');",
+      "replace": "    .replace(/\\.(?=$|:)/, '');",
       "specs": [
         "tests/unit/ai-egress-allowlist.spec.ts"
       ],
@@ -2165,6 +2165,28 @@
       "file": "scripts/check-overrides.mjs",
       "find": "  if (version === null || ranges.length === 0) {",
       "replace": "  if (version === null) {\n    return false;\n  }\n  if (ranges.length === 0) {",
+      "specs": [
+        "tests/unit/check-overrides.guard.spec.ts"
+      ],
+      "driverSpecific": false
+    },
+    {
+      "id": "withdrawn-suppression-ignores-npm-listing",
+      "defect": "A withdrawn advisory fails as an obsolete suppression while npm's audit still lists it. Removing the entry then turns `pnpm audit` red, keeping it turns this guard red, and no pipeline can be green until npm catches up — about 1.5 h for GHSA-fc5q-39xc-vjpf on 2026-11-18.",
+      "file": "scripts/check-overrides.mjs",
+      "find": "      if (listing.listed) {\n        withdrawnStillListed.push({ detail: listing.detail, id });\n        continue;\n      }\n",
+      "replace": "",
+      "specs": [
+        "tests/unit/check-overrides.guard.spec.ts"
+      ],
+      "driverSpecific": false
+    },
+    {
+      "id": "withdrawn-npm-listing-matches-package",
+      "defect": "npm's bulk answer is matched by package instead of GHSA id. npm lists other advisories of the same package (picomatch 2.3.1 next to 4.0.7), so a withdrawn advisory reads as still listed for good and its obsolete suppression never fails again.",
+      "file": "scripts/check-overrides.mjs",
+      "find": "        .endsWith(ghsa),",
+      "replace": "        .includes('/advisories/'),",
       "specs": [
         "tests/unit/check-overrides.guard.spec.ts"
       ],
@@ -7757,6 +7779,468 @@
       "drivers": [
         "s3"
       ]
+    },
+    {
+      "id": "agent-call-guard-reads-arguments",
+      "defect": "12.10.0 (nestjs-ai plan §1) — on an `@nestjs/ai` agent function or `@nestjs/mcp` tool call the role guards resolved the request through `switchToHttp().getRequest()`, which on those contexts is the MODEL's (or MCP client's) tool arguments. Arguments carrying `{ user: { roles: ['admin'] } }` were the authenticated caller: BetterAuthRolesGuard granted `@Roles(ADMIN)`, RolesGuard granted `@Roles(S_USER)`, in every project that installed either package.",
+      "file": "src/core/common/helpers/execution-context-request.helper.ts",
+      "find": "  if (isAgentCallContext(context)) {\n    return resolveAgentCallRequest(context);\n  }\n",
+      "replace": "",
+      "specs": [
+        "tests/unit/agent-call-context.spec.ts"
+      ],
+      "driverSpecific": false
+    },
+    {
+      "id": "http-exception-filter-writes-agent-response",
+      "defect": "12.10.0 (nestjs-ai plan §1) — HttpExceptionLogFilter wrote every HttpException to `switchToHttp().getResponse()`, which on an agent function / MCP call is the call object. The filter threw a TypeError, and the model read \"Internal server error\" for every 401, 403 and 404 instead of the refusal.",
+      "file": "src/core/common/filters/http-exception-log.filter.ts",
+      "find": "    if (type !== 'http') {\n      return undefined;\n    }\n",
+      "replace": "",
+      "specs": [
+        "tests/unit/agent-call-context.spec.ts"
+      ],
+      "driverSpecific": false
+    },
+    {
+      "id": "mcp-verified-user-string-key",
+      "defect": "12.10.0 (nestjs-ai plan §4) — the user of an MCP OAuth access token reaches a `@nestjs/mcp` tool's guards through `AuthInfo.extra[MCP_VERIFIED_USER]`, a symbol only the framework's own verifier sets. Reading a string key instead would let any verifier — or a claim a foreign identity provider copies into `extra` — name the caller.",
+      "file": "src/core/common/helpers/execution-context-request.helper.ts",
+      "find": "    const verified = call.authInfo?.extra?.[MCP_VERIFIED_USER];\n",
+      "replace": "    const verified = call.authInfo?.extra?.[MCP_VERIFIED_USER] ?? call.authInfo?.extra?.user;\n",
+      "specs": [
+        "tests/unit/agent-call-context.spec.ts"
+      ],
+      "driverSpecific": false
+    },
+    {
+      "id": "agent-call-context-data-reads-arguments",
+      "defect": "12.10.0 (nestjs-ai plan §1) — `getContextData()` (CheckResponseInterceptor, CheckSecurityInterceptor, CheckInputPipe) read the current user from `switchToHttp().getRequest().user`, i.e. a `user` in the tool arguments, so the model chose whose view of the result the secret and `@Restricted` filtering applied.",
+      "file": "src/core/common/helpers/context.helper.ts",
+      "find": "      currentUser: agentRequest?.user,\n",
+      "replace": "      currentUser: agentRequest?.user ?? context.getArgByIndex(0)?.user,\n",
+      "specs": [
+        "tests/unit/agent-call-context.spec.ts"
+      ],
+      "driverSpecific": false
+    },
+    {
+      "id": "tenant-guard-requestless-agent-grants",
+      "defect": "12.10.0 (nestjs-ai plan §1) — CoreTenantGuard answered a context without a request with `return true`. On a request-less `@nestjs/ai` / `@nestjs/mcp` call (`caller: { user }`, a durable run, stdio) \"no request\" became permission for every role the role guards delegate to it.",
+      "file": "src/core/modules/tenant/core-tenant.guard.ts",
+      "find": "        if (effective?.some((role) => !!role) && !effective.includes(RoleEnum.S_EVERYONE)) {\n          throw new UnauthorizedException(ErrorCode.UNAUTHORIZED);\n        }\n",
+      "replace": "",
+      "specs": [
+        "tests/unit/agent-call-context.spec.ts"
+      ],
+      "driverSpecific": false
+    },
+    {
+      "id": "ai-sdk-tools-carry-execute",
+      "defect": "12.10.0 (nestjs-ai plan §2) — the AI SDK runs a tool itself as soon as its definition has an `execute`. A native tool handed to the model with one would run the model's call before CoreAiService's gates (role filter, tool policies, authorize(), confirmation, plan mode, budgets).",
+      "file": "src/core/modules/ai/providers/ai-sdk.provider.ts",
+      "find": "          { description: tool.description, inputSchema: sdk.jsonSchema(tool.parameters ?? { type: 'object' }) },\n",
+      "replace": "          { description: tool.description, execute: async () => 'executed', inputSchema: sdk.jsonSchema(tool.parameters ?? { type: 'object' }) },\n",
+      "specs": [
+        "tests/unit/ai-sdk-provider.spec.ts"
+      ],
+      "driverSpecific": false
+    },
+    {
+      "id": "ai-sdk-attachment-download-unguarded",
+      "defect": "12.10.0 (nestjs-ai plan §2) — the AI SDK downloads an attachment URL the model cannot read itself with its own fetch. Attachment URLs come from the user, so that was a server-side request to any address, cloud metadata and internal services included.",
+      "file": "src/core/modules/ai/providers/ai-sdk.provider.ts",
+      "find": "        const response = await outboundFetch(url.toString(), abortSignal ? { signal: abortSignal } : {});\n",
+      "replace": "        const response = await fetch(url.toString(), abortSignal ? { signal: abortSignal } : {});\n",
+      "specs": [
+        "tests/unit/ai-sdk-provider.spec.ts"
+      ],
+      "driverSpecific": false
+    },
+    {
+      "id": "ai-egress-fetch-unguarded",
+      "defect": "12.10.0 (nestjs-ai plan §2) — an AI SDK provider a project builds sends every request through the fetch it is given. Without the allowlist check in createAiEgressFetch(), `ai.allowedBaseUrlHosts` covered the built-in OpenAI-compatible provider only.",
+      "file": "src/core/modules/ai/providers/ai-egress.helper.ts",
+      "find": "    assertAiEgressAllowed(url, connectionName);\n",
+      "replace": "",
+      "specs": [
+        "tests/unit/ai-sdk-provider.spec.ts"
+      ],
+      "driverSpecific": false
+    },
+    {
+      "id": "ai-sdk-version-gate-open",
+      "defect": "12.10.0 (nestjs-ai plan §2, principle 2) — an untested release of a 0.x package (`@nestjs/ai`, `@nestjs/resilience`) or a new `ai` major must stop with an error naming the tested range instead of running with whatever its API became.",
+      "file": "src/core/modules/ai/providers/ai-sdk.packages.ts",
+      "find": "  return compareReleaseVersions(version, low) >= 0 && compareReleaseVersions(version, high) < 0;\n",
+      "replace": "  return compareReleaseVersions(version, low) >= 0 || compareReleaseVersions(version, high) < 0;\n",
+      "specs": [
+        "tests/unit/ai-sdk-provider.spec.ts"
+      ],
+      "driverSpecific": false
+    },
+    {
+      "id": "ai-tool-standard-schema-unvalidated",
+      "defect": "12.10.0 (nestjs-ai plan §3) — a tool declaring its parameters as a Standard Schema must never run on arguments the schema refuses: the model writes them, and the tool's code trusts the schema's type.",
+      "file": "src/core/modules/ai/tools/ai-tool-schema.helper.ts",
+      "find": "        if ('error' in checked) {\n          return { message: checked.error, success: false };\n        }\n        return tool.execute.call(tool, checked.value, context);\n",
+      "replace": "        return tool.execute.call(tool, 'value' in checked ? checked.value : args, context);\n",
+      "specs": [
+        "tests/unit/ai-agent-function-bridge.spec.ts"
+      ],
+      "driverSpecific": false
+    },
+    {
+      "id": "ai-agent-function-default-roles-open",
+      "defect": "12.10.0 (nestjs-ai plan §3) — an agent function without `@Roles()` or `@AiAgentFunction({ roles })` must be offered to signed-in users only. The registry role filter is the first gate; an open default would hand every undecorated agent function to an anonymous chat or MCP caller.",
+      "file": "src/core/modules/ai/services/core-ai-agent-function.bridge.ts",
+      "find": "    const roles = extras.roles?.length ? [...extras.roles] : methodRoles.length ? methodRoles : [RoleEnum.S_USER];\n",
+      "replace": "    const roles = extras.roles?.length ? [...extras.roles] : methodRoles.length ? methodRoles : [RoleEnum.S_EVERYONE];\n",
+      "specs": [
+        "tests/unit/ai-agent-function-bridge.spec.ts"
+      ],
+      "driverSpecific": false
+    },
+    {
+      "id": "ai-tool-result-secrets-kept",
+      "defect": "12.10.0 (nestjs-ai plan §1) — the MCP server sent `JSON.stringify(result)` of a tool to the client, and the chat loop ran `securityCheck()` on model instances only: a tool returning a lean document or a plain object handed its password hash, reset token or encrypted API key to the model and to the MCP client.",
+      "file": "src/core/modules/ai/tools/ai-tool-result.helper.ts",
+      "find": "  return stripSecretFieldsForModel(applySecurityChecks(value, user, new WeakMap(), 0));\n",
+      "replace": "  return applySecurityChecks(value, user, new WeakMap(), 0);\n",
+      "specs": [
+        "tests/unit/ai-agent-function-bridge.spec.ts"
+      ],
+      "driverSpecific": false
+    },
+    {
+      "id": "mcp-token-verifier-skips-access-rule",
+      "defect": "12.10.0 (nestjs-ai plan §4) — `ai.mcp.roles` is the account-level MCP rule on every way in (12.8.6). A project's own `@nestjs/mcp` endpoint authenticated through createMcpTokenVerifier() is one more way in; without the check a token of an account that may not use MCP was accepted there.",
+      "file": "src/core/modules/ai/services/core-ai-mcp-oauth.service.ts",
+      "find": "        if (!user || !(await this.checkMcpAccess(user))) {\n",
+      "replace": "        if (!user) {\n",
+      "specs": [
+        "tests/unit/ai-mcp-token-verifier.spec.ts"
+      ],
+      "driverSpecific": false
+    },
+    {
+      "id": "ai-sdk-attachment-read-unbounded",
+      "defect": "12.10.0 (review) — AiSdkProvider.downloadAttachments() read `response.arrayBuffer()` and checked the size afterwards. A body without Content-Length (or a compressed one) was held in memory in full, so one prompt attachment pointing at an endless stream ran the API out of memory; the AI SDK download this hook replaces stops at 100 MiB.",
+      "file": "src/core/modules/ai/providers/ai-sdk.provider.ts",
+      "find": "        const data = await readBodyWithLimit(response.body, AI_SDK_MAX_ATTACHMENT_BYTES, budget);\n",
+      "replace": "        const data = new Uint8Array(await response.arrayBuffer());\n",
+      "specs": [
+        "tests/unit/ai-sdk-provider.spec.ts"
+      ],
+      "driverSpecific": false
+    },
+    {
+      "id": "ai-sdk-download-hook-unwired",
+      "defect": "12.10.0 (review) — the guarded attachment download protects anything only while buildRequest() hands it to the AI SDK; without `experimental_download` the SDK fetches user-supplied attachment URLs with its own fetch, which checks only the literal host.",
+      "file": "src/core/modules/ai/providers/ai-sdk.provider.ts",
+      "find": "      experimental_download: (\n        requests: Array<{ abortSignal?: AbortSignal; isUrlSupportedByModel: boolean; url: URL }>,\n      ) => this.downloadAttachments(requests),\n",
+      "replace": "",
+      "specs": [
+        "tests/unit/ai-sdk-provider.spec.ts"
+      ],
+      "driverSpecific": false
+    },
+    {
+      "id": "ai-sdk-builder-fetch-unguarded",
+      "defect": "12.10.0 (review) — `ai.allowedBaseUrlHosts` covers a project-built AI SDK provider only through the fetch its builder receives; the global fetch would switch the allowlist off for every such connection.",
+      "file": "src/core/modules/ai/providers/llm-provider.factory.ts",
+      "find": "builder(connection, { fetch: createAiEgressFetch(connection.name) })",
+      "replace": "builder(connection, { fetch })",
+      "specs": [
+        "tests/unit/ai-sdk-provider.spec.ts"
+      ],
+      "driverSpecific": false
+    },
+    {
+      "id": "current-user-reads-agent-arguments",
+      "defect": "12.10.0 (review) — `@CurrentUser()` read `switchToHttp().getRequest().user` on an agent function call, i.e. a `user` the model wrote into the tool arguments, and handed it to the service as `currentUser`.",
+      "file": "src/core/common/helpers/decorator.helper.ts",
+      "find": "  if (isAgentCallContext(ctx)) {\n    return resolveAgentCallRequest(ctx)?.user;\n  }\n",
+      "replace": "",
+      "specs": [
+        "tests/unit/agent-call-context.spec.ts"
+      ],
+      "driverSpecific": false
+    },
+    {
+      "id": "rest-user-reads-agent-arguments",
+      "defect": "12.10.0 (review) — `@RESTUser()` read `switchToHttp().getRequest().user` on an agent function call, i.e. a `user` the model wrote into the tool arguments.",
+      "file": "src/core/common/decorators/rest-user.decorator.ts",
+      "find": "  if (isAgentCallContext(ctx)) {\n    return resolveAgentCallRequest(ctx)?.user;\n  }\n",
+      "replace": "",
+      "specs": [
+        "tests/unit/agent-call-context.spec.ts"
+      ],
+      "driverSpecific": false
+    },
+    {
+      "id": "auth-guard-reads-agent-arguments",
+      "defect": "12.10.0 (review) — the AuthGuard() mixin (`@UseGuards(AuthGuard(JWT))`) took an agent call's arguments as the request: a forged `{ user: { _authenticatedViaBetterAuth: true } }` passed it without any credential.",
+      "file": "src/core/modules/auth/guards/auth.guard.ts",
+      "find": "      if (isAgentCallContext(context)) {\n        return (resolveAgentCallRequest(context) ?? null) as T;\n      }\n",
+      "replace": "",
+      "specs": [
+        "tests/unit/agent-call-context.spec.ts"
+      ],
+      "driverSpecific": false
+    },
+    {
+      "id": "ai-chat-tool-result-secrets-kept",
+      "defect": "12.10.0 (review) — the chat loop's sanitizeResult() ran securityCheck() on model instances only, so a plain or lean tool result reached the model provider and `actions[].result` with its password hash, reset token or encrypted API key.",
+      "file": "src/core/modules/ai/services/core-ai.service.ts",
+      "find": "    return sanitizeToolResultForModel(value, user);\n",
+      "replace": "    return typeof (value as any)?.securityCheck === 'function' ? (value as any).securityCheck(user) : value;\n",
+      "specs": [
+        "tests/unit/ai-agent-function-bridge.spec.ts"
+      ],
+      "driverSpecific": false
+    },
+    {
+      "id": "ai-tool-result-mongoose-document-kept",
+      "defect": "12.10.0 (review) — a hydrated Mongoose document in a tool result was kept as it was; JSON.stringify then wrote its toJSON() — every stored field, the password hash included — into the model's context and the MCP answer.",
+      "file": "src/core/modules/ai/tools/ai-tool-result.helper.ts",
+      "find": "    (value as { _bsontype?: unknown })._bsontype !== undefined\n  );",
+      "replace": "    (value as { _bsontype?: unknown })._bsontype !== undefined ||\n    (value as { $__?: unknown }).$__ !== undefined\n  );",
+      "specs": [
+        "tests/unit/ai-agent-function-bridge.spec.ts"
+      ],
+      "driverSpecific": false
+    },
+    {
+      "id": "ai-tool-result-wrapper-unchecked",
+      "defect": "12.10.0 (review) — MCP tools/call ran securityCheck() only on a top-level instance or array, not inside the documented `{ success, data }` wrapper: what a model's securityCheck() hides reached the MCP client.",
+      "file": "src/core/modules/ai/tools/ai-tool-result.helper.ts",
+      "find": "  if (!isPlainObject(value)) {\n",
+      "replace": "  if (true) {\n",
+      "specs": [
+        "tests/unit/ai-agent-function-bridge.spec.ts"
+      ],
+      "driverSpecific": false
+    },
+    {
+      "id": "mcp-oauth-user-unmarked",
+      "defect": "12.10.0 (review) — /ai/mcp put an MCP OAuth token's user on the request as loadUser()'s plain `{ id, roles }`. RolesGuard decides on an existing user only when it carries `_authenticatedViaBetterAuth`, so every role-gated agent function answered 401 to every OAuth user in a Legacy+IAM project, and a securityCheck() calling `user.hasRole()` threw.",
+      "file": "src/core/modules/ai/core-ai-mcp.controller.ts",
+      "find": "        return user ? toVerifiedAiUser(user) : null;\n",
+      "replace": "        return user;\n",
+      "specs": [
+        "tests/unit/ai-agent-function-bridge.spec.ts"
+      ],
+      "driverSpecific": false
+    },
+    {
+      "id": "iam-social-provider-options-dropped",
+      "defect": "12.10.0 — only clientId, clientSecret and disableSignUp reached a social provider: tenantId, scope and every other option a project set were dropped, so a Microsoft sign-in ran against the common endpoint with the default scope.",
+      "file": "src/core/modules/better-auth/better-auth.config.ts",
+      "find": "          ...providerOptions,\n          clientId: provider.clientId,\n",
+      "replace": "          clientId: provider.clientId,\n",
+      "specs": [
+        "tests/unit/better-auth-social-provider-options.spec.ts"
+      ],
+      "driverSpecific": false
+    },
+    {
+      "id": "iam-social-provider-options-override-sign-up",
+      "defect": "12.10.0 — written together with the pass-through of provider options: spread after the computed disableSignUp, the project's raw value reaches Better-Auth again, and a string from NEST_SERVER_CONFIG opens a registration the project closed.",
+      "file": "src/core/modules/better-auth/better-auth.config.ts",
+      "find": "          ...providerOptions,\n          clientId: provider.clientId,\n          clientSecret: provider.clientSecret,\n          disableSignUp: typeof provider.disableSignUp === 'boolean' ? provider.disableSignUp : signUpClosed,\n",
+      "replace": "          clientId: provider.clientId,\n          clientSecret: provider.clientSecret,\n          disableSignUp: typeof provider.disableSignUp === 'boolean' ? provider.disableSignUp : signUpClosed,\n          ...providerOptions,\n",
+      "specs": [
+        "tests/unit/better-auth-social-provider-options.spec.ts"
+      ],
+      "driverSpecific": false
+    },
+    {
+      "id": "iam-oauth-error-url-not-derived",
+      "defect": "12.10.0 — nest-server set no onAPIError.errorURL, so an OAuth callback that failed without an error URL of its own (state expired after ten minutes, missing or tampered) sent the browser to Better-Auth's built-in error page on the API host, with no way back into the app.",
+      "file": "src/core/modules/better-auth/better-auth.config.ts",
+      "find": "    ...(errorUrl && { onAPIError: { errorURL: errorUrl } }),\n",
+      "replace": "",
+      "specs": [
+        "tests/unit/better-auth-error-url.spec.ts"
+      ],
+      "driverSpecific": false
+    },
+    {
+      "id": "iam-oauth-error-url-options-replace",
+      "defect": "12.10.0 — written together with the derived error URL: a project's options.onAPIError replaced the framework's object, so a project that set it for another reason (onError, throw) sent failed OAuth callbacks to the API's error page again.",
+      "file": "src/core/modules/better-auth/better-auth.config.ts",
+      "find": "      finalConfig.onAPIError = {\n        ...(betterAuthConfig.onAPIError as Record<string, unknown> | undefined),\n        ...projectOnApiError,\n        errorURL: projectOnApiError.errorURL ?? errorUrl,\n      };\n",
+      "replace": "      finalConfig.onAPIError = projectOnApiError;\n",
+      "specs": [
+        "tests/unit/better-auth-error-url.spec.ts"
+      ],
+      "driverSpecific": false
+    },
+    {
+      "id": "mcp-oauth-unknown-resource-issued",
+      "defect": "12.10.0 (RFC 8707) — the MCP OAuth authorization server must issue tokens only for resources it serves (`/ai/mcp` and the resources registered through createMcpTokenVerifier()); any other `resource` at /authorize or /token is `invalid_target`.",
+      "file": "src/core/modules/ai/services/core-ai-mcp-oauth.service.ts",
+      "find": "    if (resource && (resource === this.mcpResource() || this.registeredResources.has(resource))) {\n",
+      "replace": "    if (resource) {\n",
+      "specs": [
+        "tests/unit/ai-mcp-oauth-audience.spec.ts"
+      ],
+      "driverSpecific": false
+    },
+    {
+      "id": "mcp-token-audience-ignored-at-mcp",
+      "defect": "12.10.0 (RFC 8707) — `/ai/mcp` accepted every access token this server signed, also one issued for a project's `@nestjs/mcp` endpoint. A token is valid only at the resource it was issued for; one from before 12.10.0 (no audience) at `/ai/mcp` only.",
+      "file": "src/core/modules/ai/services/core-ai-mcp-oauth.service.ts",
+      "find": "    return !!mcp && normalizeMcpResource(payload.aud) === mcp;\n",
+      "replace": "    return true;\n",
+      "specs": [
+        "tests/unit/ai-mcp-oauth-audience.spec.ts"
+      ],
+      "driverSpecific": false
+    },
+    {
+      "id": "mcp-controller-skips-audience",
+      "defect": "12.10.0 (RFC 8707) — CoreAiMcpController.resolveUser() resolved the user of any token this server signed, so a token bound to a project's `@nestjs/mcp` endpoint opened `/ai/mcp`.",
+      "file": "src/core/modules/ai/core-ai-mcp.controller.ts",
+      "find": "      if (payload?.sub && this.oauthService.acceptsAudienceAtMcp(payload)) {\n",
+      "replace": "      if (payload?.sub) {\n",
+      "specs": [
+        "tests/unit/ai-mcp-oauth-audience.spec.ts"
+      ],
+      "driverSpecific": false
+    },
+    {
+      "id": "mcp-refresh-resource-not-bound",
+      "defect": "12.10.0 (RFC 8707) — a rotated refresh token must keep the resource of its grant; dropped, the next refresh issued a token for `/ai/mcp` from a grant the user gave to another endpoint.",
+      "file": "src/core/modules/ai/services/core-ai-mcp-oauth.service.ts",
+      "find": "    const newToken = await this.issueRefreshToken(value.userId, value.clientId, resource);\n",
+      "replace": "    const newToken = await this.issueRefreshToken(value.userId, value.clientId);\n",
+      "specs": [
+        "tests/unit/ai-mcp-oauth-audience.spec.ts"
+      ],
+      "driverSpecific": false
+    },
+    {
+      "id": "mcp-verifier-accepts-legacy-token",
+      "defect": "12.10.0 (RFC 8707) — access tokens from before 12.10.0 carry no audience. Accepting them at a project's `@nestjs/mcp` endpoint would make every old `/ai/mcp` token valid there too.",
+      "file": "src/core/modules/ai/services/core-ai-mcp-oauth.service.ts",
+      "find": "      return target === this.mcpResource();\n",
+      "replace": "      return true;\n",
+      "specs": [
+        "tests/unit/ai-mcp-oauth-audience.spec.ts"
+      ],
+      "driverSpecific": false
+    },
+    {
+      "id": "mcp-authorize-invalid-target-redirects",
+      "defect": "12.10.0 (review) — an unknown RFC 8707 `resource` at /authorize was thrown into the SDK, which redirected it to the client's self-registered redirect URI before any sign-in: /authorize was again the open redirect 12.3.0 closed (RFC 9700 §4.11.2), for anyone with one crafted link.",
+      "file": "src/core/modules/ai/services/core-ai-mcp-oauth.service.ts",
+      "find": "          res.status(400).json(body);\n          return;\n",
+      "replace": "          void body;\n          throw error;\n",
+      "specs": [
+        "tests/unit/ai-mcp-oauth-audience.spec.ts"
+      ],
+      "driverSpecific": false
+    },
+    {
+      "id": "mcp-authorize-resource-not-bound",
+      "defect": "12.10.0 (review) — the resource a client names at /authorize must reach the code the consent issues. Lost on the way, every MCP 2025-06-18 client got `invalid_target` at /token and no client could obtain a token for a project's `@nestjs/mcp` endpoint.",
+      "file": "src/core/modules/ai/services/core-ai-mcp-oauth.service.ts",
+      "find": "        return authorizeRequest.run({ method, resource }, () => this.authorizeConsent(client, params, res));\n",
+      "replace": "        return authorizeRequest.run({ method }, () => this.authorizeConsent(client, params, res));\n",
+      "specs": [
+        "tests/unit/ai-mcp-oauth-audience.spec.ts"
+      ],
+      "driverSpecific": false
+    },
+    {
+      "id": "agent-call-requestless-class-everyone-opens-roles-guard",
+      "defect": "12.10.0 (review) — RolesGuard's request-less agent branch tested the MERGED class and method roles for S_EVERYONE: a class open to everybody opened its method that asks for S_USER to a request-less agent / MCP call, while the method decides elsewhere.",
+      "file": "src/core/modules/auth/guards/roles.guard.ts",
+      "find": "      const effective = reflectorRoles?.[0]?.some((value) => !!value) ? reflectorRoles[0] : roles;\n",
+      "replace": "      const effective = roles;\n",
+      "specs": [
+        "tests/unit/agent-call-context.spec.ts"
+      ],
+      "driverSpecific": false
+    },
+    {
+      "id": "agent-call-requestless-class-everyone-opens-tenant-guard",
+      "defect": "12.10.0 (review) — with multiTenancy, CoreTenantGuard's request-less agent branch tested the merged roles: a class-level S_EVERYONE opened a method that asks for S_USER or a tenant role to a request-less call, which then ran without a tenant scope; the HTTP path lets the method's own roles decide (`systemCheckRoles`).",
+      "file": "src/core/modules/tenant/core-tenant.guard.ts",
+      "find": "        const effective = rolesMetadata?.[0]?.some((role) => !!role) ? rolesMetadata[0] : roles;\n",
+      "replace": "        const effective = roles;\n",
+      "specs": [
+        "tests/unit/agent-call-context.spec.ts"
+      ],
+      "driverSpecific": false
+    },
+    {
+      "id": "graphql-upload-map-path-unchecked",
+      "defect": "12.10.0 — graphql-upload 17.1.0's processRequest (GHSA-5vm7-vc2x-p3w2) set an Upload at any `map` path: a path into a placed upload replaced its `reject` / `file` (an uncaught TypeError in the parser's `finish` or the response's `close` handler, the process exits), a `__proto__` key forged an Upload. Both checks of graphql-upload 18.0.2 gone.",
+      "file": "src/core/common/helpers/graphql-upload.helper.ts",
+      "find": "                for (const [keyIndex, key] of keys.entries()) {\n",
+      "replace": "                for (const [keyIndex, key] of ([] as string[]).entries()) {\n",
+      "specs": [
+        "tests/unit/graphql-upload-process-request.spec.ts"
+      ],
+      "driverSpecific": false
+    },
+    {
+      "id": "graphql-upload-map-proto-key-allowed",
+      "defect": "12.10.0 — GHSA-5vm7-vc2x-p3w2, `__proto__` half: a `map` path `variables.file.__proto__` gave a client-supplied object an Upload prototype, so it passed the GraphQLUpload scalar's `instanceof` check and its own `promise` reached the resolver.",
+      "file": "src/core/common/helpers/graphql-upload.helper.ts",
+      "find": "                  if (key === '__proto__') {\n",
+      "replace": "                  if (key === '__proto__' && keyIndex < 0) {\n",
+      "specs": [
+        "tests/unit/graphql-upload-process-request.spec.ts"
+      ],
+      "driverSpecific": false
+    },
+    {
+      "id": "graphql-upload-map-traverses-upload",
+      "defect": "12.10.0 — GHSA-5vm7-vc2x-p3w2, traversal half: a `map` path into an already placed Upload (`variables.file.reject`) replaced the upload's method; without the file fields the parser's `finish` handler threw `TypeError: upload.reject is not a function` outside any request and the process exited.",
+      "file": "src/core/common/helpers/graphql-upload.helper.ts",
+      "find": "                    if (pathValue instanceof Upload) {\n",
+      "replace": "                    if (pathValue instanceof Upload && keyIndex < 0) {\n",
+      "specs": [
+        "tests/unit/graphql-upload-process-request.spec.ts"
+      ],
+      "driverSpecific": false
+    },
+    {
+      "id": "graphql-upload-duplicate-file-field-kept",
+      "defect": "12.10.0 — GHSA-qwwm-252j-9whw: a second file field with the name of an already resolved upload created a new capacitor and resolved the upload again; `upload.file` pointed at the duplicate and only its temporary file was released when the response closed — the first one leaked with its file descriptor.",
+      "file": "src/core/common/helpers/graphql-upload.helper.ts",
+      "find": "        if (!upload || upload.file) {\n",
+      "replace": "        if (!upload) {\n",
+      "specs": [
+        "tests/unit/graphql-upload-process-request.spec.ts"
+      ],
+      "driverSpecific": false
+    },
+    {
+      "id": "graphql-upload-wiring-default-process-request",
+      "defect": "12.10.0 — CoreModule registered `graphqlUploadExpress()` for the graphql route with graphql-upload's default processRequest (17.1.0, GHSA-5vm7-vc2x-p3w2 / GHSA-qwwm-252j-9whw), in front of every guard.",
+      "file": "src/core.module.ts",
+      "find": "      consumer.apply(graphqlUploadExpress({ processRequest: processGraphQlUploadRequest })).forRoutes('graphql');\n",
+      "replace": "      consumer.apply(graphqlUploadExpress()).forRoutes('graphql');\n",
+      "specs": [
+        "tests/unit/graphql-upload-process-request.spec.ts"
+      ],
+      "driverSpecific": false
+    },
+    {
+      "id": "graphql-upload-route-default-process-request",
+      "defect": "12.10.0 — the same wiring defect seen from the assembled ServerModule: an anonymous multipart request to /graphql whose `map` reaches into an upload is not refused with 400 but crashes the parser with an uncaught TypeError.",
+      "file": "src/core.module.ts",
+      "find": "      consumer.apply(graphqlUploadExpress({ processRequest: processGraphQlUploadRequest })).forRoutes('graphql');\n",
+      "replace": "      consumer.apply(graphqlUploadExpress()).forRoutes('graphql');\n",
+      "specs": [
+        "tests/file.e2e-spec.ts"
+      ],
+      "driverSpecific": false
     }
   ]
 }

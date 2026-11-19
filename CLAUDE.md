@@ -103,7 +103,8 @@ compatible with either downstream layout:
   The vendoring step copies `dependencies` only — it never reads
   `peerDependencies` — so a package in either of the other two sections is
   invisible to it. The live case today is `better-auth` / `@better-auth/passkey` /
-  `@better-auth/core` (required peers since 11.37.0). `find-file-up`, the
+  `@better-auth/core` (required peers since 11.37.0), and since 12.10.0 the OPTIONAL peers `ai` / `@nestjs/ai` /
+  `@nestjs/resilience` (AI SDK transport, agent-function bridge). `find-file-up`, the
   other entry on that list, was never imported by framework code — only by the
   pre-commit hook's `extras/sync-version.ts` — and left together with `husky`
   in 11.41.8; its list entry is now inert.
@@ -250,6 +251,14 @@ The pattern: extend `AiTool`, route through a `CrudService` with
 `context.serviceOptions` (NEVER direct `Model.find()` — bypasses `@Restricted` and
 `securityCheck`), mark mutating tools `mutating: true` and destructive ones
 `destructive: true`. Group in an `AiToolsModule` and add it to `ServerModule.imports`.
+
+**NestJS AI interop (12.10.0, opt-in):** `ai`, `@nestjs/ai`, `@nestjs/resilience` are OPTIONAL peers, loaded lazily
+and refused outside their tested range (`AI_SDK_TESTED_RANGES`). `providerType: 'nestjs-ai'` connections use a model of
+`AiModule.forRoot({ models })`; `LlmProviderFactory.registerAiSdkModel()` plugs an AI SDK provider into DB-managed
+connections (pass the guarded `fetch`); `ai.agentFunctions` offers `@AgentFunction()` methods as tools — the module's
+gates first, then `@nestjs/ai`'s pipeline. Native tools never carry `execute`. In ANY project with `@nestjs/ai` /
+`@nestjs/mcp` installed, our global guards run on `'ai'` / `'mcp'` contexts: resolve the request through
+`resolveGuardRequest()` (never `switchToHttp()` — that is the MODEL's arguments there), a request-less caller is anonymous.
 
 Reference tools live at `src/server/modules/ai/tools/` (find-users, get-user,
 delete-user, update-user-job-title) — these are framework test fixtures, NOT

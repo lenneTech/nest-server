@@ -63,7 +63,7 @@ peerDependencyRules:
     - 'vis-util'
 
 # Security overrides — ONLY entries that change the resolved tree. Empty from 12.1.0 to 12.9.3; ws since 12.9.4,
-# minimatch 11 since 12.9.5 (below).
+# minimatch 11 and i18next 26 since 12.10.0 (below).
 #
 # They do NOT reach consumers of the published package: `overrides:` is honoured only for the ROOT
 # project of an install. A green `pnpm audit` here says nothing about a consumer's tree, which is why
@@ -92,7 +92,17 @@ overrides:
   # exact-pins minimatch 11.0.5, so only an override lifts it. Dev tooling only (nest CLI, glob via rimraf). The
   # minimatch 10.x copies stay: GHSA-c859 has no 10.x fix — once the global database lists it, decide it like
   # GHSA-g3hv (auditConfig). Mirrors nest-server-starter. Remove once @nestjs/cli pins >= 11.0.8. Verified 2026-11-14.
-  'minimatch@>=11.0.0 <11.0.8': '11.0.8'
+  # Raised to 11.0.9 on 2026-11-19: a key matches the RANGE a parent requests, so the 11.0.8 target held every other
+  # ^11 consumer below the 11.0.9 a fresh resolve gives them (two fresh resolves, with and without this entry).
+  'minimatch@>=11.0.0 <11.0.9': '11.0.9'
+  # GHSA-5jr9-983r-c8x4 (high, ReDoS in the nesting regexp via an unclosed $t( in interpolated values, patched 26.4.4)
+  # and GHSA-6jcc-5g8w-32mx (medium, patched 26.3.4): @compodoc/compodoc 2.0.0 (newest) exact-pins i18next 26.3.3 for
+  # its own UI strings. Dev tooling only (`pnpm run docs`). Target is the oldest 26.x that clears both. Not in GitHub's
+  # global database yet (repository advisories only), so `pnpm audit` did not report them. GHSA-q76c-gcvw-89x9 (high,
+  # process exit on a language code named after an inherited property) is fixed only in 27.1.3, a new major: once the
+  # global database lists it, decide it like GHSA-g3hv (auditConfig). Remove once compodoc pins >= 26.4.4.
+  # Verified 2026-11-19.
+  'i18next@>=26.0.0 <26.4.4': '26.4.4'
 
 # Supply-chain hold-back: never resolve a version published less than a day ago, so a compromised
 # release has time to be detected and unpublished. pnpm 11's own default, set explicitly so the policy

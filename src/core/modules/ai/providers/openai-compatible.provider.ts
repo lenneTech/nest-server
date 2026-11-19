@@ -1,6 +1,5 @@
 import { BadGatewayException, Logger, ServiceUnavailableException } from '@nestjs/common';
 
-import { ConfigService } from '../../../common/services/config.service.js';
 import { ErrorCode } from '../../error-code/index.js';
 import {
   ILlmProvider,
@@ -12,6 +11,7 @@ import {
   LlmUsage,
 } from '../interfaces/llm-provider.interface.js';
 import { ResolvedAiConnection } from '../interfaces/resolved-ai-connection.interface.js';
+import { aiEgressHostCandidates, normaliseAiEgressHost, resolveAiEgressAllowlist } from './ai-egress.helper.js';
 
 /**
  * Provider for OpenAI-compatible chat-completions endpoints.
@@ -302,11 +302,7 @@ export class OpenAiCompatibleProvider implements ILlmProvider {
     // omits the default port, so a conscientious `llm.example.com:443` entry would
     // otherwise never match `https://llm.example.com/` — a lockout whose only symptom is
     // a WARN and "the AI stopped working". Nothing here widens the set of reachable hosts.
-    const defaultPort = parsed.protocol === 'https:' ? '443' : parsed.protocol === 'http:' ? '80' : '';
-    const candidates = [parsed.host, parsed.hostname];
-    if (defaultPort && parsed.host === parsed.hostname) {
-      candidates.push(`${parsed.hostname}:${defaultPort}`);
-    }
+    const candidates = aiEgressHostCandidates(parsed);
     if (!candidates.map((candidate) => this.normaliseHostEntry(candidate)).some((c) => allowedHosts.includes(c))) {
       this.logger.warn(
         `AI connection "${this.connection.name}" host "${parsed.host}" is not in ai.allowedBaseUrlHosts`,
@@ -385,19 +381,8 @@ export class OpenAiCompatibleProvider implements ILlmProvider {
    * decision, a malformed value is an accident nobody is told about.
    */
   protected resolveAllowedBaseUrlHosts(): string[] {
-    const configured = ConfigService.get<unknown>('ai.allowedBaseUrlHosts');
-    if (configured === undefined || configured === null) {
-      return [];
-    }
-    const entries = typeof configured === 'string' ? configured.split(',') : configured;
-    if (!Array.isArray(entries)) {
-      this.logger.error(
-        `ai.allowedBaseUrlHosts is a ${typeof configured} and carries no hostnames — the SSRF egress ` +
-          'allowlist is NOT active. Use an array or a comma-separated string.',
-      );
-      return [];
-    }
-    return entries.map((host) => this.normaliseHostEntry(String(host))).filter(Boolean);
+    // One implementation for every AI egress path (the AI SDK transport uses it too) — see ai-egress.helper
+    return resolveAiEgressAllowlist(this.logger);
   }
 
   /**
@@ -409,10 +394,7 @@ export class OpenAiCompatibleProvider implements ILlmProvider {
    * produced a confusing refusal — never protection.
    */
   protected normaliseHostEntry(value: string): string {
-    return value
-      .trim()
-      .toLowerCase()
-      .replace(/\.(?=$|:)/, '');
+    return normaliseAiEgressHost(value);
   }
 
   /**

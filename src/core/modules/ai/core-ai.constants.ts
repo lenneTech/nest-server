@@ -110,3 +110,7 @@ export const AI_MCP_OAUTH_CODE_TTL_SECONDS = 600;
 // ---- module options ----
 /** Whether `CoreAiModule.forRoot()` registered the MCP endpoint (`ai.mcp`) — what `GET /ai/status` answers. */
 export const AI_MCP_ENABLED = 'AI_MCP_ENABLED';
+
+// ---- agent functions (nestjs-ai plan §3) ----
+/** Metadata key of `@AiAgentFunction()` — the framework's extras on a `@nestjs/ai` agent function method. */
+export const AI_AGENT_FUNCTION_METADATA = 'lt:ai:agent-function';

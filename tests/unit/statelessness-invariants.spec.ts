@@ -59,6 +59,16 @@ interface StateEntry {
 const INVENTORY: StateEntry[] = [
   {
     because:
+      'The RFC 8707 resources this authorization server issues tokens for, besides /ai/mcp (12.10.0). Filled only '
+      + 'by createMcpTokenVerifier(), which a project calls while its McpModule is configured at boot, with a value '
+      + 'from its own configuration. Every replica runs the same boot with the same config, so two replicas hold '
+      + 'the same set; nothing a request does adds to it.',
+    classification: 'derived',
+    file: 'modules/ai/services/core-ai-mcp-oauth.service.ts',
+    name: 'registeredResources',
+  },
+  {
+    because:
       'Connection ids whose capability detection just threw, mapped to the timestamp after '
       + 'which they may be probed again. Genuinely divergent across replicas and deliberately '
       + 'so: the bound is the 5-minute TTL, entries expire on their own and are swept on write, '
@@ -87,6 +97,15 @@ const INVENTORY: StateEntry[] = [
     classification: 'derived',
     file: 'common/decorators/restricted.decorator.ts',
     name: 'classCache',
+  },
+  {
+    because:
+      'The uploads of ONE multipart request, keyed by file field name: a `let` in processGraphQlUploadRequest() that '
+      + 'the parser assigns once the `map` field arrives. Created per request and released with it (the temporary '
+      + 'files on the response close); a second replica handles other requests and has nothing to agree about.',
+    classification: 'bounded',
+    file: 'common/helpers/graphql-upload.helper.ts',
+    name: 'map',
   },
   {
     because:

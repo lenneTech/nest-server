@@ -36,6 +36,7 @@ import { AiToolGrantSchema, CoreAiToolGrant } from './models/core-ai-tool-grant.
 import { AiToolPolicySchema, CoreAiToolPolicy } from './models/core-ai-tool-policy.model.js';
 import { AiUserSettingSchema, CoreAiUserSetting } from './models/core-ai-user-setting.model.js';
 import { LlmProviderFactory } from './providers/llm-provider.factory.js';
+import { CoreAiAgentFunctionBridge } from './services/core-ai-agent-function.bridge.js';
 import { AiCryptoService } from './services/ai-crypto.service.js';
 import {
   AI_BUDGET_LIMIT_CLASS,
@@ -275,6 +276,8 @@ export class CoreAiModule {
         AskUserQuestionAiTool,
         SearchToolsAiTool,
         LlmProviderFactory,
+        // Inert unless `ai.agentFunctions` is set (nestjs-ai plan §3)
+        CoreAiAgentFunctionBridge,
         { provide: AI_MCP_ENABLED, useValue: options.mcpEnabled === true },
         { provide: AI_BUDGET_LIMIT_CLASS, useValue: CoreAiBudgetLimit },
         { provide: AI_CONNECTION_CLASS, useValue: CoreAiConnection },

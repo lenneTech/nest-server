@@ -179,7 +179,7 @@ entry, `ws`: GHSA-37g9-w4hg-h9qr (high, pre-auth memory-exhaustion DoS, patched 
 `@nestjs/graphql` 14.2.1 exact-pins, and the GraphQL WebSocket server runs on that copy. The advisory was published
 by the ws maintainers on 2026-11-12 and was not yet in GitHub's global database when the entry was added, so
 `pnpm audit` did not report it — read the advisories of a package's own repository when a release announces a
-security fix. Its target moves in lockstep with the declared `ws` dependency (`docs/security-overrides.md`). Since 12.9.5 a second entry, `minimatch` 11 -> 11.0.8: `@nestjs/cli` 12.0.13 exact-pins 11.0.5, covered by three moderate advisories (dev tooling only). An override is only necessary if removing it lets the package resolve
+security fix. Its target moves in lockstep with the declared `ws` dependency (`docs/security-overrides.md`). Since 12.10.0 a second entry, `minimatch` 11 -> 11.0.9: `@nestjs/cli` 12.0.13 exact-pins 11.0.5, covered by three moderate advisories (dev tooling only; the target is the newest 11.x, because an older one held every other `^11` consumer back). And a third, `i18next` 26 -> 26.4.4: `@compodoc/compodoc` 2.0.0 exact-pins 26.3.3, covered by two repository advisories that were not yet in GitHub's global database (dev tooling only). An override is only necessary if removing it lets the package resolve
 back INTO its vulnerable range (verify with a with/without lockfile diff; `pnpm audit` is the arbiter).
 "Cheap insurance against a parent re-pinning downwards" is not a reason to keep one: `pnpm audit` and
 `check:overrides` run on every `check` and report such a regression the day it happens. Each surviving entry carries its CVE rationale as a comment. Remove an entry once its parent dependency ships a fixed version.
@@ -344,9 +344,9 @@ nothing in the repo could have said so.
    anywhere. A drifted override is at least still visible.
 
 `pnpm run check:overrides` re-checks every listed GHSA against the GitHub Advisory API and **fails**
-on `FIX AVAILABLE` (a `first_patched_version` now exists) or on a withdrawn advisory. An unreachable
-API is reported as `UNVERIFIED` and tolerated locally — but **fails under `CI`**, because a skip
-nobody reads is indistinguishable from a check that ran.
+on `FIX AVAILABLE` (a `first_patched_version` now exists) or on a withdrawn advisory that npm's audit
+no longer lists (below). An unreachable API is reported as `UNVERIFIED` and tolerated locally — but
+**fails under `CI`**, because a skip nobody reads is indistinguishable from a check that ran.
 
 **A fix nobody named is still a fix.** GitHub leaves `first_patched_version` null on some advisories
 after a release outside the vulnerable range shipped: GHSA-86w9-cpqp-85rv (node-forge) read
@@ -364,9 +364,33 @@ counts only when every such release is deprecated, because some packages depreca
 | some copy has none | passes — the suppression is still justified |
 | no version the lockfile resolves is in the range any more | `NOT IN TREE` — the entry hides nothing |
 | registry or lockfile unreadable | `UNVERIFIED`, with the reason (fails under `CI`) |
+| withdrawn advisory, npm's audit still lists it | passes, printed as `withdrawn … npm still lists it` — remove the entry once `pnpm audit` is clean without it |
+| withdrawn advisory, npm's audit no longer lists it (or the lockfile resolves none of its packages) | `FIX AVAILABLE` (the advisory was WITHDRAWN) — remove the entry |
+| withdrawn advisory, npm's audit endpoint unreachable | `UNVERIFIED`, with the reason (fails under `CI`) |
+
+**A withdrawal reaches npm late (the last three rows).** GitHub withdrew GHSA-fc5q-39xc-vjpf
+(picomatch `<= 4.0.7`) at 15:38:56 UTC on 2026-11-18, and npm's audit feed listed it until about
+17:15 UTC. The guard failed a withdrawn advisory on sight, so for those 1.5 hours no pipeline could be
+green: with the entry `check:overrides` failed, without it `pnpm audit` did. A withdrawn advisory now
+counts as obsolete only once npm's audit no longer lists it for the versions the lockfile resolves.
+The audit report cannot answer that, because a suppressed advisory is removed from it, so the guard
+asks pnpm's own source: npm's bulk advisory endpoint on the registry pnpm installs from. Verified
+2026-11-19:
+
+```
+POST <registry>/-/npm/v1/security/advisories/bulk
+{ "picomatch": ["2.3.1", "4.0.7"] }
+→ { "picomatch": [{ "id": 1115549, "url": "https://github.com/advisories/GHSA-3v7f-55p6-f55p", "vulnerable_versions": "<2.3.2", … }] }
+```
+
+npm filters by version itself and leaves out a package with no advisory. The guard matches the answer
+by GHSA id (the `url` ends in it), never by package: in the example npm lists two OTHER picomatch
+advisories, and "picomatch is listed" would keep a withdrawn one alive for good (mutation
+`withdrawn-npm-listing-matches-package`; the other direction is `withdrawn-suppression-ignores-npm-listing`).
 
 `--advisory-file` runs stay offline: they take packuments from `--packument-file` and never ask the
-registry.
+registry or npm's audit endpoint. A withdrawn entry there states the listing with `npmListed: true` /
+`false`; an entry without it (or with a non-boolean) fails as obsolete, as before.
 
 One consequence worth knowing before you reach for this mechanism: the guard fires when the advisory
 has a patched version for **any** affected range. For most findings that is the honest outcome — a

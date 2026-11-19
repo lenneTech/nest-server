@@ -23,7 +23,7 @@ import { OpenAiCompatibleProvider } from '../../src/core/modules/ai/providers/op
  *   `NSC__AI__ALLOWED_BASE_URL_HOSTS` produces) was read as "no allowlist configured",
  *   silently disabling SSRF egress control. Separately, `probeContextWindow()` reached
  *   the network without consulting the allowlist at all.
- * @seen-failing Restore the old shape in `resolveAllowedBaseUrlHosts()` — registered as
+ * @seen-failing Restore the old shape in `resolveAiEgressAllowlist()` (ai-egress.helper.ts) — registered as
  *   mutation `ai-allowlist-string-fails-open` in tests/regression-mutations.json. The
  *   dropped-lowercase and unguarded-probe variants are registered as
  *   `ai-allowlist-case-sensitive` and `ai-allowlist-probe-unguarded`.

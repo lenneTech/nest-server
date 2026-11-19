@@ -180,6 +180,76 @@ calling and executes tools itself through `CrudService` with the caller's permis
 the child runs in a temp dir so no `CLAUDE.md`/settings leak into the context. See
 `ClaudeCliProvider` for the full security model and the optional `ai.claudeCli` config.
 
+## NestJS AI and the AI SDK (12.10.0)
+
+Three opt-in integrations with `@nestjs/ai` / the AI SDK (`ai`). All three packages — `ai`, `@nestjs/ai`,
+`@nestjs/resilience` — are **optional peers**: a project that installs none of them loads nothing new. Each is loaded
+lazily on first use and checked against the range this release was tested with (`AI_SDK_TESTED_RANGES`:
+`ai >=7.0.0 <8`, `@nestjs/ai >=0.0.2 <0.0.3`, `@nestjs/resilience >=0.0.3 <0.0.4`) and for the members the framework
+calls; outside it the call (or the boot, for `ai.agentFunctions` and `registerAiSdkModel()`) fails with
+`AiSdkPackageError` naming the range — never a quiet misbehaviour of a 0.x release.
+
+**A model registered in `@nestjs/ai`** — a connection with `providerType: 'nestjs-ai'` and `model` = the name in
+`AiModule.forRoot({ models })` (`baseUrl` is informative only, e.g. `nestjs-ai:default`). The call runs through the AI
+SDK with `@nestjs/resilience` retries (3 attempts on what the provider marks retryable) and the connection's timeout.
+Why not `AiService.generateText()`: it offers only `@AgentFunction()` methods as tools and runs them itself, and the
+method that returns tool calls unrun (`callModel()`) is `@internal` — the module's own gates must decide every call.
+
+**An AI SDK provider for database-managed connections** (encrypted keys, per tenant):
+
+```typescript
+import { createAnthropic } from '@ai-sdk/anthropic';
+
+// Add it to ServerModule.imports — CoreAiModule is global and exports LlmProviderFactory. Never import
+// CoreModule.forRoot() here: that would start the whole framework a second time.
+@Module({})
+export class AiProvidersModule implements OnModuleInit {
+  constructor(private readonly factory: LlmProviderFactory) {}
+  async onModuleInit() {
+    await this.factory.registerAiSdkModel('anthropic', (connection, { fetch }) =>
+      createAnthropic({ apiKey: connection.apiKey, fetch })(connection.model),
+    );
+  }
+}
+```
+
+Pass the `fetch` you are given: it refuses hosts outside `ai.allowedBaseUrlHosts`, so the egress allowlist covers the
+provider's requests. Native tools reach the model **without `execute`**: the AI SDK returns the tool calls, and the
+module runs them through its gates (role filter, policies and grants, `authorize()`, confirmation, plan mode, budgets).
+An attachment URL the model cannot read itself is downloaded through `outboundFetch()` (private addresses refused;
+streamed, 20 MB each, 50 MB and 10 downloads per call), never by the AI SDK's own fetch. Usage feeds budgets and audit.
+
+Tool results — chat and `/ai/mcp` alike — pass `sanitizeToolResultForModel()`: `securityCheck(user)` on every model
+instance at any depth (also inside `{ success, data }`), then every secret field leaves the result, Mongoose documents
+included.
+
+**`@AgentFunction()` methods as tools** — `ai.agentFunctions: true` (or `{ include, exclude }`) offers the application's
+agent functions to the chat and to `/ai/mcp`. The module's gates run first; `execute()` then calls `@nestjs/ai`'s own
+pipeline (`AiTools.call()`: input validation, scopes, the application's guards with context type `'ai'`) with the run's
+HTTP request as the caller, so the method's `@Roles()` is decided on the user exactly as over HTTP. The framework's extras
+go on the method:
+
+```typescript
+@AgentFunction({ name: 'cancel_booking', description: 'Cancel a booking', inputSchema: z.object({ id: z.string() }) })
+@AiAgentFunction({ destructive: true, authorize: (args) => args.id !== 'locked' })
+@Roles(RoleEnum.S_USER)
+cancel({ id }: { id: string }) { ... }
+```
+
+Roles default to the method's `@Roles()`, else `S_USER` (never open). An agent function that requires `scopes` is not
+offered — the assistant calls without scopes. A name that is already a registered tool stops the boot.
+
+**Standard Schema parameters** — `IAiTool.parameters` may be a Zod 4.2+ / ArkType / Valibot (`toStandardJsonSchema()`)
+schema. The registry stores its JSON Schema and validates the arguments before `authorize()` and `execute()`; invalid
+arguments are reported back to the model as a failed call.
+
+**Your own `@nestjs/mcp` endpoint with this module's OAuth server** — `CoreAiMcpOAuthService.createMcpTokenVerifier()`
+(see "OAuth 2.1" below).
+
+**Global enhancers on `'ai'` / `'mcp'` calls** — in any project that installs `@nestjs/ai` or `@nestjs/mcp`, the
+framework's guards decide on the request the call runs in, never on the tool arguments; a request-less caller is
+anonymous; results are filtered for the request's user. See `docs/REQUEST-LIFECYCLE.md` → "Agent function and MCP calls".
+
 ## Egress allowlist (`ai.allowedBaseUrlHosts`)
 
 A connection's `baseUrl` decides where the server sends outbound HTTP. It is admin-set, so the
@@ -1033,6 +1103,37 @@ status: an MCP client discards its stored tokens only on `invalid_grant`, so on 
 token, retried, and never asked the user to sign in again. A refusal in your own `authorizeConsent()`
 needs the same: take the class from `this.loadOAuthErrors()` (e.g. `AccessDeniedError` when the user
 declines), never a plain `Error`.
+
+### Your own `@nestjs/mcp` endpoint (12.10.0)
+
+`@nestjs/mcp` is a resource server only. This module's authorization server can be its identity provider:
+
+```typescript
+McpModule.forRootAsync({
+  inject: [CoreAiMcpOAuthService],
+  useFactory: (oauth: CoreAiMcpOAuthService) => ({
+    name: 'my-api',
+    version: '1.0.0',
+    auth: {
+      authorizationServers: ['https://api.example.com'],
+      resource: 'https://api.example.com/mcp',
+      verifier: oauth.createMcpTokenVerifier({ resource: 'https://api.example.com/mcp' }),
+    },
+  }),
+});
+```
+
+The verifier accepts a token when its signature and expiry hold, its audience is `resource`, and its user exists and
+may use MCP (`ai.mcp.roles` / `mayUseMcp()`, on every request); the user reaches the tool's guards as `request.user`.
+
+**Audience binding (RFC 8707, 12.10.0).** Creating the verifier registers `resource` with the authorization server. A
+client names the endpoint as `resource` at `/authorize` and `/token` (the MCP authorization spec requires it); the code,
+the refresh token and the access token are bound to it, and a token is accepted only where it was issued for: `/ai/mcp`
+refuses a token for the project endpoint and the verifier one for `/ai/mcp`. A `resource` this server does not serve is
+`invalid_target`. A client that names none gets a token for `/ai/mcp`. Tokens and refresh tokens from before 12.10.0
+carry no audience and stay valid at `/ai/mcp` only; a refresh binds them to `/ai/mcp`. `/ai/mcp` stays on
+`@modelcontextprotocol/sdk` 1.x: the v2 SDK ships no authorization-server router, and `@nestjs/mcp` serves every request
+statelessly (no sessions, no server-initiated elicitation for 2025 clients) — see the migration guide 12.9.x → 12.10.x.
 
 ## Tests
 
