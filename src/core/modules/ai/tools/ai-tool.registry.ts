@@ -10,6 +10,7 @@ import {
   tenantSatisfiableRoles,
 } from '../../tenant/core-tenant.helpers.js';
 import { IAiTool } from '../interfaces/ai-tool.interface.js';
+import { withStandardSchemaParameters } from './ai-tool-schema.helper.js';
 
 /**
  * Minimal shape of the current user needed for tool-visibility checks.
@@ -40,12 +41,16 @@ export class AiToolRegistry {
 
   /**
    * Register (or override) a tool by its name.
+   *
+   * `parameters` may be a Standard Schema with JSON Schema (Zod 4.2+, ArkType, Valibot via `toStandardJsonSchema()`)
+   * since 12.10.0: it is stored as its JSON Schema, and `authorize()` / `execute()` receive validated arguments
+   * (`withStandardSchemaParameters()`). A schema that cannot produce JSON Schema throws here, at registration.
    */
   register(tool: IAiTool): void {
     if (this.tools.has(tool.name)) {
       this.logger.warn(`AI tool "${tool.name}" is being overridden.`);
     }
-    this.tools.set(tool.name, tool);
+    this.tools.set(tool.name, withStandardSchemaParameters(tool));
     this.logger.debug(`Registered AI tool: ${tool.name}`);
   }
 

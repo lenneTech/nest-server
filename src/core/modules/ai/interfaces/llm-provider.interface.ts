@@ -145,6 +145,12 @@ export interface LlmCompletionOptions {
 
   /** Per-request timeout in milliseconds. */
   timeoutMs?: number;
+
+  /**
+   * Cancels the call (12.10.0). Honoured by the AI SDK transport (`AiSdkProvider`); a provider that ignores it still
+   * ends at `timeoutMs`.
+   */
+  abortSignal?: AbortSignal;
 }
 
 /**

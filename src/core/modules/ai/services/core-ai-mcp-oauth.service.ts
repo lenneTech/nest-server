@@ -6,6 +6,8 @@ import type { Connection } from 'mongoose';
 
 import { looksLikeSystemRole } from '../../../common/enums/role.enum.js';
 import { isLocalEnv, resolveAppUrlFromConfig } from '../../../common/helpers/cookies.helper.js';
+import { MCP_VERIFIED_USER } from '../../../common/helpers/execution-context-request.helper.js';
+import { toVerifiedAiUser } from '../helpers/ai-verified-user.helper.js';
 import type { DataStore } from '../../../common/persistence/data-store.interface.js';
 import { getModelStore } from '../../../common/persistence/persistence-runtime.registry.js';
 import { ConfigService } from '../../../common/services/config.service.js';
@@ -93,7 +95,25 @@ export interface AiMcpOAuthClient {
 /**
  * Decoded MCP access-token payload.
  */
+/**
+ * What {@link CoreAiMcpOAuthService.createMcpTokenVerifier} returns for an accepted token: the SDK's `AuthInfo` shape
+ * (declared here — the core imports neither MCP package), `resource` set so `@nestjs/mcp` accepts the audience.
+ */
+export interface IMcpVerifiedAuthInfo {
+  clientId: string;
+  expiresAt: number;
+  extra: Record<PropertyKey, unknown>;
+  resource: string;
+  scopes: string[];
+  token: string;
+}
+
 export interface AiMcpAccessTokenPayload {
+  /**
+   * The resource (RFC 8707 audience) the token was issued for (12.10.0). A token without one was issued before
+   * 12.10.0 and is accepted at `/ai/mcp` only (`acceptsAudience()`).
+   */
+  aud?: string;
   cid: string;
   exp: number;
   sub: string;
@@ -118,7 +138,7 @@ export interface IAiMcpOAuthConsentBinding {
  * Set by the provider's `authorize` (outside the overridable {@link CoreAiMcpOAuthService.authorizeConsent}),
  * read by {@link assertCodeIssuanceAllowed}.
  */
-const authorizeRequest = new AsyncLocalStorage<{ method: string }>();
+const authorizeRequest = new AsyncLocalStorage<{ method: string; resource?: string }>();
 
 /**
  * Refuses to issue an authorization code while answering a GET to `/authorize`.
@@ -131,6 +151,23 @@ const authorizeRequest = new AsyncLocalStorage<{ method: string }>();
  * `/authorize` handler (e.g. by a consent route of the project's own) is not affected; that route
  * carries the same obligation.
  */
+/**
+ * A resource indicator (RFC 8707) as this server compares it: an absolute URL without fragment, as `URL.href` spells
+ * it. `undefined` for anything that is no absolute URL.
+ */
+export function normalizeMcpResource(value: unknown): string | undefined {
+  if (value === undefined || value === null || value === '') {
+    return undefined;
+  }
+  try {
+    const url = new URL(value instanceof URL ? value.href : String(value));
+    url.hash = '';
+    return url.href;
+  } catch {
+    return undefined;
+  }
+}
+
 function assertCodeIssuanceAllowed(): void {
   const request = authorizeRequest.getStore();
   if (request && request.method !== 'POST') {
@@ -301,8 +338,9 @@ export class CoreAiMcpOAuthService implements OnModuleInit {
   /**
    * Sign an access token for a user + client with a TTL (seconds).
    */
-  signAccessToken(userId: string, clientId: string, ttlSeconds = 3600): string {
+  signAccessToken(userId: string, clientId: string, ttlSeconds = 3600, resource?: string): string {
     const payload: AiMcpAccessTokenPayload = {
+      ...(resource ? { aud: resource } : {}),
       cid: clientId,
       exp: Math.floor(Date.now() / 1000) + ttlSeconds,
       sub: userId,
@@ -336,6 +374,126 @@ export class CoreAiMcpOAuthService implements OnModuleInit {
     } catch {
       return null;
     }
+  }
+
+  /**
+   * A token verifier for `@nestjs/mcp` (12.10.0, nestjs-ai plan §4): makes this authorization server the identity
+   * provider of a project's own `McpModule` endpoint, next to `/ai/mcp`.
+   *
+   * ```typescript
+   * McpModule.forRootAsync({
+   *   inject: [CoreAiMcpOAuthService],
+   *   useFactory: (oauth: CoreAiMcpOAuthService) => ({
+   *     name: 'my-api', version: '1.0.0',
+   *     auth: {
+   *       authorizationServers: ['https://api.example.com'],
+   *       resource: 'https://api.example.com/mcp',
+   *       verifier: oauth.createMcpTokenVerifier({ resource: 'https://api.example.com/mcp' }),
+   *     },
+   *   }),
+   * })
+   * ```
+   *
+   * A token is accepted only when its signature and expiry hold, its user still exists and may use MCP
+   * (`ai.mcp.roles` / {@link mayUseMcp}, decided on every request as on `/ai/mcp`). The user then reaches the tool's
+   * guards as `request.user` — through a key only this verifier sets (`MCP_VERIFIED_USER`), so a claim another
+   * verifier copies into `extra` never names the caller. Refusals answer `null` (401).
+   *
+   * AUDIENCE (RFC 8707): the resource is registered with this authorization server, so a client that names it as
+   * `resource` at `/authorize` / `/token` gets a token bound to it — and this verifier accepts only such tokens. A
+   * token issued for `/ai/mcp`, or one issued before 12.10.0 (no audience), is refused here.
+   *
+   * @throws when `ai.mcp.oauth` is off (no token can be valid) or `resource` is no absolute URL — at boot, not per call.
+   */
+  createMcpTokenVerifier(options: { resource: string }): {
+    verifyAccessToken(token: string): Promise<IMcpVerifiedAuthInfo | null>;
+  } {
+    if (!this.oauthEnabled()) {
+      throw new Error('createMcpTokenVerifier() needs ai.mcp.oauth: true — without it this server issues no tokens.');
+    }
+    if (typeof options?.resource !== 'string' || !URL.canParse(options.resource)) {
+      throw new Error(
+        `createMcpTokenVerifier(): resource must be the absolute URL of the MCP endpoint, got ${options?.resource}`,
+      );
+    }
+    const resource = normalizeMcpResource(options.resource);
+    // Tokens for this resource are issued from now on (RFC 8707 `resource` at /authorize and /token)
+    this.registeredResources.add(resource);
+    return {
+      verifyAccessToken: async (token: string) => {
+        const payload = this.verifyAccessToken(token);
+        // The token's audience must be THIS resource; one issued before 12.10.0 (no audience) is valid at /ai/mcp only
+        if (!payload?.sub || !this.acceptsAudience(payload, resource)) {
+          return null;
+        }
+        const user = await this.loadUser(payload.sub);
+        if (!user || !(await this.checkMcpAccess(user))) {
+          return null;
+        }
+        const verifiedUser = toVerifiedAiUser(user);
+        return {
+          clientId: payload.cid,
+          expiresAt: payload.exp,
+          extra: { userId: payload.sub, [MCP_VERIFIED_USER]: verifiedUser },
+          resource,
+          scopes: [],
+          token,
+        };
+      },
+    };
+  }
+
+  /** Resources registered by {@link createMcpTokenVerifier}, besides `/ai/mcp` (normalised). */
+  protected readonly registeredResources = new Set<string>();
+
+  /** The `/ai/mcp` resource: the one the mounted OAuth endpoints describe; `undefined` while nothing is mounted. */
+  mcpResource(): string | undefined {
+    return normalizeMcpResource(getMountedMcpOAuth()?.resourceUrl);
+  }
+
+  /**
+   * The resource a grant is issued for (RFC 8707): the requested one when this server serves it, `/ai/mcp`'s when the
+   * client names none (every client before 2025-06-18 of the MCP spec). An unknown resource is refused with
+   * `invalid_target` — a token for an endpoint this server does not protect is a token for somebody else.
+   */
+  async resolveRequestedResource(requested: unknown): Promise<string | undefined> {
+    if (requested === undefined || requested === null || requested === '') {
+      return this.mcpResource();
+    }
+    const resource = normalizeMcpResource(requested);
+    if (resource && (resource === this.mcpResource() || this.registeredResources.has(resource))) {
+      return resource;
+    }
+    const { InvalidTargetError } = await this.loadOAuthErrors();
+    throw new InvalidTargetError('The requested resource is not served by this authorization server');
+  }
+
+  /**
+   * Whether an access token may be used at `/ai/mcp` (12.10.0): one issued for it, or one from before 12.10.0 (no
+   * audience). A token bound to another resource — a project's `@nestjs/mcp` endpoint — is refused here.
+   */
+  acceptsAudienceAtMcp(payload: AiMcpAccessTokenPayload): boolean {
+    // A token from before 12.10.0 (no audience) stays valid here, and only here
+    if (!payload.aud) {
+      return true;
+    }
+    const mcp = this.mcpResource();
+    return !!mcp && normalizeMcpResource(payload.aud) === mcp;
+  }
+
+  /**
+   * Whether an access token may be used at `resource` (12.10.0): its audience must be that resource. A token without
+   * one was issued before 12.10.0 and is accepted at `/ai/mcp` only ({@link acceptsAudienceAtMcp}), never elsewhere.
+   */
+  acceptsAudience(payload: AiMcpAccessTokenPayload, resource: string | undefined): boolean {
+    const target = normalizeMcpResource(resource);
+    if (!target) {
+      return false;
+    }
+    if (!payload.aud) {
+      return target === this.mcpResource();
+    }
+    return normalizeMcpResource(payload.aud) === target;
   }
 
   /**
@@ -415,14 +573,17 @@ export class CoreAiMcpOAuthService implements OnModuleInit {
    */
   async saveAuthorizationCode(
     code: string,
-    data: { clientId: string; codeChallenge: string; userId: string },
+    data: { clientId: string; codeChallenge: string; resource?: string; userId: string },
   ): Promise<void> {
     assertCodeIssuanceAllowed();
+    // The resource /authorize resolved (RFC 8707) — also for an overridden authorizeConsent() that does not pass it
+    const resource = data.resource ?? authorizeRequest.getStore()?.resource;
     const record = {
       clientId: data.clientId,
       code,
       codeChallenge: data.codeChallenge,
       createdAt: new Date(),
+      ...(resource ? { resource } : {}),
       userId: data.userId,
     };
     const sql = this.sqlStore(AI_MCP_OAUTH_CODE_MODEL);
@@ -439,7 +600,7 @@ export class CoreAiMcpOAuthService implements OnModuleInit {
    */
   async getAuthorizationCode(
     code: string,
-  ): Promise<{ clientId: string; codeChallenge: string; userId: string } | null> {
+  ): Promise<{ clientId: string; codeChallenge: string; resource?: string; userId: string } | null> {
     const sql = this.sqlStore(AI_MCP_OAUTH_CODE_MODEL);
     const doc = sql ? await sql.findOne({ code }) : await this.db().collection(this.codesCollection).findOne({ code });
     return this.liveCode(doc);
@@ -455,7 +616,7 @@ export class CoreAiMcpOAuthService implements OnModuleInit {
   async consumeAuthorizationCode(
     code: string,
     clientId?: string,
-  ): Promise<{ clientId: string; codeChallenge: string; userId: string } | null> {
+  ): Promise<{ clientId: string; codeChallenge: string; resource?: string; userId: string } | null> {
     const filter = clientId === undefined ? { code } : { clientId, code };
     const sql = this.sqlStore(AI_MCP_OAUTH_CODE_MODEL);
     // Deleted whatever its age: an expired code is refused AND gone, so it can never be presented again
@@ -471,7 +632,7 @@ export class CoreAiMcpOAuthService implements OnModuleInit {
    * MongoDB's TTL index removes an expired code only eventually (its monitor runs about once a minute, later under
    * load), and a SQL table has no TTL at all — the sweeper only keeps the table small.
    */
-  protected liveCode(doc: any): { clientId: string; codeChallenge: string; userId: string } | null {
+  protected liveCode(doc: any): { clientId: string; codeChallenge: string; resource?: string; userId: string } | null {
     if (!doc) {
       return null;
     }
@@ -479,15 +640,20 @@ export class CoreAiMcpOAuthService implements OnModuleInit {
     if (!(Date.now() - createdAt <= AI_MCP_OAUTH_CODE_TTL_SECONDS * 1000)) {
       return null;
     }
-    return { clientId: doc.clientId, codeChallenge: doc.codeChallenge, userId: doc.userId };
+    return {
+      clientId: doc.clientId,
+      codeChallenge: doc.codeChallenge,
+      ...(doc.resource ? { resource: doc.resource } : {}),
+      userId: doc.userId,
+    };
   }
 
   /**
    * Issue a refresh token for a user + client.
    */
-  async issueRefreshToken(userId: string, clientId: string): Promise<string> {
+  async issueRefreshToken(userId: string, clientId: string, resource?: string): Promise<string> {
     const token = this.generateId();
-    const record = { clientId, createdAt: new Date(), token, userId };
+    const record = { clientId, createdAt: new Date(), ...(resource ? { resource } : {}), token, userId };
     const sql = this.sqlStore(AI_MCP_OAUTH_REFRESH_TOKEN_MODEL);
     if (sql) {
       await sql.insert(record);
@@ -510,11 +676,26 @@ export class CoreAiMcpOAuthService implements OnModuleInit {
   async rotateRefreshToken(
     token: string,
     clientId: string,
-  ): Promise<{ clientId: string; newToken: string; userId: string } | null> {
+    requestedResource?: string,
+  ): Promise<{ clientId: string; newToken: string; resource?: string; userId: string } | null> {
     if (!token || !clientId) {
       return null;
     }
     const sql = this.sqlStore(AI_MCP_OAUTH_REFRESH_TOKEN_MODEL);
+    // RFC 8707: a refresh token issues tokens for the resource its grant was bound to — a token from before 12.10.0
+    // (none) for /ai/mcp only. Checked BEFORE the rotation, so a request for another resource costs the client nothing.
+    const current: any = sql
+      ? await sql.findOne({ clientId, token })
+      : await this.db().collection(this.refreshCollection).findOne({ clientId, token });
+    if (!current) {
+      return null;
+    }
+    const resource = normalizeMcpResource(current.resource) ?? this.mcpResource();
+    const requested = normalizeMcpResource(requestedResource);
+    if (requested && requested !== resource) {
+      const { InvalidTargetError } = await this.loadOAuthErrors();
+      throw new InvalidTargetError('This refresh token was not issued for the requested resource');
+    }
     const doc = sql
       ? await sql.deleteOne({ clientId, token })
       : await this.db().collection(this.refreshCollection).findOneAndDelete({ clientId, token });
@@ -522,8 +703,8 @@ export class CoreAiMcpOAuthService implements OnModuleInit {
     if (!value) {
       return null;
     }
-    const newToken = await this.issueRefreshToken(value.userId, value.clientId);
-    return { clientId: value.clientId, newToken, userId: value.userId };
+    const newToken = await this.issueRefreshToken(value.userId, value.clientId, resource);
+    return { clientId: value.clientId, newToken, ...(resource ? { resource } : {}), userId: value.userId };
   }
 
   /**
@@ -596,7 +777,21 @@ export class CoreAiMcpOAuthService implements OnModuleInit {
         // Lets saveAuthorizationCode() refuse a code issued on GET — here, not in authorizeConsent(),
         // so an override cannot drop it.
         const method = String(res?.req?.method ?? '').toUpperCase();
-        return authorizeRequest.run({ method }, () => this.authorizeConsent(client, params, res));
+        // RFC 8707: the resource the code (and every token from it) is bound to. An unknown one is answered HERE with
+        // 400 — thrown, the SDK would send it to the client's self-registered redirect URI before any sign-in, and
+        // /authorize would be the open redirect 12.3.0 closed (RFC 9700 §4.11.2)
+        let resource: string | undefined;
+        try {
+          resource = await this.resolveRequestedResource(params?.resource);
+        } catch (error) {
+          const body =
+            typeof (error as { toResponseObject?: unknown })?.toResponseObject === 'function'
+              ? (error as { toResponseObject(): Record<string, unknown> }).toResponseObject()
+              : { error: 'invalid_target', error_description: (error as Error)?.message };
+          res.status(400).json(body);
+          return;
+        }
+        return authorizeRequest.run({ method, resource }, () => this.authorizeConsent(client, params, res));
       },
       challengeForAuthorizationCode: async (_client: any, authorizationCode: string) => {
         const stored = await this.getAuthorizationCode(authorizationCode);
@@ -606,7 +801,20 @@ export class CoreAiMcpOAuthService implements OnModuleInit {
         getClient: (clientId: string) => this.getClient(clientId),
         registerClient: (client: AiMcpOAuthClient) => this.registerClient(client),
       },
-      exchangeAuthorizationCode: async (client: any, authorizationCode: string) => {
+      exchangeAuthorizationCode: async (
+        client: any,
+        authorizationCode: string,
+        _codeVerifier?: string,
+        _redirectUri?: string,
+        requestedResource?: URL,
+      ) => {
+        // A resource named here must be one this server serves, and the one the code was bound to (RFC 8707)
+        const requested = requestedResource ? await this.resolveRequestedResource(requestedResource) : undefined;
+        const peeked = requested ? await this.getAuthorizationCode(authorizationCode) : null;
+        if (requested && peeked && (normalizeMcpResource(peeked.resource) ?? this.mcpResource()) !== requested) {
+          const { InvalidTargetError } = await this.loadOAuthErrors();
+          throw new InvalidTargetError('The authorization code was not issued for the requested resource');
+        }
         const stored = await this.consumeAuthorizationCode(authorizationCode, String(client?.client_id ?? ''));
         if (!stored || stored.clientId !== client?.client_id) {
           const { InvalidGrantError } = await this.loadOAuthErrors();
@@ -619,14 +827,16 @@ export class CoreAiMcpOAuthService implements OnModuleInit {
           const { InvalidGrantError } = await this.loadOAuthErrors();
           throw new InvalidGrantError('This account may not use MCP');
         }
+        // A code from before 12.10.0 carries no resource: it is bound to /ai/mcp from here on
+        const resource = normalizeMcpResource(stored.resource) ?? requested ?? this.mcpResource();
         return {
-          access_token: this.signAccessToken(stored.userId, stored.clientId, accessTtlSeconds),
+          access_token: this.signAccessToken(stored.userId, stored.clientId, accessTtlSeconds, resource),
           expires_in: accessTtlSeconds,
-          refresh_token: await this.issueRefreshToken(stored.userId, stored.clientId),
+          refresh_token: await this.issueRefreshToken(stored.userId, stored.clientId, resource),
           token_type: 'Bearer',
         };
       },
-      exchangeRefreshToken: async (client: any, refreshToken: string) => {
+      exchangeRefreshToken: async (client: any, refreshToken: string, _scopes?: string[], requestedResource?: URL) => {
         // Bind the rotating refresh token to the calling client (OAuth 2.1
         // §4.13.2 / §7.4). Without this check, a different client could present
         // a stolen refresh token and obtain an access token for the original
@@ -637,7 +847,10 @@ export class CoreAiMcpOAuthService implements OnModuleInit {
           const { InvalidClientError } = await this.loadOAuthErrors();
           throw new InvalidClientError('Unknown client');
         }
-        const rotated = await this.rotateRefreshToken(refreshToken, callerClientId);
+        if (requestedResource) {
+          await this.resolveRequestedResource(requestedResource);
+        }
+        const rotated = await this.rotateRefreshToken(refreshToken, callerClientId, requestedResource?.href);
         if (!rotated) {
           // invalid_grant is the one answer on which an MCP client discards its stored tokens and asks
           // the user to sign in again — see loadOAuthErrors().
@@ -652,7 +865,7 @@ export class CoreAiMcpOAuthService implements OnModuleInit {
           throw new InvalidGrantError('This account may not use MCP');
         }
         return {
-          access_token: this.signAccessToken(rotated.userId, rotated.clientId, accessTtlSeconds),
+          access_token: this.signAccessToken(rotated.userId, rotated.clientId, accessTtlSeconds, rotated.resource),
           expires_in: accessTtlSeconds,
           refresh_token: rotated.newToken,
           token_type: 'Bearer',
@@ -665,7 +878,14 @@ export class CoreAiMcpOAuthService implements OnModuleInit {
           throw new InvalidTokenError('Invalid or expired access token');
         }
         // `expiresAt` is part of the SDK's AuthInfo contract: its bearer middleware refuses a token without one.
-        return { clientId: payload.cid, expiresAt: payload.exp, extra: { userId: payload.sub }, scopes: [], token };
+        return {
+          clientId: payload.cid,
+          expiresAt: payload.exp,
+          extra: { userId: payload.sub },
+          ...(payload.aud ? { resource: new URL(payload.aud) } : {}),
+          scopes: [],
+          token,
+        };
       },
     };
   }

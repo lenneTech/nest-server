@@ -3,12 +3,17 @@ import { GqlContextType, GqlExecutionContext } from '@nestjs/graphql';
 import type { PopulateOptions } from 'mongoose';
 
 import { getPopulateOptions } from './db.helper.js';
+import { isAgentCallContext, resolveAgentCallRequest } from './execution-context-request.helper.js';
 import { removePropertiesDeep } from './input.helper.js';
 
 /**
  * Decorator function to get current user for Controller (http context) and Resolver (graphql context)
  */
 export function currentUserDec(data, ctx: ExecutionContext) {
+  // An agent function / MCP call: the request's user, never one in the call's arguments (nestjs-ai plan §1)
+  if (isAgentCallContext(ctx)) {
+    return resolveAgentCallRequest(ctx)?.user;
+  }
   if (ctx.getType<GqlContextType>() === 'graphql') {
     const gqlContext = GqlExecutionContext.create(ctx);
     return gqlContext.getContext().req.user;

@@ -1,13 +1,18 @@
-import { CanActivate, ExecutionContext, Logger, mixin, Optional } from '@nestjs/common';
+import { CanActivate, ExecutionContext, Logger, mixin, Optional, UnauthorizedException } from '@nestjs/common';
 import { ModuleRef } from '@nestjs/core';
 import { GqlExecutionContext } from '@nestjs/graphql';
 import { AuthModuleOptions, Type } from '@nestjs/passport';
 import passport from 'passport';
 
+import {
+  isAgentCallContext,
+  resolveAgentCallRequest,
+} from '../../../common/helpers/execution-context-request.helper.js';
 import { enforceApiTokenRoute, getApiTokenContext } from '../../api-token/core-api-token.helpers.js';
 import { BetterAuthTokenService } from '../../better-auth/better-auth-token.service.js';
 import { BetterAuthenticatedUser } from '../../better-auth/better-auth.types.js';
 import { CoreBetterAuthService } from '../../better-auth/core-better-auth.service.js';
+import { ErrorCode } from '../../error-code/index.js';
 import { AuthGuardStrategy } from '../auth-guard-strategy.enum.js';
 import { ExpiredRefreshTokenException } from '../exceptions/expired-refresh-token.exception.js';
 import { ExpiredTokenException } from '../exceptions/expired-token.exception.js';
@@ -165,6 +170,11 @@ function createAuthGuard(type?: AuthGuardStrategy | string | string[]): Type<IAu
 
       const options = { ...defaultOptions, ...this.options };
       const request = this.getRequest(context);
+      // An agent function / MCP call without a request is anonymous (nestjs-ai plan §1): this guard authenticates, so
+      // it refuses — Passport would otherwise be handed nothing, or the call's arguments.
+      if (!request && isAgentCallContext(context)) {
+        throw new UnauthorizedException(ErrorCode.UNAUTHORIZED);
+      }
       const existingUser = request?.[options.property || defaultOptions.property];
 
       // An API token was already authenticated by CoreApiTokenMiddleware. Neither Passport nor
@@ -195,7 +205,9 @@ function createAuthGuard(type?: AuthGuardStrategy | string | string[]): Type<IAu
       }
 
       // Proceed with Passport authentication for other strategies
-      const response = context?.switchToHttp()?.getResponse();
+      // On an agent / MCP call the second argument is the call, not a response: Passport gets the request's own
+      // response object (Express sets `req.res`).
+      const response = isAgentCallContext(context) ? request?.res : context?.switchToHttp()?.getResponse();
       const passportFn = createPassportContext(request, response);
       const user = await passportFn(
         type || this.options?.defaultStrategy,
@@ -270,6 +282,11 @@ function createAuthGuard(type?: AuthGuardStrategy | string | string[]): Type<IAu
      * Prepare request
      */
     getRequest<T = any>(context: ExecutionContext): T {
+      // An agent function / MCP call: the request it runs in, never its arguments (nestjs-ai plan §1)
+      if (isAgentCallContext(context)) {
+        return (resolveAgentCallRequest(context) ?? null) as T;
+      }
+
       // Try to get request GraphQL context
       try {
         const ctx = GqlExecutionContext.create(context)?.getContext();

@@ -101,7 +101,9 @@ describe('@UnifiedField — field type only "Object" in the metadata', () => {
     expect(declared.stderr).toBe('');
     expect(declared.code).toBe(0);
     expect(JSON.parse(declared.stdout.trim())).toEqual({ errors: 0, loaded: true });
-  });
+    // Two SWC dev starts as child processes, each allowed 60 s by devStart(): the default 5 s test timeout cut them off
+    // under the parallel load of `pnpm run check` (2.3 s alone)
+  }, 120_000);
 
   /**
    * @regression   12.8.7 (found in review) — SWC writes the enum OBJECT as design:type; read as is, it became the Mongoose

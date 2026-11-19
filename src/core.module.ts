@@ -15,6 +15,7 @@ import graphqlUploadExpress from 'graphql-upload/graphqlUploadExpress.mjs';
 
 import { MongooseCastErrorFilter } from './core/common/filters/mongoose-cast-error.filter.js';
 import { merge } from './core/common/helpers/config.helper.js';
+import { processGraphQlUploadRequest } from './core/common/helpers/graphql-upload.helper.js';
 import { refuseWsHandshake, registerWsConnection } from './core/common/helpers/graphql-ws-connection.helper.js';
 import {
   buildRequestContextAwareExecute,
@@ -127,7 +128,10 @@ export class CoreModule implements NestModule {
     // config read here and the values there.
     consumer.apply(SecurityHeadersMiddleware).forRoutes('*');
     if (CoreModule.graphQlEnabled) {
-      consumer.apply(graphqlUploadExpress()).forRoutes('graphql');
+      // The framework's processRequest, never graphql-upload's default: the default (graphql-upload < 18.0.2) lets
+      // one anonymous multipart request crash the process (GHSA-5vm7-vc2x-p3w2) and leaks temporary files on
+      // duplicate file fields (GHSA-qwwm-252j-9whw). This middleware runs before any authentication.
+      consumer.apply(graphqlUploadExpress({ processRequest: processGraphQlUploadRequest })).forRoutes('graphql');
     }
   }
 

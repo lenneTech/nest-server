@@ -1408,6 +1408,181 @@ describe('check-overrides — a suppressed advisory whose fix nobody named', () 
   });
 });
 
+describe('check-overrides — a withdrawn advisory npm still lists', () => {
+  // GitHub withdrew GHSA-fc5q-39xc-vjpf (picomatch <= 4.0.7) at 15:38:56 UTC on 2026-11-18, and
+  // npm's audit feed kept listing it until about 17:15 UTC. The guard failed every withdrawn
+  // advisory as an obsolete suppression on sight, so for those 1.5 h no pipeline could be green:
+  // with the entry this guard failed, without it `pnpm audit` did. A withdrawal makes the entry
+  // obsolete only once npm stops listing the advisory for the versions the lockfile resolves.
+  //
+  // The audit report cannot answer that (a suppressed advisory is removed from it), so the guard
+  // asks npm's bulk advisory endpoint itself. Every case pins `CI`: an unverified answer is
+  // tolerated locally and fails on a runner, so an inherited value would change what they assert.
+  const GHSA = 'GHSA-fc5q-39xc-vjpf';
+  const BULK = '/-/npm/v1/security/advisories/bulk';
+  const OTHER = 'https://github.com/advisories/GHSA-3v7f-55p6-f55p';
+
+  /** A lockfile resolving the given picomatch versions. */
+  const picomatchLock = (versions: string[]) =>
+    `lockfileVersion: '9.0'\n\npackages:\n\n${versions.map((v) => `  picomatch@${v}:\n    resolution: {integrity: sha512-x}\n`).join('\n')}` +
+    `\nsnapshots:\n\n${versions.map((v) => `  picomatch@${v}: {}\n`).join('\n')}`;
+
+  /** The advisory as GitHub's API returns it after the withdrawal. */
+  const WITHDRAWN = {
+    vulnerabilities: [
+      {
+        first_patched_version: null,
+        package: { ecosystem: 'npm', name: 'picomatch' },
+        vulnerable_version_range: '<= 4.0.7',
+      },
+    ],
+    withdrawn_at: '2026-11-18T15:38:56Z',
+  };
+
+  /**
+   * Runs the guard LIVE against a loopback stand-in for both GitHub's Advisory API and npm's bulk
+   * endpoint, and records every body posted to the latter. ASYNC, see `runAsync()`.
+   */
+  async function withWithdrawalStub(bulk: { body?: unknown; status?: number }, opts: GuardRunOptions) {
+    const { createServer } = await import('node:http');
+    const bulkBodies: unknown[] = [];
+    const server = createServer((req, res) => {
+      let raw = '';
+      req.on('data', (chunk) => (raw += chunk));
+      req.on('end', () => {
+        if (req.method === 'POST' && req.url === BULK) {
+          bulkBodies.push(JSON.parse(raw || 'null'));
+          res.writeHead(bulk.status ?? 200, { 'content-type': 'application/json' });
+          res.end(JSON.stringify(bulk.body ?? {}));
+          return;
+        }
+        res.writeHead(req.url === `/advisories/${GHSA}` ? 200 : 404, { 'content-type': 'application/json' });
+        res.end(JSON.stringify(req.url === `/advisories/${GHSA}` ? WITHDRAWN : {}));
+      });
+    });
+    await new Promise<void>((resolve) => server.listen(0, '127.0.0.1', () => resolve()));
+    const { port } = server.address() as { port: number };
+    try {
+      const r = await runAsync({
+        ...opts,
+        advisoryData: null,
+        env: { CHECK_OVERRIDES_ADVISORY_API: `http://127.0.0.1:${port}`, ...opts.env },
+        ignoreGhsas: [GHSA],
+      });
+      return { ...r, bulkBodies };
+    } finally {
+      server.closeAllConnections?.();
+      await new Promise<void>((resolve) => server.close(() => resolve()));
+    }
+  }
+
+  /**
+   * @regression   12.9.x — a withdrawn advisory failed as an obsolete suppression while npm's audit
+   *   still listed it, so neither keeping nor removing the entry gave a green run (GHSA-fc5q-39xc-vjpf,
+   *   2026-11-18, ~1.5 h on every pipeline of the stack).
+   * @seen-failing Fail every withdrawn advisory as obsolete again in scripts/check-overrides.mjs —
+   *   registered as mutation `withdrawn-suppression-ignores-npm-listing` in tests/regression-mutations.json.
+   */
+  it('passes while npm still lists it, also under CI, and names it on the green path', async () => {
+    const r = await withWithdrawalStub(
+      { body: { picomatch: [{ url: OTHER }, { url: `https://github.com/advisories/${GHSA}` }] } },
+      { env: { CI: 'true' }, lock: picomatchLock(['2.3.1', '4.0.7']) },
+    );
+    expect(r.status, `expected pass, got:\n${r.out}`).toBe(0);
+    expect(r.out).not.toMatch(/FIX AVAILABLE/);
+    expect(r.out).not.toMatch(/UNVERIFIED/);
+    expect(r.out).toMatch(
+      /withdrawn GHSA-fc5q-39xc-vjpf — withdrawn upstream, npm still lists it \(for picomatch@2\.3\.1, picomatch@4\.0\.7\); remove the entry once `pnpm audit` is clean without it/,
+    );
+    expect(r.out).toMatch(/1\/1 suppression\(s\) verified \(1 withdrawn, still listed by npm\)/);
+    // The request pnpm 11's audit sends: the package with every version the lockfile resolves.
+    expect(r.bulkBodies).toEqual([{ picomatch: ['2.3.1', '4.0.7'] }]);
+  });
+
+  /**
+   * @regression   12.9.x — the listing must be matched by GHSA id. npm answers per PACKAGE, and for
+   *   a tree on picomatch 2.3.1 and 4.0.7 it lists two other picomatch advisories (measured
+   *   2026-11-19); read as "picomatch is listed", the withdrawn one would never become obsolete.
+   * @seen-failing Accept any advisory of the package as the listing in npmListing() of
+   *   scripts/check-overrides.mjs — registered as mutation `withdrawn-npm-listing-matches-package` in
+   *   tests/regression-mutations.json.
+   */
+  it('FIRES once npm lists only OTHER advisories of the package', async () => {
+    const r = await withWithdrawalStub(
+      { body: { picomatch: [{ url: OTHER }] } },
+      { env: { CI: '' }, lock: picomatchLock(['2.3.1', '4.0.7']) },
+    );
+    expect(r.status, `expected failure, got:\n${r.out}`).toBe(1);
+    expect(r.out).toMatch(
+      /FIX AVAILABLE GHSA-fc5q-39xc-vjpf — the advisory was WITHDRAWN and npm's audit no longer lists it \(for picomatch@2\.3\.1, picomatch@4\.0\.7\)/,
+    );
+    expect(r.out).not.toMatch(/still lists it/);
+  });
+
+  it('FIRES without asking npm when the lockfile resolves none of its packages', async () => {
+    const r = await withWithdrawalStub({ body: {} }, { env: { CI: '' }, lock: forgeLock(['1.4.0']) });
+    expect(r.status, `expected failure, got:\n${r.out}`).toBe(1);
+    expect(r.out).toMatch(
+      /the advisory was WITHDRAWN and npm's audit no longer lists it \(the lockfile resolves no picomatch\)/,
+    );
+    expect(r.bulkBodies).toEqual([]);
+  });
+
+  it('reports an unreachable endpoint as UNVERIFIED, and fails under CI', async () => {
+    const opts = { lock: picomatchLock(['4.0.7']) };
+    const local = await withWithdrawalStub({ status: 503 }, { ...opts, env: { CI: '' } });
+    expect(local.status, `expected pass, got:\n${local.out}`).toBe(0);
+    expect(local.out).toMatch(/UNVERIFIED \(npm's audit endpoint answered HTTP 503 when asked about the withdrawal\)/);
+    expect(local.out).not.toMatch(/FIX AVAILABLE/);
+
+    const ci = await withWithdrawalStub({ status: 503 }, { ...opts, env: { CI: 'true' } });
+    expect(ci.status, `expected failure, got:\n${ci.out}`).toBe(1);
+    expect(ci.out).toMatch(/could not be verified/);
+  });
+
+  /**
+   * @regression   12.9.x — offline, `npmListed: true` is the same answer as a live listing.
+   * @seen-failing Fail every withdrawn advisory as obsolete again in scripts/check-overrides.mjs —
+   *   registered as mutation `withdrawn-suppression-ignores-npm-listing` in tests/regression-mutations.json.
+   */
+  it('reads the listing from an advisory file without asking the network', () => {
+    const r = run({
+      advisoryData: { [GHSA]: { npmListed: true, patchedVersions: [], withdrawn: true } },
+      env: { CI: 'true' },
+      ignoreGhsas: [GHSA],
+    });
+    expect(r.status, `expected pass, got:\n${r.out}`).toBe(0);
+    expect(r.out).toMatch(
+      /withdrawn GHSA-fc5q-39xc-vjpf — withdrawn upstream, npm still lists it \(per the advisory file\)/,
+    );
+    expect(r.out).toMatch(/1\/1 suppression\(s\) verified/);
+  });
+
+  it('FIRES from an advisory file that says npm no longer lists it', () => {
+    const r = run({
+      advisoryData: { [GHSA]: { npmListed: false, patchedVersions: [], withdrawn: true } },
+      env: { CI: '' },
+      ignoreGhsas: [GHSA],
+    });
+    expect(r.status, `expected failure, got:\n${r.out}`).toBe(1);
+    expect(r.out).toMatch(/the advisory was WITHDRAWN and npm's audit no longer lists it \(per the advisory file\)/);
+  });
+
+  it('keeps the old verdict for an advisory-file entry that does not state the listing as a boolean', () => {
+    // Fail-closed: a missing or malformed field must not read as "npm still lists it".
+    for (const npmListed of [undefined, 'true', 1]) {
+      const r = run({
+        advisoryData: { [GHSA]: { npmListed, patchedVersions: [], withdrawn: true } },
+        env: { CI: '' },
+        ignoreGhsas: [GHSA],
+      });
+      expect(r.status, `expected failure for npmListed=${String(npmListed)}, got:\n${r.out}`).toBe(1);
+      expect(r.out).toMatch(/FIX AVAILABLE GHSA-fc5q-39xc-vjpf — the advisory was WITHDRAWN\./);
+      expect(r.out).not.toMatch(/still lists it/);
+    }
+  });
+});
+
 describe('check-overrides — where pnpm actually reads the settings', () => {
   // pnpm 11 stopped reading the `pnpm` field in package.json and expects
   // `overrides` / `auditConfig` in pnpm-workspace.yaml. A guard that knew only

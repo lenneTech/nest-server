@@ -37,6 +37,14 @@ export class HttpExceptionLogFilter implements ExceptionFilter {
       return exception;
     }
 
+    // Any transport without an HTTP response of its own — an agent function call (`'ai'`) or an MCP call (`'mcp'`),
+    // whose second argument is the CALL, not a response (nestjs-ai plan §1). Returning nothing hands the exception
+    // back to the caller's handler, which tells the model or MCP client its message. Writing to `switchToHttp()`
+    // there threw a TypeError instead, and the model read "Internal server error" for every 401 / 403 / 404.
+    if (type !== 'http') {
+      return undefined;
+    }
+
     // REST
     const ctx = host.switchToHttp();
     const res = ctx.getResponse<Response>();

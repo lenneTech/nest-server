@@ -8,7 +8,11 @@ import {
 } from '@nestjs/common';
 import { GqlExecutionContext } from '@nestjs/graphql';
 
-import { resolveGuardRequest } from '../../common/helpers/execution-context-request.helper.js';
+import {
+  agentCallOf,
+  isAgentCallContext,
+  resolveGuardRequest,
+} from '../../common/helpers/execution-context-request.helper.js';
 
 import { RoleEnum } from '../../common/enums/role.enum.js';
 import { ApiTokenKind } from '../api-token/core-api-token.constants.js';
@@ -103,6 +107,20 @@ export class BetterAuthRolesGuard implements CanActivate {
     // that does not declare @ApiTokenScopes(), public ones included. A tenant token is fully decided
     // there; a user token continues through the ordinary checks as its user (see core-api-token.helpers).
     const request = this.getRequest(context);
+
+    // An agent function / MCP tool call without a request (`@nestjs/ai`'s `caller: { user }`, a durable run, MCP over
+    // stdio) is ANONYMOUS: nothing authenticated `caller.user`, and the call's arguments are the model's. Open only
+    // where the route is public. Kept in sync with RolesGuard (nestjs-ai plan §1).
+    if (isAgentCallContext(context) && !request) {
+      // The method's own roles win over the class's, as CoreTenantGuard decides system roles: a class-level
+      // S_EVERYONE does not open a method that asks for S_USER. Kept in sync with RolesGuard.
+      const effective = handlerRoles?.some((value) => !!value) ? handlerRoles : roles;
+      if (!effective || !effective.some((value) => !!value) || effective.includes(RoleEnum.S_EVERYONE)) {
+        return true;
+      }
+      throw new UnauthorizedException(ErrorCode.UNAUTHORIZED);
+    }
+
     const apiTokenKind = enforceApiTokenRoute({
       controllerClass: context.getClass(),
       handler: context.getHandler(),
@@ -205,6 +223,16 @@ export class BetterAuthRolesGuard implements CanActivate {
    * Get target ID from context for S_SELF checks
    */
   private getTargetId(context: ExecutionContext): null | string {
+    // An agent function / MCP call: its arguments are the target, as a resolver's args are on GraphQL. Never the HTTP
+    // fallback below, which would read the same arguments as if they were a request with `params`.
+    if (isAgentCallContext(context)) {
+      if (!agentCallOf(context)) {
+        return null;
+      }
+      const input = context.getArgByIndex(0);
+      return typeof input?.id === 'string' ? input.id : null;
+    }
+
     // Try GraphQL args
     try {
       const gqlContext = GqlExecutionContext.create(context);

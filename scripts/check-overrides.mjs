@@ -64,12 +64,24 @@
  * a token the quota is 1000/hour for the repository. A rate-limited run says so explicitly.
  *
  *   ✗ FIX AVAILABLE  the advisory now has a `first_patched_version`, or was
- *                    withdrawn, or names no fix while the registry already
- *                    carries one (below). The suppression is obsolete — take the
- *                    fix and drop the entry.
+ *                    withdrawn and npm's audit no longer lists it (below), or
+ *                    names no fix while the registry already carries one (below).
+ *                    The suppression is obsolete — take the fix and drop the entry.
  *   ✗ NOT IN TREE    the advisory names no fix, and no version the lockfile
  *                    resolves is in its vulnerable range any more. The entry
  *                    hides nothing.
+ *
+ * A withdrawal reaches npm late. GitHub withdrew GHSA-fc5q-39xc-vjpf (picomatch
+ * <= 4.0.7) at 15:38:56 UTC on 2026-11-18; npm's audit feed listed it until about
+ * 17:15 UTC. Failing a withdrawn advisory as obsolete on sight left no green state
+ * for those 1.5 h: with the entry this guard failed, without it `pnpm audit` did. So
+ * a withdrawn advisory is obsolete only once npm's audit no longer lists it for the
+ * versions the lockfile resolves. Until then the run passes and names it on the green
+ * path ("withdrawn upstream, npm still lists it"). The audit report cannot tell —
+ * a suppressed advisory is not in it — so the guard asks pnpm's own source, npm's
+ * bulk advisory endpoint on the registry pnpm installs from, with the advisory's
+ * packages and their resolved versions, and matches the answer by GHSA id (each
+ * entry's `url` ends in it). See `npmListing()` for the verified shape.
  *
  * A fix does not have to be NAMED. GitHub leaves `first_patched_version` null on
  * some advisories long after a release outside the vulnerable range shipped:
@@ -85,7 +97,8 @@
  * green path instead.
  *
  * These are network calls, so they are skipped (with a WARN naming the unverified
- * GHSAs) when the API or the registry cannot be reached, exactly like the audit.
+ * GHSAs) when the API, the registry or npm's audit endpoint cannot be reached,
+ * exactly like the audit — and fail under `CI`, where nobody reads a WARN.
  *
  * A note against a tempting shortcut: `pnpm audit --ignore-unfixable` looks like
  * it solves this without any list at all. Both observations below were MEASURED
@@ -127,6 +140,10 @@
  * `vulnerabilities` in the API's shape, and `--packument-file` maps each affected
  * package to `{ versions, time }` from its registry entry; the registry is never
  * asked behind an `--advisory-file`, so without them that entry is UNVERIFIED.
+ * Neither is npm's audit endpoint: a withdrawn entry states the listing itself with
+ * `npmListed` — `true` while npm's audit still lists the advisory for the tree
+ * (passes, named on the green path), `false` once it does not (obsolete). An entry
+ * without the field keeps the verdict it always had: obsolete.
  *
  * Exit code: 0 when no override and no suppression is failing its job, 1 otherwise.
  */
@@ -869,6 +886,8 @@ function normaliseAdvisory(raw) {
       ? raw.affectedPackages.filter(Boolean)
       : vulnerabilities.map((v) => v.name),
     first_patched_version: patchedVersions[0] ?? null,
+    // Only a captured file states it (see `npmListing()`); a boolean, or null for "not stated".
+    npmListed: typeof raw.npmListed === 'boolean' ? raw.npmListed : null,
     patchedVersions,
     vulnerabilities,
     withdrawn: Boolean(raw.withdrawn),
@@ -1417,8 +1436,97 @@ async function registryFix(info) {
   };
 }
 
+// ---------------------------------------------------------------------------
+// A withdrawn advisory: does npm's audit still list it?
+// ---------------------------------------------------------------------------
+
+/**
+ * Whether npm's audit still lists a WITHDRAWN advisory for the versions the lockfile resolves.
+ *
+ * GitHub's withdrawal reaches npm's audit feed late. GHSA-fc5q-39xc-vjpf (picomatch <= 4.0.7) was
+ * withdrawn at 15:38:56 UTC on 2026-11-18, and npm listed it until about 17:15 UTC. For those 1.5 h
+ * no pipeline could be green: with the GHSA in `ignoreGhsas` this guard failed it as obsolete, and
+ * without it `pnpm audit` failed on the advisory npm still reported. So a withdrawal makes the entry
+ * obsolete only once npm stops listing the advisory; until then it is named on the green path.
+ *
+ * The audit report cannot answer this: a suppressed advisory is REMOVED from `pnpm audit --json`
+ * (see the header). So the guard asks what pnpm 11's audit asks, npm's bulk advisory endpoint on
+ * the registry pnpm installs from — the `NPM_ADVISORY_BULK` above, routed through the same loopback
+ * seam in tests. Verified live on 2026-11-19:
+ *
+ *   POST <registry>/-/npm/v1/security/advisories/bulk
+ *   { "picomatch": ["2.3.1", "4.0.7"] }
+ *   → { "picomatch": [{ "id": 1115549, "url": "https://github.com/advisories/GHSA-3v7f-55p6-f55p",
+ *        "title": "…", "severity": "moderate", "vulnerable_versions": "<2.3.2", "cwe": […], "cvss": {…} }] }
+ *
+ * npm filters by version itself and leaves out a package with no advisory for the versions sent. The
+ * answer is matched by GHSA id, never by package: in that very example npm lists two OTHER picomatch
+ * advisories (for 2.3.1), and "picomatch is listed" would have kept the withdrawn one alive for good.
+ *
+ * Returns `{ listed, detail }`, or `{ reason }` when it cannot be told — UNVERIFIED, like every other
+ * lookup here. An offline run (`--advisory-file`) never asks: the entry's `npmListed` decides, and
+ * an entry without it keeps the old verdict (obsolete).
+ */
+async function npmListing(id, info) {
+  if (process.argv.includes('--advisory-file')) {
+    return { detail: info.npmListed === null ? null : 'per the advisory file', listed: info.npmListed === true };
+  }
+  if (info.affectedPackages.length === 0) {
+    return { reason: "the advisory names no npm package to ask npm's audit about" };
+  }
+  if (!lockText) {
+    return { reason: "there is no pnpm-lock.yaml to tell which versions npm's audit would be asked about" };
+  }
+  const query = {};
+  for (const name of info.affectedPackages) {
+    const versions = resolvedVersions(name);
+    if (versions.length > 0) {
+      query[name] = versions;
+    }
+  }
+  if (Object.keys(query).length === 0) {
+    // Nothing to ask about: npm's audit cannot list an advisory for a package the tree does not hold.
+    return { detail: `the lockfile resolves no ${info.affectedPackages.join(', ')}`, listed: false };
+  }
+  let body;
+  try {
+    const res = await fetch(NPM_ADVISORY_BULK, {
+      body: JSON.stringify(query),
+      headers: { 'content-type': 'application/json' },
+      method: 'POST',
+      signal: AbortSignal.timeout(20_000),
+    });
+    if (!res.ok) {
+      return { reason: `npm's audit endpoint answered HTTP ${res.status} when asked about the withdrawal` };
+    }
+    body = await res.json();
+  } catch (err) {
+    return {
+      reason: `could not ask npm's audit endpoint about the withdrawal (${err?.cause?.code ?? err?.name ?? 'error'})`,
+    };
+  }
+  if (!body || typeof body !== 'object' || Array.isArray(body)) {
+    return { reason: "npm's audit endpoint answered without a package map" };
+  }
+  const ghsa = `/${id.toLowerCase()}`;
+  const listedFor = Object.keys(query).filter((name) =>
+    (Array.isArray(body[name]) ? body[name] : []).some((entry) =>
+      String(entry?.url ?? '')
+        .toLowerCase()
+        .replace(/\/+$/, '')
+        .endsWith(ghsa),
+    ),
+  );
+  const versionsOf = (names) => names.flatMap((name) => query[name].map((v) => `${name}@${v}`)).join(', ');
+  return listedFor.length > 0
+    ? { detail: `for ${versionsOf(listedFor)}`, listed: true }
+    : { detail: `for ${versionsOf(Object.keys(query))}`, listed: false };
+}
+
 /** Why each unverified suppression could not be checked, by GHSA id. */
 const uncheckedReasons = new Map();
+/** Withdrawn advisories npm's audit still lists: named on the green path, never failed. */
+const withdrawnStillListed = [];
 /** Suppressions whose fix is published but still inside the release-age gate (named, never failed). */
 const maturingSuppressions = [];
 
@@ -1436,9 +1544,21 @@ if (suppressed.length > 0) {
       continue;
     }
     // A WITHDRAWN advisory needs no suppression at all, whatever is declared about
-    // it — there is nothing left to be unfixable about.
+    // it — there is nothing left to be unfixable about. But only once npm's audit has
+    // caught up: while it still lists the advisory, removing the entry turns `pnpm audit`
+    // red, and failing here as well left no green state at all (see `npmListing()`).
     if (info.withdrawn) {
-      obsoleteSuppressions.push({ id, ...info });
+      const listing = await npmListing(id, info);
+      if (listing.reason) {
+        uncheckedSuppressions.push(id);
+        uncheckedReasons.set(id, listing.reason);
+        continue;
+      }
+      if (listing.listed) {
+        withdrawnStillListed.push({ detail: listing.detail, id });
+        continue;
+      }
+      obsoleteSuppressions.push({ id, ...info, delisted: listing.detail });
       continue;
     }
     if (info.patchedVersions.length === 0) {
@@ -1741,7 +1861,7 @@ if (
       continue;
     }
     const why = entry.withdrawn
-      ? 'the advisory was WITHDRAWN'
+      ? `the advisory was WITHDRAWN${entry.delisted ? ` and npm's audit no longer lists it (${entry.delisted})` : ''}`
       : `a fix exists: ${entry.unnamed ?? entry.first_patched_version}`;
     console.error(
       `  ✗ FIX AVAILABLE ${entry.id} — ${why}.\n` +
@@ -1818,6 +1938,13 @@ for (const entry of trackedResiduals) {
 for (const entry of maturingSuppressions) {
   console.log(`${TAG} pending ${entry.id} — ${entry.detail}; the suppression holds until then.`);
 }
+// And this one turns red by itself once npm's audit stops listing the withdrawn advisory.
+for (const entry of withdrawnStillListed) {
+  console.log(
+    `${TAG} withdrawn ${entry.id} — withdrawn upstream, npm still lists it (${entry.detail}); ` +
+      'remove the entry once `pnpm audit` is clean without it.',
+  );
+}
 
 if (auditUnavailable) {
   // Never the ok line: the overrides were not checked. The suppression count is the part of this
@@ -1835,6 +1962,7 @@ console.log(
     `from ${source}; ${covered} of them land on an overridden package and none is failing` +
     (suppressed.length > 0
       ? `; ${verifiedSuppressions}/${suppressed.length} suppression(s) verified` +
-        (trackedResiduals.length > 0 ? ` (${trackedResiduals.length} as unusable-fix residual)` : '')
+        (trackedResiduals.length > 0 ? ` (${trackedResiduals.length} as unusable-fix residual)` : '') +
+        (withdrawnStillListed.length > 0 ? ` (${withdrawnStillListed.length} withdrawn, still listed by npm)` : '')
       : ''),
 );

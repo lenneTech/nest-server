@@ -129,7 +129,11 @@ export interface IAiTool {
   /** Unique tool name (snake_case recommended, stable across versions). */
   readonly name: string;
 
-  /** JSON schema of the tool's input arguments (JSON-schema shape). */
+  /**
+   * The tool's input arguments: a JSON Schema object, or (12.10.0) a Standard Schema with JSON Schema — Zod 4.2+,
+   * ArkType, Valibot via `toStandardJsonSchema()`. `AiToolRegistry.register()` stores a Standard Schema as its JSON
+   * Schema and validates the arguments before `authorize()` and `execute()` (`withStandardSchemaParameters()`).
+   */
   readonly parameters: Record<string, any>;
 
   /**

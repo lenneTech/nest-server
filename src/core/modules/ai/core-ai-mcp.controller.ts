@@ -14,6 +14,7 @@ import { getMountedMcpOAuth } from './helpers/ai-mcp-oauth.registry.js';
 import { CoreAiMcpOAuthService } from './services/core-ai-mcp-oauth.service.js';
 import { CoreAiMcpService } from './services/core-ai-mcp.service.js';
 import { AiToolUser } from './tools/ai-tool.registry.js';
+import { toVerifiedAiUser } from './helpers/ai-verified-user.helper.js';
 
 /**
  * MCP Streamable-HTTP endpoint at `/ai/mcp`.
@@ -279,8 +280,12 @@ export class CoreAiMcpController implements OnModuleDestroy {
     // OAuth 2.1 access token (when ai.mcp.oauth is enabled).
     if (bearer && this.oauthEnabled()) {
       const payload = this.oauthService.verifyAccessToken(bearer);
-      if (payload?.sub) {
-        return this.oauthService.loadUser(payload.sub);
+      // RFC 8707: only a token issued for /ai/mcp — or one from before 12.10.0, which carries no audience
+      if (payload?.sub && this.oauthService.acceptsAudienceAtMcp(payload)) {
+        // Shaped like a user the authentication middleware sets, so the role guards on an agent function and a model's
+        // securityCheck() work with it (12.10.0, see toVerifiedAiUser())
+        const user = await this.oauthService.loadUser(payload.sub);
+        return user ? toVerifiedAiUser(user) : null;
       }
     }
 

@@ -439,9 +439,11 @@ interface PasskeyNormalizationResult {
 }
 
 /**
- * Social provider configuration for better-auth
+ * Social provider configuration for better-auth: the three values the framework decides, plus every option the project
+ * set on the provider (`tenantId`, `scope`, `prompt`, …), which Better-Auth reads itself.
  */
 interface SocialProviderConfig {
+  [option: string]: unknown;
   clientId: string;
   clientSecret: string;
   disableSignUp: boolean;
@@ -579,6 +581,7 @@ export function buildBetterAuthOptions(options: CreateBetterAuthOptions): Better
     mcpOAuthIssuerOrigin(ConfigService.configFastButReadOnly),
   );
   const additionalFields = buildUserFields(config);
+  const errorUrl = resolveErrorUrl(config.errorUrl, resolvedUrls.appUrl);
 
   // Resolve cross-subdomain cookies (Boolean Shorthand)
   const crossSubDomain = resolveCrossSubDomainCookies(config, resolvedUrls);
@@ -728,6 +731,9 @@ export function buildBetterAuthOptions(options: CreateBetterAuthOptions): Better
           },
         }),
     },
+    // Where a failed OAuth flow without an error URL of its own lands (`resolveErrorUrl()`); a project's own
+    // `options.onAPIError` is merged over it (see below).
+    ...(errorUrl && { onAPIError: { errorURL: errorUrl } }),
     plugins,
     secret: validation.resolvedSecret || config.secret,
     socialProviders,
@@ -808,6 +814,17 @@ export function buildBetterAuthOptions(options: CreateBetterAuthOptions): Better
     // one that passes its own `log` handler gets exactly that.
     if (restOptions.logger && typeof restOptions.logger === 'object') {
       finalConfig.logger = { ...(betterAuthConfig.logger as object), ...(restOptions.logger as object) };
+    }
+
+    // `onAPIError` is merged, not replaced: a project that sets it for another reason (`onError`, `throw`,
+    // `customizeDefaultErrorPage`) keeps the derived `errorURL`, and only an `errorURL` it actually set wins.
+    if (restOptions.onAPIError && typeof restOptions.onAPIError === 'object') {
+      const projectOnApiError = restOptions.onAPIError as Record<string, unknown>;
+      finalConfig.onAPIError = {
+        ...(betterAuthConfig.onAPIError as Record<string, unknown> | undefined),
+        ...projectOnApiError,
+        errorURL: projectOnApiError.errorURL ?? errorUrl,
+      };
     }
 
     // `emailAndPassword` needs a DEEP merge, and this one is load-bearing.
@@ -1175,6 +1192,17 @@ function serverOnlyPlugin<T extends BetterAuthPlugin>(plugin: T): T {
  * callback and in `/sign-in/social` with an `idToken`), so each provider receives it explicitly. A boolean
  * `disableSignUp` on the provider is the deliberate exception for that provider; any other value follows the global
  * flag, so a string arriving through `NEST_SERVER_CONFIG` cannot open a closed registration.
+ *
+ * Every other option the project set on a provider reaches Better-Auth unchanged (12.10.0): Microsoft's `tenantId`,
+ * `scope` with `disableDefaultScope`, `prompt`, `mapProfileToUser` and so on. Before, they were dropped, so a Microsoft
+ * sign-in ran against `common` with the default scope whatever the project configured. `enabled` is the framework's
+ * own switch and stays here. The three values below are written AFTER the project's options on purpose: spread last,
+ * the project's raw `disableSignUp` would replace the decision made above.
+ *
+ * `scope` given as a string becomes a list (`splitScopeList()`), because that is how an `NSC__*` variable delivers it.
+ * A `scope` that is neither a string nor a list (the object indexed `NSC__…__SCOPE__0` variables build, the `0` an
+ * empty `NSC__…__SCOPE=` becomes) is dropped with one error per provider: Better-Auth spreads `scope` into its list, so
+ * an object made every `/sign-in/social` throw a `TypeError`. The provider then asks for its default scopes.
  */
 function buildSocialProviders(config: IBetterAuth): Record<string, SocialProviderConfig> {
   const socialProvidersConfig: Record<string, SocialProviderConfig> = {};
@@ -1186,7 +1214,22 @@ function buildSocialProviders(config: IBetterAuth): Record<string, SocialProvide
   if (config.socialProviders) {
     for (const [name, provider] of Object.entries(config.socialProviders)) {
       if (provider?.clientId && provider?.clientSecret && provider?.enabled !== false) {
+        const providerOptions: Record<string, unknown> = { ...provider };
+        delete providerOptions.enabled;
+        if (typeof providerOptions.scope === 'string') {
+          providerOptions.scope = splitScopeList(providerOptions.scope);
+        } else if (
+          providerOptions.scope !== undefined &&
+          providerOptions.scope !== null &&
+          !Array.isArray(providerOptions.scope)
+        ) {
+          logger.error(
+            malformedScopeMessage(name, providerOptions.scope, providerOptions.disableDefaultScope === true),
+          );
+          delete providerOptions.scope;
+        }
         socialProvidersConfig[name] = {
+          ...providerOptions,
           clientId: provider.clientId,
           clientSecret: provider.clientSecret,
           disableSignUp: typeof provider.disableSignUp === 'boolean' ? provider.disableSignUp : signUpClosed,
@@ -1196,6 +1239,43 @@ function buildSocialProviders(config: IBetterAuth): Record<string, SocialProvide
   }
 
   return socialProvidersConfig;
+}
+
+/**
+ * Splits a provider's `scope` string on commas and whitespace into the list Better-Auth expects, dropping empty
+ * entries: `'openid profile email'` and `'openid,profile,email'` both become `['openid', 'profile', 'email']`.
+ *
+ * `NSC__BETTER_AUTH__SOCIAL_PROVIDERS__<PROVIDER>__SCOPE` reaches the configuration as a string, since the `NSC__*`
+ * reader converts only `true`, `false` and numbers. Better-Auth spreads `scope` into its list
+ * (`scopes.push(...options.scope)`), so a string handed on unchanged became one scope per character.
+ */
+function splitScopeList(scope: string): string[] {
+  return scope.split(/[\s,]+/).filter((entry) => entry.length > 0);
+}
+
+/**
+ * The error for a provider `scope` that is neither a string nor a list: which provider, what arrived, the two forms
+ * that work, and, with `disableDefaultScope`, that the authorization request then carries no scope at all.
+ */
+function malformedScopeMessage(provider: string, scope: unknown, defaultScopeDisabled: boolean): string {
+  let shown: string;
+  try {
+    shown = JSON.stringify(scope) ?? String(scope);
+  } catch {
+    shown = String(scope);
+  }
+  if (shown.length > 200) {
+    shown = `${shown.slice(0, 200)}…`;
+  }
+  const variable = `NSC__BETTER_AUTH__SOCIAL_PROVIDERS__${provider.replace(/([a-z0-9])([A-Z])/g, '$1_$2').toUpperCase()}__SCOPE`;
+  return (
+    `betterAuth.socialProviders.${provider}.scope is neither a string nor a list (received ${typeof scope} ${shown}) ` +
+    'and is ignored. Write it as a list in config.env.ts or NEST_SERVER_CONFIG, or as a comma- or space-separated ' +
+    `string (${variable}=openid,profile,email); indexed ${variable}__0 variables build an object, not a list. ` +
+    (defaultScopeDisabled
+      ? 'With disableDefaultScope: true the authorization request now carries no scope, and the provider will refuse it.'
+      : 'The provider asks for its default scopes until then.')
+  );
 }
 
 /**
@@ -1887,6 +1967,63 @@ function deriveCookieDomainFromUrls(appUrl?: string, baseUrl?: string): string |
   }
 
   return undefined;
+}
+
+/** The app page a failed OAuth flow lands on when `betterAuth.errorUrl` is unset; the starter's login page */
+const DEFAULT_ERROR_PATH = '/auth/login';
+
+/**
+ * Better-Auth's `onAPIError.errorURL`: where a failed OAuth flow lands when no error URL of the flow's own applies
+ * (12.10.0). Its readers in better-auth 1.7.x: the OAuth callback (a callback without a readable state, and every
+ * later failure of a flow started without `errorCallbackURL`, through `parseState()`), the `internal_server_error`
+ * redirects of `handleOAuthUserInfo()`, the `GET /error` page (which forwards there) and the `oauthProxy()` plugin.
+ * Unset, all of them send the browser to Better-Auth's own HTML page on the API host, which offers no way back into
+ * the app.
+ *
+ * Unset → `<appUrl>/auth/login`; an absolute `http(s)` URL as it is; a path with one leading `/` against the app URL;
+ * `false` → Better-Auth's page. Anything else, and a path without an app URL, keeps Better-Auth's page with a warning:
+ * a misconfiguration must neither stop the boot nor send the browser somewhere nobody chose. A protocol-relative
+ * `//host` (and `/\host`, which browsers read the same way) is refused for that reason; Better-Auth's own
+ * `appendQueryParams()` would throw on it as well.
+ *
+ * @param value - `betterAuth.errorUrl` as configured
+ * @param appUrl - the app URL, resolved like the other derived links (`resolveServerUrls()`)
+ * @returns the URL to hand Better-Auth, or `undefined` for Better-Auth's own page
+ */
+function resolveErrorUrl(value: unknown, appUrl: string | undefined): string | undefined {
+  const againstApp = (appPath: string) => `${appUrl!.replace(/\/$/, '')}${appPath}`;
+  if (value === false) {
+    return undefined;
+  }
+  if (value === undefined || value === null) {
+    return appUrl ? againstApp(DEFAULT_ERROR_PATH) : undefined;
+  }
+  const refuse = (reason: string): undefined => {
+    logger.warn(`betterAuth.errorUrl ${reason}; failed sign-ins land on Better-Auth's own error page on the API host.`);
+    return undefined;
+  };
+  if (typeof value !== 'string') {
+    return refuse(
+      `must be an absolute http(s) URL, a path starting with "/" or false (received ${typeof value} ${String(value)})`,
+    );
+  }
+  const trimmed = value.trim();
+  if (/^https?:\/\//i.test(trimmed)) {
+    try {
+      if (new URL(trimmed).hostname) {
+        return trimmed;
+      }
+    } catch {
+      // refused below
+    }
+    return refuse(`"${trimmed}" is not a valid URL`);
+  }
+  if (/^\/(?![/\\])/.test(trimmed)) {
+    return appUrl
+      ? againstApp(trimmed)
+      : refuse(`"${trimmed}" is a path, but no app URL resolves to put it on (set appUrl or baseUrl)`);
+  }
+  return refuse(`"${trimmed}" must be an absolute http(s) URL, a path starting with "/" or false`);
 }
 
 function resolveUrls(options: CreateBetterAuthOptions): ResolvedUrls {

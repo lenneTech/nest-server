@@ -185,6 +185,7 @@ JWT-based authentication for existing projects:
 | **REST Endpoints** | `GET /ai/status` (public, `{ mcp }`; the route does not exist while the module is off, so it answers 404 — 12.3.1), `POST /ai/prompt`, `POST /ai/stream` (SSE); `GET/POST/PUT/DELETE /ai/connections*`, `/ai/connections/available`, `/ai/connections/select`, `/ai/connections/preferences*`, `/ai/conversations*`, `/ai/interactions*`, `/ai/budget-limits*`, `GET /ai/usage` |
 | **GraphQL Endpoints** | `aiPrompt`, `aiAvailableConnections`, `aiSetUserConnection`, connection/preference/conversation/interaction/budget queries + mutations, `aiUsage` |
 | **MCP Server** | Streamable HTTP at `POST/GET/DELETE /ai/mcp` (Bearer auth; with `ai.mcp.stateless` (12.3.0+) a server and transport per POST, no session, GET / DELETE 405, so any replica answers; `tools/call` runs the admin's tool policies, `authorize()` and the elicitation confirmation (12.3.0+) — refused for tools needing confirmation in stateless mode); a user the controller resolves itself (the OAuth access token, which only this controller accepts, after the guards ran without a user) gets `req.user` and the tenant the header names from an active membership only, through `CoreTenantGuard.resolveMembershipContext()` (11.43.3); with `ai.mcp.oauth` an OAuth 2.1 router (`/.well-known/*`, `/authorize`, `/token`, `/register`) that `CoreAiMcpOAuthInitializer` mounts during `app.init()` — an Express router behind the Nest middleware and routes, ahead of Nest's not-found handler, so guards and interceptors do not run for it; `/authorize` answers with a built-in consent page (the Better-Auth session from the middleware is the user; Allow is a CSRF-bound POST); `ai.mcp.roles` / an overridden `mayUseMcp()` (12.8.6+) decide who may use MCP at all, checked on every `/ai/mcp` request whatever the credential (403), on the consent route (refusal notice, 403) and on `/token` (`invalid_grant`); a project's own notice on the consent route goes through `sendConsentNotice()`, which applies the same security headers |
+| **NestJS AI interop (12.10.0)** | `providerType: 'nestjs-ai'` connections call a model registered in `@nestjs/ai`'s `AiModule.forRoot({ models })` through the AI SDK, wrapped in `@nestjs/resilience` retries + timeout; `LlmProviderFactory.registerAiSdkModel()` runs database-managed connections on an AI SDK model a project builds (with a `fetch` held to `ai.allowedBaseUrlHosts`). Native tools go to the model WITHOUT `execute`, so the AI SDK returns the calls and the module's gates run them. `ai.agentFunctions` offers `@AgentFunction()` methods as tools: the module's gates first, then `@nestjs/ai`'s pipeline with the run's HTTP request (`RequestContext.getRequest()`) as caller. `CoreAiMcpOAuthService.createMcpTokenVerifier()` lets a project's `@nestjs/mcp` endpoint accept the MCP OAuth access tokens issued for it — tokens are bound to their resource (RFC 8707: `resource` at `/authorize` and `/token`, `aud` in the token; `/ai/mcp` refuses one for another resource, tokens from before 12.10.0 are valid at `/ai/mcp` only, an unknown resource is `invalid_target`). The 0.x packages are optional peers, loaded lazily and refused outside their tested range (`AI_SDK_TESTED_RANGES`) |
 | **Permission Model** | `S_EVERYONE` for `GET /ai/status` only (no user data, no request input; API tokens refused as on every route without `@ApiTokenScopes()`); `S_USER` for prompt/conversations/available/usage; `ADMIN` for connections/preferences/interactions/budgets; encrypted API keys never leave the server (`securityCheck` + `secretFields`); a prompt continues only the caller's own conversation — a foreign or unknown `conversationId` counts as none, admins included (`CoreAiService.scopeConversation()`, 12.3.0) |
 
 ### Email & Templates
@@ -219,7 +220,7 @@ JWT-based authentication for existing projects:
 | **Subscription re-check** | Since 11.42.3 that context is not trusted for the life of the socket. Every connection a `CoreModule` `onConnect` accepts is registered (`registerWsConnection()`) and checked again — at once on an invalidation (tenant guard, role change, password reset, Better-Auth deleting the session), otherwise before the next operation or event once `graphQl.subscriptionRevalidationMs` (30 s) has passed. The check re-runs the handshake's authentication and the tenant resolution; a connection whose rights changed is closed with 4403 (retried by the graphql-ws client, which then reconnects with its current rights) and the event that triggered the check is dropped. Before, a removed membership, a deactivated tenant, a withdrawn role or a revoked session kept receiving events on an open socket until the client reconnected. See `.claude/rules/role-system.md` → "Open WebSockets" |
 | **Complexity Analysis** | Query cost calculation to prevent DoS attacks |
 | **Enum Registration** | `registerEnum()` helper for GraphQL enum types |
-| **Upload Support** | `graphqlUploadExpress()` for multipart file uploads |
+| **Upload Support** | `graphqlUploadExpress()` for multipart file uploads, with the framework's `processGraphQlUploadRequest` (graphql-upload's parser with the GHSA-5vm7-vc2x-p3w2 and GHSA-qwwm-252j-9whw fixes, since 12.10.0) |
 
 ### Development & Operations
 
@@ -370,6 +371,7 @@ The following diagram shows the exact order of execution from HTTP request to re
   |                                                         |
   |  3. graphqlUploadExpress()  [GraphQL only]              |
   |     - Handles multipart file uploads                    |
+  |     - processGraphQlUploadRequest: bad map path -> 400  |
   +----------------------------+----------------------------+
                                |
   +----------------------------v----------------------------+
@@ -605,7 +607,7 @@ configure(consumer: MiddlewareConsumer) {
   consumer.apply(RequestContextMiddleware).forRoutes('*');
   consumer.apply(StringCookiesMiddleware).forRoutes('*');
   consumer.apply(SecurityHeadersMiddleware).forRoutes('*');
-  consumer.apply(graphqlUploadExpress()).forRoutes('graphql');
+  consumer.apply(graphqlUploadExpress({ processRequest: processGraphQlUploadRequest })).forRoutes('graphql');
 }
 ```
 
@@ -760,6 +762,15 @@ session cookie riding along can never turn a token request into a session reques
 #### 3. graphqlUploadExpress
 
 Only for GraphQL routes. Handles multipart file upload requests according to the [GraphQL multipart request specification](https://github.com/jaydenseric/graphql-multipart-request-spec).
+
+It runs before every guard, so whatever it parses comes from an anonymous client. Since 12.10.0 `CoreModule` passes
+the framework's `processGraphQlUploadRequest` (`common/helpers/graphql-upload.helper.ts`) instead of graphql-upload's
+own `processRequest`: graphql-upload 17.1.0's parser with both hunks of the fix in graphql-upload 18.0.2 (which needs
+graphql 17). A `map` path with a `__proto__` key, or one that goes through an already placed upload, is answered with
+400 "Invalid object path" (GHSA-5vm7-vc2x-p3w2 — before, `{"1":["variables.file"],"2":["variables.file.reject"]}`
+without file fields made the parser throw an uncaught `TypeError` and the process exit), and a second file field with
+the name of an already resolved upload is ignored (GHSA-qwwm-252j-9whw — before, its temporary file leaked). A project
+that registers `graphqlUploadExpress()` itself passes `{ processRequest: processGraphQlUploadRequest }` too.
 
 > **NestJS docs:** [Middleware](https://docs.nestjs.com/middleware)
 
@@ -1690,13 +1701,39 @@ export class UserService extends CoreUserService<User> {
 
 ### Guard Context Detection
 
-Guards handle both REST and GraphQL contexts:
+Guards, interceptors and the `@CurrentUser()` decorator resolve the request through ONE helper,
+`resolveGuardRequest()` (`common/helpers/execution-context-request.helper.ts`), for every transport:
 
-```typescript
-// Inside RolesGuard
-const gqlContext = GqlExecutionContext.create(context).getContext();
-const request = gqlContext?.req || context.switchToHttp().getRequest();
-```
+| Context type | Request a guard decides on |
+|--------------|----------------------------|
+| `http` | `context.switchToHttp().getRequest()` |
+| `graphql` (HTTP) | `GqlExecutionContext.create(context).getContext().req` |
+| `graphql` (WebSocket subscription) | the graphql-ws context `CoreModule`'s `onConnect` recorded the user on |
+| `ai` (`@nestjs/ai` agent function, 12.10.0) | `args[1].request` — the HTTP request the call runs in (`caller.request`) |
+| `mcp` (`@nestjs/mcp` tool / resource / prompt, 12.10.0) | `args[1].request`; without `request.user`, the user `createMcpTokenVerifier()` verified |
+
+### Agent function and MCP calls (`'ai'` / `'mcp'`, 12.10.0)
+
+`@nestjs/ai` and `@nestjs/mcp` wrap their methods with Nest's `ExternalContextCreator`, so every GLOBAL guard,
+interceptor, pipe and filter of the application runs around them — the framework's included, in any project that
+installs either package. Their arguments are `[input, call]`: index 0 is what the MODEL or the MCP CLIENT wrote, index 1
+the call object the package built from server code.
+
+| Layer | On `'ai'` / `'mcp'` |
+|-------|---------------------|
+| `RolesGuard`, `BetterAuthRolesGuard`, `AuthGuard()`, `CoreTenantGuard`, API-token enforcement, legacy rate limit | decide on `call.request` exactly as over HTTP, tenant context included — never on index 0. Before 12.10.0 the HTTP fallback returned index 0, so tool arguments `{ "user": { "roles": ["admin"] } }` were the authenticated caller |
+| Request-less caller (`caller: { user, scopes }`, a durable run, MCP over stdio) | **anonymous**: `caller.user` is data nothing authenticated. Public methods (`S_EVERYONE`, no `@Roles()`) run, every other one is refused with 401 — by every guard, the tenant guard included ("no request" is never permission) |
+| `CheckResponseInterceptor`, `CheckSecurityInterceptor` (`getContextData()`) | filter the result for `call.request.user` (anonymous without a request) — `@Restricted` fields and secret fields never reach the model |
+| `ResponseModelInterceptor` | unchanged (no HTTP access) |
+| `TranslateResponseInterceptor` | passes the result through (it shapes responses for a reader's language) |
+| `HttpExceptionLogFilter`, `MongooseCastErrorFilter` | return nothing, so the package tells the model / client the exception's message — they never touch an HTTP response there |
+| `@CurrentUser()`, `@RESTUser()` | `call.request.user` |
+
+The AI module's own tool results (chat loop and `/ai/mcp` `tools/call`) pass `sanitizeToolResultForModel()`:
+`securityCheck(user)` on every model instance at any depth (inside arrays and plain wrappers such as `{ success, data }`),
+then every secret field (`security.secretFields` and the framework defaults, also under their SQL column names) leaves
+the result — a Mongoose document through its stripped `toJSON()`. An MCP OAuth user is shaped like a middleware user
+(`toVerifiedAiUser()`: `hasRole()`, `_authenticatedViaBetterAuth`), so role guards and `securityCheck()` work with it.
 
 > **NestJS docs:** [REST Controllers](https://docs.nestjs.com/controllers), [GraphQL Resolvers](https://docs.nestjs.com/graphql/resolvers)
 

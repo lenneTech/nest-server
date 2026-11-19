@@ -987,6 +987,11 @@ export interface IBetterAuthSignUpChecksConfig {
  * - `SOCIAL_GOOGLE_CLIENT_ID`, `SOCIAL_GOOGLE_CLIENT_SECRET`
  * - `SOCIAL_GITHUB_CLIENT_ID`, `SOCIAL_GITHUB_CLIENT_SECRET`
  * - `SOCIAL_APPLE_CLIENT_ID`, `SOCIAL_APPLE_CLIENT_SECRET`
+ * - `SOCIAL_MICROSOFT_CLIENT_ID`, `SOCIAL_MICROSOFT_CLIENT_SECRET`, `SOCIAL_MICROSOFT_TENANT_ID`
+ *
+ * **Provider options (since 12.10.0):** every further key reaches the Better-Auth provider unchanged, so each
+ * provider's own options are set right here: Microsoft's `tenantId`, Google's `hd` and `accessType`, `scope`,
+ * `prompt`, `mapProfileToUser` and so on. Before 12.10.0 they were dropped without a word.
  *
  * @example
  * ```typescript
@@ -998,9 +1003,26 @@ export interface IBetterAuthSignUpChecksConfig {
  *
  * // Provider is explicitly disabled despite having credentials
  * github: { clientId: '...', clientSecret: '...', enabled: false }
+ *
+ * // Microsoft Entra ID: the organization's own tenant, identity only (no Graph scope, no refresh token)
+ * microsoft: {
+ *   clientId: process.env.SOCIAL_MICROSOFT_CLIENT_ID || '',
+ *   clientSecret: process.env.SOCIAL_MICROSOFT_CLIENT_SECRET || '',
+ *   tenantId: process.env.SOCIAL_MICROSOFT_TENANT_ID,
+ *   disableDefaultScope: true,
+ *   scope: ['openid', 'profile', 'email'],
+ *   disableProfilePhoto: true,
+ * },
  * ```
  */
 export interface IBetterAuthSocialProvider {
+  /**
+   * Any further option of the Better-Auth provider, handed on unchanged (since 12.10.0). The keys declared below keep
+   * their meaning; `enabled` is the framework's own and is not handed on.
+   * @see https://www.better-auth.com/docs/authentication/social-sign-in
+   */
+  [option: string]: unknown;
+
   /**
    * OAuth client ID
    */
@@ -1010,6 +1032,13 @@ export interface IBetterAuthSocialProvider {
    * OAuth client secret
    */
   clientSecret: string;
+
+  /**
+   * Sends the provider's default scopes only when `false` or unset. `true` asks for exactly what `scope` lists, for
+   * example `['openid', 'profile', 'email']` to keep a Microsoft sign-in free of `User.Read` and `offline_access`.
+   * @default false
+   */
+  disableDefaultScope?: boolean;
 
   /**
    * Whether a first sign-in through this provider may create an account.
@@ -1029,6 +1058,32 @@ export interface IBetterAuthSocialProvider {
    * @default true (when credentials are configured)
    */
   enabled?: boolean;
+
+  /**
+   * The `prompt` parameter for every authorization request of this provider (`'select_account'`, `'consent'`,
+   * `'login'`, `'none'`). One request can set its own through `additionalParams` on `/sign-in/social`, which is how a
+   * silent attempt (`{ prompt: 'none' }`) and an interactive sign-in share one provider.
+   */
+  prompt?: string;
+
+  /**
+   * Scopes to request in addition to the provider's defaults, or instead of them with `disableDefaultScope: true`.
+   *
+   * A string is split on commas and whitespace (`'openid profile email'`, `'openid,profile,email'`), because
+   * `NSC__BETTER_AUTH__SOCIAL_PROVIDERS__<PROVIDER>__SCOPE` arrives as a string: the `NSC__*` reader converts only
+   * `true`, `false` and numbers (since 12.10.0). Any other value (the object indexed `…__SCOPE__0` variables build, the
+   * `0` an empty `…__SCOPE=` becomes) is dropped with an error at boot, and the provider asks for its default scopes;
+   * with `disableDefaultScope: true` it then asks for none, which the provider refuses.
+   */
+  scope?: string | string[];
+
+  /**
+   * Microsoft Entra ID: the tenant to sign in through, by its directory id. Unset, Better-Auth uses `common`, which
+   * admits accounts of every organization and personal Microsoft accounts. A verified domain works for the redirect
+   * flow only: sign-in with an `idToken` compares the token's issuer with `<authority>/<tenantId>/v2.0`, and Microsoft
+   * writes the id there.
+   */
+  tenantId?: string;
 }
 
 /**
@@ -1975,6 +2030,24 @@ export interface IAiRateLimit {
  * ```
  */
 export interface IAi {
+  /**
+   * Offer the application's `@nestjs/ai` agent functions (`@AgentFunction()` methods) as tools of the AI assistant and
+   * its MCP server (12.10.0). Boolean shorthand, presence implies enabled: `true` / `{}` offers every agent function,
+   * `include` only the named ones, `exclude` all but the named ones; `false` / `{ enabled: false }` / unset — off, and
+   * `@nestjs/ai` is never loaded.
+   *
+   * Every gate of the AI module runs first (role filter, tool policies and grants, `authorize()`, confirmation, plan
+   * mode, budgets); then the call runs through `@nestjs/ai`'s own pipeline (input validation, scopes, the application's
+   * guards with the context type `'ai'`) with the run's HTTP request as the caller. Roles, `mutating`, `destructive`
+   * and `authorize` come from `@AiAgentFunction()` on the method; roles default to the method's `@Roles()`, else
+   * `S_USER`. An agent function that requires `scopes` is not offered; one named like a registered tool stops the boot.
+   * Requires `@nestjs/ai` (optional peer, tested range `>=0.0.2 <0.0.3`) with `AiModule.forRoot()` imported — the boot
+   * fails with the tested range named otherwise.
+   *
+   * @default undefined (off)
+   */
+  agentFunctions?: boolean | { enabled?: boolean; exclude?: string[]; include?: string[] };
+
   /**
    * Optional SSRF allowlist for connection base URLs. When set (non-empty), the
    * provider only sends requests to these hosts (matched by `host` incl. port, or
@@ -4830,6 +4903,29 @@ interface IBetterAuthBase {
   enabled?: boolean;
 
   /**
+   * Where Better-Auth sends the browser when an OAuth flow fails and no error URL of the flow's own applies (since
+   * 12.10.0): the callback could not read its state (expired after ten minutes, missing, tampered), or the flow was
+   * started without `errorCallbackURL`. Better-Auth appends `?error=<code>` and, where the provider sent one,
+   * `&error_description=…`. Its `GET <basePath>/error` page forwards there too. Handed to Better-Auth as
+   * `onAPIError.errorURL`.
+   *
+   * - unset: `<appUrl>/auth/login`, with the app URL resolved like the other derived links (explicit `appUrl`, the
+   *   localhost default in `local` / `ci` / `e2e`, else derived from `baseUrl` unless `cors.deriveAppUrl: false`). No
+   *   app URL resolves: Better-Auth's own page on the API host, as before.
+   * - an absolute `http(s)` URL: used as it is.
+   * - a path starting with one `/`: resolved against the app URL; without one, Better-Auth's own page and a warning.
+   * - `false`: Better-Auth's own page.
+   * - anything else (another scheme, `//host`, a number from an empty `NSC__BETTER_AUTH__ERROR_URL`): refused with a
+   *   warning, Better-Auth's own page.
+   *
+   * `betterAuth.options.onAPIError.errorURL` wins over this. A login page shows a text of its own per `error` code and
+   * never renders `error_description`: anyone can put text there through a link to `<basePath>/error`.
+   *
+   * @default '/auth/login' (resolved against the app URL)
+   */
+  errorUrl?: false | string;
+
+  /**
    * JWT plugin configuration for API clients.
    *
    * **Enabled by Default:** JWT is enabled by default when BetterAuth is active.
@@ -5062,6 +5158,8 @@ interface IBetterAuthBase {
    *   github: { clientId: '...', clientSecret: '...' },
    *   // This provider is explicitly disabled
    *   discord: { clientId: '...', clientSecret: '...', enabled: false },
+   *   // Provider options reach Better-Auth unchanged (since 12.10.0)
+   *   microsoft: { clientId: '...', clientSecret: '...', tenantId: '...' },
    * }
    * ```
    */

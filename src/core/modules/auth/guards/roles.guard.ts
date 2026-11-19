@@ -10,7 +10,11 @@ import {
 import { ModuleRef, Reflector } from '@nestjs/core';
 import { GqlExecutionContext } from '@nestjs/graphql';
 
-import { resolveGuardRequest } from '../../../common/helpers/execution-context-request.helper.js';
+import {
+  isAgentCallContext,
+  resolveAgentCallRequest,
+  resolveGuardRequest,
+} from '../../../common/helpers/execution-context-request.helper.js';
 import { firstValueFrom, isObservable } from 'rxjs';
 
 import { RoleEnum } from '../../../common/enums/role.enum.js';
@@ -145,6 +149,19 @@ export class RolesGuard extends AuthGuard(AuthGuardStrategy.JWT) {
     // authenticating can never grant access and a 401 ("authenticate and retry") would be a lie.
     if (roles && roles.includes(RoleEnum.S_NO_ONE)) {
       throw new ForbiddenException(ErrorCode.ACCESS_DENIED);
+    }
+
+    // An agent function / MCP tool call without a request (`@nestjs/ai`'s `caller: { user }`, a durable run, MCP over
+    // stdio) is ANONYMOUS: nothing authenticated `caller.user`, and the call's arguments are the model's. Open only
+    // where the route is public. Kept in sync with BetterAuthRolesGuard (nestjs-ai plan §1).
+    if (isAgentCallContext(context) && !this.getRequest(context)) {
+      // The method's own roles win over the class's, as CoreTenantGuard decides system roles: a class-level
+      // S_EVERYONE does not open a method that asks for S_USER
+      const effective = reflectorRoles?.[0]?.some((value) => !!value) ? reflectorRoles[0] : roles;
+      if (!effective || !effective.some((value) => !!value) || effective.includes(RoleEnum.S_EVERYONE)) {
+        return true;
+      }
+      throw new UnauthorizedException(ErrorCode.UNAUTHORIZED);
     }
 
     // API tokens are decided BEFORE the public-route shortcut below: a token is denied on every route
@@ -289,6 +306,11 @@ export class RolesGuard extends AuthGuard(AuthGuardStrategy.JWT) {
     cookies?: Record<string, string>;
     headers?: Record<string, string | string[] | undefined>;
   } {
+    // An agent function / MCP call: the request it runs in, never its arguments (nestjs-ai plan §1)
+    if (isAgentCallContext(context)) {
+      return resolveAgentCallRequest(context) ?? null;
+    }
+
     // Try GraphQL context first
     try {
       const gqlContext = GqlExecutionContext.create(context);

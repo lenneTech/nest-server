@@ -35,6 +35,12 @@ export interface IRequestContext {
    * on inner calls — the outermost call and CheckSecurityInterceptor handle these.
    */
   processDepth?: number;
+  /**
+   * The HTTP request this context belongs to (12.10.0), set by `RequestContextMiddleware`; `undefined` on every other
+   * transport. Read by the AI module's agent-function bridge, which hands it to `@nestjs/ai` as the caller so the
+   * application's guards decide on the user exactly as over HTTP (nestjs-ai plan §3).
+   */
+  request?: unknown;
 }
 
 /**
@@ -51,6 +57,11 @@ export class RequestContext {
 
   static get(): IRequestContext | undefined {
     return this.storage.getStore();
+  }
+
+  /** The HTTP request of the current context, when it came from one (see {@link IRequestContext.request}). */
+  static getRequest(): unknown {
+    return this.storage.getStore()?.request;
   }
 
   static getCurrentUser(): IRequestContext['currentUser'] | undefined {

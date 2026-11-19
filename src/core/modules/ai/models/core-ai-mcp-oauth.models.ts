@@ -29,6 +29,8 @@ export const AiMcpOAuthCodeSchema = createSchema(
     codeChallenge: { type: String },
     // The TTL: MongoDB gets its index from the service, a SQL table its sweep (`CorePersistenceLifecycle`)
     createdAt: { expires: AI_MCP_OAUTH_CODE_TTL_SECONDS, type: Date },
+    // RFC 8707 resource the code is bound to (12.10.0); absent on a code from before
+    resource: { type: String },
     userId: { type: String },
   },
   { autoIndex: false, collection: 'aiMcpOAuthCodes', versionKey: false },
@@ -39,6 +41,8 @@ export const AiMcpOAuthRefreshTokenSchema = createSchema(
   {
     clientId: { type: String },
     createdAt: { type: Date },
+    // RFC 8707 resource the grant is bound to (12.10.0); absent on a token from before — then /ai/mcp only
+    resource: { type: String },
     token: { index: { unique: true }, type: String },
     userId: { type: String },
   },

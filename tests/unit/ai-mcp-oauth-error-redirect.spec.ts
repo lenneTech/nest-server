@@ -111,6 +111,13 @@ describe('MCP OAuth /authorize — no redirect to a registered URI before the us
     expect(posted.headers.location).toBeUndefined();
     const upper = await request(server).get('/Authorize').query(withoutChallenge);
     expect(upper.headers.location).toBeUndefined();
+    // A resource this server does not serve (RFC 8707, 12.10.0): refused here too, never redirected
+    const unknownResource = await request(server)
+      .get('/authorize')
+      .query({ ...params(clientId, FOREIGN_URI), resource: 'https://unknown.example/mcp' });
+    expect(unknownResource.status).toBe(400);
+    expect(unknownResource.headers.location).toBeUndefined();
+    expect(unknownResource.body.error).toBe('invalid_target');
   });
 
   it('keeps registration open and a well-formed request working, for loopback and https clients alike', async () => {
