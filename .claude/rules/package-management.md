@@ -441,13 +441,14 @@ matters just as much: a check that cries wolf on correct entries is a check that
 which is how the hole this feature closes came about in the first place.
 
 **Current entries on `release/11.x` (since 11.43.5).** `GHSA-gcqx-w48m-w2h4` (deepmerge `<= 4.3.1`, low,
-since 11.43.4): dev tooling only, through @nestjs/cli 11 > fork-ts-checker-webpack-plugin, with no patched
-release at all. `GHSA-g3hv-75wg-m249` (minimatch `< 11.0.1`) and `GHSA-3g3m-2fjr-6pw4` (glob `<= 14.0.1`), both
+dev tooling only, through @nestjs/cli 11 > fork-ts-checker-webpack-plugin) was a third entry from 11.43.4 until
+11.46.6: GitHub withdrew it on 2026-11-16, npm's audit stopped listing it, and `check:overrides` reported the
+suppression as obsolete. `GHSA-g3hv-75wg-m249` (minimatch `< 11.0.1`) and `GHSA-3g3m-2fjr-6pw4` (glob `<= 14.0.1`), both
 moderate, both fixed only in a new major released 2026-10-27 that none of their consumers can take yet — five
 for minimatch (@nestjs/cli 11.0.24 pins fork-ts-checker-webpack-plugin 9.1.0, which needs minimatch ^3), two for
 glob (@nestjs/cli 11.0.24 pins glob 13.0.6 exactly, rimraf 6.1.3 needs ^13); the same two entries as 12.x
 (DEV-3899). The justification is in the comment above `ignoreGhsas`, the declarations in
-`unusableFixConsumers`. `tests/unit/audit-suppression-scope.spec.ts` keeps deepmerge and glob out of the
+`unusableFixConsumers`. `tests/unit/audit-suppression-scope.spec.ts` keeps glob out of the
 production tree and allows minimatch there only under `@ts-morph/common` (ts-morph, the Permissions module's
 scanner, matching globs the developer writes) — its `prodVia` form.
 

@@ -197,12 +197,12 @@ NEST_SERVER_CONFIG='{ "systemSetup": { "initialAdmin": { "email": "admin@example
 Since 11.46.0 (backport of 12.4.0) the anonymous init is fail-closed outside the local environments: whoever reaches
 an API without users through it would become its administrator.
 
-| `systemSetup.httpInit` | `local` / `ci` / `e2e` | every other environment |
-|---|---|---|
-| not set | open | **closed** — 403 `LTNS_0053` |
-| `true` (`NSC__SYSTEM_SETUP__HTTP_INIT=true`) | open | open, without a token |
-| `{ token }` (`NSC__SYSTEM_SETUP__HTTP_INIT__TOKEN`, at least 16 characters) | open, token required | open, token required |
-| `false` / `{ enabled: false }` | closed | closed |
+| `systemSetup.httpInit`                                                      | `local` / `ci` / `e2e` | every other environment      |
+| --------------------------------------------------------------------------- | ---------------------- | ---------------------------- |
+| not set                                                                     | open                   | **closed** — 403 `LTNS_0053` |
+| `true` (`NSC__SYSTEM_SETUP__HTTP_INIT=true`)                                | open                   | open, without a token        |
+| `{ token }` (`NSC__SYSTEM_SETUP__HTTP_INIT__TOKEN`, at least 16 characters) | open, token required   | open, token required         |
+| `false` / `{ enabled: false }`                                              | closed                 | closed                       |
 
 The environment is the configured `env`, but where that is local only because 11.x fell back to the `local` block (a
 `NODE_ENV` without a block of its own, or an empty one), `NODE_ENV` decides — such a stage counts as deployed

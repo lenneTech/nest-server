@@ -4,6 +4,7 @@ import { PubSub } from 'graphql-subscriptions';
 import { VariableType } from 'json-to-graphql-query';
 import { MongoClient, ObjectId } from 'mongodb';
 import * as path from 'path';
+import request from 'supertest';
 
 import { HttpExceptionLogFilter, TestGraphQLType, TestHelper } from '../src';
 import envConfig from '../src/config.env';
@@ -12,6 +13,7 @@ import { FileInfo } from '../src/server/modules/file/file-info.model';
 import { User } from '../src/server/modules/user/user.model';
 import { UserService } from '../src/server/modules/user/user.service';
 import { ServerModule } from '../src/server/server.module';
+import { CRASH_MAP, CRASH_OPERATIONS, graphQlMultipart } from './helpers/graphql-multipart';
 import { createFixtureDir, removeFixtureDir } from './helpers/tmp-fixtures';
 
 describe('File (e2e)', () => {
@@ -610,6 +612,41 @@ describe('File (e2e)', () => {
   it('getRESTFileInfo', async () => {
     const res = await testHelper.rest(`/files/info/${fileInfo.id}`, { token: users[0].token });
     expect(res).toEqual(null);
+  });
+
+  // ===================================================================================================================
+  // Multipart processing in front of every guard
+  // ===================================================================================================================
+
+  /**
+   * @regression   11.x backport of 12.10.0 — CoreModule registered graphql-upload's `graphqlUploadExpress()` for
+   *   `/graphql` with its default `processRequest` (graphql-upload 15.0.2, GHSA-5vm7-vc2x-p3w2). The middleware runs
+   *   before any guard, and an anonymous multipart request whose `map` placed one upload into another
+   *   (`variables.file.reject`, no file fields) made the parser throw an uncaught `TypeError: upload.reject is not a
+   *   function` — the process exited.
+   * @seen-failing Put `graphqlUploadExpress()` back without `processRequest` in src/core.module.ts — registered as
+   *   `graphql-upload-route-default-process-request` in tests/regression-mutations.json. The request then reaches
+   *   Apollo instead of being refused with 400 "Invalid object path", and the uncaught TypeError is reported as an
+   *   unhandled error of the run.
+   */
+  it('refuses an anonymous multipart request whose map reaches into an upload, and keeps serving', async () => {
+    const { body, contentType } = graphQlMultipart(CRASH_OPERATIONS, CRASH_MAP);
+
+    const refused = await request(app.getHttpServer())
+      .post('/graphql')
+      .set('Apollo-Require-Preflight', 'true')
+      .set('Content-Type', contentType)
+      .send(body);
+
+    expect(refused.status, refused.text).toBe(400);
+    expect(refused.text).toMatch(/Invalid object path/);
+
+    const next = await request(app.getHttpServer())
+      .post('/graphql')
+      .set('Content-Type', 'application/json')
+      .send({ query: '{ __typename }' });
+    expect(next.status, next.text).toBe(200);
+    expect(next.body).toEqual({ data: { __typename: 'Query' } });
   });
 
   // ===================================================================================================================

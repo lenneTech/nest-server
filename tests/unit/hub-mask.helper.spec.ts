@@ -88,6 +88,35 @@ describe('maskConfigDeep', () => {
     expect(out.other).toBe('keep');
   });
 
+  /**
+   * @regression   11.46.6 — a certificate login keeps certificate and private key in ONE PEM under a name like
+   *   `certificate`, which no key heuristic may call secret; the Hub config panel showed the key in clear text, and
+   *   as a Buffer (`readFileSync()` without an encoding) byte by byte.
+   * @seen-failing Drop the PRIVATE_KEY_PEM_PATTERN check from the string branch of maskValue() in
+   *   src/core/modules/hub/helpers/hub-mask.helper.ts — registered as mutation `hub-mask-pem-key-by-name-only` in
+   *   tests/regression-mutations.json; mutation `hub-mask-pem-buffer-kept` drops it from the Buffer branch.
+   */
+  it('masks a PEM private key whatever its key is called, as a string and as a Buffer', () => {
+    const certificate = '-----BEGIN CERTIFICATE-----\nMIIBpublicPart\n-----END CERTIFICATE-----\n';
+    const out = maskConfigDeep({
+      certificateOnly: certificate,
+      microsoft: {
+        certificate: `${certificate}-----BEGIN PRIVATE KEY-----\nSECRET-pkcs8\n-----END PRIVATE KEY-----`,
+        certificateFile: Buffer.from(
+          `${certificate}-----BEGIN RSA PRIVATE KEY-----\nSECRET-rsa\n-----END RSA PRIVATE KEY-----`,
+        ),
+        thumbprint: 'AB12CD',
+      },
+      pgp: '-----BEGIN PGP PRIVATE KEY BLOCK-----\nSECRET-pgp\n-----END PGP PRIVATE KEY BLOCK-----',
+      publicFile: Buffer.from(certificate),
+    });
+    expect(JSON.stringify(out)).not.toContain('SECRET-');
+    expect(out.microsoft).toEqual({ certificate: '***', certificateFile: '***', thumbprint: 'AB12CD' });
+    expect(out.pgp).toBe('***');
+    expect(out.certificateOnly).toBe(certificate);
+    expect(Buffer.isBuffer(out.publicFile) && out.publicFile.toString()).toBe(certificate);
+  });
+
   it('passes through null, numbers, booleans and dates', () => {
     const date = new Date('2026-01-01T00:00:00.000Z');
     const out = maskConfigDeep({ a: null, b: 42, c: true, d: date });

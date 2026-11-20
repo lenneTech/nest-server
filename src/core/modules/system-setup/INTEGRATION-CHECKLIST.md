@@ -8,14 +8,14 @@
 
 ## Do You Need This Checklist?
 
-| Scenario                                             | Action Needed                                   |
-| ---------------------------------------------------- | ----------------------------------------------- |
-| Local development / e2e suites (`local`, `ci`, `e2e`) | None - the init endpoint is open there by default |
-| A deployed stage needs its first admin (11.46.0+)    | Set ENV variables (Step 1) - the HTTP init is closed there by default |
-| A deployed stage must be set up through a UI form    | Step 1b (setup token)                           |
-| Automated deployment (Docker/CI) needs auto-creation | Set ENV variables (Step 1)                      |
-| Want to disable system setup                         | Set `systemSetup: { enabled: false }` in config |
-| Custom setup logic (extra fields, notifications)     | Step 2 (Custom Controller)                      |
+| Scenario                                              | Action Needed                                                         |
+| ----------------------------------------------------- | --------------------------------------------------------------------- |
+| Local development / e2e suites (`local`, `ci`, `e2e`) | None - the init endpoint is open there by default                     |
+| A deployed stage needs its first admin (11.46.0+)     | Set ENV variables (Step 1) - the HTTP init is closed there by default |
+| A deployed stage must be set up through a UI form     | Step 1b (setup token)                                                 |
+| Automated deployment (Docker/CI) needs auto-creation  | Set ENV variables (Step 1)                                            |
+| Want to disable system setup                          | Set `systemSetup: { enabled: false }` in config                       |
+| Custom setup logic (extra fields, notifications)      | Step 2 (Custom Controller)                                            |
 
 ---
 

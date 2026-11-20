@@ -215,9 +215,9 @@ JWT-based authentication for existing projects:
 | **Subscriptions** | WebSocket support via `graphql-ws` with auth. The `PUB_SUB` provider is built from a factory: `CoreRedisPubSub` when `redis` is configured (delivery is then cluster-wide), the in-memory `PubSub` otherwise (delivery only to clients connected to the publishing replica). **Constraint once Redis is in play: every published payload must be JSON-serializable** — it crosses the wire as JSON, so `Date`, class instances, `Map`/`Set` and `undefined` do not survive the round trip. An in-process `PubSub` never had this constraint, so a payload that worked on one replica can silently lose fields on a cluster. Publish plain objects and ISO strings |
 | **Subscription request context** | Since 11.35.0 `CoreModule` installs a context-aware `execute` / `subscribe` pair (inside `subscriptions`, where `ApolloDriver` forwards it) on all three GraphQL driver builders, so every WebSocket operation runs inside a `RequestContext`. Before that a WS operation had **none** — no Express middleware runs on an upgrade, and `CoreTenantGuard.getRequest()` finds no `req` on a subscription context — and `mongooseTenantPlugin` reads "no context" as "system operation, no filter", so a tenant-scoped read while delivering a subscription message returned EVERY tenant's rows. The tenant comes from the handshake's tenant header **validated against an active membership**, else from the subscriber's memberships; an unresolvable tenant leaves the safety net to refuse the read. The async iterator is wrapped too, not only the subscribe call: graphql-js runs `resolve` / `filter` / field resolvers inside its `next()`. See `.claude/rules/role-system.md` → "Tenant context on non-HTTP transports" |
 | **Subscription re-check** | Since 11.42.3 that context is not trusted for the life of the socket. Every connection a `CoreModule` `onConnect` accepts is registered (`registerWsConnection()`) and checked again — at once on an invalidation (tenant guard, role change, password reset, Better-Auth deleting the session), otherwise before the next operation or event once `graphQl.subscriptionRevalidationMs` (30 s) has passed. The check re-runs the handshake's authentication and the tenant resolution; a connection whose rights changed is closed with 4403 (retried by the graphql-ws client, which then reconnects with its current rights) and the event that triggered the check is dropped. Before, a removed membership, a deactivated tenant, a withdrawn role or a revoked session kept receiving events on an open socket until the client reconnected. See `.claude/rules/role-system.md` → "Open WebSockets" |
-| **Complexity Analysis** | Query cost calculation to prevent DoS attacks |
+| **Complexity Analysis** | Query cost calculation to prevent DoS attacks. Since 11.46.6 `ComplexityPlugin` analyses only the operation Apollo resolved (none resolved: left to execution, which refuses it before coercing a variable), first checks whether its variables coerce (stopping at the first error) and leaves invalid ones to execution, which refuses them with graphql's cap (50), refuses an operation whose fields × declared variables exceed 250,000, computes graphql-query-complexity's number with each fragment evaluated once, and stops at its first error. Before, a document of many operations, a list of invalid items, a fragment spread thousands of times, tens of thousands of variables or thousands of failing arguments each blocked the event loop for seconds from one anonymous request |
 | **Enum Registration** | `registerEnum()` helper for GraphQL enum types |
-| **Upload Support** | `graphqlUploadExpress()` for multipart file uploads |
+| **Upload Support** | `graphqlUploadExpress()` for multipart file uploads, with the framework's `processGraphQlUploadRequest` (graphql-upload's parser with the GHSA-5vm7-vc2x-p3w2 and GHSA-qwwm-252j-9whw fixes; `map` bounded to 64 keys per path and 10,000 entries, path keys and array elements together) |
 
 ### Development & Operations
 
@@ -367,6 +367,8 @@ The following diagram shows the exact order of execution from HTTP request to re
   |                                                         |
   |  3. graphqlUploadExpress()  [GraphQL only]              |
   |     - Handles multipart file uploads                    |
+  |     - processGraphQlUploadRequest: bad map path -> 400  |
+  |     - map: 64 keys/path, 10,000 units in total          |
   +----------------------------+----------------------------+
                                |
   +----------------------------v----------------------------+
@@ -597,7 +599,7 @@ configure(consumer: MiddlewareConsumer) {
   consumer.apply(RequestContextMiddleware).forRoutes('*');
   consumer.apply(StringCookiesMiddleware).forRoutes('*');
   consumer.apply(SecurityHeadersMiddleware).forRoutes('*');
-  consumer.apply(graphqlUploadExpress()).forRoutes('graphql');
+  consumer.apply(graphqlUploadExpress({ processRequest: processGraphQlUploadRequest })).forRoutes('graphql');
 }
 ```
 
@@ -741,6 +743,27 @@ session cookie riding along can never turn a token request into a session reques
 #### 3. graphqlUploadExpress
 
 Only for GraphQL routes. Handles multipart file upload requests according to the [GraphQL multipart request specification](https://github.com/jaydenseric/graphql-multipart-request-spec).
+
+It runs before every guard, so whatever it parses comes from an anonymous client. `CoreModule` passes
+the framework's `processGraphQlUploadRequest` (`common/helpers/graphql-upload.helper.ts`) instead of graphql-upload's
+own `processRequest`: graphql-upload 15.0.2's parser with both hunks of the fix in graphql-upload 18.0.2 (an ESM-only
+release that needs graphql 17). A `map` path with a `__proto__` key, or one that goes through an already placed
+upload, is answered with 400 "Invalid object path" (GHSA-5vm7-vc2x-p3w2 — before,
+`{"1":["variables.file"],"2":["variables.file.reject"]}` without file fields made the parser throw an uncaught
+`TypeError` and the process exit), and a second file field with the name of an already resolved upload is ignored
+(GHSA-qwwm-252j-9whw — before, its temporary file leaked). A project that registers `graphqlUploadExpress()` itself
+passes `{ processRequest: processGraphQlUploadRequest }` too.
+
+It also bounds the `map`: at most `GRAPHQL_UPLOAD_MAX_PATH_KEYS` (64) keys per path, and at most
+`GRAPHQL_UPLOAD_MAX_MAP_KEYS` (10,000) units in the whole `map` — one per entry, one per path key and one per array
+element a numeric path key creates, holes included. A path over a bound is answered with 400 "Invalid object path",
+an entry over the map bound with 400 "Invalid ‘map’ multipart field entry key …" before its upload is created. The
+parser places each upload with object-path's `set()`, which costs O(n²) for a path of n keys and reads a key like
+`4294967294` as a number, setting that index of an array it creates; and it creates an upload per entry that it rejects
+with an error of its own when the file never arrives. Before, one anonymous request with an 80 KB path exhausted a
+1 GB heap and ended the process, 1 MB of paths just under a per-path bound blocked the event loop for up to 640 ms,
+1 MB of entries without a path for 410 ms with 230 MB, and the 258-byte `variables.f.4294967294` handed GraphQL an
+array of 2^32 − 1 elements whose coercion exhausted a 1 GB heap. graphql-upload 15.0.2 and 18.0.2 have the same flaws.
 
 > **NestJS docs:** [Middleware](https://docs.nestjs.com/middleware)
 

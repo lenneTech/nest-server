@@ -90,6 +90,15 @@ const INVENTORY: StateEntry[] = [
   },
   {
     because:
+      'The uploads of ONE multipart request, keyed by file field name: a `let` in processGraphQlUploadRequest() that '
+      + 'the parser assigns once the `map` field arrives. Created per request and released with it (the temporary '
+      + 'files on the response close); a second replica handles other requests and has nothing to agree about.',
+    classification: 'bounded',
+    file: 'common/helpers/graphql-upload.helper.ts',
+    name: 'map',
+  },
+  {
+    because:
       'When this replica last wrote lastUsedAt for a token, so a busy token costs one write per '
       + 'minute instead of one per request. Genuinely divergent across replicas and harmless: '
       + 'each replica throttles only its own writes, so N replicas write at most N times a minute '
