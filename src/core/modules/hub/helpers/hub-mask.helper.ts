@@ -30,6 +30,15 @@ const SECRET_KEY_PATTERN =
  */
 const URI_CREDENTIAL_PATTERN = /^([a-z][a-z0-9+.-]*:\/\/[^/@:\s]*:)([^@/\s]+)(@)/i;
 
+/**
+ * Value-shape heuristic: a PEM block holding a private key — `-----BEGIN PRIVATE KEY-----` and its `RSA`, `EC`,
+ * `ENCRYPTED`, `OPENSSH` variants, and PGP's `-----BEGIN PGP PRIVATE KEY BLOCK-----`. Checked in every string and
+ * `Buffer`, whatever its key is called (11.46.6): a certificate login keeps certificate and key in ONE PEM, usually
+ * under a name such as `certificate` that no key heuristic may call secret — a certificate alone is public. Until
+ * 11.46.6 such a key reached the Hub config panel in clear text. The whole value is masked.
+ */
+const PRIVATE_KEY_PEM_PATTERN = /-----BEGIN [A-Z0-9 ]*PRIVATE KEY[A-Z ]*-----/i;
+
 const MASK = '***';
 
 /**
@@ -37,7 +46,7 @@ const MASK = '***';
  *
  * A value is masked when its key matches {@link SECRET_KEY_PATTERN} or appears in `extraSecretKeys`.
  * Additionally, any string that looks like a credentialed connection URI has its password segment
- * masked regardless of key name.
+ * masked regardless of key name, and a string or `Buffer` holding a PEM private key is masked as a whole.
  *
  * @param value - the object/value to mask (not mutated)
  * @param extraSecretKeys - additional exact key names to always mask (e.g. `security.secretFields`)
@@ -69,6 +78,9 @@ function maskValue(value: unknown, keyIsSecret: boolean, extra: Set<string>): un
     if (keyIsSecret) {
       return MASK;
     }
+    if (typeof value === 'string' && PRIVATE_KEY_PEM_PATTERN.test(value)) {
+      return MASK;
+    }
     return typeof value === 'string' ? maskString(value) : value;
   }
 
@@ -78,9 +90,10 @@ function maskValue(value: unknown, keyIsSecret: boolean, extra: Set<string>): un
   }
 
   // Preserve non-plain objects verbatim (Date, Buffer, etc.) — cloning would lose their type and
-  // they never carry framework secrets.
+  // they never carry framework secrets — unless a Buffer holds a PEM private key (`readFileSync('key.pem')`
+  // without an encoding, which JSON would print byte by byte).
   if (value instanceof Date || Buffer.isBuffer(value)) {
-    return value;
+    return Buffer.isBuffer(value) && PRIVATE_KEY_PEM_PATTERN.test(value.toString('latin1')) ? MASK : value;
   }
 
   if (Array.isArray(value)) {

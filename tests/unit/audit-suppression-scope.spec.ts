@@ -25,12 +25,10 @@ const ROOT = join(__dirname, '../..');
 /**
  * Packages whose advisories are currently suppressed, and the production reach each justification allows.
  *
- * GHSA-gcqx-w48m-w2h4 (deepmerge, since 11.43.4): an advisory with NO patched release at all, reached only
- * through dev tooling (see the comments in `pnpm-workspace.yaml`). The pattern matches ANY version on purpose:
- * with no fixed release, every version in the production tree is a vulnerable one, so any appearance there voids
- * the justification.
+ * GHSA-gcqx-w48m-w2h4 (deepmerge) had an entry here from 11.43.4 until 11.46.6: GitHub withdrew the advisory on
+ * 2026-11-16, npm's audit stopped listing it, and entry and guard left together.
  *
- * Since 11.43.5 two more, both with a fix only in a new major that no consumer can take yet
+ * Since 11.43.5 two entries, both with a fix only in a new major that no consumer can take yet
  * (`unusableFixConsumers` in `pnpm-workspace.yaml`, re-tested by `check:overrides`) — the same entries as 12.x:
  *
  * - GHSA-3g3m-2fjr-6pw4 (glob, via @nestjs/cli and rimraf): dev tooling only — any glob in the production tree
@@ -78,8 +76,6 @@ const ROOT = join(__dirname, '../..');
  * when upstream moves, not when your own reasoning stopped applying.
  */
 const DEV_ONLY_SUPPRESSIONS: { ghsa: string; pkg: string; prodVia?: string; vulnerableInProd: RegExp }[] = [
-  // via @nestjs/cli 11 > fork-ts-checker-webpack-plugin
-  { ghsa: 'GHSA-gcqx-w48m-w2h4', pkg: 'deepmerge', vulnerableInProd: /deepmerge@/ },
   { ghsa: 'GHSA-3g3m-2fjr-6pw4', pkg: 'glob', vulnerableInProd: /glob@/ },
   { ghsa: 'GHSA-g3hv-75wg-m249', pkg: 'minimatch', prodVia: '@ts-morph/common', vulnerableInProd: /minimatch@/ },
 ];
