@@ -19,16 +19,22 @@
  *    when the response closed — temporary files and file descriptors leaked per request (with `maxFiles` > 1; the
  *    default is unlimited).
  *
- * One addition of the framework's own, not in graphql-upload (18.0.2 has the same flaw): the `map` is bounded. A path
- * may have at most {@link GRAPHQL_UPLOAD_MAX_PATH_KEYS} keys, and the whole `map` at most
- * {@link GRAPHQL_UPLOAD_MAX_MAP_KEYS} entries and path keys together; over either bound the request is refused with
- * 400. object-path's `set()` recurses once per key and copies the remaining keys each time, so a path of n keys costs
- * O(n²) time and memory, all of it in one synchronous call: measured on Node 24, a single anonymous request with an
- * 80 KB path (40,000 keys) exhausted a 1 GB heap and ended the process; 16 KB (8,000 keys) took 300 MB and blocked the
- * event loop for half a second. Below the per-path bound, 1 MB of paths near it (the default `maxFieldSize`) still
- * blocked the event loop for 150 to 640 ms, and 1 MB of entries without any path (83,000 `Upload`s, each rejected with
- * an error of its own when its file never arrives) for 410 ms with 230 MB. With the map bound such requests are
- * refused within about 30 ms, most of it spent parsing the field's JSON.
+ * One addition of the framework's own, not in graphql-upload (18.0.2 has the same flaws): the `map` is bounded, and
+ * with it everything the parser builds from it. A path may have at most {@link GRAPHQL_UPLOAD_MAX_PATH_KEYS} keys. The
+ * whole `map` may name at most {@link GRAPHQL_UPLOAD_MAX_MAP_KEYS} units: one per entry, one per path key and one per
+ * array element a numeric path key creates, holes included. The entry or path that goes over a bound is refused with
+ * 400 before the parser builds anything for it. Measured on Node 24, one anonymous request each, before the bounds:
+ *
+ * - object-path's `set()` recurses once per key and copies the remaining keys each time, so a path of n keys costs
+ *   O(n²): an 80 KB path (40,000 keys) exhausted a 1 GB heap and ended the process, 16 KB (8,000 keys) took 300 MB and
+ *   blocked the event loop for half a second; 1 MB of paths under the per-path bound blocked it for up to 640 ms.
+ * - Every entry becomes an `Upload` that is rejected with an error of its own when its file never arrives: 1 MB of
+ *   entries without a path (83,000) took 230 MB and blocked the event loop for 410 ms.
+ * - object-path reads a key like `4294967294` as a number and sets that index of an array it creates, so the 258-byte
+ *   request `{"1":["variables.f.4294967294"]}` handed GraphQL an array of 4,294,967,295 elements. Coercing its holes in
+ *   the complexity plugin exhausted a 1 GB heap within seconds.
+ *
+ * With the bounds such requests are refused within about 30 ms, most of it spent parsing the field's JSON.
  *
  * `CoreModule` passes this function to `graphqlUploadExpress({ processRequest })`. A project that registers
  * `graphqlUploadExpress()` itself must pass it too — graphql-upload's own default is the unpatched function.
@@ -77,13 +83,15 @@ const GRAPHQL_MULTIPART_REQUEST_SPEC_URL = 'https://github.com/jaydenseric/graph
 export const GRAPHQL_UPLOAD_MAX_PATH_KEYS = 64;
 
 /**
- * Most entries and path keys one `map` may name together: every entry counts one, every key of its paths one more, so
- * `{"1":["variables.file"]}` counts 3, and 2,000 files at `variables.input.files.N` count 10,000. An entry over it is
- * refused before its `Upload` exists, with 400 "Invalid ‘map’ multipart field entry key …"; a path over it with 400
- * "Invalid object path". It bounds the work of a `map` of many paths that each stay under
- * {@link GRAPHQL_UPLOAD_MAX_PATH_KEYS} (1 MB of them blocked the event loop for up to 640 ms) and of a `map` of many
- * entries, each of which becomes an `Upload` that the parser rejects with an error of its own when its file never
- * arrives (1 MB of entries without a path, 83,000 of them, took 230 MB and blocked the event loop for 410 ms).
+ * Most units one `map` may name: one per entry, one per key of its paths, and one per element a numeric path key adds
+ * to an array, holes included — object-path sets index i, so the array becomes i + 1 long.
+ * `{"1":["variables.files.0"]}` counts 5 when `variables.files` does not exist yet and 4 when the operations already
+ * hold the slot; 2,000 files at `variables.files.N` count at most 10,000. The entry that goes over it is refused before
+ * its `Upload` exists, with 400 "Invalid ‘map’ multipart field entry key …"; the path that goes over it with 400
+ * "Invalid object path". It bounds the work of many paths (1 MB of 64-key paths blocked the event loop for up to
+ * 640 ms), of many entries (83,000 path-less entries in 1 MB took 230 MB and 410 ms) and of sparse arrays
+ * (`variables.f.4294967294` became an array of 2^32 − 1 elements, and GraphQL's list coercion walked them until the
+ * heap ran out).
  */
 export const GRAPHQL_UPLOAD_MAX_MAP_KEYS = 10_000;
 
@@ -125,6 +133,25 @@ function ignoreStream(stream: Readable): void {
 
   // Waste the stream.
   stream.resume();
+}
+
+/**
+ * How many elements setting `key` in `container` adds to an array, the way object-path's `set()` sees it. object-path
+ * reads a key that `parseInt()` turns back into the same string as a NUMBER, and creates an array — not an object —
+ * for a missing container whose key is a number. Setting index i makes an array of length n i + 1 long when i ≥ n,
+ * every element in between a hole, and GraphQL's list coercion walks each of them. 0 for an object container, a
+ * string key, or a number that is not a non-negative integer (`NaN`, `-1`: a property, not an element).
+ */
+function arrayGrowth(container: unknown, key: string): number {
+  // object-path's getKey() calls parseInt() without a radix; for a key that round-trips the result is the same.
+  const index = Number.parseInt(key, 10);
+  if (index.toString() !== key || !Number.isInteger(index) || index < 0) {
+    return 0;
+  }
+  if (container === undefined) {
+    return index + 1;
+  }
+  return Array.isArray(container) ? Math.max(0, index + 1 - container.length) : 0;
 }
 
 /**
@@ -326,6 +353,17 @@ export function processGraphQlUploadRequest(
                   // objects pass `instanceof Upload` checks.
                   if (key === '__proto__') {
                     throw new TypeError('Object path has a `__proto__` key.');
+                  }
+
+                  // `pathValue` is this key's container. A key object-path reads as a number extends an array — a new
+                  // one when the container does not exist yet — up to that index: every element it adds counts against
+                  // GRAPHQL_UPLOAD_MAX_MAP_KEYS, holes included (`variables.f.4294967294` adds 4,294,967,295).
+                  const growth = arrayGrowth(pathValue, key);
+                  if (growth > 0) {
+                    mapKeyCount += growth;
+                    if (mapKeyCount > GRAPHQL_UPLOAD_MAX_MAP_KEYS) {
+                      throw new RangeError(`The map's arrays have more than ${GRAPHQL_UPLOAD_MAX_MAP_KEYS} elements.`);
+                    }
                   }
 
                   // Forbid setting an upload within an already set upload, but allow a total replacement. Resolved

@@ -164,6 +164,48 @@ describe('redactSecrets()', () => {
     expect(out.github.apiUrl).toBe(`https://${REDACTED_VALUE}@api.github.com`);
   });
 
+  /**
+   * @regression   12.6.14 — a private key travels as PEM, and a certificate login keeps certificate and key in ONE PEM
+   *   under a name like `certificate`, which no key heuristic may call secret. `GET /config` and the `warn: true`
+   *   debug output printed it in clear text; read with `readFileSync()` without an encoding it was a Buffer, which
+   *   JSON printed byte by byte.
+   * @seen-failing Drop the PRIVATE_KEY_PEM_PATTERN check from the string branch of redactValue() in
+   *   src/core/common/helpers/redact-secrets.helper.ts — registered as mutation `redact-secrets-pem-key-by-name-only`
+   *   in tests/regression-mutations.json; mutation `redact-secrets-pem-buffer-kept` drops it from the Buffer branch.
+   */
+  it('masks a PEM private key whatever its key is called, as a string and as a Buffer', () => {
+    const certificate = '-----BEGIN CERTIFICATE-----\nMIIBpublicPart\n-----END CERTIFICATE-----\n';
+    const keys = [
+      '-----BEGIN PRIVATE KEY-----\nSECRET-pkcs8\n-----END PRIVATE KEY-----',
+      '-----BEGIN RSA PRIVATE KEY-----\nSECRET-rsa\n-----END RSA PRIVATE KEY-----',
+      '-----BEGIN EC PRIVATE KEY-----\nSECRET-ec\n-----END EC PRIVATE KEY-----',
+      '-----BEGIN ENCRYPTED PRIVATE KEY-----\nSECRET-encrypted\n-----END ENCRYPTED PRIVATE KEY-----',
+      '-----BEGIN OPENSSH PRIVATE KEY-----\nSECRET-openssh\n-----END OPENSSH PRIVATE KEY-----',
+      '-----BEGIN PGP PRIVATE KEY BLOCK-----\nSECRET-pgp\n-----END PGP PRIVATE KEY BLOCK-----',
+    ];
+    const out = redactSecrets({
+      certificateOnly: certificate,
+      microsoft: {
+        certificate: `${certificate}${keys[0]}`,
+        certificateFile: Buffer.from(`${certificate}${keys[1]}`),
+        thumbprint: 'AB12CD',
+      },
+      others: keys.slice(2),
+      pfx: 'SECRET-pfx-base64',
+      publicFile: Buffer.from(certificate),
+    });
+    expect(JSON.stringify(out)).not.toContain('SECRET-');
+    expect(out.microsoft).toEqual({
+      certificate: REDACTED_VALUE,
+      certificateFile: REDACTED_VALUE,
+      thumbprint: 'AB12CD',
+    });
+    expect(out.others).toEqual([REDACTED_VALUE, REDACTED_VALUE, REDACTED_VALUE, REDACTED_VALUE]);
+    // A certificate alone is public and stays readable
+    expect(out.certificateOnly).toBe(certificate);
+    expect(Buffer.isBuffer(out.publicFile) && out.publicFile.toString()).toBe(certificate);
+  });
+
   it('masks the password of a connection URI and keeps the rest', () => {
     const out = redactSecrets({ link: 'mongodb://user:SECRET-pw@host:27017/db' });
     expect(out.link).toBe(`mongodb://user:${REDACTED_VALUE}@host:27017/db`);

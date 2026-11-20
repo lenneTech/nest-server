@@ -29,7 +29,20 @@
  * and booleans below such a key stay visible.
  */
 const SECRET_KEY_PATTERN =
-  /secret|passwd|password|passphrase|credential|api[-_]?key|access[-_]?key|private[-_]?key|encryption|token|\bpass\b|pass$|dsn|salt|key$|(^|[^a-z])key([^a-z]|$)/i;
+  /secret|passwd|password|passphrase|credential|api[-_]?key|access[-_]?key|private[-_]?key|encryption|token|\bpass\b|pass$|dsn|salt|key$|(^|[^a-z])key([^a-z]|$)|pfx|pkcs12/i;
+
+/**
+ * Value-shape heuristic: a PEM block holding a private key — `-----BEGIN PRIVATE KEY-----` and its `RSA`, `EC`,
+ * `ENCRYPTED`, `OPENSSH` variants, and PGP's `-----BEGIN PGP PRIVATE KEY BLOCK-----`. Checked in every string and
+ * `Buffer`, whatever its key is called (12.6.14): a certificate login keeps certificate and key in ONE PEM, usually
+ * under a name such as `certificate` that no key heuristic may call secret — a certificate alone is public, and an
+ * operator needs to see which one is configured. Until 12.6.14 such a key reached `GET /config` and the `warn: true`
+ * debug output in clear text. The whole value is masked; the certificate beside the key goes with it.
+ *
+ * A PKCS#12 container carries no text marker, so it is caught by its NAME (`pfx`, `pkcs12` in
+ * {@link SECRET_KEY_PATTERN}).
+ */
+const PRIVATE_KEY_PEM_PATTERN = /-----BEGIN [A-Z0-9 ]*PRIVATE KEY[A-Z ]*-----/i;
 
 /**
  * Keys whose value is an address that can carry a secret in its PATH (a Slack or Teams webhook,
@@ -95,6 +108,7 @@ export const FRAMEWORK_SECRET_FIELDS: readonly string[] = [
  *   keep flags such as `emailAndPassword.disableSignUp` readable.
  * - A string shaped like a connection URI has the password of its user info masked, and every secret-named query
  *   parameter, whatever its key is called.
+ * - A string or `Buffer` holding a PEM private key is masked as a whole, whatever its key is called.
  * - `null` and `undefined` pass through; a `Date` or `Buffer` is kept as it is (masked under a secret key).
  *
  * @param value - the object or value to mask (never mutated)
@@ -154,13 +168,18 @@ function redactValue(value: unknown, underSecretKey: boolean, extra: Set<string>
     if (typeof value !== 'string') {
       return value;
     }
+    if (PRIVATE_KEY_PEM_PATTERN.test(value)) {
+      return REDACTED_VALUE;
+    }
     return URL_KEY_PATTERN.test(key) ? redactUrl(value) : redactString(value);
   }
 
   // Non-plain objects (Date, Buffer) are kept as they are — cloning would lose their type, and they carry no framework
-  // secret — unless they sit below a secret key
+  // secret — unless they sit below a secret key or the Buffer holds a PEM private key (`readFileSync('key.pem')`
+  // without an encoding, which JSON would print byte by byte)
   if (value instanceof Date || Buffer.isBuffer(value)) {
-    return underSecretKey ? REDACTED_VALUE : value;
+    const holdsPrivateKey = Buffer.isBuffer(value) && PRIVATE_KEY_PEM_PATTERN.test(value.toString('latin1'));
+    return underSecretKey || holdsPrivateKey ? REDACTED_VALUE : value;
   }
 
   if (Array.isArray(value)) {
