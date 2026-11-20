@@ -7,7 +7,11 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterAll, afterEach, beforeAll, describe, expect, it } from 'vitest';
 
-import { processGraphQlUploadRequest } from '../../src/core/common/helpers/graphql-upload.helper';
+import {
+  GRAPHQL_UPLOAD_MAX_PATH_KEYS,
+  GRAPHQL_UPLOAD_MAX_MAP_KEYS,
+  processGraphQlUploadRequest,
+} from '../../src/core/common/helpers/graphql-upload.helper';
 import { CRASH_MAP, CRASH_OPERATIONS, graphQlMultipart, postMultipart } from '../helpers/graphql-multipart';
 
 import type { MiddlewareConsumer } from '@nestjs/common';
@@ -56,6 +60,23 @@ interface EchoedUpload {
 
 const ROOT = join(__dirname, '..', '..');
 const CHILD_FIXTURE = join(__dirname, 'fixtures', 'graphql-upload-crash-child.ts');
+const DEEP_PATH_CHILD_FIXTURE = join(__dirname, 'fixtures', 'graphql-upload-deep-path-child.ts');
+const SPARSE_ARRAY_CHILD_FIXTURE = join(__dirname, 'fixtures', 'graphql-upload-sparse-array-child.ts');
+
+/**
+ * The largest array index there is: object-path reads it as a number and sets it, so the array it creates has
+ * 4,294,967,295 elements, every one but the last a hole.
+ */
+const SPARSE_INDEX = '4294967294';
+
+/**
+ * Keys of the deep path the heap-limited child sends. Far over GRAPHQL_UPLOAD_MAX_PATH_KEYS and, with its one map
+ * entry, still under GRAPHQL_UPLOAD_MAX_MAP_KEYS, so only the per-path bound stands between it and object-path's O(n²)
+ * `set()`:
+ * unbounded, reaching depth ~1,500 of 9,000 already holds ~100 MB of key copies, and the child's heap is 128 MB.
+ */
+const DEEP_PATH_KEYS = 9_000;
+const CONSTRAINED_HEAP = ['--max-old-space-size=128'];
 
 /** Reads an upload the way a resolver does: await the promise, stream the file. */
 async function readUpload(upload: Upload): Promise<EchoedUpload> {
@@ -71,25 +92,47 @@ async function readUpload(upload: Upload): Promise<EchoedUpload> {
   };
 }
 
-/** Terminal handler: answers every variable, reading each `Upload` (also inside an array). */
+/** Echoes a variable value, reading each `Upload` in it (also inside an array or a nested object). */
+async function echoValue(value: unknown): Promise<unknown> {
+  if (value instanceof Upload) {
+    return readUpload(value);
+  }
+  if (Array.isArray(value)) {
+    return Promise.all(value.map((item) => echoValue(item)));
+  }
+  if (value && typeof value === 'object') {
+    const result: Record<string, unknown> = {};
+    for (const [key, item] of Object.entries(value)) {
+      result[key] = await echoValue(item);
+    }
+    return result;
+  }
+  return value;
+}
+
+/** Terminal handler: answers every variable, reading each `Upload` (also inside an array or a nested object). */
 const echoUploads: RequestHandler = async (request, response, next) => {
   try {
     const variables = (request.body as { variables?: Record<string, unknown> } | undefined)?.variables ?? {};
-    const result: Record<string, unknown> = {};
-    for (const [key, value] of Object.entries(variables)) {
-      if (value instanceof Upload) {
-        result[key] = await readUpload(value);
-      } else if (Array.isArray(value)) {
-        result[key] = await Promise.all(value.map((item) => (item instanceof Upload ? readUpload(item) : item)));
-      } else {
-        result[key] = value;
-      }
-    }
-    response.json(result);
+    response.json(await echoValue(variables));
   } catch (error) {
     next(error);
   }
 };
+
+/** A `map` path of exactly `count` keys below `variables`: `variables.<leaf>` for 2, `variables.a.<leaf>` for 3, … */
+function pathOfKeys(count: number, leaf = 'a'): string {
+  return ['variables', ...Array<string>(count - 2).fill('a'), leaf].join('.');
+}
+
+/** Follows `steps` times the `a` property, as {@link pathOfKeys} nests it. */
+function followA(value: unknown, steps: number): unknown {
+  let node = value;
+  for (let step = 0; step < steps; step++) {
+    node = (node as Record<string, unknown>).a;
+  }
+  return node;
+}
 
 const errorAsJson: ErrorRequestHandler = (error, _request, response, _next) => {
   const status = error?.status ?? 500;
@@ -115,11 +158,26 @@ async function stopServer(server: Server | undefined): Promise<void> {
   await new Promise<void>((resolve) => server.close(() => resolve()));
 }
 
-/** Runs the child fixture to its end and reports how it ended. */
-function runChild(mode: 'default' | 'framework'): Promise<{ code: null | number; stderr: string; stdout: string }> {
+/** How a child fixture ended. */
+interface ChildOutcome {
+  code: null | number;
+  signal: NodeJS.Signals | null;
+  stderr: string;
+  stdout: string;
+}
+
+/** Runs a child fixture to its end and reports how it ended. */
+function runChild(
+  mode: 'default' | 'framework',
+  {
+    args = [],
+    fixture = CHILD_FIXTURE,
+    nodeArgs = [],
+  }: { args?: string[]; fixture?: string; nodeArgs?: string[] } = {},
+): Promise<ChildOutcome> {
   return new Promise((resolve, reject) => {
     // `node --import tsx <file>` runs the fixture in this one process, so its exit code is the fixture's own.
-    const child = spawn(process.execPath, ['--import', 'tsx', CHILD_FIXTURE, mode], {
+    const child = spawn(process.execPath, [...nodeArgs, '--import', 'tsx', fixture, mode, ...args], {
       cwd: ROOT,
       env: { ...process.env, NODE_OPTIONS: '' },
     });
@@ -135,9 +193,9 @@ function runChild(mode: 'default' | 'framework'): Promise<{ code: null | number;
       clearTimeout(timer);
       reject(error);
     });
-    child.on('exit', (code) => {
+    child.on('exit', (code, signal) => {
       clearTimeout(timer);
-      resolve({ code, stderr, stdout });
+      resolve({ code, signal, stderr, stdout });
     });
   });
 }
@@ -240,6 +298,227 @@ describe('processGraphQlUploadRequest (GHSA-5vm7-vc2x-p3w2, GHSA-qwwm-252j-9whw)
 
       expect(response.status, response.body).toBe(200);
       expect(JSON.parse(response.body).file.content).toBe('two');
+    });
+  });
+
+  /**
+   * @regression   12.10.1 — processGraphQlUploadRequest() bounded neither how many keys a `map` path has nor how
+   *   large the whole `map` is. object-path's `set()` recurses once per key with a copy of the remaining keys, so one
+   *   anonymous request with an 80 KB path (40,000 keys) exhausted a 1 GB heap; 1 MB of 64-key paths blocked the event
+   *   loop for up to 640 ms; 1 MB of entries without a path (83,000 Uploads, each rejected with an error of its own)
+   *   took 230 MB and 410 ms. And object-path reads a key like `4294967294` as a number: `variables.f.4294967294`
+   *   (258 bytes) became an array of 2^32 − 1 elements, whose holes GraphQL's list coercion in the complexity plugin
+   *   walked until a 1 GB heap ran out. graphql-upload 18.0.2 has the same flaws.
+   * @seen-failing Registered in tests/regression-mutations.json: `graphql-upload-map-path-depth-unbounded` (the
+   *   per-path bound gone: the over-the-bound case answers 200, and the heap-limited child below dies of heap
+   *   exhaustion instead of answering 400), `graphql-upload-map-path-total-unbounded` (path keys no longer checked
+   *   against the map bound: the one-path-key-over case answers 200), `graphql-upload-map-entries-uncounted`
+   *   (entries no longer counted: the path-less-entries and the entries-plus-keys cases answer 200) and
+   *   `graphql-upload-map-array-holes-uncounted` (array elements no longer counted: the 4294967294, index-at-the-bound
+   *   and moderate-indices cases answer 200, and the heap-limited sparse-array child dies of heap exhaustion).
+   */
+  describe('map size (GRAPHQL_UPLOAD_MAX_PATH_KEYS, GRAPHQL_UPLOAD_MAX_MAP_KEYS)', () => {
+    it('refuses a path with one key more than the bound with 400, and the server keeps answering', async () => {
+      const path = pathOfKeys(GRAPHQL_UPLOAD_MAX_PATH_KEYS + 1);
+      expect(path.split('.')).toHaveLength(GRAPHQL_UPLOAD_MAX_PATH_KEYS + 1);
+
+      const refused = await postMultipart(
+        port,
+        '/graphql',
+        graphQlMultipart({ variables: {} }, { '1': [path] }, [{ content: 'deep', name: '1' }]),
+      );
+
+      expect(refused.status, refused.body).toBe(400);
+      expect(JSON.parse(refused.body).message).toMatch(/^Invalid object path /);
+
+      const next = await postMultipart(
+        port,
+        '/graphql',
+        graphQlMultipart({ variables: { file: null } }, { '1': ['variables.file'] }, [{ content: 'after', name: '1' }]),
+      );
+      expect(next.status, next.body).toBe(200);
+      expect(JSON.parse(next.body).file.content).toBe('after');
+    });
+
+    it('accepts a path with exactly the bound of keys and delivers its file there', async () => {
+      const path = pathOfKeys(GRAPHQL_UPLOAD_MAX_PATH_KEYS, 'file');
+      expect(path.split('.')).toHaveLength(GRAPHQL_UPLOAD_MAX_PATH_KEYS);
+
+      const response = await postMultipart(
+        port,
+        '/graphql',
+        graphQlMultipart({ variables: {} }, { '1': [path] }, [{ content: 'deep', filename: 'deep.txt', name: '1' }]),
+      );
+
+      expect(response.status, response.body).toBe(200);
+      const leaf = followA(JSON.parse(response.body), GRAPHQL_UPLOAD_MAX_PATH_KEYS - 2) as Record<string, unknown>;
+      expect(leaf.file).toEqual({ content: 'deep', filename: 'deep.txt', resolvedFileIsCurrent: true });
+    });
+
+    it('accepts a map at exactly the bound, and refuses one path key more with 400 "Invalid object path"', async () => {
+      // One map entry (1) with paths of 33 keys, each at its own variable: exactly GRAPHQL_UPLOAD_MAX_MAP_KEYS.
+      const keysPerPath = 33;
+      const count = (GRAPHQL_UPLOAD_MAX_MAP_KEYS - 1) / keysPerPath;
+      expect(Number.isInteger(count)).toBe(true);
+      const paths = Array.from({ length: count }, (_, index) =>
+        ['variables', `f${index}`, ...Array<string>(keysPerPath - 2).fill('a')].join('.'),
+      );
+      const file = [{ content: 'shared', name: '1' }];
+
+      const accepted = await postMultipart(port, '/graphql', graphQlMultipart({ variables: {} }, { '1': paths }, file));
+      expect(accepted.status, accepted.body.slice(0, 300)).toBe(200);
+      const body = JSON.parse(accepted.body) as Record<string, unknown>;
+      expect(Object.keys(body)).toHaveLength(count);
+      expect(followA(body[`f${count - 1}`], keysPerPath - 2)).toMatchObject({ content: 'shared' });
+
+      // One more path of two keys in the same entry: the map goes over the bound at that path.
+      const refused = await postMultipart(
+        port,
+        '/graphql',
+        graphQlMultipart({ variables: {} }, { '1': [...paths, 'variables.extra'] }, file),
+      );
+      expect(refused.status, refused.body.slice(0, 300)).toBe(400);
+      expect(JSON.parse(refused.body).message).toMatch(/^Invalid object path .*‘variables\.extra’/);
+    });
+
+    it('refuses one path-less map entry more than the bound with 400, and the server keeps answering', async () => {
+      // Entries without any path: no key at all, but each one becomes an Upload that is rejected at the end of the
+      // request. The entry over the bound is refused before its Upload exists.
+      const map: Record<string, string[]> = {};
+      for (let index = 0; index <= GRAPHQL_UPLOAD_MAX_MAP_KEYS; index++) {
+        map[`e${index}`] = [];
+      }
+
+      const refused = await postMultipart(port, '/graphql', graphQlMultipart({ variables: {} }, map));
+
+      expect(refused.status, refused.body.slice(0, 300)).toBe(400);
+      expect(JSON.parse(refused.body).message).toMatch(
+        new RegExp(`^Invalid ‘map’ multipart field entry key ‘e${GRAPHQL_UPLOAD_MAX_MAP_KEYS}’`),
+      );
+
+      const next = await postMultipart(
+        port,
+        '/graphql',
+        graphQlMultipart({ variables: { file: null } }, { '1': ['variables.file'] }, [{ content: 'after', name: '1' }]),
+      );
+      expect(next.status, next.body).toBe(200);
+      expect(JSON.parse(next.body).file.content).toBe('after');
+    });
+
+    it('accepts exactly the bound of path-less map entries', async () => {
+      const map: Record<string, string[]> = {};
+      for (let index = 0; index < GRAPHQL_UPLOAD_MAX_MAP_KEYS; index++) {
+        map[`e${index}`] = [];
+      }
+
+      const accepted = await postMultipart(port, '/graphql', graphQlMultipart({ variables: {} }, map));
+
+      expect(accepted.status, accepted.body.slice(0, 300)).toBe(200);
+    });
+
+    it('counts map entries and path keys together', async () => {
+      // Entries of one 3-key path each, outside `variables` (which the echo handler reads, so no file has to be sent):
+      // every entry costs 4. Neither the entries nor the path keys alone come near the bound — only their sum does.
+      const keysPerPath = 3;
+      const count = GRAPHQL_UPLOAD_MAX_MAP_KEYS / (1 + keysPerPath);
+      expect(Number.isInteger(count)).toBe(true);
+      expect(count * keysPerPath).toBeLessThan(GRAPHQL_UPLOAD_MAX_MAP_KEYS);
+      const entries = (total: number): Record<string, string[]> => {
+        const map: Record<string, string[]> = {};
+        for (let index = 0; index < total; index++) {
+          map[String(index)] = [`extensions.f${index}.file`];
+        }
+        return map;
+      };
+      const operations = { extensions: {}, variables: {} };
+
+      const accepted = await postMultipart(port, '/graphql', graphQlMultipart(operations, entries(count)));
+      expect(accepted.status, accepted.body.slice(0, 300)).toBe(200);
+
+      // One entry more: refused at that entry, before its Upload exists.
+      const refused = await postMultipart(port, '/graphql', graphQlMultipart(operations, entries(count + 1)));
+      expect(refused.status, refused.body.slice(0, 300)).toBe(400);
+      expect(JSON.parse(refused.body).message).toMatch(
+        new RegExp(`^Invalid ‘map’ multipart field entry key ‘${count}’`),
+      );
+    });
+
+    it('refuses a numeric key that would make an array of 2^32 − 1 elements with 400, and the server keeps answering', async () => {
+      // Outside `variables`, which the echo handler reads: an unbounded parser answers 200 here at once instead of the
+      // handler walking the holes.
+      const path = `extensions.f.${SPARSE_INDEX}`;
+
+      const refused = await postMultipart(port, '/graphql', graphQlMultipart({ variables: {} }, { '1': [path] }));
+
+      expect(refused.status, refused.body.slice(0, 300)).toBe(400);
+      expect(JSON.parse(refused.body).message).toMatch(/^Invalid object path .*‘extensions\.f\.4294967294’/);
+
+      const next = await postMultipart(
+        port,
+        '/graphql',
+        graphQlMultipart({ variables: { file: null } }, { '1': ['variables.file'] }, [{ content: 'after', name: '1' }]),
+      );
+      expect(next.status, next.body).toBe(200);
+      expect(JSON.parse(next.body).file.content).toBe('after');
+    });
+
+    it('counts every element a numeric key adds, holes included, up to the bound', async () => {
+      // One entry (1), three path keys (3) and index + 1 new elements: an index of the bound − 5 fills it exactly.
+      const atBound = GRAPHQL_UPLOAD_MAX_MAP_KEYS - 5;
+
+      const accepted = await postMultipart(
+        port,
+        '/graphql',
+        graphQlMultipart({ variables: {} }, { '1': [`extensions.f.${atBound}`] }),
+      );
+      expect(accepted.status, accepted.body.slice(0, 300)).toBe(200);
+
+      const refused = await postMultipart(
+        port,
+        '/graphql',
+        graphQlMultipart({ variables: {} }, { '1': [`extensions.f.${atBound + 1}`] }),
+      );
+      expect(refused.status, refused.body.slice(0, 300)).toBe(400);
+      expect(JSON.parse(refused.body).message).toMatch(/^Invalid object path /);
+    });
+
+    it('counts array growth across entries: moderate indices in distinct arrays that together exceed the bound', async () => {
+      // Each entry sets index 999 of an array of its own: 1 + 3 + 1,000 units, far under the bound on its own.
+      const elements = 1_000;
+      const perEntry = 1 + 3 + elements;
+      const count = Math.floor(GRAPHQL_UPLOAD_MAX_MAP_KEYS / perEntry);
+      const entries = (total: number): Record<string, string[]> => {
+        const map: Record<string, string[]> = {};
+        for (let index = 0; index < total; index++) {
+          map[String(index)] = [`extensions.f${index}.${elements - 1}`];
+        }
+        return map;
+      };
+
+      const accepted = await postMultipart(port, '/graphql', graphQlMultipart({ variables: {} }, entries(count)));
+      expect(accepted.status, accepted.body.slice(0, 300)).toBe(200);
+
+      const refused = await postMultipart(port, '/graphql', graphQlMultipart({ variables: {} }, entries(count + 1)));
+      expect(refused.status, refused.body.slice(0, 300)).toBe(400);
+      expect(JSON.parse(refused.body).message).toMatch(
+        new RegExp(`^Invalid object path .*‘extensions\\.f${count}\\.${elements - 1}’`),
+      );
+    });
+
+    it('accepts files at variables.files.0 … n and delivers each at its index', async () => {
+      const count = 20;
+      const map: Record<string, string[]> = {};
+      const files: Array<{ content: string; name: string }> = [];
+      for (let index = 0; index < count; index++) {
+        map[String(index)] = [`variables.files.${index}`];
+        files.push({ content: `file ${index}`, name: String(index) });
+      }
+
+      const response = await postMultipart(port, '/graphql', graphQlMultipart({ variables: {} }, map, files));
+
+      expect(response.status, response.body.slice(0, 300)).toBe(200);
+      const delivered = (JSON.parse(response.body).files as Array<{ content: string }>).map((file) => file.content);
+      expect(delivered).toEqual(files.map((file) => file.content));
     });
   });
 
@@ -351,6 +630,82 @@ describe('the unpatched default against a real process', () => {
     expect(stdout).toContain('ALIVE');
     expect(code).toBe(0);
   });
+
+  it('premise: the deep path stays under the map bound, so only the per-path bound refuses it', () => {
+    expect(DEEP_PATH_KEYS).toBeGreaterThan(GRAPHQL_UPLOAD_MAX_PATH_KEYS);
+    // One map entry plus the path's keys.
+    expect(1 + DEEP_PATH_KEYS).toBeLessThanOrEqual(GRAPHQL_UPLOAD_MAX_MAP_KEYS);
+  });
+
+  it(
+    `runs out of a 128 MB heap on one ${DEEP_PATH_KEYS}-key map path — graphql-upload's own processRequest`,
+    { timeout: 30_000 },
+    async () => {
+      const { code, signal, stderr, stdout } = await runChild('default', {
+        args: [String(DEEP_PATH_KEYS)],
+        fixture: DEEP_PATH_CHILD_FIXTURE,
+        nodeArgs: CONSTRAINED_HEAP,
+      });
+
+      // Evidence that the unbounded path ends a process, independent of the code: V8 aborts on heap exhaustion.
+      expect(stdout).not.toContain('ALIVE');
+      expect(stderr).toMatch(/heap out of memory/i);
+      expect(code === 0 && signal === null).toBe(false);
+    },
+  );
+
+  it(
+    `answers the same ${DEEP_PATH_KEYS}-key path with 400 in a 128 MB heap and keeps running with processGraphQlUploadRequest`,
+    { timeout: 30_000 },
+    async () => {
+      const { code, stderr, stdout } = await runChild('framework', {
+        args: [String(DEEP_PATH_KEYS)],
+        fixture: DEEP_PATH_CHILD_FIXTURE,
+        nodeArgs: CONSTRAINED_HEAP,
+      });
+
+      expect(stderr).not.toMatch(/heap out of memory/i);
+      expect(stdout).toMatch(/^RESPONSE 400 Invalid object path /m);
+      expect(stdout).toMatch(/^NEXT 200 /m);
+      expect(stdout).toContain('ALIVE');
+      expect(code).toBe(0);
+    },
+  );
+
+  it(
+    `runs out of a 128 MB heap in ComplexityPlugin on map index ${SPARSE_INDEX} — graphql-upload's own processRequest`,
+    { timeout: 30_000 },
+    async () => {
+      const { code, signal, stderr, stdout } = await runChild('default', {
+        args: [SPARSE_INDEX],
+        fixture: SPARSE_ARRAY_CHILD_FIXTURE,
+        nodeArgs: CONSTRAINED_HEAP,
+      });
+
+      // Evidence that the sparse array ends a process through the real plugin and schema, independent of the code.
+      expect(stdout).not.toContain('ALIVE');
+      expect(stderr).toMatch(/heap out of memory/i);
+      expect(code === 0 && signal === null).toBe(false);
+    },
+  );
+
+  it(
+    `answers map index ${SPARSE_INDEX} with 400 in a 128 MB heap, and the next upload passes ComplexityPlugin`,
+    { timeout: 30_000 },
+    async () => {
+      const { code, stderr, stdout } = await runChild('framework', {
+        args: [SPARSE_INDEX],
+        fixture: SPARSE_ARRAY_CHILD_FIXTURE,
+        nodeArgs: CONSTRAINED_HEAP,
+      });
+
+      expect(stderr).not.toMatch(/heap out of memory/i);
+      expect(stdout).toMatch(/^RESPONSE 400 Invalid object path /m);
+      expect(stdout).toMatch(/^NEXT 200 OK/m);
+      expect(stdout).toContain('ALIVE');
+      expect(code).toBe(0);
+    },
+  );
 });
 
 describe('CoreModule wiring', () => {

@@ -34,18 +34,19 @@ allowBuilds:
 #
 # GHSA-g3hv-75wg-m249 (minimatch < 11.0.1, moderate, DoS through globparts amplification). Verified 2026-10-31 (owner
 # decision, DEV-3899), re-verified 2026-11-09 (nest-server 12.8.4): the fix exists only in the new major (minimatch
-# 11.0.1, released 2026-10-27). @nestjs/cli 12.0.12 and glob 14 (via rimraf 6.1.4) moved to minimatch 11; the
-# consumers left are each on their newest release without it — @ts-morph/common 0.29.0 (via ts-morph 28.0.0, the
-# Permissions module's scanner) and nodemon 3.1.14 need ^10, @swc/cli 0.8.2 needs ^9. An override across the major is
+# 11.0.1, released 2026-10-27). @nestjs/cli 12.0.12 and glob 14 (via rimraf 6.1.4) moved to minimatch 11, and so did
+# @ts-morph/common 0.29.1 (2026-11-16, via ts-morph 28.0.0, the Permissions module's scanner) — re-verified
+# 2026-11-19: no vulnerable minimatch is left in the production tree. The consumers left are dev tooling, each on its
+# newest release without it — nodemon 3.1.14 needs ^10, @swc/cli 0.8.2 needs ^9. An override across the major is
 # ruled out by the fixed-target rule, and minimatch 11 removed `makeRe()` and `Minimatch#regexp`. Every path matches
-# patterns the DEVELOPER writes (scanner globs, CLI file arguments), never request input.
+# patterns the DEVELOPER writes (CLI file arguments), never request input.
 # Re-verify when any of these consumers releases a version on minimatch 11 — the guard reports it as RE-TEST.
 # GHSA-3g3m-2fjr-6pw4 (glob <= 14.0.1) left on 2026-11-09: rimraf 6.1.4 pulls glob 14.0.4, no affected glob remains.
 auditConfig:
   ignoreGhsas:
     - GHSA-g3hv-75wg-m249
   unusableFixConsumers:
-    GHSA-g3hv-75wg-m249: '@swc/cli@0.8.2 + @ts-morph/common@0.29.0 + nodemon@3.1.14 cannot use 11.0.1'
+    GHSA-g3hv-75wg-m249: '@swc/cli@0.8.2 + nodemon@3.1.14 cannot use 11.0.1'
 
 peerDependencyRules:
   allowedVersions:

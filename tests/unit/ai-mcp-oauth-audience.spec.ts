@@ -212,7 +212,9 @@ describe('/ai/mcp checks the audience of an MCP OAuth token', () => {
     await expect(resolve(svc.signAccessToken(USER.id, 'c1', 3600, MCP_RESOURCE))).resolves.toMatchObject({ id: USER.id });
     await expect(resolve(svc.signAccessToken(USER.id, 'c1', 3600))).resolves.toMatchObject({ id: USER.id });
     ConfigService.setConfig({} as any, { reInit: true, warn: false });
-  });
+    // The dynamic import of the controller transforms a large module graph: ~1.5 s alone, past the 5 s default
+    // under a full-suite run.
+  }, 30_000);
 });
 
 describe('the consent flow binds the code to the resource named at /authorize', () => {

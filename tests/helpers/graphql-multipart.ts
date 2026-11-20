@@ -3,8 +3,9 @@
  * tests: the body is written byte for byte here, so a case can send what no well-behaved client library would — a
  * `map` without its file fields, the same file field twice, a path with a `__proto__` key.
  *
- * Used by `tests/unit/graphql-upload-process-request.spec.ts`, its child fixture
- * (`tests/unit/fixtures/graphql-upload-crash-child.ts`) and `tests/file.e2e-spec.ts`.
+ * Used by `tests/unit/graphql-upload-process-request.spec.ts`, its child fixtures
+ * (`tests/unit/fixtures/graphql-upload-crash-child.ts`, `tests/unit/fixtures/graphql-upload-deep-path-child.ts`) and
+ * `tests/file.e2e-spec.ts`.
  */
 import { randomUUID } from 'node:crypto';
 import { request as httpRequest } from 'node:http';
