@@ -484,13 +484,15 @@ which is how the hole this feature closes came about in the first place.
 
 **Current entry (since 2026-10-31, owner decision, DEV-3899).** `GHSA-g3hv-75wg-m249` (minimatch
 `< 11.0.1`, moderate), fixed only in a new major released 2026-10-27 that its remaining consumers cannot
-take yet — `@swc/cli` 0.8.2, `@ts-morph/common` 0.29.0 and nodemon 3.1.14, each on its newest release
-(re-verified 2026-11-09; `@nestjs/cli` 12.0.12 and glob 14 moved to minimatch 11). The justification is in
-the comment above `ignoreGhsas`, the declaration in `unusableFixConsumers`.
-`tests/unit/audit-suppression-scope.spec.ts` allows minimatch in the production tree only under
-`@ts-morph/common` (ts-morph, the Permissions module's scanner, matching globs the developer writes) — its
-`prodVia` form. `GHSA-3g3m-2fjr-6pw4` (glob `<= 14.0.1`) was a second entry until 2026-11-09 (nest-server
-12.8.4), when rimraf 6.1.4 moved to glob 14.0.4 and no affected glob remained.
+take yet — `@swc/cli` 0.8.2 and nodemon 3.1.14, both dev tooling, each on its newest release
+(re-verified 2026-11-19; `@nestjs/cli` 12.0.12 and glob 14 moved to minimatch 11, and `@ts-morph/common`
+0.29.1 on 2026-11-16). The justification is in the comment above `ignoreGhsas`, the declaration in
+`unusableFixConsumers`. `tests/unit/audit-suppression-scope.spec.ts` keeps every vulnerable minimatch (< 11)
+out of the production tree. Until nest-server 12.10.1 it allowed one production path, `@ts-morph/common`
+0.29.0 (the Permissions module's scanner), in its `prodVia` form; a fresh resolve then picked 0.29.1 and
+`check:overrides` reported the stale declaration as RE-TEST. `GHSA-3g3m-2fjr-6pw4` (glob `<= 14.0.1`) was a
+second entry until 2026-11-09 (nest-server 12.8.4), when rimraf 6.1.4 moved to glob 14.0.4 and no affected
+glob remained.
 
 **Before that, no entry from 2026-10-24.** `GHSA-vfj7-8cjw-p6xm` (braces, via nodemon / npm-watch) was
 listed from 2026-10-11 to 2026-10-24: a dev-tooling-only path of an advisory with no patched release

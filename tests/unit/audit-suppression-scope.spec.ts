@@ -29,9 +29,9 @@ const ROOT = join(__dirname, '../..');
  * (`unusableFixConsumers` in `pnpm-workspace.yaml`, re-tested by `check:overrides`). GHSA-3g3m-2fjr-6pw4 (glob, via
  * rimraf) was the second until 2026-11-09, when rimraf 6.1.4 moved to glob 14:
  *
- * - GHSA-g3hv-75wg-m249 (minimatch): reaches production through exactly ONE path, ts-morph's `@ts-morph/common`,
- *   which the Permissions module's scanner uses with globs the developer writes. The argument is "no request input
- *   reaches the matcher", and it holds only for that path, so any other production parent voids it (`prodVia`).
+ * - GHSA-g3hv-75wg-m249 (minimatch): dev tooling only (nodemon, @swc/cli). Until 2026-11-19 it reached production
+ *   through ts-morph's `@ts-morph/common`, guarded here in the `prodVia` form; @ts-morph/common 0.29.1 moved to
+ *   minimatch 11, so no vulnerable minimatch (< 11) may appear in the production tree at all any more.
  *
  * Empty from 2026-10-24 until then. GHSA-vfj7-8cjw-p6xm (braces, via nodemon / npm-watch > chokidar@3)
  * had an entry here from 2026-10-11, an advisory with NO patched release at all, reached only
@@ -80,7 +80,8 @@ const ROOT = join(__dirname, '../..');
  * when upstream moves, not when your own reasoning stopped applying.
  */
 const DEV_ONLY_SUPPRESSIONS: { ghsa: string; pkg: string; prodVia?: string; vulnerableInProd: RegExp }[] = [
-  { ghsa: 'GHSA-g3hv-75wg-m249', pkg: 'minimatch', prodVia: '@ts-morph/common', vulnerableInProd: /minimatch@/ },
+  // Vulnerable range is < 11.0.1; the production tree carries minimatch 11 only (via @ts-morph/common 0.29.1).
+  { ghsa: 'GHSA-g3hv-75wg-m249', pkg: 'minimatch', vulnerableInProd: /minimatch@(?:\d|10)\.|minimatch@11\.0\.0\b/ },
 ];
 
 describe('audit suppressions stay within their justification', () => {

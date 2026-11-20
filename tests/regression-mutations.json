@@ -6253,8 +6253,8 @@
       "id": "redact-secrets-compound-keys",
       "defect": "12.5.0 review — the key pattern missed compound and camelCase names (botToken, GITHUB_TOKEN, smtpPass, signingKey) that the masker the starter used before caught; a project swapping its masker for the core one would have served them in plain text.",
       "file": "src/core/common/helpers/redact-secrets.helper.ts",
-      "find": "  /secret|passwd|password|passphrase|credential|api[-_]?key|access[-_]?key|private[-_]?key|encryption|token|\\bpass\\b|pass$|dsn|salt|key$|(^|[^a-z])key([^a-z]|$)/i;\n",
-      "replace": "  /secret|passwd|password|passphrase|credential|api[-_]?key|access[-_]?key|access[-_]?token|refresh[-_]?token|private[-_]?key|encryption|\\btoken\\b|\\bpass\\b|dsn|salt|(^|[^a-z])key([^a-z]|$)/i;\n",
+      "find": "  /secret|passwd|password|passphrase|credential|api[-_]?key|access[-_]?key|private[-_]?key|encryption|token|\\bpass\\b|pass$|dsn|salt|key$|(^|[^a-z])key([^a-z]|$)|pfx|pkcs12/i;\n",
+      "replace": "  /secret|passwd|password|passphrase|credential|api[-_]?key|access[-_]?key|access[-_]?token|refresh[-_]?token|private[-_]?key|encryption|\\btoken\\b|\\bpass\\b|dsn|salt|(^|[^a-z])key([^a-z]|$)|pfx|pkcs12/i;\n",
       "specs": [
         "tests/unit/redact-secrets.spec.ts"
       ],
@@ -8210,6 +8210,127 @@
       "driverSpecific": false
     },
     {
+      "id": "graphql-upload-map-path-depth-unbounded",
+      "defect": "12.10.1 — processGraphQlUploadRequest() did not bound how many keys a `map` path has. object-path's `set()` recurses once per key with a copy of the remaining keys (O(n²)): one anonymous request with an 80 KB path (40,000 keys) exhausted a 1 GB heap and ended the process, 16 KB took 300 MB and blocked the event loop for half a second. graphql-upload 18.0.2 has the same flaw.",
+      "file": "src/core/common/helpers/graphql-upload.helper.ts",
+      "find": "                if (keys.length > GRAPHQL_UPLOAD_MAX_PATH_KEYS) {\n",
+      "replace": "                if (keys.length < 0) {\n",
+      "specs": [
+        "tests/unit/graphql-upload-process-request.spec.ts"
+      ],
+      "driverSpecific": false
+    },
+    {
+      "id": "graphql-upload-map-path-total-unbounded",
+      "defect": "12.10.1 — processGraphQlUploadRequest() did not check path keys against a bound for the whole `map`: 1 MB of paths that each stay under the per-path bound (the default maxFieldSize) blocked the event loop for up to 640 ms per anonymous request.",
+      "file": "src/core/common/helpers/graphql-upload.helper.ts",
+      "find": "                mapKeyCount += keys.length;\n                if (mapKeyCount > GRAPHQL_UPLOAD_MAX_MAP_KEYS) {\n",
+      "replace": "                mapKeyCount += keys.length;\n                if (mapKeyCount < 0) {\n",
+      "specs": [
+        "tests/unit/graphql-upload-process-request.spec.ts"
+      ],
+      "driverSpecific": false
+    },
+    {
+      "id": "graphql-upload-map-entries-uncounted",
+      "defect": "12.10.1 — processGraphQlUploadRequest() did not count `map` entries: each becomes an Upload that the parser rejects with an error of its own when its file never arrives, so 1 MB of entries without a path (83,000 of them) took 230 MB and blocked the event loop for 410 ms per anonymous request.",
+      "file": "src/core/common/helpers/graphql-upload.helper.ts",
+      "find": "            mapKeyCount += 1;\n",
+      "replace": "            mapKeyCount += 0;\n",
+      "specs": [
+        "tests/unit/graphql-upload-process-request.spec.ts"
+      ],
+      "driverSpecific": false
+    },
+    {
+      "id": "graphql-upload-map-array-holes-uncounted",
+      "defect": "12.10.1 — processGraphQlUploadRequest() did not count the array elements a numeric `map` path key creates: object-path reads `4294967294` as a number and sets that index of an array it creates, so `variables.f.4294967294` (258 bytes, 4 units) became an array of 4,294,967,295 elements, whose holes GraphQL's list coercion in the complexity plugin walked until a 1 GB heap ran out.",
+      "file": "src/core/common/helpers/graphql-upload.helper.ts",
+      "find": "                    mapKeyCount += growth;\n",
+      "replace": "                    mapKeyCount += 0;\n",
+      "specs": [
+        "tests/unit/graphql-upload-process-request.spec.ts"
+      ],
+      "driverSpecific": false
+    },
+    {
+      "id": "complexity-variables-uncapped",
+      "defect": "12.10.1 — ComplexityPlugin called getComplexity(), which coerces the variables without an error cap: a list of invalid items (`{\"f\":[0,0,…]}` for `$f: [Upload!]!`) created one GraphQLError per item — 1.5 s and 300 MB for 100 KB, 15 s and 2 GB for 1 MB, from any anonymous request.",
+      "file": "src/core/common/plugins/complexity.plugin.ts",
+      "find": "        if (errors?.length) {\n          return;\n        }\n\n        // The resolved operation alone",
+      "replace": "        if (false) {\n          return;\n        }\n\n        // The resolved operation alone",
+      "specs": [
+        "tests/unit/complexity-plugin.spec.ts"
+      ],
+      "driverSpecific": false
+    },
+    {
+      "id": "complexity-coerces-every-operation",
+      "defect": "12.10.1 — with several operations and no `operationName` Apollo resolves none and still calls didResolveOperation(); getComplexity() evaluated every operation and coerced the variables for each: 860 operations sharing one 16,000-item variable blocked the event loop for 5.9 s from a 100 KB JSON POST, 1,720 for 25.5 s from 200 KB (SEC-3).",
+      "file": "src/core/common/plugins/complexity.plugin.ts",
+      "find": "        if (!operation) {\n          return;\n        }\n",
+      "replace": "        for (const candidate of document.definitions) {\n          if (candidate.kind === Kind.OPERATION_DEFINITION) {\n            getVariableValues(schema, candidate.variableDefinitions ?? [], request.variables ?? {}, { maxErrors: 50 });\n          }\n        }\n        if (!operation) {\n          return;\n        }\n",
+      "specs": [
+        "tests/unit/complexity-plugin.spec.ts"
+      ],
+      "driverSpecific": false
+    },
+    {
+      "id": "complexity-fragments-not-cached",
+      "defect": "12.10.1 — graphql-query-complexity evaluates a fragment again at every spread and coerces its literal arguments at every visit: `{...F ×3300}` with a 41,667-item literal in F blocked the event loop for 2.2 s from a 100 KB JSON POST, 22.5 s from a 990 KB multipart request (SEC-4).",
+      "file": "src/core/common/plugins/complexity.plugin.ts",
+      "find": "    if (known) {\n",
+      "replace": "    if (known && false) {\n",
+      "specs": [
+        "tests/unit/complexity-plugin.spec.ts"
+      ],
+      "driverSpecific": false
+    },
+    {
+      "id": "complexity-cached-fragments-skip-node-count",
+      "defect": "12.10.1 — a cached fragment spread must add the nodes its evaluation visited, or the 10,000-node cap of graphql-query-complexity stops counting re-spread fragments and a query of 12,000 visits passes.",
+      "file": "src/core/common/plugins/complexity.plugin.ts",
+      "find": "      visitor.evaluatedNodes += known.nodes;\n",
+      "replace": "",
+      "specs": [
+        "tests/unit/complexity-plugin.spec.ts"
+      ],
+      "driverSpecific": false
+    },
+    {
+      "id": "complexity-variable-work-unbounded",
+      "defect": "12.10.1 — graphql-query-complexity runs Object.keys() over the operation's variables at every field it visits: 38,000 declared variables with 4,900 visits blocked the event loop for 17 s, with variables that coerce (SEC-4).",
+      "file": "src/core/common/plugins/complexity.plugin.ts",
+      "find": "        if (variableVisits([operation, ...fragments]) * variableCount > COMPLEXITY_ANALYSIS_MAX_VARIABLE_WORK) {\n",
+      "replace": "        if (false) {\n",
+      "specs": [
+        "tests/unit/complexity-plugin.spec.ts"
+      ],
+      "driverSpecific": false
+    },
+    {
+      "id": "complexity-analysis-collects-errors",
+      "defect": "12.10.1 — the complexity analysis went on after a field's arguments failed to coerce, and every error located itself by scanning the query up to it: `query($x: String = \"a\") { a: getUser(id: $x) … }` with `{\"x\": null}` is valid and fails at every field — 1.4 s from a 98 KiB JSON POST, 86 s from a 993 KiB multipart request.",
+      "file": "src/core/common/plugins/complexity.plugin.ts",
+      "find": "    throw error;\n  });\n",
+      "replace": "    void error;\n  });\n",
+      "specs": [
+        "tests/unit/complexity-plugin.spec.ts"
+      ],
+      "driverSpecific": false
+    },
+    {
+      "id": "complexity-precheck-builds-50-errors",
+      "defect": "12.10.1 — the variable pre-check stopped only at execution's cap of 50 errors, each of which located itself by scanning the query up to its variable definition: 550 ms for a 959 KiB multipart request with the definitions after 490,000 line breaks.",
+      "file": "src/core/common/plugins/complexity.plugin.ts",
+      "find": "const VARIABLE_COERCION_MAX_ERRORS = 1;\n",
+      "replace": "const VARIABLE_COERCION_MAX_ERRORS = 50;\n",
+      "specs": [
+        "tests/unit/complexity-plugin.spec.ts"
+      ],
+      "driverSpecific": false
+    },
+    {
       "id": "graphql-upload-duplicate-file-field-kept",
       "defect": "12.10.0 — GHSA-qwwm-252j-9whw: a second file field with the name of an already resolved upload created a new capacitor and resolved the upload again; `upload.file` pointed at the duplicate and only its temporary file was released when the response closed — the first one leaked with its file descriptor.",
       "file": "src/core/common/helpers/graphql-upload.helper.ts",
@@ -8239,6 +8360,28 @@
       "replace": "      consumer.apply(graphqlUploadExpress()).forRoutes('graphql');\n",
       "specs": [
         "tests/file.e2e-spec.ts"
+      ],
+      "driverSpecific": false
+    },
+    {
+      "id": "redact-secrets-pem-key-by-name-only",
+      "defect": "12.10.1 — a PEM private key under a key no name heuristic calls secret (`certificate`, the usual name for a certificate login's certificate-plus-key PEM) reached `GET /config` and the debug output in clear text; the value itself must mask it.",
+      "file": "src/core/common/helpers/redact-secrets.helper.ts",
+      "find": "    if (PRIVATE_KEY_PEM_PATTERN.test(value)) {\n      return REDACTED_VALUE;\n    }\n",
+      "replace": "",
+      "specs": [
+        "tests/unit/redact-secrets.spec.ts"
+      ],
+      "driverSpecific": false
+    },
+    {
+      "id": "redact-secrets-pem-buffer-kept",
+      "defect": "12.10.1 — a PEM private key read with `readFileSync()` without an encoding is a Buffer, which the masker kept as it was and JSON printed byte by byte.",
+      "file": "src/core/common/helpers/redact-secrets.helper.ts",
+      "find": "    return underSecretKey || holdsPrivateKey ? REDACTED_VALUE : value;\n",
+      "replace": "    return underSecretKey ? REDACTED_VALUE : value;\n",
+      "specs": [
+        "tests/unit/redact-secrets.spec.ts"
       ],
       "driverSpecific": false
     }
