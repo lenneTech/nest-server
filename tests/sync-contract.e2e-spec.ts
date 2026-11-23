@@ -1479,7 +1479,8 @@ describe.each(SYNC_DRIVERS)('sync contract — %s (e2e)', (driver) => {
 
   /**
    * @regression   DEV-3902 — a hint stream outlives the request that authorized it; registered like a GraphQL
-   *   WebSocket, an invalidation naming the subscriber ends it, and the reconnect passes the guards again.
+   *   WebSocket, an invalidation naming the subscriber ends it, and the reconnect passes the guards again. The stream
+   *   here is opened with a legacy JWT, which cannot be re-run in place (12.11.0: `hints-recheck-in-place`).
    * @seen-failing Leave the stream out of the connection registry in CoreSyncService.openHintStream()
    *   (src/core/modules/sync/core-sync.service.ts) — registered as mutation `sync-sse-not-registered` in
    *   tests/regression-mutations.json.
@@ -1498,6 +1499,49 @@ describe.each(SYNC_DRIVERS)('sync contract — %s (e2e)', (driver) => {
       const again = await openHints({ tenant: tenantA, token: alice.token });
       expect(again.status).toBe(200);
       again.close();
+    } finally {
+      stream.close();
+    }
+  });
+
+  /**
+   * 12.11.0 — a stream opened with a Better-Auth credential is re-checked IN PLACE, like a GraphQL WebSocket: before,
+   * every re-check ended it and the hint that triggered the check reached the client only after its reconnect. Over
+   * HTTP this pins what the unit cases cannot: that the credential, run again through Better-Auth's token service,
+   * answers the user the middleware authenticated with the same rights and tenant scope on this database — otherwise
+   * the stream silently falls back to ending on every re-check.
+   */
+  syncIt('hints-recheck-in-place', driver, async () => {
+    const email = unique('hints-in-place');
+    await testHelper.rest('/iam/sign-up/email', {
+      method: 'POST',
+      payload: { email, name: 'Sync Hints', password: PASSWORD, termsAndPrivacyAccepted: true },
+      statusCode: 201,
+    });
+    await testHelper.rest('/iam/sign-in/email', { method: 'POST', payload: { email, password: PASSWORD }, statusCode: 200 });
+    const userId = String((await harness.users.findOne({ email } as any)).id);
+    const sessionToken = String((await harness.betterAuth.getActiveSessionForUser(userId)).session?.token);
+    const tenantA = tenant();
+    await member(tenantA, userId);
+    const write = () => create('SyncTask', { title: 'in a' }, { tenant: tenantA, token: adminToken });
+    const stream = await openHints({ tenant: tenantA, token: sessionToken });
+    try {
+      expect(stream.status).toBe(200);
+      await awaitLive(stream, write, 'SyncTask');
+
+      // An invalidation that changed nothing: re-checked in place, the stream stays open and delivers the next hint
+      stream.events.length = 0;
+      harness.tenantGuard.invalidateUser(userId);
+      await sleep(HINT_SETTLE_MS);
+      expect(stream.ended).toBe(false);
+      await write();
+      expect(await until(() => stream.of('SyncTask').length > 0)).toBe(true);
+      expect(stream.ended).toBe(false);
+
+      // The membership is gone: the re-check closes the stream
+      await harness.tenantService.removeMember(tenantA, userId);
+      harness.tenantGuard.invalidateUser(userId);
+      expect(await until(() => stream.ended)).toBe(true);
     } finally {
       stream.close();
     }

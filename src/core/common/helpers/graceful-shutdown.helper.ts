@@ -1,6 +1,7 @@
 import { INestApplication, Logger } from '@nestjs/common';
 
 import { ConfigService } from '../services/config.service.js';
+import { markShutdownDraining } from './shutdown-state.helper.js';
 
 /** Signals an orchestrator uses to ask a container to stop */
 const SHUTDOWN_SIGNALS: NodeJS.Signals[] = ['SIGTERM', 'SIGINT'];
@@ -41,8 +42,10 @@ const SHUTDOWN_DELAY_ADVISORY_MS = 10_000;
  *
  * **What the delay is for.** An orchestrator sends SIGTERM and deregisters the instance from the
  * load balancer at the same moment, but deregistration propagates asynchronously — for a beat,
- * requests still arrive. Staying fully healthy through that beat is what lets them be answered
- * instead of dropped.
+ * requests still arrive. Serving through that beat is what lets them be answered instead of
+ * dropped. The readiness check (`GET /health-check/ready`, 12.11.0) answers 503 from the signal on
+ * (`markShutdownDraining()`), so a load balancer that polls readiness deregisters the instance
+ * during the wait instead of after it; liveness stays healthy, so nothing restarts it.
  *
  * Without a configured delay this is exactly `app.enableShutdownHooks()`, which is what the
  * framework did before.
@@ -105,7 +108,11 @@ export function installGracefulShutdown<T extends INestApplication>(app: T): T {
       return;
     }
     shuttingDown = true;
-    logger.log(`${signal} received — staying healthy for ${effectiveDelayMs}ms so the load balancer can deregister`);
+    // Readiness answers 503 from here on (GET /health-check/ready), liveness stays healthy (12.11.0)
+    markShutdownDraining();
+    logger.log(
+      `${signal} received — serving for ${effectiveDelayMs}ms more, readiness answers 503, so the load balancer can deregister`,
+    );
 
     timer = setTimeout(() => {
       app

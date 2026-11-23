@@ -123,7 +123,8 @@ async function bootstrap() {
   // the loop; installProcessDiagnostics() then correctly defers to it instead of re-raising.
   //
   // installGracefulShutdown() IS enableShutdownHooks() when no `shutdownDelayMs` is configured.
-  // With one, it additionally keeps the instance fully healthy for that long before closing —
+  // With one, it additionally keeps the instance serving for that long before closing (readiness
+  // already answers 503) —
   // which a NestJS lifecycle hook cannot do, because every one of them already runs inside
   // close(), after the modules are destroyed. See the helper for the ordering.
   installGracefulShutdown(server);

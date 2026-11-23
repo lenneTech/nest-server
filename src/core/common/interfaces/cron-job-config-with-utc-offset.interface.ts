@@ -23,5 +23,5 @@ export interface CronJobConfigWithUtcOffset<
    * This allows you to specify the offset of the timezone rather than using the `timeZone` parameter.
    * Probably don't use both `timeZone` and `utcOffset` together or weird things may happen.
    */
-  utcOffset?: CronJobParams<OC, C>['unrefTimeout'];
+  utcOffset?: CronJobParams<OC, C>['utcOffset'];
 }

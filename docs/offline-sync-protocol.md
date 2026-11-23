@@ -305,9 +305,11 @@ Sync API exists only in Chromium).
 * A hint carries the model name and a time — no record, no id, no tenant. It is sent only to subscribers who hold the
   model's pull roles and may read the changed tenant's records of that model; bursts are collapsed (default 250 ms).
 * Both channels are long-lived, so the server checks them again during their lifetime like its GraphQL WebSockets: a
-  channel whose user lost access, signed out or changed roles is closed; the client reconnects and is checked anew. An
-  SSE stream also ends before its first hint after the re-check interval (30 s by default) and is reconnected — a hint
-  is never delivered on rights older than that.
+  channel whose user lost access, signed out or changed roles is closed; the client reconnects and is checked anew. A
+  hint is never delivered on rights older than the re-check interval (30 s by default): before the first hint after it
+  the server checks again. An SSE stream opened with a Better-Auth credential (session cookie, bearer session token or
+  JWT) is checked in place and stays open while the rights are unchanged (12.11.0); one opened with another credential
+  ends at that point and is reconnected.
 * On reconnect a client pulls once, because hints sent while it was disconnected are not replayed.
 
 ## 10. HTTP errors

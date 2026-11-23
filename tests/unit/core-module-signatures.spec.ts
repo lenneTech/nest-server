@@ -20,7 +20,9 @@ import { ConfigService } from '../../src/core/common/services/config.service';
 import { CoreAuthService } from '../../src/core/modules/auth/services/core-auth.service';
 import { CoreBetterAuthModule } from '../../src/core/modules/better-auth/core-better-auth.module';
 import { ErrorCodeModule } from '../../src/core/modules/error-code/error-code.module';
+import { CoreHealthCheckReadinessController } from '../../src/core/modules/health-check/core-health-check-readiness.controller';
 import { CoreHealthCheckModule } from '../../src/core/modules/health-check/core-health-check.module';
+import { CoreHealthCheckService } from '../../src/core/modules/health-check/core-health-check.service';
 import { CoreSyncModule } from '../../src/core/modules/sync/core-sync.module';
 
 // Mock AuthModule for testing
@@ -798,8 +800,12 @@ describe('CoreModule.forRoot() Signatures', () => {
 });
 
 describe('CoreModule.forRoot() health check registration', () => {
-  const healthCheckImported = (config: Partial<IServerOptions>) =>
-    (CoreModule.forRoot(config).imports || []).includes(CoreHealthCheckModule);
+  /** The health check module as CoreModule imports it — as `forRoot()` since 12.11.0 */
+  const healthCheckModule = (config: Partial<IServerOptions>, overrides?: Record<string, any>): any =>
+    (CoreModule.forRoot(config, overrides as any).imports || []).find(
+      (entry: any) => entry === CoreHealthCheckModule || entry?.module === CoreHealthCheckModule,
+    );
+  const healthCheckImported = (config: Partial<IServerOptions>) => healthCheckModule(config) !== undefined;
 
   /**
    * @regression   11.42.9 — `healthCheck.enabled: false` was declared in IServerOptions and ignored:
@@ -816,6 +822,25 @@ describe('CoreModule.forRoot() health check registration', () => {
     expect(healthCheckImported({ ...baseConfig, healthCheck: {} })).toBe(true);
     expect(healthCheckImported({ ...baseConfig, healthCheck: { enabled: true } })).toBe(true);
     expect(healthCheckImported({ ...baseConfig })).toBe(false);
+  });
+
+  it('adds the readiness controller only with healthCheck.readiness, and passes the overrides on', () => {
+    class ProjectReadinessController {}
+    class ProjectHealthCheckService {}
+    expect(healthCheckModule({ ...baseConfig, healthCheck: {} }).controllers).toEqual([]);
+    expect(healthCheckModule({ ...baseConfig, healthCheck: { readiness: false } }).controllers).toEqual([]);
+    expect(healthCheckModule({ ...baseConfig, healthCheck: { readiness: true } }).controllers).toEqual([
+      CoreHealthCheckReadinessController,
+    ]);
+    const overridden = healthCheckModule(
+      { ...baseConfig, healthCheck: { readiness: {} } },
+      { healthCheck: { readinessController: ProjectReadinessController, service: ProjectHealthCheckService } },
+    );
+    expect(overridden.controllers).toEqual([ProjectReadinessController]);
+    expect(overridden.providers).toEqual([
+      ProjectHealthCheckService,
+      { provide: CoreHealthCheckService, useExisting: ProjectHealthCheckService },
+    ]);
   });
 });
 

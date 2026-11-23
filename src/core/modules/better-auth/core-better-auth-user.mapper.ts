@@ -20,6 +20,7 @@ import { RoleEnum } from '../../common/enums/role.enum.js';
 import { revalidateWsConnectionsOf } from '../../common/helpers/graphql-ws-connection.helper.js';
 import { maskEmail } from '../../common/helpers/logging.helper.js';
 import { CoreRedisService } from '../../common/services/core-redis.service.js';
+import { forgetJwtSession, setJwtSessionBroadcaster } from './core-better-auth-jwt-session.cache.js';
 import { legacyCredentialAccountIssuer } from './core-better-auth-account-issuer.helper.js';
 import { getBetterAuthSqlStore } from './core-better-auth-sql.registry.js';
 import type { BetterAuthSqlStore } from './core-better-auth-sql.store.js';
@@ -203,6 +204,8 @@ export class CoreBetterAuthUserMapper implements OnApplicationBootstrap, OnModul
         }
       };
       this.redisService.getSubscriber().on('message', this.invalidationListener);
+      // An ended session reaches the other replicas over the same channel, so their JWT session cache forgets it too
+      setJwtSessionBroadcaster((sessionId) => this.publishSessionEnded(sessionId));
       // Registered with the Redis service, so the subscription is established again after every reconnect — also when
       // this first attempt fails because Redis is down at boot.
       await this.redisService.subscribeChannel(channel);
@@ -219,6 +222,7 @@ export class CoreBetterAuthUserMapper implements OnApplicationBootstrap, OnModul
     if (!this.invalidationListener) {
       return;
     }
+    setJwtSessionBroadcaster(undefined);
     try {
       if (this.redisService) {
         this.redisService.getSubscriber().off('message', this.invalidationListener);
@@ -424,10 +428,18 @@ export class CoreBetterAuthUserMapper implements OnApplicationBootstrap, OnModul
    */
   protected applyInvalidation(message: string): void {
     let iamId: unknown;
+    let sessionId: unknown;
     try {
-      iamId = JSON.parse(message)?.iamId;
+      const parsed = JSON.parse(message);
+      iamId = parsed?.iamId;
+      sessionId = parsed?.sessionId;
     } catch {
       iamId = undefined;
+    }
+    // A session ended on another replica (12.11.0): a JWT issued from it must stop working here too
+    if (typeof sessionId === 'string' && sessionId) {
+      forgetJwtSession(sessionId);
+      return;
     }
     if (typeof iamId !== 'string' || !iamId) {
       this.logger.debug(`Ignoring malformed IAM user cache invalidation message: ${message}`);
@@ -459,6 +471,30 @@ export class CoreBetterAuthUserMapper implements OnApplicationBootstrap, OnModul
       void redisService
         .getClient()
         .publish(this.invalidationChannel(redisService), JSON.stringify({ iamId }))
+        .catch(warn);
+    } catch (error) {
+      warn(error as Error);
+    }
+  }
+
+  /**
+   * Broadcast that a session ended (12.11.0), so every replica's JWT session cache forgets it at once instead of when
+   * its entry expires. Fire-and-forget; a no-op without `redis`.
+   */
+  protected publishSessionEnded(sessionId: string): void {
+    const redisService = this.redisService;
+    if (!redisService?.enabled) {
+      return;
+    }
+    const warn = (error: Error) =>
+      this.logger.warn(
+        `Ended session could not be broadcast: ${error.message}. JWTs issued from it keep working on other replicas ` +
+          'until their session cache entry expires (10 s).',
+      );
+    try {
+      void redisService
+        .getClient()
+        .publish(this.invalidationChannel(redisService), JSON.stringify({ sessionId }))
         .catch(warn);
     } catch (error) {
       warn(error as Error);

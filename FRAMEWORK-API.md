@@ -1,6 +1,6 @@
 # @lenne.tech/nest-server — Framework API Reference
 
-> Auto-generated from source code as of 2026-11-19 (v12.10.1)
+> Auto-generated from source code as of 2026-11-20 (v12.11.0)
 > File: `FRAMEWORK-API.md` — compact, machine-readable API surface for Claude Code
 
 ## CoreModule.forRoot()
@@ -230,6 +230,7 @@ When `passkey` is enabled, `trustedOrigins` is required (compile-time enforcemen
   - `ai?`: `{ budgetService?: Type<any>; connectionResolver?: Type<any>; connectionServic...` — Override AI module collaborators with project-specific subclasses.
   - `betterAuth?`: `{ controller?: Type<any>; resolver?: Type<any>; }` — Override BetterAuth controller and/or resolver.
   - `errorCode?`: `{ controller?: Type<any>; service?: Type<any>; }` — Override ErrorCode controller and/or service.
+  - `healthCheck?`: `{ readinessController?: Type<any>; service?: Type<any>; }` — Override the health check service and/or the readiness controller (12.11.0).
   - `hub?`: `{ actionsController?: Type<any>; actionsService?: Type<any>; controller?: Typ...` — Override Hub controllers and/or services with project-specific subclasses.
 
 ### IBetterAuthPasskeyConfig

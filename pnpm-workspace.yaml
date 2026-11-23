@@ -64,7 +64,10 @@ peerDependencyRules:
     - 'vis-util'
 
 # Security overrides — ONLY entries that change the resolved tree. Empty from 12.1.0 to 12.9.3; ws since 12.9.4,
-# minimatch 11 and i18next 26 since 12.10.0 (below).
+# i18next 26 since 12.10.0 (below). minimatch 11 -> 11.0.9 (12.10.0 to 12.10.1) left in 12.11.0: @nestjs/cli 12.0.15
+# exact-pins 11.0.9 itself; two fresh resolves with and without the entry gave the identical package set. The
+# minimatch 10.x copies (dev tooling) stay: GHSA-c859-jr93-m5j4 has no 10.x fix — once the global database lists it,
+# decide it like GHSA-g3hv (auditConfig).
 #
 # They do NOT reach consumers of the published package: `overrides:` is honoured only for the ROOT
 # project of an install. A green `pnpm audit` here says nothing about a consumer's tree, which is why
@@ -88,14 +91,6 @@ overrides:
   # the declared `ws` dependency alone cannot lift it. Target in lockstep with the declared `ws` version
   # (docs/security-overrides.md). Remove once @nestjs/graphql pins ws >= 8.23.0. Verified 2026-11-14.
   'ws@>=8.0.0 <8.23.0': '8.23.0'
-  # GHSA-cf2h-pxjq-68xw, GHSA-hqmv-qgp3-jx75, GHSA-c859-jr93-m5j4 (moderate, published 2026-11-10/11; quadratic
-  # pattern compile, unbounded pattern cache, escape() mismatches): patched in 11.0.8. @nestjs/cli 12.0.13 (newest)
-  # exact-pins minimatch 11.0.5, so only an override lifts it. Dev tooling only (nest CLI, glob via rimraf). The
-  # minimatch 10.x copies stay: GHSA-c859 has no 10.x fix — once the global database lists it, decide it like
-  # GHSA-g3hv (auditConfig). Mirrors nest-server-starter. Remove once @nestjs/cli pins >= 11.0.8. Verified 2026-11-14.
-  # Raised to 11.0.9 on 2026-11-19: a key matches the RANGE a parent requests, so the 11.0.8 target held every other
-  # ^11 consumer below the 11.0.9 a fresh resolve gives them (two fresh resolves, with and without this entry).
-  'minimatch@>=11.0.0 <11.0.9': '11.0.9'
   # GHSA-5jr9-983r-c8x4 (high, ReDoS in the nesting regexp via an unclosed $t( in interpolated values, patched 26.4.4)
   # and GHSA-6jcc-5g8w-32mx (medium, patched 26.3.4): @compodoc/compodoc 2.0.0 (newest) exact-pins i18next 26.3.3 for
   # its own UI strings. Dev tooling only (`pnpm run docs`). Target is the oldest 26.x that clears both. Not in GitHub's

@@ -521,7 +521,15 @@ export class CoreModule implements NestModule {
 
     // Presence implies enabled; `enabled: false` keeps the configured checks without the endpoints.
     if (config.healthCheck && config.healthCheck.enabled !== false) {
-      imports.push(CoreHealthCheckModule);
+      // forRoot() adds the readiness endpoint (`healthCheck.readiness`) and a project's service; without either the
+      // module is what it was (12.11.0)
+      imports.push(
+        CoreHealthCheckModule.forRoot({
+          readiness: config.healthCheck.readiness,
+          readinessController: overrides?.healthCheck?.readinessController,
+          service: overrides?.healthCheck?.service,
+        }),
+      );
     }
 
     // Permissions report (development tool)

@@ -38,6 +38,7 @@ export * from './core/common/helpers/content-disposition.helper.js';
 export * from './core/common/helpers/context.helper.js';
 export * from './core/common/helpers/cookies.helper.js';
 export * from './core/common/helpers/graceful-shutdown.helper.js';
+export * from './core/common/helpers/shutdown-state.helper.js';
 export * from './core/common/helpers/db.helper.js';
 export * from './core/common/helpers/decorator.helper.js';
 export * from './core/common/helpers/execution-context-request.helper.js';
@@ -47,6 +48,7 @@ export * from './core/common/helpers/graphql.helper.js';
 export * from './core/common/helpers/graphql-upload.helper.js';
 export * from './core/common/helpers/graphql-ws-connection.helper.js';
 export * from './core/common/helpers/graphql-ws-context.helper.js';
+export * from './core/common/helpers/http-stream-auth.helper.js';
 export * from './core/common/helpers/idle-stream.helper.js';
 export * from './core/common/helpers/interceptor.helper.js';
 export * from './core/common/helpers/gridfs.helper.js';
@@ -250,8 +252,10 @@ export * from './core/modules/file/interfaces/file-upload.interface.js';
 // Core - Modules - HealthCheck
 // =====================================================================================================================
 
+export * from './core/modules/health-check/core-health-check-readiness.controller.js';
 export * from './core/modules/health-check/core-health-check-result.model.js';
 export * from './core/modules/health-check/core-health-check.controller.js';
+export * from './core/modules/health-check/core-health-check.helpers.js';
 export * from './core/modules/health-check/core-health-check.module.js';
 export * from './core/modules/health-check/core-health-check.resolver.js';
 export * from './core/modules/health-check/core-health-check.service.js';

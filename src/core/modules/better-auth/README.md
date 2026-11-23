@@ -407,14 +407,15 @@ const config = {
 
 The following table shows which features are active based on your configuration:
 
-| Configuration                         | BetterAuth | JWT | 2FA |   Passkey   |
-| ------------------------------------- | :--------: | :-: | :-: | :---------: |
-| _not set_ (no URLs)                   |     ✅     | ✅  | ✅  | ⚠️ disabled |
-| `env: 'local'/'ci'/'e2e'` (auto URLs) |     ✅     | ✅  | ✅  |   ✅ auto   |
-| `baseUrl` set                         |     ✅     | ✅  | ✅  |   ✅ auto   |
-| `betterAuth: false`                   |     ❌     | ❌  | ❌  |     ❌      |
-| `{ passkey: false }`                  |     ✅     | ✅  | ✅  |     ❌      |
-| `{ twoFactor: false }`                |     ✅     | ✅  | ❌  |   ✅ auto   |
+| Configuration                                         | BetterAuth | JWT |             2FA             |          Passkey          |
+| ----------------------------------------------------- | :--------: | :-: | :-------------------------: | :-----------------------: |
+| _not set_ (no URLs)                                   |     ✅     | ✅  |             ✅              |        ⚠️ disabled        |
+| `env: 'local'/'ci'/'e2e'` (auto URLs)                 |     ✅     | ✅  |             ✅              |          ✅ auto          |
+| `baseUrl` set                                         |     ✅     | ✅  |             ✅              |          ✅ auto          |
+| `betterAuth: false`                                   |     ❌     | ❌  |             ❌              |            ❌             |
+| `{ passkey: false }`                                  |     ✅     | ✅  |             ✅              |            ❌             |
+| `{ twoFactor: false }`                                |     ✅     | ✅  |             ❌              |          ✅ auto          |
+| `{ emailAndPassword: { enabled: false } }` (12.11.0+) |     ✅     | ✅  | ❌ unless `twoFactor: true` | ❌ unless `passkey: true` |
 
 **Key points:**
 
@@ -704,6 +705,34 @@ without a warning. `enabled` is the framework's own switch and is not handed on.
 
 `betterAuth.options.socialProviders` is not the place for provider options: it replaces the whole block, so the
 provider disappears from `GET /iam/features` and `emailAndPassword.disableSignUp` no longer closes it.
+
+### Sign-in through a provider alone (12.11.0)
+
+A project that signs in through a single sign-on provider alone (`emailAndPassword: { enabled: false }`, e.g.
+Microsoft Entra) expects the provider to decide who gets in. Since 12.11.0 nothing the framework offers keeps someone
+in after the provider withdrew the assignment or role:
+
+| What                                                                                         | Since 12.11.0                                                                                                                                                                                                                                                                                                                                                                                                                                                                | Before                                                                                                                                                             |
+| -------------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| Passkey and two-factor                                                                       | Off while sign-in runs through a provider alone (`emailAndPassword` off and no plugin with a sign-in route of its own — `username()` / `phoneNumber()` keep both on); `passkey: true` / `twoFactor: true` (or `{ enabled: true, … }`) switches them on deliberately. Their routes answer 404, also for a passkey registered earlier. The boot names what it switched off, as a warning for a factor with settings of its own                                                 | On: a passkey registered once after a provider sign-in kept signing its owner in                                                                                   |
+| A client-submitted id token (`POST /iam/sign-in/social` / `/iam/link-social` with `idToken`) | Refused with `ID_TOKEN_NOT_SUPPORTED` for every provider unless the provider sets `disableIdTokenSignIn: false` (native apps, Google One Tap). The redirect flow is unaffected                                                                                                                                                                                                                                                                                               | Accepted: an id token kept from an earlier sign-in (`/iam/get-access-token` hands it out) signed its owner in again for about an hour, without asking the provider |
+| The Better-Auth JWT                                                                          | Bound to the session it was issued from (claim `sid`): refused once that session is signed out, revoked, expired or its user deleted — at once on this replica and, with `redis`, on every replica; otherwise within 10 s. A JWT without `sid` (issued before 12.11.0) is refused, and the client fetches a new one with its session (`GET /iam/token`). After a session rotation (the first `verify-totp` while enabling 2FA) the answer carries the JWT of the new session | Valid until its own expiry (15 minutes) after a sign-out, and a JWT client's sign-out ended no session at all                                                      |
+| `GET /iam/features`                                                                          | Reports `emailAndPassword` (also in the GraphQL `betterAuthFeatures`), so a frontend can hide the e-mail form                                                                                                                                                                                                                                                                                                                                                                | —                                                                                                                                                                  |
+
+A session that is not extended while it is used ends a fixed time after the sign-in, so a withdrawal at the provider
+reaches it at the latest then:
+
+```typescript
+betterAuth: {
+  emailAndPassword: { enabled: false },
+  session: { expiresInHours: 8, extendOnUse: false }, // sign in again after 8 hours, every time
+  socialProviders: { microsoft: { clientId, clientSecret, tenantId } },
+},
+```
+
+`session.expiresInHours` maps to Better-Auth's `session.expiresIn` (default 7 days), `extendOnUse: false` to
+`session.disableSessionRefresh`. A value of `expiresInHours` that is not a positive number is ignored with a warning.
+`betterAuth.options.session` still wins key by key.
 
 #### Microsoft Entra ID: one organization, identity only
 

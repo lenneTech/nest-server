@@ -138,12 +138,24 @@ A hint tells a connected client that pulling is worthwhile; sync works without t
   every replica receives every hint through one channel and delivers it to its own subscribers; without Redis a hint
   stays on its replica.
 - **Long-lived channels are re-checked:** the GraphQL subscription runs on the WebSocket `CoreModule` re-checks; an SSE
-  stream is registered in the same registry and ends at once on an invalidation naming the caller or their tenant, and
-  otherwise before the first hint after `graphQl.subscriptionRevalidationMs` — the EventSource reconnects (`retry`) and
-  the new request passes the guards. A client pulls once after every (re)connect. In the log the planned end after the
-  interval is a debug line (`Closing SSE hint stream of user …: re-check interval reached, client reconnects`); an end
-  an invalidation brings stays at `log` (`… authorization invalidated, client reconnects`), so a real revocation stands
-  out (12.3.0; before, every planned end read `Closing GraphQL WebSocket …: Session no longer valid`).
+  stream is registered in the same registry and re-checked at once on an invalidation naming the caller or their
+  tenant, and otherwise before the first hint after `graphQl.subscriptionRevalidationMs`.
+  - **In place (12.11.0)** when the stream was opened with a Better-Auth credential — the session cookie, a bearer
+    session token or Better-Auth JWT, the `lt-jwt-token` cookie: the re-check runs that credential again
+    (`createHttpStreamReauthenticator()`) and the tenant resolution, like a WebSocket's. Unchanged rights keep the
+    stream open and the hint is delivered without a reconnect; changed user id, roles, verification or tenant scope
+    close it (`Closing SSE hint stream of user …: User authorization changed` / `Session no longer valid` /
+    `Tenant access changed`), and the reconnect passes the guards. Before 12.11.0 every re-check ended the stream, and
+    the hint reached the client only after its reconnect (~3 s).
+  - **By ending the stream** when the credential cannot be run again — a legacy JWT, an API token: the EventSource
+    reconnects (`retry`) and the new request passes the guards. In the log the planned end after the interval is a debug
+    line (`Closing SSE hint stream of user …: re-check interval reached, client reconnects`); an end an invalidation
+    brings stays at `log` (`… authorization invalidated, client reconnects`), so a real revocation stands out (12.3.0;
+    before, every planned end read `Closing GraphQL WebSocket …: Session no longer valid`).
+
+  A client pulls once after every (re)connect. `CoreSyncService.recheckHintStreamInPlace()` decides between the two; a
+  project overrides it to keep every stream ending on every re-check (`return false`), or to re-run a credential the
+  framework cannot (a legacy JWT through the project's AuthService) with `recheckHttpStreamInPlace()`.
 
 ## Tombstone purge
 

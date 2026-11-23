@@ -357,7 +357,7 @@ export class CoreBetterAuthApiMiddleware implements NestMiddleware {
       // Extract session token from cookies or Authorization header.
       // In JWT mode, extractSessionToken correctly returns null for JWTs.
       // Fall back to the session resolved by CoreBetterAuthMiddleware (which
-      // resolves JWTs to DB sessions via getActiveSessionForUser).
+      // resolves a JWT to its own DB session via getJwtSession()).
       let sessionToken = extractSessionToken(req, basePath);
       if (!sessionToken) {
         const betterAuthReq = req as any;

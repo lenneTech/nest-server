@@ -52,7 +52,9 @@ describe('SQL paths without a MongoDB connection', () => {
       findJwk: async (id: string) =>
         id === kid ? { alg: 'EdDSA', id: kid, publicKey: JSON.stringify(await exportJWK(publicKey)) } : null,
     } as any);
-    const jwt = await new SignJWT({ email: 'jwt@without-mongodb.test' })
+    // Since 12.11.0 a JWT names its session (`sid`), and the session must live — here in Better-Auth's own adapter
+    const sessionId = 'session-without-connection';
+    const jwt = await new SignJWT({ email: 'jwt@without-mongodb.test', sid: sessionId })
       .setProtectedHeader({ alg: 'EdDSA', kid })
       .setSubject('64b7f0c2a1b2c3d4e5f60718')
       .setIssuer(baseUrl)
@@ -61,8 +63,15 @@ describe('SQL paths without a MongoDB connection', () => {
       .setExpirationTime('5m')
       .sign(privateKey);
 
+    const session = { expiresAt: new Date(Date.now() + 60_000), id: sessionId, userId: '64b7f0c2a1b2c3d4e5f60718' };
     const service = new CoreBetterAuthService(
-      { options: { baseURL: baseUrl } } as any,
+      {
+        $context: Promise.resolve({
+          adapter: { findOne: async ({ where }: any) => (where[0]?.value === sessionId ? session : null) },
+          options: {},
+        }),
+        options: { baseURL: baseUrl },
+      } as any,
       null as any,
       {
         baseUrl,
