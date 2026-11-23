@@ -33,6 +33,12 @@ import { getTenantContextResolver, ResolvedTenantContext } from '../services/cor
  * WHAT IT DOES NOT DO: an event is checked AFTER graphql-js executed it and BEFORE it is sent. Reads
  * made while computing a dropped event still happened — under the old context — but nothing of them
  * reaches the client. Subscription resolvers that WRITE are outside what this can take back.
+ *
+ * HTTP STREAMS (Server-Sent Events) are registered the same way, with `endsOnRecheck`: they end on
+ * every re-check and the client's reconnect passes the guards again. Since 12.11.0
+ * `recheckHttpStreamInPlace()` gives a stream whose credential can be re-run the WebSocket semantics
+ * instead — re-checked in place, closed only when the rights changed (`registerHttpStream()` in
+ * `http-stream-auth.helper.ts` registers a stream that way in one call).
  */
 
 /**
@@ -90,6 +96,10 @@ export interface IWsConnectionRegistration {
    * it, and the client's reconnect passes the guards again. The end the re-check interval brings is planned and logged
    * at debug; one an invalidation brings (sign-out, role or tenant change) is logged like every withdrawn
    * authorization. `reauthenticate` is not called.
+   *
+   * Since 12.11.0 `recheckHttpStreamInPlace()` switches such a stream to the WebSocket semantics once its credential
+   * can be re-run (a Better-Auth session cookie or bearer token: `createHttpStreamReauthenticator()`): it then stays
+   * open while the rights are unchanged and is closed only when they changed. `registerHttpStream()` does both steps.
    */
   endsOnRecheck?: boolean;
 
@@ -118,14 +128,19 @@ export interface IWsConnectionIdentity {
 export interface WsConnection {
   readonly channel: string;
   readonly email?: string;
-  readonly endsOnRecheck: boolean;
+  /** Writable only for `recheckHttpStreamInPlace()`, which switches an HTTP stream to the in-place re-check. */
+  endsOnRecheck: boolean;
   readonly iamId?: string;
-  readonly reauthenticate?: () => any;
+  /** Writable only for `recheckHttpStreamInPlace()`. */
+  reauthenticate?: () => any;
   readonly socket?: IWsConnectionSocket;
   /** The tenant scope the connection's operations resolved, once one has. */
   tenant?: ResolvedTenantContext;
-  /** The tenant header the client sent — constant for the life of the connection. */
-  readonly tenantHeader?: string;
+  /**
+   * The tenant header the client sent — constant for the life of the connection. Writable only for
+   * `recheckHttpStreamInPlace()`, which takes it from the HTTP request rather than from the carrier.
+   */
+  tenantHeader?: string;
   terminated: boolean;
   readonly user: any;
   readonly userFingerprint: string;
@@ -372,6 +387,86 @@ export function noteWsConnectionTenant(connection: WsConnection, tenant: Resolve
   if (fingerprint !== connection.tenantFingerprint) {
     return terminate(connection, 'Tenant access changed');
   }
+  return true;
+}
+
+/** Options of {@link recheckHttpStreamInPlace}. */
+export interface IHttpStreamRecheckOptions {
+  /**
+   * Re-run the credential the stream was opened with — the same authentication the request passed. Resolves to the
+   * user the credential authenticates as NOW, or to a falsy value when it no longer does; a rejection counts as falsy.
+   * `createHttpStreamReauthenticator()` builds one for a Better-Auth session cookie or bearer token.
+   */
+  reauthenticate: () => any;
+
+  /**
+   * The tenant header the HTTP request carried (`readWsTenantHeader(request)`). It is validated against an active
+   * membership again on every re-check. Default: what the carrier held at registration.
+   */
+  tenantHeader?: string;
+}
+
+/**
+ * Let an HTTP stream registered with `endsOnRecheck` (Server-Sent Events) be re-checked IN PLACE, the way a GraphQL
+ * WebSocket is (12.11.0).
+ *
+ * Until then such a stream ended on the first event after `graphQl.subscriptionRevalidationMs` and on every
+ * invalidation, and the client got that event only after its reconnect (an EventSource waits its `retry`, ~3 s).
+ * Switched, the re-check re-runs the credential (`reauthenticate`) and the tenant resolution and compares user id,
+ * roles, verification and tenant scope with what the stream was authorized with: unchanged, the stream stays open and
+ * the event is delivered; changed — in either direction — the stream is closed and the client reconnects with the
+ * rights it holds now.
+ *
+ * The switch is made only when the credential, run once NOW, answers the user the guards authorized the stream for
+ * with the same rights and — when the stream recorded its tenant scope (`noteWsConnectionTenant()`, record it BEFORE
+ * calling this) — the same tenant scope. Otherwise nothing can tell a later difference from a different shape of the
+ * same user, and the stream keeps ending on every re-check (logged at debug). Answers whether the stream is re-checked
+ * in place now.
+ */
+export async function recheckHttpStreamInPlace(
+  connection: undefined | WsConnection,
+  options: IHttpStreamRecheckOptions,
+): Promise<boolean> {
+  if (!connection?.endsOnRecheck || connection.terminated || typeof options?.reauthenticate !== 'function') {
+    return false;
+  }
+  const keepsEnding = (reason: string): false => {
+    logger.debug(`${connection.channel} of user ${connection.userId ?? '(unknown)'} ends on every re-check: ${reason}`);
+    return false;
+  };
+  const tenantHeader = options.tenantHeader ?? connection.tenantHeader;
+  let user: any;
+  try {
+    user = await options.reauthenticate();
+  } catch {
+    user = undefined;
+  }
+  if (!user) {
+    return keepsEnding('its credential cannot be re-run');
+  }
+  if (fingerprintUser(user) !== connection.userFingerprint) {
+    return keepsEnding('the re-run credential does not answer the authorized user with the same rights');
+  }
+  if (connection.tenantFingerprint !== undefined) {
+    let tenant: ResolvedTenantContext;
+    try {
+      const resolver = getTenantContextResolver();
+      tenant = resolver ? await resolver.resolve(user, tenantHeader) : {};
+    } catch {
+      return keepsEnding('its tenant scope cannot be resolved again');
+    }
+    if (fingerprintTenant(tenant) !== connection.tenantFingerprint) {
+      return keepsEnding('its tenant scope resolves differently');
+    }
+  }
+  // An invalidation while the credential ran has ended the stream (it still ended on every re-check): nothing to switch
+  if (connection.terminated || connection.stale) {
+    return false;
+  }
+  connection.reauthenticate = options.reauthenticate;
+  connection.tenantHeader = tenantHeader;
+  connection.validatedAt = Date.now();
+  connection.endsOnRecheck = false;
   return true;
 }
 

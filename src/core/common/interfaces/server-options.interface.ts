@@ -1041,6 +1041,20 @@ export interface IBetterAuthSocialProvider {
   disableDefaultScope?: boolean;
 
   /**
+   * Whether a client may NOT sign in or link an account with an id token it submits itself (`POST /iam/sign-in/social`
+   * or `/iam/link-social` with `idToken`), answered with `ID_TOKEN_NOT_SUPPORTED`.
+   *
+   * On by default since 12.11.0: Better-Auth verifies such a token's signature, audience and expiry and asks the
+   * provider nothing, so an id token kept from an earlier sign-in (`/iam/get-access-token` hands it out) signed its
+   * owner in again for its whole lifetime — about an hour at Microsoft — after the provider had withdrawn the
+   * assignment or role. The redirect flow (`signIn.social` with a `callbackURL`) never uses it. Native apps and Google
+   * One Tap send the provider's id token themselves and need `false`. Only `false` opens it; any other value keeps it
+   * closed.
+   * @default true
+   */
+  disableIdTokenSignIn?: boolean;
+
+  /**
    * Whether a first sign-in through this provider may create an account.
    *
    * Unset, the provider follows `betterAuth.emailAndPassword.disableSignUp`: with that set to `true` (since 12.3.0)
@@ -1084,6 +1098,26 @@ export interface IBetterAuthSocialProvider {
    * writes the id there.
    */
   tenantId?: string;
+}
+
+/**
+ * Session lifetime of Better-Auth (`betterAuth.session`, 12.11.0).
+ */
+export interface IBetterAuthSessionConfig {
+  /**
+   * Whether a session is extended while it is used. Better-Auth renews its expiry once per day of use (`updateAge`).
+   * `false`: the session ends `expiresInHours` after the sign-in, used or not (Better-Auth's `disableSessionRefresh`).
+   * Only `false` switches the extension off.
+   * @default true
+   */
+  extendOnUse?: boolean;
+
+  /**
+   * Lifetime of a session in hours, counted from the sign-in (with `extendOnUse`, from the last extension). A value
+   * that is not a positive number is ignored with a warning and the default applies — never "unlimited".
+   * @default 168 (7 days, Better-Auth's default)
+   */
+  expiresInHours?: number;
 }
 
 /**
@@ -3073,6 +3107,11 @@ export interface IServerOptions {
 
   /**
    * Whether to activate health check endpoints
+   *
+   * Presence implies enabled: the block registers `GET /health-check` (liveness) and the `healthCheck` query. With
+   * `readiness` (12.11.0) a readiness endpoint `GET /health-check/ready` sits beside it. A project adds checks of its
+   * own by extending `CoreHealthCheckService` and overriding `additionalHealthIndicators(kind)` — registered through
+   * `CoreModule.forRoot(env, { healthCheck: { service: HealthCheckService } })`.
    */
   healthCheck?: {
     /**
@@ -3186,6 +3225,42 @@ export interface IServerOptions {
      * @default true (when `healthCheck` is set)
      */
     enabled?: boolean;
+
+    /**
+     * Readiness endpoint `GET /health-check/ready` beside the liveness check `GET /health-check` (12.11.0).
+     *
+     * Boolean shorthand, presence implies enabled: absent, `false` or `{ enabled: false }` registers nothing (the
+     * route answers 404) and leaves the health check as it was; `true` or `{}` registers it with the default checks.
+     * Public like the liveness check (`@Roles(S_EVERYONE)`), REST only. It answers 200 while every check is up and
+     * 503 when one is down — and `shutting_down` from the first SIGTERM / SIGINT on when `installGracefulShutdown(app)`
+     * handles the signals with a `shutdownDelayMs`: it marks the shutdown before its `shutdownDelayMs` wait, so a load balancer polling readiness
+     * stops routing to the replica while it still serves (without it, only Terminus' own state applies, which comes
+     * inside `app.close()`, right before the server closes). Add checks of your own through
+     * `CoreHealthCheckService.additionalHealthIndicators('readiness')`.
+     *
+     * @default undefined (no readiness endpoint)
+     * @since 12.11.0
+     */
+    readiness?:
+      | boolean
+      | {
+          /**
+           * The checks of `configs` the readiness check runs, with the key, thresholds and options configured there:
+           * any of `database` (MongoDB ping and every SQL source), `memoryHeap`, `memoryRss`, `storage`, `build`. A
+           * listed check runs whatever `configs.<check>.enabled` says — that flag decides for `GET /health-check`.
+           * A comma-separated string is read as a list (what `NSC__HEALTH_CHECK__READINESS__CHECKS` gives); unknown
+           * names are ignored with a warning; `[]` runs only the project's own readiness indicators.
+           *
+           * @default ['database', 'build']
+           */
+          checks?: ('build' | 'database' | 'memoryHeap' | 'memoryRss' | 'storage')[] | string;
+
+          /**
+           * `false` pre-configures the readiness endpoint without registering it.
+           * @default true (when `readiness` is set)
+           */
+          enabled?: boolean;
+        };
   };
 
   /**
@@ -4788,7 +4863,10 @@ interface IBetterAuthBase {
   /**
    * Email/password authentication configuration.
    * Enabled by default.
-   * Set `enabled: false` to explicitly disable email/password auth.
+   * Set `enabled: false` to explicitly disable email/password auth. Since 12.11.0 Passkey and two-factor are then off
+   * too unless switched on explicitly (`passkey: true`, `twoFactor: true`) — when no plugin of `plugins` adds a sign-in
+   * route of its own (`username()`, `phoneNumber()` keep both on): with sign-in through a provider alone, a passkey
+   * registered once would keep signing its owner in after the provider withdrew the assignment.
    */
   emailAndPassword?: {
     /**
@@ -5166,6 +5244,21 @@ interface IBetterAuthBase {
   socialProviders?: Record<string, IBetterAuthSocialProvider>;
 
   /**
+   * How long a session lasts, and whether using it extends it (12.11.0).
+   *
+   * Without it Better-Auth's defaults apply: 7 days, extended once a day while the session is used — so a session that
+   * is used every day never ends, and a withdrawal at a sign-in provider (an Entra assignment) never reaches it. With
+   * `extendOnUse: false` a session ends `expiresInHours` after its sign-in, whatever happens in between.
+   * `betterAuth.options.session` still wins key by key.
+   *
+   * @example
+   * ```typescript
+   * session: { expiresInHours: 8, extendOnUse: false }, // sign in again after 8 hours, every time
+   * ```
+   */
+  session?: IBetterAuthSessionConfig;
+
+  /**
    * Two-factor authentication configuration.
    *
    * **Enabled by Default:** 2FA is enabled by default when BetterAuth is active.
@@ -5517,6 +5610,25 @@ export interface ICoreModuleOverrides {
    */
   errorCode?: {
     controller?: Type<any>;
+    service?: Type<any>;
+  };
+
+  /**
+   * Override the health check service and/or the readiness controller (12.11.0).
+   *
+   * - `service` must extend `CoreHealthCheckService` — the extension point for checks of a project's own:
+   *   override `additionalHealthIndicators(kind)` and return Terminus indicators for `'liveness'`
+   *   (`GET /health-check`, the `healthCheck` query) and/or `'readiness'` (`GET /health-check/ready`)
+   * - `readinessController` must extend `CoreHealthCheckReadinessController` (registered only with
+   *   `healthCheck.readiness`)
+   *
+   * @example
+   * ```typescript
+   * { healthCheck: { service: HealthCheckService } }
+   * ```
+   */
+  healthCheck?: {
+    readinessController?: Type<any>;
     service?: Type<any>;
   };
 

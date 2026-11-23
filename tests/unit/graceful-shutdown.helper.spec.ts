@@ -17,6 +17,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import { ConfigService } from '../../src/core/common/services/config.service';
 import { installGracefulShutdown } from '../../src/core/common/helpers/graceful-shutdown.helper';
+import { isShutdownDraining, resetShutdownDraining } from '../../src/core/common/helpers/shutdown-state.helper';
 
 /**
  * The delay is deliberately NOT a NestJS lifecycle hook, and that is the whole point of these
@@ -103,6 +104,13 @@ describe('installGracefulShutdown', () => {
     }
   });
 
+  /**
+   * @regression   12.11.0 (found in review) — the readiness endpoint learned about the shutdown only inside app.close(),
+   *   so during the whole `shutdownDelayMs` wait it answered 200 and a polling load balancer kept routing here.
+   * @seen-failing Drop markShutdownDraining() from the signal handler in installGracefulShutdown()
+   *   (src/core/common/helpers/graceful-shutdown.helper.ts) — registered as mutation
+   *   `graceful-shutdown-skips-drain-mark` in tests/regression-mutations.json.
+   */
   it('waits the configured time on SIGTERM and only then closes', async () => {
     withDelay(5_000);
     const { handlers } = captureHandlers();
@@ -113,9 +121,12 @@ describe('installGracefulShutdown', () => {
     // Nest must NOT get its own handler, or it would close in parallel with the wait
     expect(app.enableShutdownHooks).not.toHaveBeenCalled();
 
+    resetShutdownDraining();
     handlers.SIGTERM('SIGTERM');
 
-    // Still fully healthy: this is the window in which the load balancer deregisters
+    // Still serving, but no longer ready: this is the window in which the load balancer deregisters (12.11.0:
+    // readiness answers 503 from the signal on — mutation `graceful-shutdown-skips-drain-mark`)
+    expect(isShutdownDraining()).toBe(true);
     await vi.advanceTimersByTimeAsync(4_999);
     expect(app.close).not.toHaveBeenCalled();
 

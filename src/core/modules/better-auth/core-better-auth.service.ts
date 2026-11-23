@@ -42,6 +42,12 @@ import {
   unavailableBetterAuthOperations,
 } from './core-better-auth-openapi.helper.js';
 import type { IBetterAuthOpenApiDocument, IBetterAuthRuntime } from './core-better-auth-openapi.helper.js';
+import { cachedJwtSession, cachedJwtSessionRecord, rememberJwtSession } from './core-better-auth-jwt-session.cache.js';
+import {
+  isEmailAndPasswordSignInEnabled,
+  isPasskeyConfigured,
+  isTwoFactorConfigured,
+} from './core-better-auth-sign-in-factors.helper.js';
 import { isJwtShaped } from './core-better-auth-token.helper.js';
 import { BetterAuthSessionUser } from './core-better-auth-user.mapper.js';
 import { presentSessionTokens } from './core-better-auth-session-token.helper.js';
@@ -657,31 +663,29 @@ export class CoreBetterAuthService implements OnApplicationBootstrap, OnModuleDe
   }
 
   /**
-   * Checks if 2FA is enabled.
-   * 2FA is enabled by default when BetterAuth is enabled.
-   * Only disabled when explicitly set to:
-   * - `false`
-   * - `{ enabled: false }`
+   * Checks if 2FA is enabled: on by default, off with `false` / `{ enabled: false }` — and since 12.11.0 off while
+   * sign-in runs through a provider alone, unless switched on with `true` / `{ enabled: true }` (`isSignInFactorEnabled()`).
    */
   isTwoFactorEnabled(): boolean {
-    if (!this.isEnabled()) return false;
-    if (this.config.twoFactor === false) return false;
-    if (typeof this.config.twoFactor === 'object' && this.config.twoFactor?.enabled === false) return false;
-    return true;
+    return this.isEnabled() && isTwoFactorConfigured(this.config);
   }
 
   /**
-   * Checks if Passkey/WebAuthn is enabled.
-   * Passkey is enabled by default when BetterAuth is enabled.
-   * Only disabled when explicitly set to:
-   * - `false`
-   * - `{ enabled: false }`
+   * Checks if Passkey/WebAuthn is enabled: on by default, off with `false` / `{ enabled: false }` — and since 12.11.0
+   * off while sign-in runs through a provider alone, unless switched on with `true` / `{ enabled: true }`
+   * (`isSignInFactorEnabled()`).
    */
   isPasskeyEnabled(): boolean {
-    if (!this.isEnabled()) return false;
-    if (this.config.passkey === false) return false;
-    if (typeof this.config.passkey === 'object' && this.config.passkey?.enabled === false) return false;
-    return true;
+    return this.isEnabled() && isPasskeyConfigured(this.config);
+  }
+
+  /**
+   * Checks if e-mail and password sign-in is enabled: on by default, off with `emailAndPassword.enabled: false`
+   * (reported by `GET /iam/features` as `emailAndPassword` since 12.11.0, so a frontend that signs in through a
+   * provider alone can hide the form).
+   */
+  isEmailAndPasswordEnabled(): boolean {
+    return this.isEnabled() && isEmailAndPasswordSignInEnabled(this.config);
   }
 
   /**
@@ -1534,22 +1538,151 @@ export class CoreBetterAuthService implements OnApplicationBootstrap, OnModuleDe
       const alg = header.alg;
       const kid = header.kid;
 
-      // For HS256 (symmetric), verify with the BetterAuth secret
+      let payload: null | { [key: string]: any; email?: string; sub: string } = null;
       if (alg === 'HS256') {
-        return this.verifyHs256Token(token);
+        // For HS256 (symmetric), verify with the BetterAuth secret
+        payload = await this.verifyHs256Token(token);
+      } else if (kid) {
+        // For asymmetric algorithms (EdDSA, RS256, ES256), use JWKS — from MongoDB or the SQL source, whichever holds them
+        payload = await this.verifyJwksToken(token, kid, alg);
+      } else {
+        this.logger.debug(`JWT verification: unsupported algorithm=${alg} or missing kid`);
+        return null;
       }
 
-      // For asymmetric algorithms (EdDSA, RS256, ES256), use JWKS — from MongoDB or the SQL source, whichever holds them
-      if (kid) {
-        return this.verifyJwksToken(token, kid, alg);
-      }
-
-      this.logger.debug(`JWT verification: unsupported algorithm=${alg} or missing kid`);
-      return null;
+      // A signature and an expiry are not enough (12.11.0): the session the JWT was issued from must still live
+      return payload && (await this.isJwtSessionLive(payload)) ? payload : null;
     } catch (error) {
       this.logger.debug(`JWT verification failed: ${error instanceof Error ? error.message : 'Unknown error'}`);
       return null;
     }
+  }
+
+  /**
+   * The session a Better-Auth JWT was issued from, with its user (12.11.0) — what the middleware hands Better-Auth's
+   * plugin routes (`req.betterAuthSession`) for a JWT request.
+   *
+   * Before 12.11.0 the middleware took the user's NEWEST active session instead (`getActiveSessionForUser()`), whatever
+   * session the JWT came from: `POST /iam/sign-out` with the JWT of one device signed out the device that signed in
+   * last, and the first device's JWT kept working. Asked through Better-Auth's own adapter by the JWT's `sid`, and
+   * cached with the liveness answer of {@link isJwtSessionLive} for {@link jwtSessionCacheTtlMs}.
+   *
+   * @returns the session and its user, or nulls for a JWT without `sid`, a session that is gone, expired or belongs to
+   *   another user, and a failed lookup
+   */
+  async getJwtSession(payload: { [key: string]: any; sub: string } | null | undefined): Promise<SessionResult> {
+    const none: SessionResult = { session: null, user: null };
+    const sessionId: unknown = payload?.sid;
+    const userId = payload?.sub ? String(payload.sub) : '';
+    if (!this.isEnabled() || typeof sessionId !== 'string' || !sessionId || !userId) {
+      return none;
+    }
+    const now = Date.now();
+    if (this.jwtSessionCacheTtlMs > 0) {
+      const cached = cachedJwtSessionRecord(sessionId, userId, now) as SessionResult | undefined;
+      if (cached) {
+        return cached;
+      }
+    }
+    try {
+      const context = await (this.getInstance() as { $context?: Promise<any> } | null)?.$context;
+      const session = await context?.adapter?.findOne?.({
+        model: 'session',
+        where: [{ field: 'id', value: sessionId }],
+      });
+      const expiresAt = session?.expiresAt ? new Date(session.expiresAt).getTime() : NaN;
+      if (!session || String(session.userId) !== userId || !Number.isFinite(expiresAt) || expiresAt <= Date.now()) {
+        return none;
+      }
+      const user = await context.internalAdapter?.findUserById?.(userId);
+      if (!user) {
+        return none;
+      }
+      const result: SessionResult = {
+        session: {
+          expiresAt: new Date(expiresAt),
+          id: String(session.id),
+          token: session.token,
+          userId,
+        },
+        user: { email: user.email, emailVerified: user.emailVerified, id: String(user.id), name: user.name },
+      };
+      if (this.jwtSessionCacheTtlMs > 0) {
+        rememberJwtSession(sessionId, userId, true, Math.min(now + this.jwtSessionCacheTtlMs, expiresAt), result);
+      }
+      return result;
+    } catch (error) {
+      this.logger.debug(`getJwtSession error: ${error instanceof Error ? error.message : 'Unknown error'}`);
+      return none;
+    }
+  }
+
+  /**
+   * How long the answer "this JWT's session lives" is kept before the session is asked again, in milliseconds
+   * (12.11.0). A deleted session is forgotten at once, so this bounds only what no deletion hook reports — a session
+   * removed directly in the database, a broadcast lost while Redis was down. A subclass may set another value; `0`
+   * asks for every request.
+   */
+  protected jwtSessionCacheTtlMs = 10_000;
+
+  /**
+   * Whether the session a Better-Auth JWT was issued from still lives (12.11.0): it exists, belongs to the token's
+   * subject and has not expired.
+   *
+   * Before 12.11.0 the JWT carried no reference to its session and was accepted on its signature and expiry alone:
+   * after `POST /iam/sign-out`, a revoked session or a deleted user it kept reading and writing for the rest of its
+   * lifetime (15 minutes by default), and so did a copy of it. A JWT without `sid` — issued before 12.11.0 — is refused;
+   * a client fetches a new one with its session (`GET /iam/token`), which the frontend libraries do on the 401.
+   *
+   * Asked through Better-Auth's own adapter by the session id, so it reads wherever Better-Auth keeps its sessions;
+   * with sessions held only in `secondaryStorage` through the user's session list. The answer is cached for
+   * {@link jwtSessionCacheTtlMs} in `core-better-auth-jwt-session.cache.ts`, and a deleted session is forgotten at once
+   * there (on every replica with `redis`). A failed lookup refuses the JWT and is not cached.
+   */
+  protected async isJwtSessionLive(payload: { [key: string]: any; sub: string }): Promise<boolean> {
+    const sessionId: unknown = payload.sid;
+    const userId = String(payload.sub);
+    if (typeof sessionId !== 'string' || !sessionId) {
+      this.logger.debug('JWT without a session reference refused (issued before 12.11.0)');
+      return false;
+    }
+    const now = Date.now();
+    const cached = this.jwtSessionCacheTtlMs > 0 ? cachedJwtSession(sessionId, userId, now) : undefined;
+    if (cached !== undefined) {
+      return cached;
+    }
+
+    let session: undefined | { expiresAt?: unknown; id?: unknown; userId?: unknown };
+    try {
+      const context = await (this.getInstance() as { $context?: Promise<any> } | null)?.$context;
+      if (!context) {
+        return false;
+      }
+      const options = context.options ?? {};
+      if (options.secondaryStorage && !options.session?.storeSessionInDatabase) {
+        const sessions: unknown = await context.internalAdapter?.listSessions?.(userId, { onlyActiveSessions: true });
+        session = (Array.isArray(sessions) ? sessions : []).find(
+          (candidate: { id?: unknown }) => String(candidate?.id) === sessionId,
+        );
+      } else {
+        session =
+          (await context.adapter?.findOne?.({ model: 'session', where: [{ field: 'id', value: sessionId }] })) ??
+          undefined;
+      }
+    } catch (error) {
+      this.logger.warn(
+        `JWT refused: its session could not be looked up (${error instanceof Error ? error.message : 'Unknown error'})`,
+      );
+      return false;
+    }
+
+    const expiresAt = session?.expiresAt ? new Date(session.expiresAt as Date | number | string).getTime() : NaN;
+    const live = !!session && String(session.userId) === userId && Number.isFinite(expiresAt) && expiresAt > Date.now();
+    if (this.jwtSessionCacheTtlMs > 0) {
+      const until = Math.min(now + this.jwtSessionCacheTtlMs, live ? expiresAt : Number.POSITIVE_INFINITY);
+      rememberJwtSession(sessionId, userId, live, until);
+    }
+    return live;
   }
 
   /**

@@ -1,6 +1,6 @@
 import { Logger, OnApplicationBootstrap, OnApplicationShutdown } from '@nestjs/common';
 import { CronExpression, SchedulerRegistry } from '@nestjs/schedule';
-import { CronJob } from 'cron';
+import { CronJob, CronTime } from 'cron';
 
 import { CronJobConfigWithTimeZone } from '../interfaces/cron-job-config-with-time-zone.interface.js';
 import { CronJobConfigWithUtcOffset } from '../interfaces/cron-job-config-with-utc-offset.interface.js';
@@ -99,6 +99,18 @@ export interface CoreCronJobsOptions {
 }
 
 /**
+ * A new schedule for {@link CoreCronJobs.rescheduleCronJob}: a cron expression or a date (the job keeps its time zone
+ * or UTC offset), or the schedule fields of a job config. Only the schedule changes — `distributed`, `runParallel`,
+ * `throwException` and the job function stay as configured.
+ */
+export type CronJobSchedule =
+  | CronExpression
+  | Date
+  | Pick<CronJobConfigWithTimeZone, 'cronTime' | 'timeZone' | 'utcOffset'>
+  | Pick<CronJobConfigWithUtcOffset, 'cronTime' | 'timeZone' | 'utcOffset'>
+  | string;
+
+/**
  * Cron jobs service to extend
  *
  * Jobs are deduplicated across replicas when they are `distributed` — the default with `redis` configured; without
@@ -108,6 +120,8 @@ export interface CoreCronJobsOptions {
  * - Otherwise: the local cron timer stays, but each tick first acquires a lease
  *   (Redis `SET NX` when available, else the SQL lease table of the default source, else a `cron-locks` document in
  *   MongoDB).
+ *
+ * A job's schedule can be changed at runtime with {@link CoreCronJobs.rescheduleCronJob} (12.11.0), in both modes.
  */
 export abstract class CoreCronJobs implements OnApplicationBootstrap, OnApplicationShutdown {
   /**
@@ -159,6 +173,9 @@ export abstract class CoreCronJobs implements OnApplicationBootstrap, OnApplicat
   /** Shared BullMQ worker, created only in BullMQ mode */
   protected bullWorker?: any;
 
+  /** Set when the application shuts down: no job is (re)scheduled after that */
+  protected cronJobsClosed = false;
+
   /** Whether the "deduplication inactive" warning was already emitted */
   protected dedupWarned = false;
 
@@ -182,6 +199,9 @@ export abstract class CoreCronJobs implements OnApplicationBootstrap, OnApplicat
   protected readonly onBullQueueReady = (): void => {
     void this.restoreBullSchedulers();
   };
+
+  /** The reschedule in progress; rescheduleCronJob() calls run one after the other */
+  protected rescheduling: Promise<void> = Promise.resolve();
 
   // ===================================================================================================================
   // Initializations
@@ -219,6 +239,9 @@ export abstract class CoreCronJobs implements OnApplicationBootstrap, OnApplicat
    * Close the BullMQ worker and queue
    */
   async onApplicationShutdown(): Promise<void> {
+    this.cronJobsClosed = true;
+    // A reschedule already running finishes first; it never rejects here (rescheduleCronJob() reports to its caller)
+    await this.rescheduling;
     this.stopBullSchedulerCheck();
     // A check already running finishes its current job before the queue closes; it never rejects.
     await this.bullSchedulerCheck;
@@ -235,6 +258,221 @@ export abstract class CoreCronJobs implements OnApplicationBootstrap, OnApplicat
     }
     this.bullWorker = undefined;
     this.bullQueue = undefined;
+  }
+
+  // ===================================================================================================================
+  // Runtime changes
+  // ===================================================================================================================
+
+  /**
+   * Change the schedule of a registered cron job at runtime (12.11.0) — for a schedule a project keeps in its own
+   * settings rather than in the `cronJobs` configuration.
+   *
+   * `schedule` is a cron expression or a date (the job keeps its time zone or UTC offset), or `{ cronTime, timeZone }` /
+   * `{ cronTime, utcOffset }`. It is validated before anything changes: an invalid expression, an unknown time zone or
+   * a date in the past rejects and leaves the job as it was. Only the schedule changes; `distributed`, `runParallel`
+   * and `throwException` stay as configured, and so do the leases, the running lease and the BullMQ job options.
+   *
+   * - Local timer: the timer is replaced. The next tick follows the new schedule, a distributed job takes its tick
+   *   lease keyed on the new schedule's instant, a tick that is running finishes. A recurring job the Hub stopped on
+   *   this replica stays stopped.
+   * - BullMQ job scheduler: the scheduler is written to Redis with the new pattern and `bullJobOptions` — skipped when
+   *   Redis already holds exactly this pattern and time zone, so calling this on every replica plans no tick twice —
+   *   and restoreBullSchedulers() brings the NEW schedule back after a data loss. A schedule BullMQ cannot express (a
+   *   date, a UTC offset) moves the job to a local timer with lease: its scheduler is removed with the removal marker,
+   *   so a replica that still schedules the job through BullMQ does not bring it back. A cron expression moves the job
+   *   back to BullMQ.
+   *
+   * WHERE IT APPLIES: a BullMQ scheduler lives in Redis and changes for the whole fleet at once, a local timer only in
+   * this process. Call it on EVERY replica (from the settings change each replica observes, and at startup), or the
+   * replicas run the job on different schedules. A reschedule is not stored: the next bootstrap schedules the job from
+   * the configuration again, so a project re-applies a stored schedule after `super.onApplicationBootstrap()`.
+   *
+   * `runOnInit` is not repeated — a reschedule is not a start. Calls run one after the other. Rejects for a job that is
+   * not registered: unknown, disabled, without `cronTime` or job method, before bootstrap or after shutdown.
+   */
+  async rescheduleCronJob(name: string, schedule: CronJobSchedule): Promise<void> {
+    const run = this.rescheduling.then(() => this.applyCronJobSchedule(name, schedule));
+    this.rescheduling = run.catch(() => undefined);
+    return run;
+  }
+
+  /**
+   * Apply a new schedule to a registered job: validate it, then move the job to the mode the schedule needs — the same
+   * rule initCronJobs() applies (BullMQ for a distributed job with a cron expression and no UTC offset while BullMQ is
+   * active, a local timer otherwise). See rescheduleCronJob().
+   */
+  protected async applyCronJobSchedule(name: string, schedule: CronJobSchedule): Promise<void> {
+    const current = this.jobConfigs[name];
+    const scheduledWithBull = this.bullScheduledJobs.has(name);
+    if (this.cronJobsClosed || !current || (!scheduledWithBull && !this.schedulerRegistry.doesExist('cron', name))) {
+      throw new Error(`CronJob ${name} is not registered and cannot be rescheduled`);
+    }
+    const next = this.withSchedule(name, current, schedule);
+    // sendAt() refuses what has no next instant (a date in the past); the constructor an invalid expression or zone
+    new CronTime(next.cronTime as any, next.timeZone as any, next.utcOffset as any).sendAt();
+
+    // A scheduler check that runs finishes before the job changes under it
+    await this.bullSchedulerCheck;
+    const withBull = !!this.bullQueue && next.distributed !== false && this.canUseBullScheduler(next);
+    if (withBull) {
+      await this.rescheduleWithBull(name, next);
+    } else {
+      await this.rescheduleLocally(name, next, scheduledWithBull);
+    }
+
+    if (this.config.log) {
+      const cronTime = next.cronTime instanceof Date ? next.cronTime.toISOString() : String(next.cronTime);
+      cronLogger.log(`CronJob ${name} rescheduled to "${cronTime}" (${withBull ? 'BullMQ scheduler' : 'local timer'})`);
+    }
+  }
+
+  /** The job's config with the new schedule; a cron expression or date keeps the time zone or UTC offset */
+  protected withSchedule(
+    name: string,
+    current: CronJobConfigWithTimeZone,
+    schedule: CronJobSchedule,
+  ): CronJobConfigWithTimeZone {
+    if (typeof schedule === 'string' || schedule instanceof Date) {
+      return { ...current, cronTime: schedule };
+    }
+    if (!schedule || typeof schedule !== 'object' || !schedule.cronTime) {
+      throw new Error(`CronJob ${name} cannot be rescheduled without a cronTime`);
+    }
+    const next: Record<string, unknown> = { ...current, cronTime: schedule.cronTime };
+    if (schedule.utcOffset !== undefined && schedule.utcOffset !== null) {
+      // timeZone and utcOffset exclude each other, as in initCronJobs()
+      next.timeZone = null;
+      next.utcOffset = schedule.utcOffset;
+    } else if (schedule.timeZone) {
+      next.timeZone = schedule.timeZone;
+      next.utcOffset = undefined;
+    }
+    return next as unknown as CronJobConfigWithTimeZone;
+  }
+
+  /** Whether BullMQ can express a schedule: a cron expression without a UTC offset (BullMQ knows only time zones) */
+  protected canUseBullScheduler(config: CronJobConfigWithTimeZone): boolean {
+    return typeof config.cronTime === 'string' && !config.utcOffset;
+  }
+
+  /**
+   * Reschedule a job through its BullMQ scheduler — or move it there from a local timer. Redis is written first: when
+   * that fails, the job keeps running as it did and the call rejects.
+   */
+  protected async rescheduleWithBull(name: string, config: CronJobConfigWithTimeZone): Promise<void> {
+    const previous = this.jobConfigs[name];
+    // The schedule restoreBullSchedulers() brings back after a data loss
+    this.jobConfigs[name] = config;
+    try {
+      // The job runs through BullMQ again, so a removal marker an earlier schedule left no longer applies
+      const removedKey = this.bullSchedulerRemovedKey(name);
+      if (removedKey) {
+        await this.getRedisClient()?.del(removedKey);
+      }
+      if (!(await this.bullSchedulerMatches(name, config))) {
+        await this.upsertBullScheduler(name, config);
+      }
+    } catch (error) {
+      this.jobConfigs[name] = previous;
+      throw error;
+    }
+    this.bullScheduledJobs.add(name);
+    // The local timer the job ran on, or the stopped registry entry of its previous schedule
+    this.removeCronJobRegistryEntry(name);
+    this.schedulerRegistry.addCronJob(name, this.createBullRegistryEntry(name, config));
+    if (!this.bullSchedulerCheckTimer) {
+      this.startBullSchedulerCheck();
+    }
+  }
+
+  /**
+   * Reschedule a job on a local timer — or move it there from its BullMQ scheduler, which is removed with the removal
+   * marker first: a replica that still schedules the job through BullMQ must not register it again.
+   */
+  protected async rescheduleLocally(
+    name: string,
+    config: CronJobConfigWithTimeZone,
+    scheduledWithBull: boolean,
+  ): Promise<void> {
+    if (scheduledWithBull) {
+      this.bullScheduledJobs.delete(name);
+      try {
+        await this.markBullSchedulerRemoved(name);
+        await this.bullQueue?.removeJobScheduler(name);
+      } catch (error) {
+        // The job stays with its scheduler; a marker written before the removal failed would hide a later data loss
+        this.bullScheduledJobs.add(name);
+        try {
+          const removedKey = this.bullSchedulerRemovedKey(name);
+          if (removedKey) {
+            await this.getRedisClient()?.del(removedKey);
+          }
+        } catch {
+          // Redis is not answering — the next registerBullJob() deletes the marker
+        }
+        throw error;
+      }
+    }
+    const previous = scheduledWithBull ? undefined : this.registeredCronJob(name);
+    // The Hub stopped a recurring job on this replica: the new timer stays stopped too (a one-shot date stops itself)
+    const keepStopped = !!previous && !previous.isActive && !previous.cronTime?.realDate;
+    this.removeCronJobRegistryEntry(name);
+    this.jobConfigs[name] = config;
+    // A reschedule is not a start: no runOnInit
+    this.registerLocalJob(name, { ...config, runOnInit: false }, config.distributed !== false);
+    if (keepStopped) {
+      void this.registeredCronJob(name)?.stop();
+    }
+  }
+
+  /**
+   * Whether Redis already holds this job's scheduler with exactly this pattern and time zone. An upsert is not free —
+   * BullMQ drops the tick the scheduler planned last and plans from now — so an unchanged schedule is not written again.
+   * A listing that fails answers `false`: the schedule is then written.
+   */
+  protected async bullSchedulerMatches(name: string, config: CronJobConfigWithTimeZone): Promise<boolean> {
+    try {
+      const listed: { key?: string; pattern?: string; tz?: null | string }[] = await this.bullQueue.getJobSchedulers();
+      const scheduler = listed.find((entry) => entry?.key === name);
+      return (
+        !!scheduler &&
+        scheduler.pattern === config.cronTime &&
+        (scheduler.tz ?? undefined) === (config.timeZone ?? undefined)
+      );
+    } catch {
+      return false;
+    }
+  }
+
+  /**
+   * The STOPPED CronJob that stands for a BullMQ-scheduled job in the SchedulerRegistry — see registerBullJob(). It never
+   * fires on its own; the Hub reads its schedule, and a manual trigger runs the leased tick.
+   */
+  protected createBullRegistryEntry(name: string, config: CronJobConfigWithTimeZone): CronJob {
+    return new CronJob(
+      config.cronTime,
+      () => this.runInitTick(name),
+      null,
+      false,
+      config.timeZone,
+      config.context,
+      false,
+      config.utcOffset,
+      config.unrefTimeout,
+    );
+  }
+
+  /** The job's CronJob in the SchedulerRegistry, if it has one */
+  protected registeredCronJob(name: string): CronJob | undefined {
+    return this.schedulerRegistry.doesExist('cron', name) ? this.schedulerRegistry.getCronJob(name) : undefined;
+  }
+
+  /** Stop the job's CronJob and take it out of the SchedulerRegistry (deleteCronJob() stops it) */
+  protected removeCronJobRegistryEntry(name: string): void {
+    if (this.schedulerRegistry.doesExist('cron', name)) {
+      this.schedulerRegistry.deleteCronJob(name);
+    }
   }
 
   /**
@@ -308,7 +546,7 @@ export abstract class CoreCronJobs implements OnApplicationBootstrap, OnApplicat
 
       // Init cron job as BullMQ job scheduler, when possible
       if (bullMqActive && distributed) {
-        if (typeof config.cronTime === 'string' && !config.utcOffset) {
+        if (this.canUseBullScheduler(config)) {
           await this.registerBullJob(name, config);
           this.bullScheduledJobs.add(name);
           continue;
@@ -815,18 +1053,7 @@ export abstract class CoreCronJobs implements OnApplicationBootstrap, OnApplicat
     // the BullMQ scheduler owns the schedule — while `nextDate()`/`lastDate()` still answer for
     // the panel, and a manual trigger goes through the same leased tick as everywhere else.
     if (!this.schedulerRegistry.doesExist('cron', name)) {
-      const registryJob = new CronJob(
-        config.cronTime,
-        () => this.runInitTick(name),
-        null,
-        false,
-        config.timeZone,
-        config.context,
-        false,
-        config.utcOffset,
-        config.unrefTimeout,
-      );
-      this.schedulerRegistry.addCronJob(name, registryJob);
+      this.schedulerRegistry.addCronJob(name, this.createBullRegistryEntry(name, config));
     }
 
     if (this.config.log) {

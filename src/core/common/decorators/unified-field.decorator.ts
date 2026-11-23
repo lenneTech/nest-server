@@ -693,21 +693,31 @@ function getEnumName(enumObj: any): string | undefined {
     return enumObj.name;
   }
 
-  // Check if it's a constructor function with a name
-  if (typeof enumObj === 'function' && enumObj.name && enumObj.name !== 'Object') {
+  // Check if it's a constructor function with a name — never a built-in one (`Array`, `String`, …)
+  if (typeof enumObj === 'function' && enumObj.name && !isBuiltInConstructor(enumObj)) {
     return enumObj.name;
   }
 
   // For regular TypeScript enums, try to find the global variable name
   // This is a heuristic approach - not guaranteed to work in all cases
   if (enumObj && typeof enumObj === 'object') {
-    // Check constructor name (though this usually returns 'Object' for enums)
-    if (enumObj.constructor && enumObj.constructor.name && enumObj.constructor.name !== 'Object') {
+    // Check constructor name (though this usually returns 'Object' for enums). A list of values has the constructor
+    // `Array`: until 12.11.0 every unnamed list enum of a project became one OpenAPI schema `Array`, and a client
+    // generated from the document declared `export type Array = …`, shadowing the built-in type (12.11.0)
+    if (enumObj.constructor && enumObj.constructor.name && !isBuiltInConstructor(enumObj.constructor)) {
       return enumObj.constructor.name;
     }
   }
 
   return undefined;
+}
+
+/**
+ * Whether `fn` is a built-in constructor (`Object`, `Array`, `String`, `Map`, …): the global binding of its name is the
+ * function itself. Its name is never an enum's name.
+ */
+function isBuiltInConstructor(fn: unknown): boolean {
+  return typeof fn === 'function' && !!fn.name && (globalThis as Record<string, unknown>)[fn.name] === fn;
 }
 
 function isGraphQLScalar(type: any): boolean {

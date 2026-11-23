@@ -196,7 +196,55 @@ export function getEnvironmentConfig(options: { config?: Record<string, any>; de
 }
 
 /**
- * Get environment object from environment variables
+ * Converts one `NSC__…` value (see {@link getEnvironmentObject}). `key` names the variable in the error, `segment` is
+ * the last segment of its path.
+ */
+function prepareEnvironmentValue(
+  key: string,
+  segment: string,
+  value: boolean | number | string,
+): boolean | number | string {
+  if (typeof value !== 'string') {
+    return value;
+  }
+  const trimmed = value.trim();
+  const lower = trimmed.toLowerCase();
+  if (lower === 'true') {
+    return true;
+  }
+  if (lower === 'false') {
+    return false;
+  }
+  if (segment === 'enabled') {
+    if (trimmed === '1') {
+      return true;
+    }
+    if (trimmed === '0') {
+      return false;
+    }
+    throw new Error(
+      `${key}="${value}" is not a switch value: write true or false (1 or 0 work too). ` +
+        'Before 12.11.0 any other text counted as switched on.',
+    );
+  }
+  if (!isNaN(Number(value))) {
+    return Number(value);
+  }
+  return value;
+}
+
+/**
+ * Get environment object from environment variables (`NSC__…`).
+ *
+ * Values, since 12.11.0:
+ * - an empty value (or one of spaces only) counts as NOT SET — the entry is left out, and so are the objects of its
+ *   path. Before, `NSC__X__ENABLED=` became `0`, which every `enabled !== false` check reads as on, and
+ *   `NSC__REDIS__HOST=` would have created `redis: {}`, which switches Redis on;
+ * - `true` / `false` in any case and with surrounding spaces become booleans (before: only exactly `true` / `false`;
+ *   `FALSE` stayed text and switched a feature ON);
+ * - a key named `enabled` takes only `true`, `false`, `1` or `0` and refuses anything else with an error, so a
+ *   misspelled off switch (`off`, `no`) stops the start instead of leaving the feature on;
+ * - anything `Number()` reads becomes a number, everything else stays text.
  */
 export function getEnvironmentObject(options?: {
   prefix?: string;
@@ -212,6 +260,11 @@ export function getEnvironmentObject(options?: {
   Object.entries(config.processEnv)
     .filter(([key]) => key.startsWith(config.prefix))
     .forEach(([key, value]) => {
+      // An empty value counts as not set: no entry, and no objects along its path (12.11.0)
+      if (typeof value === 'string' && value.trim() === '') {
+        return;
+      }
+
       // Remove prefix from key
       const adjustedKey = key.slice(config.prefix?.length || 0);
 
@@ -229,13 +282,7 @@ export function getEnvironmentObject(options?: {
         const segment = path[i];
         if (i === path.length - 1) {
           // value preparation
-          if (value === 'true') {
-            value = true;
-          } else if (value === 'false') {
-            value = false;
-          } else if (!isNaN(Number(value))) {
-            value = Number(value);
-          }
+          value = prepareEnvironmentValue(key, segment, value);
 
           current[segment] = value;
         } else {

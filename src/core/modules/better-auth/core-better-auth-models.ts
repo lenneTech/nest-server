@@ -123,6 +123,11 @@ export class CoreBetterAuthPasskeyChallengeModel {
 @ObjectType({ description: 'Better-Auth features status' })
 @Restricted(RoleEnum.S_EVERYONE)
 export class CoreBetterAuthFeaturesModel {
+  @Field(() => Boolean, {
+    description: 'Whether e-mail and password sign-in is enabled (false: sign-in through a provider only)',
+  })
+  emailAndPassword: boolean;
+
   @Field(() => Boolean, { description: 'Whether email verification is required on sign-up' })
   emailVerification: boolean;
 

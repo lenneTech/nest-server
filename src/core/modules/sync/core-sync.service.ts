@@ -21,8 +21,12 @@ import {
   ensureWsConnectionCurrent,
   getWsConnection,
   noteWsConnectionTenant,
+  readWsTenantHeader,
+  recheckHttpStreamInPlace,
   registerWsConnection,
+  type WsConnection,
 } from '../../common/helpers/graphql-ws-connection.helper.js';
+import { createHttpStreamReauthenticator } from '../../common/helpers/http-stream-auth.helper.js';
 import {
   buildCorsConfig,
   isCookiesEnabled,
@@ -1416,11 +1420,14 @@ export class CoreSyncService implements OnApplicationBootstrap, OnModuleDestroy,
    * The SSE stream of `GET /sync/hints`: an `event: change` with `{ model, at }` for every hint the caller may receive
    * (protocol §9), for the `models` named or all.
    *
-   * The stream is registered like a GraphQL WebSocket (`registerWsConnection()`): an invalidation that names the
-   * caller or one of their tenants ends it at once, and otherwise it ends before the first hint after
-   * `graphQl.subscriptionRevalidationMs`. An HTTP stream has no handshake to repeat, so it is not re-checked in place —
-   * the EventSource reconnects (`retry`) and the new request passes the guards like every request. A client loses
-   * nothing by it: a hint only means "pull now".
+   * The stream is registered like a GraphQL WebSocket (`registerWsConnection()`) and re-checked when an invalidation
+   * names the caller or one of their tenants, and otherwise before the first hint after
+   * `graphQl.subscriptionRevalidationMs`. Since 12.11.0 that re-check runs IN PLACE when the request's credential can
+   * be re-run — a Better-Auth session cookie or bearer token (`recheckHintStreamInPlace()`): the stream stays open and
+   * the hint is delivered while the caller's rights are unchanged, and is closed only when they changed. A stream
+   * opened with a credential that cannot be re-run (a legacy JWT, an API token) ends on every re-check as before: the
+   * EventSource reconnects (`retry`) and the new request passes the guards like every request. A client loses nothing
+   * by either: a hint only means "pull now".
    */
   async openHintStream(request: any, response: any, currentUser: any, models?: readonly string[]): Promise<void> {
     const accepts = await this.hintFilter(currentUser, models);
@@ -1457,7 +1464,8 @@ export class CoreSyncService implements OnApplicationBootstrap, OnModuleDestroy,
     registerWsConnection({
       carrier,
       channel: 'SSE hint stream',
-      // No credential to check again: every re-check ends the stream, and the reconnect is checked by the guards
+      // Every re-check ends the stream and the reconnect is checked by the guards — until recheckHintStreamInPlace()
+      // below finds a credential it can re-run
       endsOnRecheck: true,
       socket: {
         close: () => end(),
@@ -1477,6 +1485,11 @@ export class CoreSyncService implements OnApplicationBootstrap, OnModuleDestroy,
         tenantIds: context.tenantIds,
         tenantRole: context.tenantRole,
       });
+    }
+    // After the tenant is noted: the switch compares the re-run credential's tenant scope with it. A failure keeps the
+    // stream ending on every re-check — the behaviour that needs nothing to work
+    if (connection) {
+      await this.recheckHintStreamInPlace(connection, request).catch(() => false);
     }
     // The client may have gone while the guards and the filter ran — `close` has fired then and comes no more
     if (request?.destroyed || response?.destroyed || response?.writableEnded) {
@@ -1517,6 +1530,22 @@ export class CoreSyncService implements OnApplicationBootstrap, OnModuleDestroy,
       write(': keepalive\n\n');
     }, SYNC_HINT_KEEPALIVE_MS);
     keepalive.unref?.();
+  }
+
+  /**
+   * Let the hint stream be re-checked in place instead of ending on every re-check (12.11.0): the credential of the
+   * request that opened it — a Better-Auth session cookie or bearer token — is run again on each re-check
+   * (`createHttpStreamReauthenticator()`, `recheckHttpStreamInPlace()`), and the stream is closed only when the caller's
+   * user id, roles, verification or tenant scope changed. Answers whether the stream is re-checked in place.
+   *
+   * An extension point: return `false` to keep every stream ending on every re-check, or re-run a credential the
+   * framework cannot (a legacy JWT, through the project's AuthService) and hand it to `recheckHttpStreamInPlace()`.
+   */
+  protected async recheckHintStreamInPlace(connection: WsConnection, request: any): Promise<boolean> {
+    const reauthenticate = createHttpStreamReauthenticator(request);
+    return reauthenticate
+      ? recheckHttpStreamInPlace(connection, { reauthenticate, tenantHeader: readWsTenantHeader(request) })
+      : false;
   }
 
   /**

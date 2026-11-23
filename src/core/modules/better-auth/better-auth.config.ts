@@ -13,7 +13,13 @@ import { IBetterAuth, ICorsConfig } from '../../common/interfaces/server-options
 import { ConfigService } from '../../common/services/config.service.js';
 import { detectCookiePrefixDrift, resolveBetterAuthCookiePrefix } from './better-auth-cookie-prefix.helper.js';
 import { withSqlStorage } from './better-auth-sql.helper.js';
+import { jwtSessionEnded } from './core-better-auth-jwt-session.cache.js';
 import { projectProvidesOpenApiPlugin } from './core-better-auth-openapi.helper.js';
+import {
+  isPasskeyConfigured,
+  isTwoFactorConfigured,
+  signInFactorsOffWithoutPassword,
+} from './core-better-auth-sign-in-factors.helper.js';
 import { requireBetterAuthMongoAdapter } from '../../common/persistence/mongo/mongo-packages.js';
 
 /**
@@ -552,6 +558,20 @@ export function buildBetterAuthOptions(options: CreateBetterAuthOptions): Better
   for (const notice of passkeyNormalization.notices) {
     logger.log(notice);
   }
+  const factorsOffWithoutPassword = signInFactorsOffWithoutPassword(config);
+  if (factorsOffWithoutPassword.length) {
+    const names = factorsOffWithoutPassword.map((factor) => factor.name);
+    const message =
+      `${names.join(' and ')} off: sign-in runs through a provider alone (emailAndPassword.enabled: false, no plugin ` +
+      'with a sign-in route of its own), so the provider alone decides who gets in. Switch them on explicitly with ' +
+      `${names.map((name) => `${name}: true`).join(' / ')}.`;
+    // A factor that carried settings of its own was meant to be on: say so loudly, since its users lose it
+    if (factorsOffWithoutPassword.some((factor) => factor.configured)) {
+      logger.warn(message);
+    } else {
+      logger.log(message);
+    }
+  }
   for (const warning of passkeyNormalization.warnings) {
     logger.warn(warning);
   }
@@ -619,6 +639,8 @@ export function buildBetterAuthOptions(options: CreateBetterAuthOptions): Better
   // strip `Secure` from the cookies Better-Auth's native handlers forward.
   const secureCookies = betterAuthBaseUrl.startsWith('https://');
 
+  const sessionOptions = resolveSessionOptions(config);
+
   const betterAuthConfig: Record<string, unknown> = {
     // Through Nest's logger; a project's own `options.logger` is merged over it (see below).
     logger: { log: logThroughNest },
@@ -663,6 +685,7 @@ export function buildBetterAuthOptions(options: CreateBetterAuthOptions): Better
     basePath,
     baseURL: betterAuthBaseUrl,
     database: sqlPool ? undefined : (requireBetterAuthMongoAdapter()(db) as any),
+    ...(sessionOptions && { session: sessionOptions }),
     // Enable email/password authentication by default (required by Better-Auth 1.x)
     // Can be disabled by setting config.emailAndPassword.enabled = false
     emailAndPassword: {
@@ -810,6 +833,12 @@ export function buildBetterAuthOptions(options: CreateBetterAuthOptions): Better
       };
     }
 
+    // `session` is merged, not replaced: `betterAuth.session` sets expiresIn / disableSessionRefresh, and a project's
+    // `options.session` (cookie cache, freshAge, …) keeps them unless it sets them itself.
+    if (sessionOptions && restOptions.session && typeof restOptions.session === 'object') {
+      finalConfig.session = { ...sessionOptions, ...(restOptions.session as Record<string, unknown>) };
+    }
+
     // `logger` is merged, not replaced: a project that only sets `level` or `disabled` keeps the Nest routing,
     // one that passes its own `log` handler gets exactly that.
     if (restOptions.logger && typeof restOptions.logger === 'object') {
@@ -918,7 +947,8 @@ export function buildBetterAuthOptions(options: CreateBetterAuthOptions): Better
 
 /**
  * Ends the GraphQL WebSocket connections that rode on a session the moment the session is deleted —
- * a sign-out, a revoked session, a password reset with `revokeSessionsOnPasswordReset`, a deleted user.
+ * a sign-out, a revoked session, a password reset with `revokeSessionsOnPasswordReset`, a deleted user — and, since
+ * 12.11.0, the JWTs issued from it (`jwtSessionEnded()`).
  *
  * Without it such a connection stays open until `graphQl.subscriptionRevalidationMs` (30 s by
  * default) catches it on its next event. Better-Auth's `onPasswordReset` cannot do this job: all
@@ -941,8 +971,12 @@ export function wsSessionRevocationPlugin(): BetterAuthPlugin {
         databaseHooks: {
           session: {
             delete: {
-              after: async (session: { userId?: unknown }) => {
+              after: async (session: { id?: unknown; userId?: unknown }) => {
                 try {
+                  // A JWT issued from this session stops working at once (12.11.0), not when it expires.
+                  if (session?.id) {
+                    jwtSessionEnded(String(session.id));
+                  }
                   if (session?.userId) {
                     revalidateWsConnectionsOf({ iamId: String(session.userId) });
                   }
@@ -1093,6 +1127,10 @@ function buildPlugins(
     plugins.push(
       jwt({
         jwt: {
+          // The id of the session the JWT is issued from (12.11.0): verifyJwtToken() accepts the JWT only while that
+          // session lives (core-better-auth-jwt-session.cache.ts). The rest of the payload is Better-Auth's default,
+          // the session user.
+          definePayload: ({ session, user }) => ({ ...user, sid: session.id }),
           expirationTime: jwtConfig.expiresIn || '15m',
         },
       }),
@@ -1100,10 +1138,9 @@ function buildPlugins(
   }
 
   // Two-Factor Authentication Plugin
-  // 2FA is enabled by default unless explicitly disabled (twoFactor: false or twoFactor: { enabled: false })
-  const twoFactorExplicitlyDisabled =
-    config.twoFactor === false || (typeof config.twoFactor === 'object' && config.twoFactor?.enabled === false);
-  if (!twoFactorExplicitlyDisabled) {
+  // On unless switched off (twoFactor: false or { enabled: false }); with sign-in through a provider alone only when
+  // switched on explicitly (12.11.0, see isSignInFactorEnabled())
+  if (isTwoFactorConfigured(config)) {
     const twoFactorConfig = typeof config.twoFactor === 'object' ? config.twoFactor : {};
     plugins.push(
       twoFactor({
@@ -1232,6 +1269,13 @@ function buildSocialProviders(config: IBetterAuth): Record<string, SocialProvide
           ...providerOptions,
           clientId: provider.clientId,
           clientSecret: provider.clientSecret,
+          // Since 12.11.0 a client cannot sign in or link an account with an id token it submits itself
+          // (`POST /sign-in/social` / `/link-social` with `idToken`) unless the project opens it with an explicit
+          // `false`. Better-Auth verifies such a token's signature, audience and expiry, and asks the provider nothing:
+          // an id token kept from an earlier sign-in (`/get-access-token` hands it out) signed its owner in again for
+          // its whole lifetime (about an hour at Microsoft), after the provider had withdrawn the assignment or role.
+          // The redirect flow never uses it. Native apps and Google One Tap need it and set `false`.
+          disableIdTokenSignIn: provider.disableIdTokenSignIn !== false,
           disableSignUp: typeof provider.disableSignUp === 'boolean' ? provider.disableSignUp : signUpClosed,
         };
       }
@@ -1239,6 +1283,36 @@ function buildSocialProviders(config: IBetterAuth): Record<string, SocialProvide
   }
 
   return socialProvidersConfig;
+}
+
+/**
+ * Better-Auth's session options from `betterAuth.session` (12.11.0): `expiresIn` in seconds and `disableSessionRefresh`
+ * — `undefined` when nothing is set, so Better-Auth's defaults (7 days, extended daily) apply unchanged.
+ *
+ * An `expiresInHours` that is not a positive finite number is ignored with a warning: a misconfigured lifetime must
+ * fall back to the default, never to a lifetime nobody chose.
+ */
+function resolveSessionOptions(config: IBetterAuth): Record<string, unknown> | undefined {
+  const session = config.session;
+  if (!session || typeof session !== 'object') {
+    return undefined;
+  }
+  const options: Record<string, unknown> = {};
+  if (session.expiresInHours !== undefined) {
+    const hours = session.expiresInHours as unknown;
+    if (typeof hours === 'number' && Number.isFinite(hours) && hours > 0) {
+      options.expiresIn = Math.round(hours * 3600);
+    } else {
+      logger.warn(
+        `betterAuth.session.expiresInHours must be a positive number of hours (received ${JSON.stringify(hours)}); ` +
+          "Better-Auth's default of 7 days applies.",
+      );
+    }
+  }
+  if (session.extendOnUse === false) {
+    options.disableSessionRefresh = true;
+  }
+  return Object.keys(options).length ? options : undefined;
 }
 
 /**
@@ -1741,12 +1815,9 @@ function normalizePasskeyConfig(
   const notices: string[] = [];
   const warnings: string[] = [];
 
-  // Check if Passkey is explicitly DISABLED
-  // passkey: false OR passkey: { enabled: false }
-  const isExplicitlyDisabled =
-    config.passkey === false || (typeof config.passkey === 'object' && config.passkey?.enabled === false);
-
-  if (isExplicitlyDisabled) {
+  // Passkey switched off: passkey: false OR passkey: { enabled: false } — or, with sign-in through a provider alone, not
+  // switched on explicitly (12.11.0, see isSignInFactorEnabled())
+  if (!isPasskeyConfigured(config)) {
     return { enabled: false, normalizedConfig: null, notices, trustedOrigins: null, warnings };
   }
 

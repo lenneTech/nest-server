@@ -89,11 +89,21 @@ registerEnum(SwaggerAutoEnum, { graphql: false, name: 'SwaggerAutoEnum' });
 
 class SwaggerEnumInput {
   // Shortcut form with explicit enumName (the form kit projects use).
-  @UnifiedField({ description: 'string enum', enum: SwaggerStatusEnum, enumName: 'SwaggerStatusEnum', isOptional: true })
+  @UnifiedField({
+    description: 'string enum',
+    enum: SwaggerStatusEnum,
+    enumName: 'SwaggerStatusEnum',
+    isOptional: true,
+  })
   status?: SwaggerStatusEnum;
 
   // Numeric enum with explicit enumName.
-  @UnifiedField({ description: 'numeric enum', enum: SwaggerPriorityEnum, enumName: 'SwaggerPriorityEnum', isOptional: true })
+  @UnifiedField({
+    description: 'numeric enum',
+    enum: SwaggerPriorityEnum,
+    enumName: 'SwaggerPriorityEnum',
+    isOptional: true,
+  })
   priority?: SwaggerPriorityEnum;
 
   // Array enum with explicit enumName (array fields must declare their element type).
@@ -129,6 +139,13 @@ class SwaggerEnumInput {
   // Must NOT crash, must NOT emit an empty `$ref`, schema becomes inline.
   @UnifiedField({ description: 'unregistered enum', enum: SwaggerUnregisteredEnum, isOptional: true })
   unregistered?: SwaggerUnregisteredEnum;
+
+  // Plain lists of values without enumName (12.11.0): each stays inline — before, both became ONE schema `Array`.
+  @UnifiedField({ description: 'list enum', enum: ['red', 'green'], isOptional: true })
+  color?: string;
+
+  @UnifiedField({ description: 'another list enum', enum: ['small', 'large'], isOptional: true })
+  size?: string;
 }
 
 @Controller('swagger-enum')
@@ -161,7 +178,8 @@ function collectRefs(node: unknown, acc: string[] = []): string[] {
 
 /** Resolve the enum schema name a property points at (handles `allOf` + direct `$ref`). */
 function refTarget(prop: any): string | undefined {
-  const ref: string | undefined = prop?.$ref ?? prop?.allOf?.[0]?.$ref ?? prop?.items?.$ref ?? prop?.items?.allOf?.[0]?.$ref;
+  const ref: string | undefined =
+    prop?.$ref ?? prop?.allOf?.[0]?.$ref ?? prop?.items?.$ref ?? prop?.items?.allOf?.[0]?.$ref;
   return ref ? ref.replace('#/components/schemas/', '') : undefined;
 }
 
@@ -239,5 +257,25 @@ describe('UnifiedField enum — OpenAPI schema generation', () => {
     // The crash trigger: an empty `$ref` would have appeared here on the broken path.
     expect(refTarget(props.unregistered)).toBeUndefined();
     expect([...(props.unregistered.enum ?? [])].sort()).toEqual(['x', 'y']);
+  });
+
+  /**
+   * @regression   12.11.0 — getEnumName() fell back to the constructor's name, `Array` for a plain list of values: every
+   *   unnamed list enum of a project became ONE schema `Array`, and a client generated from the document declared
+   *   `export type Array = …`, shadowing the built-in type (36 type errors in a consuming project).
+   * @seen-failing Accept a built-in constructor's name again in getEnumName()
+   *   (src/core/common/decorators/unified-field.decorator.ts) — registered as mutation `enum-name-array-constructor`
+   *   in tests/regression-mutations.json.
+   */
+  it('names no schema after a built-in type and keeps plain list enums inline', () => {
+    const schemas = Object.keys(document.components?.schemas ?? {});
+    const builtIns = schemas.filter((name) => typeof (globalThis as Record<string, unknown>)[name] === 'function');
+    expect(builtIns).toEqual([]);
+
+    const props = document.components.schemas.SwaggerEnumInput.properties;
+    expect(refTarget(props.color)).toBeUndefined();
+    expect(props.color.enum).toEqual(['red', 'green']);
+    expect(refTarget(props.size)).toBeUndefined();
+    expect(props.size.enum).toEqual(['small', 'large']);
   });
 });

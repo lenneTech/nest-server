@@ -188,6 +188,7 @@ export class CoreBetterAuthResolver {
   @Roles(RoleEnum.S_EVERYONE)
   betterAuthFeatures(): CoreBetterAuthFeaturesModel {
     return {
+      emailAndPassword: this.betterAuthService.isEmailAndPasswordEnabled(),
       emailVerification: this.emailVerificationService?.isEnabled() ?? false,
       enabled: this.betterAuthService.isEnabled(),
       jwt: this.betterAuthService.isJwtEnabled(),

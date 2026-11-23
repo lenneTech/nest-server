@@ -470,6 +470,20 @@ After integration, verify:
       `302` to `<appUrl>/auth/login?error=state_not_found`, not the API's "Error" page (`betterAuth.errorUrl`)
 - [ ] The login page shows a text of its own for each `error` code and never renders `error_description`
 
+### Optional: Sign-in through a provider alone (`emailAndPassword.enabled: false`, no plugin sign-in route, 12.11.0+)
+
+The provider decides who gets in, so nothing of the framework's own may keep someone in after it withdrew the
+assignment (README → "Sign-in through a provider alone"):
+
+- [ ] `GET /iam/features` answers `emailAndPassword: false`, `passkey: false`, `twoFactor: false`; the login page hides
+      the e-mail form on `emailAndPassword: false`
+- [ ] `POST /iam/passkey/verify-authentication` answers `404` — unless the project switched Passkey on deliberately
+      with `passkey: true`
+- [ ] `POST /iam/sign-in/social` with `{ "provider": "microsoft", "idToken": { "token": "…" } }` answers
+      `ID_TOKEN_NOT_SUPPORTED` (only a native app or Google One Tap sets `disableIdTokenSignIn: false`)
+- [ ] After `POST /iam/sign-out` the JWT of that session answers `401` at once
+- [ ] Where a withdrawal must take effect within a fixed time: `session: { expiresInHours: <n>, extendOnUse: false }`
+
 ### Additional checks for Migration scenario:
 
 - [ ] Sign-in via Legacy Auth works for BetterAuth-created users
@@ -480,16 +494,18 @@ After integration, verify:
 
 ## Common Mistakes
 
-| Mistake                                                             | Symptom                                                 | Fix                                                                                                           |
-| ------------------------------------------------------------------- | ------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------- |
-| Forgot to re-declare decorators in Resolver                         | GraphQL endpoints missing (404)                         | Copy resolver from reference, keep ALL decorators                                                             |
-| Forgot `CoreBetterAuthUserMapper` in UserService                    | Auth systems not synced, users can't cross-authenticate | Add `@Optional()` parameter and pass to super()                                                               |
-| Missing `fallbackSecrets` in ServerModule                           | Session issues without explicit secret                  | Add `fallbackSecrets: [envConfig.jwt?.secret, ...]`                                                           |
-| Wrong `basePath` in config                                          | 404 on BetterAuth endpoints                             | Ensure basePath matches controller (default: `/iam`)                                                          |
-| Using wrong CoreModule signature                                    | Build errors or missing features                        | New projects: 1-parameter, Existing: 3-parameter                                                              |
-| AuthResolver override missing `checkLegacyGraphQLEnabled()`         | Legacy endpoint disabling doesn't work (no HTTP 410)    | Call `this.checkLegacyGraphQLEnabled('signIn')` in overrides                                                  |
-| Missing `signUpValidator` in custom Resolver (v11.13.0+)            | Sign-up validation not working                          | Add `@Optional() signUpValidator?: CoreBetterAuthSignUpValidatorService` to constructor and pass to `super()` |
-| Missing `termsAndPrivacyAccepted` parameter in Resolver (v11.13.0+) | GraphQL error "Unknown argument"                        | Add `@Args('termsAndPrivacyAccepted', { nullable: true })` to `betterAuthSignUp` method                       |
+| Mistake                                                                                   | Symptom                                                 | Fix                                                                                                                                          |
+| ----------------------------------------------------------------------------------------- | ------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------- |
+| Forgot to re-declare decorators in Resolver                                               | GraphQL endpoints missing (404)                         | Copy resolver from reference, keep ALL decorators                                                                                            |
+| Forgot `CoreBetterAuthUserMapper` in UserService                                          | Auth systems not synced, users can't cross-authenticate | Add `@Optional()` parameter and pass to super()                                                                                              |
+| Missing `fallbackSecrets` in ServerModule                                                 | Session issues without explicit secret                  | Add `fallbackSecrets: [envConfig.jwt?.secret, ...]`                                                                                          |
+| Wrong `basePath` in config                                                                | 404 on BetterAuth endpoints                             | Ensure basePath matches controller (default: `/iam`)                                                                                         |
+| Using wrong CoreModule signature                                                          | Build errors or missing features                        | New projects: 1-parameter, Existing: 3-parameter                                                                                             |
+| AuthResolver override missing `checkLegacyGraphQLEnabled()`                               | Legacy endpoint disabling doesn't work (no HTTP 410)    | Call `this.checkLegacyGraphQLEnabled('signIn')` in overrides                                                                                 |
+| Missing `signUpValidator` in custom Resolver (v11.13.0+)                                  | Sign-up validation not working                          | Add `@Optional() signUpValidator?: CoreBetterAuthSignUpValidatorService` to constructor and pass to `super()`                                |
+| Missing `termsAndPrivacyAccepted` parameter in Resolver (v11.13.0+)                       | GraphQL error "Unknown argument"                        | Add `@Args('termsAndPrivacyAccepted', { nullable: true })` to `betterAuthSignUp` method                                                      |
+| A JWT client keeps the JWT it had before `verify-totp` while enabling 2FA (12.11.0+)      | `401` right after 2FA was switched on                   | Use the `token` of the `verify-totp` answer: the first confirmation replaces the session, and a JWT is bound to its session                  |
+| An SSO-only project (`emailAndPassword.enabled: false`) expects Passkey or 2FA (12.11.0+) | Passkey and 2FA routes answer `404`                     | Switch them on deliberately with `passkey: true` / `twoFactor: true` — they keep a user signed in after the provider withdrew the assignment |
 
 ---
 

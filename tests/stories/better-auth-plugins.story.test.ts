@@ -687,16 +687,19 @@ describe('Story: BetterAuth Plugins (2FA & Passkey)', () => {
         secret: OTPAuth.Secret.fromBase32(secret!),
       });
 
-      // In TOTP mode Better-Auth activates 2FA only once a code from the new secret is confirmed.
-      await testHelper.rest('/iam/two-factor/verify-totp', {
+      // In TOTP mode Better-Auth activates 2FA only once a code from the new secret is confirmed. That first
+      // confirmation replaces the session (Better-Auth rotates it), and the answer carries the token of the NEW one.
+      // A JWT is bound to its session since 12.11.0, so a client continues with that token — the old JWT is refused.
+      const verified: any = await testHelper.rest('/iam/two-factor/verify-totp', {
         headers: auth,
         method: 'POST',
         payload: { code: totp.generate() },
         statusCode: 200,
       });
+      const authAfterRotation = verified?.token ? { Authorization: `Bearer ${verified.token}` } : auth;
 
       const response: any = await testHelper.rest('/iam/two-factor/generate-backup-codes', {
-        headers: auth,
+        headers: authAfterRotation,
         method: 'POST',
         payload: { password },
         statusCode: 200,

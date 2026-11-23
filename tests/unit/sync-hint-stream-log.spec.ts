@@ -7,8 +7,10 @@ import { ConfigService } from '../../src/core/common/services/config.service';
 import { CoreSyncService } from '../../src/core/modules/sync/core-sync.service';
 
 /**
- * `GET /sync/hints` ends its stream on every re-check: an HTTP stream has no handshake to repeat, so the EventSource
- * reconnects and the new request passes the guards. The planned end the re-check interval brings must not read like a
+ * `GET /sync/hints` ends its stream on every re-check when the stream's credential cannot be re-run (here: no
+ * Better-Auth token service, as with a legacy JWT or an API token), so the EventSource reconnects and the new request
+ * passes the guards. A stream whose credential can be re-run is re-checked in place since 12.11.0 —
+ * tests/unit/sync-hint-stream-recheck.spec.ts. The planned end the re-check interval brings must not read like a
  * lost session in the log, while an end an invalidation brings (sign-out, role or tenant change) stays visible — under
  * the stream's own name. The mechanism is pinned in tests/unit/graphql-ws-connection.spec.ts; this case pins that
  * CoreSyncService registers its stream that way. `tests/sync-contract.e2e-spec.ts` (`hints-revalidation`) proves the

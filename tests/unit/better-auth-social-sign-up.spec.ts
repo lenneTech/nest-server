@@ -36,6 +36,8 @@ const fakeDb: any = {
 const VALID_SECRET = 'a-very-long-secret-that-is-at-least-32-characters-long-for-testing';
 
 const GOOGLE = { clientId: 'google-client-id', clientSecret: 'google-client-secret' };
+/** Google with the id token sign-in opened (closed by default since 12.11.0): these cases test the sign-up decision. */
+const GOOGLE_ID_TOKEN = { ...GOOGLE, disableIdTokenSignIn: false };
 const GITHUB = { clientId: 'github-client-id', clientSecret: 'github-client-secret' };
 
 /** The Better-Auth instance for the given `betterAuth` configuration. */
@@ -104,12 +106,12 @@ describe('Better-Auth social sign-up while sign-up is switched off', () => {
   it("refuses the account in Better-Auth's own /sign-in/social handler", async () => {
     const refused = await firstSocialSignIn({
       emailAndPassword: { disableSignUp: true },
-      socialProviders: { google: GOOGLE },
+      socialProviders: { google: GOOGLE_ID_TOKEN },
     });
     expect(refused).toBe('signup disabled');
 
     // The counter-check: with sign-up open, the same request is not refused for that reason
-    const open = await firstSocialSignIn({ socialProviders: { google: GOOGLE } });
+    const open = await firstSocialSignIn({ socialProviders: { google: GOOGLE_ID_TOKEN } });
     expect(open).not.toBe('signup disabled');
   });
 

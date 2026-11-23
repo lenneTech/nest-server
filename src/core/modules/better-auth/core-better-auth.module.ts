@@ -432,7 +432,7 @@ export class CoreBetterAuthModule implements NestModule, OnModuleInit {
    * Middleware order (important!):
    * 1. CoreBetterAuthMiddleware - Session validation and user mapping for all routes
    *    Must run FIRST so that req.betterAuthSession is available for downstream middleware.
-   *    In JWT mode, this resolves the JWT to a real DB session (via getActiveSessionForUser).
+   *    In JWT mode, this resolves the JWT to its own DB session (via getJwtSession(), by its `sid`).
    * 2. CoreBetterAuthPathGuardMiddleware - Refuses a non-canonical path under the base path (400), before
    *    anything below reads it
    * 3. CoreBetterAuthRateLimitMiddleware - Rate limiting for auth endpoints

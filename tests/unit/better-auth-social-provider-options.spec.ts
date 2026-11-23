@@ -242,6 +242,7 @@ describe('Better-Auth social provider options', () => {
     expect(options).toEqual({
       clientId: 'google-client-id',
       clientSecret: 'google-client-secret',
+      disableIdTokenSignIn: true,
       disableSignUp: false,
     });
   });

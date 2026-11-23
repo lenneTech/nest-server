@@ -341,6 +341,7 @@ export class CoreBetterAuthController {
   @Roles(RoleEnum.S_EVERYONE)
   getFeatures(): Record<string, boolean | number | string[]> {
     return {
+      emailAndPassword: this.betterAuthService.isEmailAndPasswordEnabled(),
       emailVerification: this.emailVerificationService?.isEnabled() ?? false,
       enabled: this.betterAuthService.isEnabled(),
       jwt: this.betterAuthService.isJwtEnabled(),
@@ -814,8 +815,10 @@ export class CoreBetterAuthController {
     }
 
     try {
-      // Get session token from cookies or authorization header
-      const sessionToken = this.extractSessionToken(req);
+      // The session the middleware validated first — for a JWT request the JWT's own session (12.11.0) —, then the
+      // session cookie. Until 12.11.0 a JWT client's sign-out read the cookie alone, found none and ended nothing: the
+      // answer said success, and the session and every JWT issued from it lived on.
+      const sessionToken = this.getSessionTokenFromRequest(req);
 
       if (sessionToken) {
         await this.betterAuthService.revokeSession(sessionToken);
@@ -975,7 +978,7 @@ export class CoreBetterAuthController {
    *
    * JWTs in the Authorization header are NOT returned here because they cannot
    * be used as session tokens for BetterAuth's plugin endpoints (2FA, Passkey, etc.).
-   * The middleware resolves JWTs to sessions separately via getActiveSessionForUser().
+   * The middleware resolves a JWT to its own session separately via getJwtSession().
    */
   protected extractSessionToken(req: Request): null | string {
     // Check Authorization header - only return session tokens, not JWTs

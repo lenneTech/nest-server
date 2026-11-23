@@ -663,6 +663,24 @@ boot (one row, ownership, a second boot, the system setup), `tests/persistence-m
 MariaDB boot on a database in the server's default collation, and the `iam-*` cases of the core module matrix the
 security rules on every database.
 
+## 12. A Better-Auth JWT is bound to its session (12.11.0)
+
+The JWT carries the id of the session it was issued from (`sid`, `definePayload` in `buildPlugins()`), and
+`CoreBetterAuthService.verifyJwtToken()` accepts it only while that session exists, belongs to the token's `sub` and has
+not expired (`isJwtSessionLive()`). Before, a JWT was checked on signature and expiry alone and outlived a sign-out by
+up to 15 minutes; a JWT client's `POST /iam/sign-out` read the cookie alone and ended no session, and the middleware
+handed Better-Auth the user's NEWEST session for a JWT request.
+
+| Rule | Why |
+|---|---|
+| Every JWT verification goes through `verifyJwtToken()` | it is the one place with the session check; a second `jwtVerify()` of a login JWT would accept a signed-out session's token |
+| The session of a JWT request is `getJwtSession(payload)` — by `sid`, never "the user's active session" | a sign-out or a plugin route acts on the JWT's own session |
+| A session deleted outside Better-Auth's adapter is caught by the cache interval only (`jwtSessionCacheTtlMs`, 10 s) | the immediate forget runs from Better-Auth's `session.delete` hook (`wsSessionRevocationPlugin()`); delete through Better-Auth |
+| The cache lives in the import-free leaf `core-better-auth-jwt-session.cache.ts`, bounded, keyed by session id and checked against the user | config, service and user mapper reach it without importing each other; an entry never vouches for another user |
+| After a session rotation the answer's `token` is the JWT of the NEW session | the old JWT names a deleted session and answers 401 |
+
+Pinned by `tests/unit/better-auth-jwt-session-binding.spec.ts` and `tests/better-auth-jwt-session.e2e-spec.ts`.
+
 ## Summary
 
 | Principle | Requirement |
@@ -680,3 +698,4 @@ security rules on every database.
 | Request path under the base path | `CoreBetterAuthPathGuardMiddleware` refuses a non-canonical path first; checks match whole segments of the canonical path (§9) |
 | Direct `api.*` calls | Hand Better-Auth the request (CSRF headers only) + `asResponse: false`, or its login-CSRF check is skipped (§10) |
 | SQL source | Better-Auth follows the users table; the framework reaches its data through `BetterAuthSqlStore`, ids stay strings (§11) |
+| JWT | Bound to its session (`sid`), verified in `verifyJwtToken()` only, resolved by `getJwtSession()` (§12) |

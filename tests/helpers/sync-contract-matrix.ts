@@ -249,7 +249,16 @@ export const SYNC_CASES: readonly SyncCase[] = [
   {
     drivers: ALL,
     id: 'hints-revalidation',
-    title: 'an invalidation naming the subscriber ends the SSE stream; the reconnect passes the guards again',
+    title:
+      'an invalidation naming the subscriber ends an SSE stream whose credential cannot be re-run (a legacy JWT); the ' +
+      'reconnect passes the guards again',
+  },
+  {
+    drivers: ALL,
+    id: 'hints-recheck-in-place',
+    title:
+      'an SSE stream opened with a Better-Auth session is re-checked in place: unchanged rights keep it open and the ' +
+      'next hint arrives, a lost membership closes it',
   },
 
   // --- cleanup and migrations ----------------------------------------------------------------------------------

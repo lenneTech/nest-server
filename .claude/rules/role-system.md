@@ -491,7 +491,10 @@ re-signed legacy token opened sockets that HTTP refused (mutation `legacy-ws-jwt
 socket therefore ends with its token: at expiry or at the next token refresh.
 
 **A guard that asks "is this request allowed?" once is not enough for a connection that outlives the
-answer.** When you add a long-lived channel (SSE, a WebSocket of your own), register it the same way.
+answer.** When you add a long-lived channel (SSE, a WebSocket of your own), register it the same way. An HTTP
+stream (SSE) is registered with `registerHttpStream()` (12.11.0, `common/helpers/http-stream-auth.helper.ts`): it is
+re-checked in place like a WebSocket when its Better-Auth credential can be run again, and otherwise ends on every
+re-check so the reconnect passes the guards — never trust the request's guards for the stream's whole life.
 
 **Refusing the handshake itself (12.0.0).** `onConnect` refuses a missing or non-authenticating credential with
 `return refuseWsHandshake(extra.socket, reason)` — close code **4401**, which the graphql-ws client does not retry.

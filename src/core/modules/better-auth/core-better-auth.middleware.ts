@@ -96,9 +96,10 @@ export class CoreBetterAuthMiddleware implements NestMiddleware {
 
                 // Also resolve the real session from DB so that BetterAuth's plugin endpoints
                 // (2FA, Passkey, etc.) can authenticate via session token.
-                // Without this, JWT-only clients cannot use plugin routes.
+                // Without this, JWT-only clients cannot use plugin routes. The JWT's OWN session (its `sid`), since
+                // 12.11.0 — before, the user's newest one, so a sign-out with one device's JWT ended another device.
                 try {
-                  const sessionResult = await this.betterAuthService.getActiveSessionForUser(jwtPayload.sub);
+                  const sessionResult = await this.betterAuthService.getJwtSession(jwtPayload);
                   if (sessionResult?.session && sessionResult?.user) {
                     req.betterAuthSession = { session: sessionResult.session, user: sessionResult.user };
                   }
@@ -169,7 +170,7 @@ export class CoreBetterAuthMiddleware implements NestMiddleware {
 
             // Resolve real DB session for plugin endpoints (2FA, Passkey, etc.)
             try {
-              const sessionResult = await this.betterAuthService.getActiveSessionForUser(jwtPayload.sub);
+              const sessionResult = await this.betterAuthService.getJwtSession(jwtPayload);
               if (sessionResult?.session && sessionResult?.user) {
                 req.betterAuthSession = { session: sessionResult.session, user: sessionResult.user };
               }
