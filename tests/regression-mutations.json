@@ -6627,7 +6627,7 @@
       "id": "forwarded-session-token-not-presented",
       "defect": "12.6.1 — the API middleware and the controller's catch-all sent Better-Auth's response unchanged, so no forwarded route went through the token policy sign-in applies.",
       "file": "src/core/modules/better-auth/core-better-auth.service.ts",
-      "find": "    await sendWebResponse(res, await this.presentSessionTokens(response));\n",
+      "find": "    await sendWebResponse(res, await this.presentSessionTokens(response, options));\n",
       "replace": "    await sendWebResponse(res, response);\n",
       "specs": [
         "tests/unit/better-auth-session-token-presentation.spec.ts"
@@ -6638,7 +6638,7 @@
       "id": "second-factor-hands-out-session-token",
       "defect": "12.6.1 — the API middleware and the controller's catch-all sent Better-Auth's response unchanged, so no forwarded route went through the token policy sign-in applies. Observed end to end on the second factor (exposeTokenInBody with the JWT plugin).",
       "file": "src/core/modules/better-auth/core-better-auth.service.ts",
-      "find": "    await sendWebResponse(res, await this.presentSessionTokens(response));\n",
+      "find": "    await sendWebResponse(res, await this.presentSessionTokens(response, options));\n",
       "replace": "    await sendWebResponse(res, response);\n",
       "specs": [
         "tests/stories/better-auth-plugins.story.test.ts"
@@ -6906,6 +6906,50 @@
       "replace": "  const rotatedFrom = answersWithUser && false;\n",
       "specs": [
         "tests/session-token-exposure.e2e-spec.ts"
+      ],
+      "driverSpecific": false
+    },
+    {
+      "id": "disable-2fa-request-session-replaced-without-token",
+      "defect": "12.11.1 — two-factor disable (and enable with OTP or skipVerificationOnEnable) replaces the request's session and answers { status: true } / { method } without a token; presentSessionTokens() recognised a rotation only in the shape { token, user }, so with the token in the body a JWT client kept the JWT of the deleted session (401) and had no way to a new one.",
+      "file": "src/core/modules/better-auth/core-better-auth-session-token.helper.ts",
+      "find": "  const replacedRequestSession = !topToken && !!requestToken && !!cookieToken && cookieToken !== requestToken;\n",
+      "replace": "  const replacedRequestSession = !topToken && !!requestToken && false;\n",
+      "specs": [
+        "tests/unit/better-auth-session-token-presentation.spec.ts"
+      ],
+      "driverSpecific": false
+    },
+    {
+      "id": "disable-2fa-leaves-jwt-client-dead-token",
+      "defect": "12.11.1 — two-factor disable (and enable with OTP or skipVerificationOnEnable) replaces the request's session and answers { status: true } / { method } without a token; presentSessionTokens() recognised a rotation only in the shape { token, user }, so with the token in the body a JWT client kept the JWT of the deleted session (401) and had no way to a new one. Observed end to end with cookies: false.",
+      "file": "src/core/modules/better-auth/core-better-auth-session-token.helper.ts",
+      "find": "  const replacedRequestSession = !topToken && !!requestToken && !!cookieToken && cookieToken !== requestToken;\n",
+      "replace": "  const replacedRequestSession = !topToken && !!requestToken && false;\n",
+      "specs": [
+        "tests/better-auth-jwt-session.e2e-spec.ts"
+      ],
+      "driverSpecific": false
+    },
+    {
+      "id": "request-session-token-not-presented",
+      "defect": "12.11.1 — the service built the token policy without the session token the request was forwarded with, so an answer that replaced that session (two-factor disable) could not be told from a session refresh and kept no token.",
+      "file": "src/core/modules/better-auth/core-better-auth.service.ts",
+      "find": "      requestSessionToken: options?.requestSessionToken,\n",
+      "replace": "      requestSessionToken: undefined,\n",
+      "specs": [
+        "tests/unit/better-auth-session-token-presentation.spec.ts"
+      ],
+      "driverSpecific": false
+    },
+    {
+      "id": "api-middleware-drops-request-session-token",
+      "defect": "12.11.1 — the API middleware forwarded two-factor disable without naming the request's session to the token policy, so the answer kept no JWT of the new session and the JWT client's old JWT named a deleted session.",
+      "file": "src/core/modules/better-auth/core-better-auth-api.middleware.ts",
+      "find": "      await this.betterAuthService.sendBetterAuthResponse(res, response, { requestSessionToken: sessionToken });\n",
+      "replace": "      await this.betterAuthService.sendBetterAuthResponse(res, response);\n",
+      "specs": [
+        "tests/better-auth-jwt-session.e2e-spec.ts"
       ],
       "driverSpecific": false
     },

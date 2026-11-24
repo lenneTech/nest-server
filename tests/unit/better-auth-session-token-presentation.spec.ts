@@ -299,6 +299,65 @@ describe('a response that rotated the session (12.7.1, DEV-4129)', () => {
     expect(await presented.json()).toEqual({ token: ONE_TIME_TOKEN });
     expect(resolveJwt).not.toHaveBeenCalled();
   });
+
+  /**
+   * @regression   12.11.1 — two-factor disable (and enable with OTP or `skipVerificationOnEnable`) creates a session,
+   *   sets its cookie, deletes the request's session and answers `{ status: true }` / `{ method }` without a token. A
+   *   rotation was recognised only in the shape `{ token, user }`, so with the token in the body a JWT client kept the
+   *   JWT of the deleted session (401 since 12.11.0) and, without a session cookie, had no way to a new one.
+   * @seen-failing Never treat a session cookie for another session than the request's as a rotation in
+   *   presentSessionTokens() in src/core/modules/better-auth/core-better-auth-session-token.helper.ts — registered as
+   *   mutation `disable-2fa-request-session-replaced-without-token` in tests/regression-mutations.json.
+   */
+  it.each([
+    ['two-factor disable', { status: true }],
+    ['two-factor enable with OTP', { method: 'otp' }],
+    ['two-factor enable without verification', { backupCodes: ['a1b2c-d3e4f'], method: 'totp', totpURI: 'otpauth://x' }],
+  ])("gives the answer of %s, which replaced the request's session, the JWT of the new one", async (_route, body) => {
+    const { options, resolveJwt } = policy(true);
+    const presented = await presentSessionTokens(betterAuthResponse(body, { setsSession: true }), {
+      ...options,
+      requestSessionToken: OLD_SESSION_TOKEN,
+    });
+
+    expect(await presented.json()).toEqual({ ...body, token: JWT });
+    expect(resolveJwt).toHaveBeenCalledWith(SESSION_TOKEN);
+    expect(sessionTokenFromSetCookie(presented, COOKIE), 'the new session cookie stays').toBe(SESSION_TOKEN);
+  });
+
+  it('leaves such an answer unchanged in cookie mode, where the new session lives in the cookie', async () => {
+    const { options, resolveJwt } = policy(false);
+    const response = betterAuthResponse({ status: true }, { setsSession: true });
+    const presented = await presentSessionTokens(response, { ...options, requestSessionToken: OLD_SESSION_TOKEN });
+
+    expect(presented).toBe(response);
+    expect(resolveJwt).not.toHaveBeenCalled();
+  });
+
+  it.each([
+    ["the cookie of the request's own session (a refresh)", SESSION_TOKEN],
+    ['no session named for the request', undefined],
+    ['an empty request session', ''],
+  ])('adds no token to an answer that sets %s', async (_case, requestSessionToken) => {
+    const { options, resolveJwt } = policy(true);
+    const response = betterAuthResponse({ status: true }, { setsSession: true });
+    const presented = await presentSessionTokens(response, { ...options, requestSessionToken });
+
+    expect(presented).toBe(response);
+    expect(resolveJwt).not.toHaveBeenCalled();
+  });
+
+  it("keeps a plugin's own token next to another session's cookie", async () => {
+    const ONE_TIME_TOKEN = 'One0Time0Token0For0A0Handoff0abcd';
+    const { options, resolveJwt } = policy(true);
+    const presented = await presentSessionTokens(
+      betterAuthResponse({ token: ONE_TIME_TOKEN }, { setsSession: true }),
+      { ...options, requestSessionToken: OLD_SESSION_TOKEN },
+    );
+
+    expect(await presented.json()).toEqual({ token: ONE_TIME_TOKEN });
+    expect(resolveJwt).not.toHaveBeenCalled();
+  });
 });
 
 describe('session records (list-sessions), 12.7.0', () => {
@@ -573,6 +632,27 @@ describe('CoreBetterAuthService.sendBetterAuthResponse()', () => {
 
     expect(body()).toEqual({ session: { id: 's1' }, token: JWT });
   });
+
+  /**
+   * @regression   12.11.1 — the policy can tell a replaced session from a refresh only when it knows the request's
+   *   session; built without it, two-factor disable kept answering `{ status: true }` to a JWT client.
+   * @seen-failing Build the policy without `requestSessionToken` in presentSessionTokens() in
+   *   src/core/modules/better-auth/core-better-auth.service.ts — registered as mutation
+   *   `request-session-token-not-presented` in tests/regression-mutations.json.
+   */
+  it("hands the policy the session the request was forwarded with, so a replaced session's JWT reaches the body", async () => {
+    ConfigService.setConfig({ ...(previous as object), cookies: false } as any, { reInit: true, warn: false });
+    const { body, res } = expressResponse();
+
+    await CoreBetterAuthService.prototype.sendBetterAuthResponse.call(
+      service(),
+      res as any,
+      betterAuthResponse({ status: true }, { setsSession: true }),
+      { requestSessionToken: 'Old0Session0Token0Deleted0By0Disable' },
+    );
+
+    expect(body()).toEqual({ status: true, token: JWT });
+  });
 });
 
 describe('every place that forwards to Better-Auth sends through the token policy', () => {
@@ -584,5 +664,17 @@ describe('every place that forwards to Better-Auth sends through the token polic
 
     expect(source).not.toMatch(/\bsendWebResponse\s*\(/);
     expect(source).toMatch(/sendBetterAuthResponse\(res,/);
+  });
+
+  it.each([
+    'src/core/modules/better-auth/core-better-auth.controller.ts',
+    'src/core/modules/better-auth/core-better-auth-api.middleware.ts',
+  ])("%s names the request's session in every sendBetterAuthResponse() call (12.11.1)", (file) => {
+    const calls = readFileSync(join(process.cwd(), file), 'utf8').match(/sendBetterAuthResponse\(res,[^;]*;/g) ?? [];
+
+    expect(calls.length).toBeGreaterThan(0);
+    for (const call of calls) {
+      expect(call).toContain('requestSessionToken: sessionToken');
+    }
   });
 });

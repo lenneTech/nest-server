@@ -504,7 +504,9 @@ export class CoreBetterAuthApiMiddleware implements NestMiddleware {
           this.logger.debug(`Stored challenge mapping with ID: ${challengeId.substring(0, 8)}...`);
 
           // Send the enhanced response
-          await this.betterAuthService.sendBetterAuthResponse(res, enhancedResponse);
+          await this.betterAuthService.sendBetterAuthResponse(res, enhancedResponse, {
+            requestSessionToken: sessionToken,
+          });
 
           return;
         } else {
@@ -565,7 +567,9 @@ export class CoreBetterAuthApiMiddleware implements NestMiddleware {
               });
 
               this.logger.debug('Enriched passkey verify response with user data');
-              await this.betterAuthService.sendBetterAuthResponse(res, enrichedResponse);
+              await this.betterAuthService.sendBetterAuthResponse(res, enrichedResponse, {
+                requestSessionToken: sessionToken,
+              });
               return;
             }
           }
@@ -585,7 +589,7 @@ export class CoreBetterAuthApiMiddleware implements NestMiddleware {
 
       // Convert Web Standard Response to Express response, through the token policy (12.6.1): a forwarded route must
       // not hand out what the framework's own sign-in would not
-      await this.betterAuthService.sendBetterAuthResponse(res, response);
+      await this.betterAuthService.sendBetterAuthResponse(res, response, { requestSessionToken: sessionToken });
     } catch (error) {
       // A refused request (the password length policy) is an answer, not a handler failure. Nest's middleware
       // proxy hands a thrown exception to the exception filters, so it is rendered like the same refusal from a
