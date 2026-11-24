@@ -1,22 +1,33 @@
-# nest-server: process() Performance-Optimierung
+---
+title: "process() Performance Optimization"
+description: "How the process() pipeline of CrudService avoids memory and CPU overhead on hot paths and service cascades, without weakening any security check."
+---
 
-## Kontext
+> **Status: implemented in 11.23.0** (see `migration-guides/11.22.x-to-11.23.0.md`). This page records the changes as
+> they were made. The code excerpts and line numbers show the state at that time; the current implementation may
+> differ in detail — the source files named below are authoritative.
 
-Die `process()` Pipeline in `ModuleService` ist der zentrale Verarbeitungspfad fuer alle CRUD-Operationen. Bei hochfrequenten oder verschachtelten Aufrufen (Service-Kaskaden) entsteht unnoetig hoher Memory- und CPU-Verbrauch. Die folgenden Optimierungen reduzieren den Overhead ohne die Sicherheit herabzusetzen.
+## Context
 
-**Analyse-Basis:** 8 Kundenprojekte + 13 lenne.tech-Projekte geprueft — alle Aenderungen sind rueckwaertskompatibel.
+The `process()` pipeline in `ModuleService` is the central processing path for all CRUD operations. With
+high-frequency or nested calls (service cascades) it caused unnecessarily high memory and CPU usage. The optimizations
+below reduce the overhead without weakening security.
+
+**Basis of the analysis:** 8 customer projects and 13 lenne.tech projects were checked — all changes are backward
+compatible.
 
 ---
 
-## Aenderung 1: JSON.stringify Debug konfigurierbar machen
+## Change 1: Make the JSON.stringify debug output configurable
 
-### Datei: `src/core/common/services/module.service.ts`
+### File: `src/core/common/services/module.service.ts`
 
 ### Problem
 
-Zeilen 149-164 serialisieren den Input bei **jedem** process()-Aufruf zweimal (vorher/nachher) — nur fuer einen `console.debug` Vergleich. Das `new Promise(() => ...)` ist ein Fire-and-Forget ohne await.
+Lines 149-164 serialized the input **twice** on every `process()` call (before and after) — only for a
+`console.debug` comparison. The `new Promise(() => ...)` was fire-and-forget without `await`.
 
-### Aktueller Code (Zeile 149-165)
+### Code before (lines 149-165)
 
 ```typescript
 const originalInput = config.input;
@@ -38,12 +49,12 @@ new Promise(() => {
 config.input = preparedInput;
 ```
 
-### Neuer Code
+### New code
 
 ```typescript
 const preparedInput = await this.prepareInput(config.input, config);
 
-// Debug-Vergleich nur wenn explizit konfiguriert (default: false)
+// Debug comparison only when explicitly configured (default: false)
 if (this.configService?.getFastButReadOnly('debugProcessInput', false)) {
   try {
     const originalJSON = JSON.stringify(config.input)?.replace(/"password":\s*"[^"]*"/, '');
@@ -57,16 +68,16 @@ if (this.configService?.getFastButReadOnly('debugProcessInput', false)) {
       );
     }
   } catch {
-    // JSON.stringify kann bei zirkulaeren Referenzen fehlschlagen — ignorieren
+    // JSON.stringify can fail on circular references — ignore
   }
 }
 
 config.input = preparedInput;
 ```
 
-### Datei: `src/core/common/interfaces/server-options.interface.ts`
+### File: `src/core/common/interfaces/server-options.interface.ts`
 
-In das `IServerOptions`-Interface (oder dem passenden Config-Bereich) hinzufuegen:
+Added to the `IServerOptions` interface:
 
 ```typescript
 /**
@@ -76,27 +87,30 @@ In das `IServerOptions`-Interface (oder dem passenden Config-Bereich) hinzufuege
 debugProcessInput?: boolean;
 ```
 
-### Sicherheit
+### Security
 
-Nicht betroffen — rein diagnostisch.
+Not affected — purely diagnostic.
 
-### Kompatibilitaet
+### Compatibility
 
-Default `false` — kein bestehendes Projekt aendert sein Verhalten.
+Default `false` — no existing project changes its behavior.
 
 ---
 
-## Aenderung 2: this.get(dbObject) durch Lean Query ersetzen
+## Change 2: Replace this.get(dbObject) with a lean query
 
-### Datei: `src/core/common/services/module.service.ts`
+### File: `src/core/common/services/module.service.ts`
 
 ### Problem
 
-Zeilen 168-176 rufen `this.get()` auf, was **rekursiv** die gesamte process()-Pipeline durchlaeuft — inklusive prepareInput, checkRights, processFieldSelection, prepareOutput. Das ist unnoetig, weil das dbObject nur als Kontext fuer den Rights-Check gebraucht wird.
+Lines 168-176 called `this.get()`, which runs the whole `process()` pipeline **recursively** — including
+`prepareInput`, `checkRights`, `processFieldSelection` and `prepareOutput`. That is unnecessary, because the
+`dbObject` is only needed as context for the rights check.
 
-Zusaetzlich ist es sogar **kontraproduktiv**: `this.get()` ohne `force` kann Felder wie `createdBy` entfernen (wegen `@Restricted(RoleEnum.ADMIN)`), die dann fuer den `S_CREATOR`-Check fehlen.
+It was even **counterproductive**: `this.get()` without `force` can remove fields such as `createdBy` (because of
+`@Restricted(RoleEnum.ADMIN)`), which are then missing for the `S_CREATOR` check.
 
-### Aktueller Code (Zeile 168-176)
+### Code before (lines 168-176)
 
 ```typescript
 // Get DB object
@@ -110,7 +124,7 @@ if (config.dbObject && config.checkRights && this.checkRights) {
 }
 ```
 
-### Neuer Code
+### New code
 
 ```typescript
 // Get DB object for rights checking — lean query to avoid recursive process() call.
@@ -132,38 +146,45 @@ if (config.dbObject && config.checkRights && this.checkRights) {
 }
 ```
 
-### Sicherheit
+### Security
 
-**Verbessert** — lean Query behaelt alle Felder (z.B. `createdBy`), was den `S_CREATOR`-Check zuverlaessiger macht als der aktuelle Code.
+**Improved** — the lean query keeps all fields (e.g. `createdBy`), which makes the `S_CREATOR` check more reliable
+than the previous code.
 
-### Nachfolgende Prozesse geprueft
+### Downstream steps checked
 
-- `checkRights(input)` (Zeile 179-184): Verwendet `config.dbObject` fuer `S_CREATOR`/`S_SELF`/`memberOf` Checks via `equalIds()` — funktioniert mit lean+map, da `equalIds` sowohl ObjectIds als auch Strings vergleicht.
-- `checkRights(output)` (Zeile 239-250): Gleiche Nutzung — funktioniert.
-- `validateRestricted()` in `checkRestricted()` (restricted.decorator.ts, Zeile 172-174): Prueft `'createdBy' in data && equalIds(data.createdBy, user)` — lean-Objekt hat `createdBy` immer (nicht entfernt durch Pipeline).
-- `memberOf`-Check (Zeile 196-218): Liest `config.dbObject?.[property]` — lean-Objekt hat alle Properties.
+- `checkRights(input)` (lines 179-184): uses `config.dbObject` for the `S_CREATOR` / `S_SELF` / `memberOf` checks via
+  `equalIds()` — works with lean + map, because `equalIds` compares ObjectIds as well as strings.
+- `checkRights(output)` (lines 239-250): same usage — works.
+- `validateRestricted()` in `checkRestricted()` (`restricted.decorator.ts`, lines 172-174): checks
+  `'createdBy' in data && equalIds(data.createdBy, user)` — the lean object always has `createdBy` (not removed by the
+  pipeline).
+- `memberOf` check (lines 196-218): reads `config.dbObject?.[property]` — the lean object has all properties.
 
-### Kompatibilitaet
+### Compatibility
 
-- `CrudService.update()` (Zeile 552): Setzt `dbObject` bereits als lean-Objekt (`findById().lean()`) → konsistent.
-- Kein Projekt uebergibt ein Mongoose-Document als dbObject → kein Konflikt.
-- Services die `process()` direkt aufrufen mit `dbObject` als String (z.B. swaktiv/OfferService): Profitieren von der Optimierung.
+- `CrudService.update()` (line 552) already sets `dbObject` as a lean object (`findById().lean()`) → consistent.
+- No project passes a Mongoose document as `dbObject` → no conflict.
+- Services that call `process()` directly with `dbObject` as a string (for example a project's own offer service)
+  benefit from the optimization.
 
 ---
 
-## Aenderung 3: Depth-Tracking in RequestContext
+## Change 3: Depth tracking in RequestContext
 
-### Datei: `src/core/common/services/request-context.service.ts`
+### File: `src/core/common/services/request-context.service.ts`
 
 ### Problem
 
-Bei Service-Kaskaden (A.create → B.create → C.create) laeuft die volle process()-Pipeline auf jeder Ebene. Populate, prepareOutput-Mapping und Output-checkRights auf inneren Ebenen sind unnoetig, weil die aeussere Ebene und der CheckSecurityInterceptor diese Aufgaben uebernehmen.
+In service cascades (A.create → B.create → C.create) the full `process()` pipeline ran on every level. Populate,
+`prepareOutput` mapping and the output `checkRights` on inner levels are unnecessary, because the outer level and the
+`CheckSecurityInterceptor` take care of them.
 
-### Aenderung am Interface
+### Change to the interface
 
 ```typescript
 export interface IRequestContext {
-  // ... bestehende Felder ...
+  // ... existing fields ...
 
   /**
    * Tracks the nesting depth of process() calls.
@@ -175,7 +196,7 @@ export interface IRequestContext {
 }
 ```
 
-### Neue Methoden
+### New methods
 
 ```typescript
 /**
@@ -201,19 +222,19 @@ static runWithIncrementedProcessDepth<T>(fn: () => T): T {
 }
 ```
 
-### Sicherheit
+### Security
 
-Nicht betroffen — das Depth-Tracking ist rein informativ und aendert keine Berechtigungen.
+Not affected — depth tracking is purely informational and changes no permissions.
 
 ---
 
-## Aenderung 4: process() — Depth-basierte Optimierung
+## Change 4: Depth-based optimization in process()
 
-### Datei: `src/core/common/services/module.service.ts`
+### File: `src/core/common/services/module.service.ts`
 
-### Aenderung in process() (Zeile 81ff)
+### Change in process() (line 81 ff.)
 
-Am Anfang der Methode nach der Config-Erstellung (nach Zeile 108):
+At the start of the method, after the config is created (after line 108):
 
 ```typescript
 // Detect nested process() calls
@@ -221,7 +242,7 @@ const currentDepth = RequestContext.getProcessDepth();
 const isNested = currentDepth > 0;
 ```
 
-### serviceFunc mit Depth-Tracking ausfuehren (Zeile 201-205 ersetzen)
+### Run serviceFunc with depth tracking (replaces lines 201-205)
 
 ```typescript
 // Run service function with incremented depth
@@ -234,7 +255,7 @@ let result = config.force
   : await executeServiceFunc();
 ```
 
-### processFieldSelection bei inneren Calls ueberspringen (Zeile 207-217 ersetzen)
+### Skip processFieldSelection on inner calls (replaces lines 207-217)
 
 ```typescript
 // Pop and map main model
@@ -254,12 +275,15 @@ if (config.processFieldSelection && config.fieldSelection && this.processFieldSe
 }
 ```
 
-**Logik:**
-- `isNested = false` (Depth 0, aeusserster Call): Populate laeuft immer → User bekommt vollstaendiges Ergebnis.
-- `isNested = true` (Depth > 0, innerer Call) OHNE `config.populate`: Populate wird uebersprungen → Ergebnis wird intern weiterverarbeitet.
-- `isNested = true` MIT `config.populate` (explizit vom Caller gesetzt): Populate laeuft → der innere Service hat das explizit angefordert weil er die Daten braucht.
+**Logic:**
 
-### prepareOutput bei inneren Calls reduzieren (Zeile 219-236 ersetzen)
+- `isNested = false` (depth 0, outermost call): populate always runs → the user gets the complete result.
+- `isNested = true` (depth > 0, inner call) WITHOUT `config.populate`: populate is skipped → the result is processed
+  further internally.
+- `isNested = true` WITH `config.populate` (set explicitly by the caller): populate runs → the inner service asked for
+  it explicitly because it needs the data.
+
+### Reduce prepareOutput on inner calls (replaces lines 219-236)
 
 ```typescript
 // Prepare output
@@ -290,7 +314,7 @@ if (config.prepareOutput && this.prepareOutput) {
 }
 ```
 
-### Output-checkRights bei inneren Calls ueberspringen (Zeile 238-250 ersetzen)
+### Skip the output checkRights on inner calls (replaces lines 238-250)
 
 ```typescript
 // Check output rights
@@ -310,38 +334,44 @@ if (!isNested && config.checkRights && (await this.checkRights(undefined, config
 }
 ```
 
-### Sicherheit
+### Security
 
-**Gewaehrleistet durch drei Schichten:**
+**Ensured by three layers:**
 
-1. **Input-checkRights laeuft IMMER** (auch bei isNested) — unberechtigte Eingaben werden auf jeder Ebene abgefangen.
-2. **Output-checkRights auf Depth 0** — der aeusserste Call filtert das finale Ergebnis.
-3. **CheckSecurityInterceptor** — das letzte Sicherheitsnetz in der HTTP-Response-Pipeline ruft `securityCheck()` rekursiv auf dem gesamten Response-Baum auf, inklusive aller verschachtelten Objekte.
+1. **The input checkRights ALWAYS runs** (also when `isNested`) — unauthorized input is caught on every level.
+2. **The output checkRights runs at depth 0** — the outermost call filters the final result.
+3. **CheckSecurityInterceptor** — the last safety net in the HTTP response pipeline calls `securityCheck()`
+   recursively on the whole response tree, including every nested object.
 
-**Gegenprobe:** Was passiert wenn ein innerer Service ein Objekt zurueckgibt das der User nicht sehen darf?
-- Der innere process() ueberspringt den Output-Rights-Check → Objekt bleibt unveraendert
-- Der aeussere process() fuehrt den Output-Rights-Check durch → Felder werden entfernt
-- Falls der aeussere process() es auch verpasst → CheckSecurityInterceptor entfernt die Felder
+**Counter-check:** What happens when an inner service returns an object the user may not see?
 
-### Kompatibilitaet
+- The inner `process()` skips the output rights check → the object stays unchanged.
+- The outer `process()` runs the output rights check → the fields are removed.
+- If the outer `process()` misses it as well → `CheckSecurityInterceptor` removes the fields.
 
-Geprueft an realen Kaskaden:
-- **CompanyService.create()** (5-Ebenen-Kaskade): Innere creates (ProfileSite, ProfileCategory, ProfileEntry, Form) brauchen kein Populate — Ergebnisse werden nur fuer IDs weiterverwendet.
-- **ParticipationService → UserService**: UserService.create() Ergebnis wird inline weiterverwendet, nicht an User zurueckgegeben.
-- **ShippingService → BounceService/EmailService**: Kein Populate auf inneren Ebenen noetig.
-- **Services mit explizitem `populate:`**: Funktionieren weiterhin, da `config.populate` den isNested-Skip ueberschreibt.
+### Compatibility
+
+Checked against real cascades:
+
+- **A five-level create cascade** (a company with its profile sites, categories, entries and forms): the inner creates
+  need no populate — their results are only used for their ids.
+- **A participation service calling `UserService.create()`**: the result is used inline, not returned to the user.
+- **A shipping service calling bounce and e-mail services**: no populate needed on inner levels.
+- **Services with an explicit `populate:`** keep working, because `config.populate` overrides the `isNested` skip.
 
 ---
 
-## Aenderung 5: checkRestricted Metadata-Caching
+## Change 5: Caching of the checkRestricted metadata
 
-### Datei: `src/core/common/decorators/restricted.decorator.ts`
+### File: `src/core/common/decorators/restricted.decorator.ts`
 
 ### Problem
 
-`getRestricted()` (Zeile 50-58) ruft bei jedem Property-Check `Reflect.getMetadata()` auf. Bei einem Objekt mit 15 Properties und verschachtelten Objekten summieren sich hunderte Reflect-Lookups pro Request. Die Metadata aendert sich zur Laufzeit nie (Decorators sind statisch).
+`getRestricted()` (lines 50-58) called `Reflect.getMetadata()` for every property check. For an object with 15
+properties and nested objects, this adds up to hundreds of Reflect lookups per request. The metadata never changes at
+runtime (decorators are static).
 
-### Aktueller Code (Zeile 50-58)
+### Code before (lines 50-58)
 
 ```typescript
 export const getRestricted = (object: unknown, propertyKey?: string): RestrictedType => {
@@ -355,7 +385,7 @@ export const getRestricted = (object: unknown, propertyKey?: string): Restricted
 };
 ```
 
-### Neuer Code
+### New code
 
 ```typescript
 // Cache for Restricted metadata — decorators are static, metadata never changes at runtime.
@@ -404,90 +434,92 @@ export const getRestricted = (object: unknown, propertyKey?: string): Restricted
 };
 ```
 
-### Zusaetzlich: _.uniq()-Optimierung in checkRestricted (Zeile 260)
+### Additionally: _.uniq() optimization in checkRestricted (line 260)
 
 ```typescript
-// Aktuell:
+// Before:
 const concatenatedRestrictions = config.mergeRoles ? _.uniq(objectRestrictions.concat(restricted)) : restricted;
 
-// Optimiert — vermeidet Array-Allokation wenn objectRestrictions leer:
+// Optimized — avoids an array allocation when objectRestrictions is empty:
 const concatenatedRestrictions = config.mergeRoles && objectRestrictions.length
   ? _.uniq(objectRestrictions.concat(restricted))
   : restricted;
 ```
 
-Diese Zeile wird fuer **jede Property jedes Objekts** aufgerufen. Wenn `objectRestrictions` leer ist (haeufig bei Models ohne Class-Level `@Restricted`), spart das eine Array-Allokation + uniq-Berechnung pro Property.
+This line runs for **every property of every object**. When `objectRestrictions` is empty (common for models without
+a class-level `@Restricted`), it saves one array allocation and one `uniq` computation per property.
 
-### Sicherheit
+### Security
 
-**Nicht betroffen** — gleiche Ergebnisse, da Decorator-Metadata sich zur Laufzeit nicht aendert. Der Cache liefert exakt die gleichen Werte wie der direkte Reflect-Lookup.
+**Not affected** — same results, because decorator metadata does not change at runtime. The cache returns exactly the
+values of the direct Reflect lookup.
 
-### Kompatibilitaet
+### Compatibility
 
-Transparent — kein Projekt muss angepasst werden.
-
----
-
-## Zusammenfassung der Einsparungen
-
-### Einzelner API-Call (Depth 0, kein Nesting):
-
-| Aenderung | Einsparung |
-|-----------|------------|
-| JSON.stringify entfaellt | ~0.1-1 KB + 2x Serialisierung |
-| Lean dbObject statt this.get() | ~5-15 KB + 1 rekursiver process()-Durchlauf |
-| Metadata-Cache | CPU: ~hunderte Reflect-Lookups weniger |
-
-### Verschachtelter Call (Depth > 0):
-
-| Schritt | Vorher | Nachher |
-|---------|--------|---------|
-| JSON.stringify | 2x Serialisierung | Uebersprungen |
-| prepareInput | Laeuft | Laeuft (unveraendert) |
-| this.get(dbObject) | Rekursives process() | Lean Query + Map |
-| checkRights(input) | Laeuft | Laeuft (unveraendert) |
-| serviceFunc | Laeuft | Laeuft (unveraendert) |
-| processFieldSelection | Volle Population | Uebersprungen (ausser explizites populate) |
-| prepareOutput | Volles Mapping | Nur Secrets-Removal |
-| checkRights(output) | Laeuft | Uebersprungen |
-
-**Pro verschachteltem Call: ~30-70 KB + 2-5 DB-Queries weniger.**
-
-### Beispiel: 8-stufige Service-Kaskade (z.B. Incident-Handling):
-
-- Vorher: 8 x ~50 KB = ~400 KB
-- Nachher: 1 x ~50 KB (aeusserer) + 7 x ~10 KB (innere) = ~120 KB
-- **~70% weniger Memory**
+Transparent — no project needs to be adapted.
 
 ---
 
-## Betroffene Dateien
+## Summary of the savings
 
-| Datei | Aenderung |
-|-------|-----------|
-| `src/core/common/services/module.service.ts` | Aenderungen 1, 2, 4 |
-| `src/core/common/services/request-context.service.ts` | Aenderung 3 |
-| `src/core/common/decorators/restricted.decorator.ts` | Aenderung 5 |
-| `src/core/common/interfaces/server-options.interface.ts` | Config-Option `debugProcessInput` |
+### Single API call (depth 0, no nesting)
+
+| Change | Saving |
+|--------|--------|
+| No JSON.stringify | ~0.1-1 KB + 2 serializations |
+| Lean dbObject instead of this.get() | ~5-15 KB + 1 recursive process() run |
+| Metadata cache | CPU: hundreds of Reflect lookups fewer |
+
+### Nested call (depth > 0)
+
+| Step | Before | After |
+|------|--------|-------|
+| JSON.stringify | 2 serializations | Skipped |
+| prepareInput | Runs | Runs (unchanged) |
+| this.get(dbObject) | Recursive process() | Lean query + map |
+| checkRights(input) | Runs | Runs (unchanged) |
+| serviceFunc | Runs | Runs (unchanged) |
+| processFieldSelection | Full population | Skipped (unless populate is explicit) |
+| prepareOutput | Full mapping | Secret removal only |
+| checkRights(output) | Runs | Skipped |
+
+**Per nested call: ~30-70 KB and 2-5 database queries fewer.**
+
+### Example: an 8-level service cascade (e.g. incident handling)
+
+- Before: 8 × ~50 KB = ~400 KB
+- After: 1 × ~50 KB (outer) + 7 × ~10 KB (inner) = ~120 KB
+- **~70% less memory**
 
 ---
 
-## Verifizierung
+## Affected files
 
-1. **Bestehende E2E-Tests** muessen alle gruen bleiben — die Aenderungen sind rueckwaertskompatibel
-2. **Service-Kaskade testen**: z.B. ein create() das intern andere Services aufruft
-3. **Populate auf aeusserster Ebene**: `{ populate: ['user', 'customer'] }` muss weiterhin funktionieren
-4. **securityCheck()**: Sensitive Felder (password, etc.) duerfen nie in der Response auftauchen
-5. **S_CREATOR-Check**: User der ein Objekt erstellt hat, muss es weiterhin bearbeiten koennen
-6. **Performance**: `process.memoryUsage()` vor/nach Optimierung bei verschachtelten Calls messen
+| File | Change |
+|------|--------|
+| `src/core/common/services/module.service.ts` | Changes 1, 2, 4 |
+| `src/core/common/services/request-context.service.ts` | Change 3 |
+| `src/core/common/decorators/restricted.decorator.ts` | Change 5 |
+| `src/core/common/interfaces/server-options.interface.ts` | Config option `debugProcessInput` |
 
 ---
 
-## Risiken
+## Verification
 
-| Risiko | Absicherung |
-|--------|-------------|
-| Innerer Service braucht populate-Ergebnis | `config.populate` ueberschreibt den isNested-Skip — explizite Anforderung wird respektiert |
-| Output-Rights-Check auf innerem Ergebnis fehlt | CheckSecurityInterceptor ist das Sicherheitsnetz auf HTTP-Ebene |
-| Metadata-Cache wird stale | Unmoeglich — Decorator-Metadata ist zur Compile-Zeit fixiert |
-| Lean dbObject hat andere Struktur als hydriertes | `modelConstructor.map()` stellt die erwartete Struktur her |
+1. **Existing E2E tests** must all stay green — the changes are backward compatible.
+2. **Test a service cascade**: e.g. a `create()` that calls other services internally.
+3. **Populate on the outermost level**: `{ populate: ['user', 'customer'] }` must keep working.
+4. **securityCheck()**: sensitive fields (password etc.) must never appear in the response.
+5. **S_CREATOR check**: the user who created an object must still be able to edit it.
+6. **Performance**: measure `process.memoryUsage()` before and after the optimization for nested calls.
+
+---
+
+## Risks
+
+| Risk | Safeguard |
+|------|-----------|
+| An inner service needs the populate result | `config.populate` overrides the `isNested` skip — an explicit request is respected |
+| The output rights check on the inner result is missing | `CheckSecurityInterceptor` is the safety net on the HTTP level |
+| The metadata cache becomes stale | Impossible — decorator metadata is fixed when the classes are defined |
+| The lean `dbObject` has a different structure than a hydrated one | `modelConstructor.map()` restores the expected structure |

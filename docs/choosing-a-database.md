@@ -1,4 +1,7 @@
-# Choosing a database
+---
+title: "Choosing a database"
+description: "How to choose between MongoDB, PostgreSQL and MySQL / MariaDB for a nest-server project, and how to combine them model by model."
+---
 
 Since 12.1.0 a `@lenne.tech/nest-server` project stores its data in **MongoDB** (the default), in **PostgreSQL**, in
 **MySQL 8.4 / MariaDB 11.8**, or in several of them, model by model. The framework's own modules (users, tenants, API

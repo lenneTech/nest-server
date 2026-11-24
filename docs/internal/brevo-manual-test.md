@@ -4,7 +4,7 @@
 > `package.json` `files`), but the things it tells you to run do **not**: `scripts/` and
 > `.env.example` are excluded from the tarball, and `src/config.env.ts` is a path that only exists
 > in this repository. If you are reading this from
-> `node_modules/@lenne.tech/nest-server/docs/`, clone
+> `node_modules/@lenne.tech/nest-server/docs/internal/`, clone
 > [lenneTech/nest-server](https://github.com/lenneTech/nest-server) to follow along. For configuring
 > Brevo in *your* project, see the `brevo` block in `FRAMEWORK-API.md` instead.
 

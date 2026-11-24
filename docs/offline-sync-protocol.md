@@ -1,4 +1,7 @@
-# Offline sync protocol
+---
+title: "Offline sync protocol"
+description: "The protocol of the sync module for offline-capable clients: pull, push, conflicts, client ids, resync, hints and tombstones."
+---
 
 > **Status: implemented** by the sync module (`src/core/modules/sync/`, 12.2.0): pull, push, conflicts, client ids and
 > resync (DEV-3901), hints (§9) and the tombstone purge (DEV-3902), proven end to end by a PWA and a Node test client
