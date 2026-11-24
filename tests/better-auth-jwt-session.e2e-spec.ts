@@ -5,9 +5,13 @@
  * session cookie answered 401 at once, while the JWT kept reading and writing for 14 min 57 s of its 15 — and so did a
  * copy of it. And the middleware handed Better-Auth the user's NEWEST session for a JWT request, so a sign-out with one
  * device's JWT ended the device that signed in last.
+ *
+ * 12.11.1: turning two-factor off replaces the session; the answer carries the JWT of the new one, or the client's JWT
+ * names a deleted session and, without a session cookie, the client has no way to another.
  */
 import { Test } from '@nestjs/testing';
 import { PubSub } from 'graphql-subscriptions';
+import * as OTPAuth from 'otpauth';
 import request from 'supertest';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 
@@ -86,5 +90,56 @@ describe('Better-Auth JWT: bound to its session (e2e)', () => {
 
     expect((await readOwnUser(jwtA)).status, 'device A signed out: its JWT is refused at once').toBe(401);
     expect((await readOwnUser(jwtB)).status, 'device B is still signed in').toBe(200);
+  });
+
+  /**
+   * @regression   12.11.1 — `POST /iam/two-factor/disable` creates a session, deletes the request's session and
+   *   answered `{ status: true }` without a token. A JWT client then held the JWT of a deleted session (401) and,
+   *   without a session cookie, could fetch no other: turning 2FA off signed it out.
+   * @seen-failing Never treat a session cookie for another session than the request's as a rotation in
+   *   presentSessionTokens() (src/core/modules/better-auth/core-better-auth-session-token.helper.ts), or forward
+   *   without the request's session in CoreBetterAuthApiMiddleware
+   *   (src/core/modules/better-auth/core-better-auth-api.middleware.ts) — registered as mutations
+   *   `disable-2fa-leaves-jwt-client-dead-token` and `api-middleware-drops-request-session-token` in
+   *   tests/regression-mutations.json.
+   */
+  it('hands a JWT client the JWT of the new session when 2FA is turned on and off again', async () => {
+    const server = app.getHttpServer();
+    const enable = await request(server)
+      .post('/iam/two-factor/enable')
+      .set('Authorization', `Bearer ${jwtB}`)
+      .send({ password });
+    expect(enable.status, JSON.stringify(enable.body)).toBe(200);
+    const secret = String(enable.body?.totpURI).match(/secret=([A-Z2-7]+)/i)?.[1];
+    expect(secret, 'enable answers a TOTP URI with a secret').toBeTruthy();
+    const code = new OTPAuth.TOTP({
+      algorithm: 'SHA1',
+      digits: 6,
+      period: 30,
+      secret: OTPAuth.Secret.fromBase32(secret!),
+    }).generate();
+
+    // The first verify-totp turns 2FA on and replaces the session (12.7.1 rule)
+    const verify = await request(server)
+      .post('/iam/two-factor/verify-totp')
+      .set('Authorization', `Bearer ${jwtB}`)
+      .send({ code });
+    expect(verify.status, JSON.stringify(verify.body)).toBe(200);
+    const jwtOn = verify.body?.token as string;
+    expect(isJwtShaped(jwtOn), 'verify-totp answers with the JWT of the new session').toBe(true);
+    expect((await readOwnUser(jwtOn)).status).toBe(200);
+
+    const disable = await request(server)
+      .post('/iam/two-factor/disable')
+      .set('Authorization', `Bearer ${jwtOn}`)
+      .send({ password });
+    expect(disable.status, JSON.stringify(disable.body)).toBe(200);
+    expect(disable.body?.status).toBe(true);
+    const jwtOff = disable.body?.token as string;
+    expect(isJwtShaped(jwtOff), 'disable answers with the JWT of the session that replaced the old one').toBe(true);
+    expect(jwtOff).not.toBe(jwtOn);
+
+    expect((await readOwnUser(jwtOn)).status, 'the replaced session is gone, and its JWT with it').toBe(401);
+    expect((await readOwnUser(jwtOff)).status, 'the client stays signed in with the new JWT').toBe(200);
   });
 });

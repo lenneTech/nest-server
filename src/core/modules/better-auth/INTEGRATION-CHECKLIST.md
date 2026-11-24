@@ -505,6 +505,7 @@ assignment (README → "Sign-in through a provider alone"):
 | Missing `signUpValidator` in custom Resolver (v11.13.0+)                                  | Sign-up validation not working                          | Add `@Optional() signUpValidator?: CoreBetterAuthSignUpValidatorService` to constructor and pass to `super()`                                |
 | Missing `termsAndPrivacyAccepted` parameter in Resolver (v11.13.0+)                       | GraphQL error "Unknown argument"                        | Add `@Args('termsAndPrivacyAccepted', { nullable: true })` to `betterAuthSignUp` method                                                      |
 | A JWT client keeps the JWT it had before `verify-totp` while enabling 2FA (12.11.0+)      | `401` right after 2FA was switched on                   | Use the `token` of the `verify-totp` answer: the first confirmation replaces the session, and a JWT is bound to its session                  |
+| A JWT client keeps the JWT it had before `two-factor/disable` (12.11.0)                   | Signed out right after 2FA was switched off             | Update to 12.11.1 and use the `token` of the answer: turning 2FA off replaces the session                                                    |
 | An SSO-only project (`emailAndPassword.enabled: false`) expects Passkey or 2FA (12.11.0+) | Passkey and 2FA routes answer `404`                     | Switch them on deliberately with `passkey: true` / `twoFactor: true` — they keep a user signed in after the provider withdrew the assignment |
 
 ---

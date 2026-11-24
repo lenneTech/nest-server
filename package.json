@@ -1,6 +1,6 @@
 {
   "name": "@lenne.tech/nest-server",
-  "version": "12.11.0",
+  "version": "12.11.1",
   "type": "module",
   "description": "Server framework in TypeScript on top of NestJS: GraphQL and REST APIs on MongoDB, PostgreSQL, MySQL or MariaDB, with authentication, field-level permissions, multi-tenancy, offline sync and an AI assistant.",
   "keywords": [
@@ -100,7 +100,7 @@
     "node": ">= 22.15",
     "pnpm": "^11.0.0"
   },
-  "packageManager": "pnpm@11.28.13+sha512.d5caa9cdcd6067ac2902f9f44daa00b1288a73babf1e98f4f375b3a7583b1894b4d49f7527da8f5e1530198bb10e03adba321a1f015429dc2946ce8a7a9a8c65",
+  "packageManager": "pnpm@11.29.0+sha512.d913f9b37cd5fe6780052e809774edabb7bdcf69a6e6d9b8fd3b38bc052fa8a7d891b6c201a38fb504a07ffce2e5e8c262ef54fb8f57db62f22d353a30bc8a96",
   "dependencies": {
     "@apollo/server": "5.5.1",
     "@as-integrations/express5": "1.1.2",
@@ -279,10 +279,10 @@
     "bullmq": "6.7.8",
     "cross-env": "10.1.0",
     "drizzle-orm": "1.0.0-rc.5",
-    "ioredis": "6.0.0",
+    "ioredis": "6.1.0",
     "kysely": "0.29.9",
-    "mongodb": "7.8.0",
-    "mongoose": "9.12.3",
+    "mongodb": "7.9.1",
+    "mongoose": "9.13.0",
     "mysql2": "3.24.6",
     "nodemon": "3.1.14",
     "otpauth": "9.6.0",

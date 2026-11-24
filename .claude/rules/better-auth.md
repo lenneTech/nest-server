@@ -496,6 +496,15 @@ Cases the cookie alone does not cover, each found in a release review:
   cookie of a response counts — the refresh sets the current one before the new one. Mutations
   `rotated-session-token-kept`, `session-cookie-first-of-several-read`, `plugin-token-read-as-rotation`,
   `enable-2fa-hands-out-replaced-token`.
+- **A rotation the answer does not name** (12.11.1): `two-factor/disable`, and `two-factor/enable` with OTP or
+  `skipVerificationOnEnable`, replace the request's session and answer `{ status: true }` / `{ method }` without a
+  token. Only the request's own session token tells that from a refresh (which sets the cookie of the SAME session), so
+  every forwarding passes it: `sendBetterAuthResponse(res, response, { requestSessionToken })`. Where the body carries
+  a token the answer gains the JWT of the new session; in cookie mode it stays as it is. Without it a client with
+  `cookies: false` held a JWT of a deleted session (401 since 12.11.0) and no session cookie to get another, so
+  turning 2FA off signed it out. Mutations `disable-2fa-request-session-replaced-without-token`,
+  `disable-2fa-leaves-jwt-client-dead-token`, `request-session-token-not-presented`,
+  `api-middleware-drops-request-session-token`.
 - **The cookie's name comes from the instance** (`$context.authCookies.sessionToken.name`, via
   `sessionCookieNameOfInstance()`), not from `getSessionCookieName()`: under `advanced.useSecureCookies` Better-Auth
   sets `__Secure-iam.session_token`, and a passkey sign-in in token-in-body mode — which answers `{ session }` and gains
@@ -677,7 +686,7 @@ handed Better-Auth the user's NEWEST session for a JWT request.
 | The session of a JWT request is `getJwtSession(payload)` — by `sid`, never "the user's active session" | a sign-out or a plugin route acts on the JWT's own session |
 | A session deleted outside Better-Auth's adapter is caught by the cache interval only (`jwtSessionCacheTtlMs`, 10 s) | the immediate forget runs from Better-Auth's `session.delete` hook (`wsSessionRevocationPlugin()`); delete through Better-Auth |
 | The cache lives in the import-free leaf `core-better-auth-jwt-session.cache.ts`, bounded, keyed by session id and checked against the user | config, service and user mapper reach it without importing each other; an entry never vouches for another user |
-| After a session rotation the answer's `token` is the JWT of the NEW session | the old JWT names a deleted session and answers 401 |
+| After a session rotation the answer's `token` is the JWT of the NEW session — also when Better-Auth's answer names no token (two-factor disable, 12.11.1) | the old JWT names a deleted session and answers 401 |
 
 Pinned by `tests/unit/better-auth-jwt-session-binding.spec.ts` and `tests/better-auth-jwt-session.e2e-spec.ts`.
 

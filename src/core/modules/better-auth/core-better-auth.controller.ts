@@ -1171,7 +1171,7 @@ export class CoreBetterAuthController {
 
       // Send the response back
       // Through the token policy: a forwarded route must not hand out what sign-in would not (12.6.1)
-      await this.betterAuthService.sendBetterAuthResponse(res, response);
+      await this.betterAuthService.sendBetterAuthResponse(res, response, { requestSessionToken: sessionToken });
     } catch (error) {
       this.logger.error(`Better Auth handler error: ${error instanceof Error ? error.message : 'Unknown error'}`);
 

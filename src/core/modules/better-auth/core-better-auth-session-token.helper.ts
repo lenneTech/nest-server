@@ -19,6 +19,14 @@ export interface SessionTokenPresentation {
    */
   resolveJwt: (sessionToken: string) => Promise<string | undefined>;
   /**
+   * The session token the request was made with: its session cookie, a bearer session token, or the session of its
+   * JWT (`getJwtSession()`). It tells a rotation from a refresh in an answer that names no token itself: a session
+   * cookie with ANOTHER token replaced the request's session (`/two-factor/disable` answers `{ status: true }`,
+   * `/two-factor/enable` with OTP `{ method: 'otp' }`), a refresh sets the cookie of the same session (12.11.1).
+   * Unset or empty: such answers stay as they are.
+   */
+  requestSessionToken?: null | string;
+  /**
    * Whether the body may carry a token at all: cookies disabled (JWT-only mode) or `cookies.exposeTokenInBody`.
    * `false` in the default cookie mode, where the session lives in an httpOnly cookie and nowhere else.
    */
@@ -76,6 +84,10 @@ export function sessionTokenFromSetCookie(response: globalThis.Response, cookieN
  *   rotated the session (the first verify-totp while enabling 2FA answers with the token of the session it deleted):
  *   that token is treated as the session token — removed in cookie mode, replaced by the JWT of the NEW session where
  *   the body carries one (12.7.1). A plugin's own `{ token }` next to a refreshed session cookie is not a rotation.
+ * - A response without a top-level token that sets a session cookie for another session than the request's
+ *   ({@link SessionTokenPresentation.requestSessionToken}) replaced the request's session: two-factor disable, and
+ *   enable with OTP or `skipVerificationOnEnable`. Where the body carries a token it gains the JWT of the new session;
+ *   the JWT the client holds names the deleted one, and without a session cookie it cannot fetch another (12.11.1).
  * - Untouched: error responses, non-JSON bodies, a JWT (`/token` hands one out on purpose), and a top-level `token`
  *   that is not the session token (another plugin's value).
  *
@@ -125,6 +137,11 @@ export async function presentSessionTokens(
   const answersWithUser = !!record.user && typeof record.user === 'object' && !Array.isArray(record.user);
   const rotatedFrom =
     answersWithUser && !!topToken && !isJwtShaped(topToken) && !!cookieToken && topToken !== cookieToken;
+  // An answer naming no token that replaced the REQUEST's session (12.11.1): two-factor disable answers
+  // `{ status: true }`, the client's JWT names the session that was just deleted. A refresh sets the cookie of the
+  // request's own session, so only another token counts.
+  const requestToken = typeof options.requestSessionToken === 'string' ? options.requestSessionToken : '';
+  const replacedRequestSession = !topToken && !!requestToken && !!cookieToken && cookieToken !== requestToken;
   const topIsSessionToken =
     !!topToken &&
     !isJwtShaped(topToken) &&
@@ -133,7 +150,7 @@ export async function presentSessionTokens(
       topToken === sessionFieldToken ||
       (await isLiveSessionToken(topToken, options.isSessionToken)));
 
-  if (!topIsSessionToken && !sessionFieldToken) {
+  if (!topIsSessionToken && !sessionFieldToken && !(options.tokenInBody && replacedRequestSession)) {
     return response;
   }
 

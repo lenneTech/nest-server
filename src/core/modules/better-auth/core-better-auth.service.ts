@@ -828,13 +828,21 @@ export class CoreBetterAuthService implements OnApplicationBootstrap, OnModuleDe
    * framework's own sign-in keeps it in an httpOnly cookie only, and as the raw token where sign-in hands out a JWT.
    * See `presentSessionTokens()` (`core-better-auth-session-token.helper.ts`) for the rules.
    *
+   * `requestSessionToken` is the session token the request was forwarded with (12.11.1): an answer that replaced that
+   * session without naming a token (two-factor disable) then carries the JWT of the new session where the body may carry
+   * a token.
+   *
    * Override to present tokens differently; keep the cookie-mode rule, it is what keeps the session out of scripts.
    */
-  async presentSessionTokens(response: globalThis.Response): Promise<globalThis.Response> {
+  async presentSessionTokens(
+    response: globalThis.Response,
+    options?: { requestSessionToken?: null | string },
+  ): Promise<globalThis.Response> {
     const cookiesConfig = ConfigService.configFastButReadOnly?.cookies as boolean | ICookiesConfig | undefined;
     return presentSessionTokens(response, {
       cookieName: await this.sessionCookieNameOfInstance(),
       isSessionToken: async (token) => !!(await this.getSessionByToken(token))?.session,
+      requestSessionToken: options?.requestSessionToken,
       resolveJwt: (sessionToken) => this.resolveJwtToken(sessionToken),
       tokenInBody: !isCookiesEnabled(cookiesConfig) || isExposeTokenInBodyEnabled(cookiesConfig),
     });
@@ -861,10 +869,15 @@ export class CoreBetterAuthService implements OnApplicationBootstrap, OnModuleDe
   /**
    * Sends a response of Better-Auth's handler to the client, through {@link presentSessionTokens}. Every place that
    * forwards to the handler (the API middleware, the controller's catch-all) sends through here, so a forwarded route
-   * cannot hand a client a token the framework's own sign-in would not.
+   * cannot hand a client a token the framework's own sign-in would not. Pass the session token the request was
+   * forwarded with (`requestSessionToken`), so an answer that replaced that session carries the new one's JWT (12.11.1).
    */
-  async sendBetterAuthResponse(res: ExpressResponse, response: globalThis.Response): Promise<void> {
-    await sendWebResponse(res, await this.presentSessionTokens(response));
+  async sendBetterAuthResponse(
+    res: ExpressResponse,
+    response: globalThis.Response,
+    options?: { requestSessionToken?: null | string },
+  ): Promise<void> {
+    await sendWebResponse(res, await this.presentSessionTokens(response, options));
   }
 
   /**
