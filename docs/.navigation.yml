@@ -1,0 +1,4 @@
+# Section of this repository on docs.lennetech.app
+title: nest-server
+icon: i-lucide-server
+description: The NestJS framework of the lenne.tech stack, with security, multi-tenancy and several databases built in.

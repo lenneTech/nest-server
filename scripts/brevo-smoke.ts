@@ -9,7 +9,7 @@
  * Usage:
  *   BREVO_API_KEY=xkeysib-... BREVO_SMOKE_TO=you@example.com pnpm exec tsx scripts/brevo-smoke.ts
  *
- * See docs/brevo-manual-test.md for the full walkthrough.
+ * See docs/internal/brevo-manual-test.md for the full walkthrough.
  */
 import * as dotenv from 'dotenv';
 
@@ -37,7 +37,7 @@ if (['production', 'staging'].includes(nodeEnv) && process.env.BREVO_SMOKE_ALLOW
   fail(`Refusing to run with NODE_ENV=${nodeEnv}. Set BREVO_SMOKE_ALLOW_PROD=true to override.`);
 }
 if (!apiKey) {
-  fail('BREVO_API_KEY is not set. Put it in .env or pass it inline. See docs/brevo-manual-test.md.');
+  fail('BREVO_API_KEY is not set. Put it in .env or pass it inline. See docs/internal/brevo-manual-test.md.');
 }
 if (!to) {
   fail('BREVO_SMOKE_TO is not set. Use a mailbox you can actually read.');

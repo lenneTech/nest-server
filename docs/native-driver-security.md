@@ -1,4 +1,7 @@
-# Native MongoDB Driver Access — Security Policy
+---
+title: "Native MongoDB Driver Access — Security Policy"
+description: "Why the native MongoDB driver bypasses the Mongoose plugins (tenant isolation, audit fields, role guard, password hashing) and the rules for using it safely."
+---
 
 ## Problem
 

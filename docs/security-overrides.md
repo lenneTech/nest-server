@@ -1,4 +1,7 @@
-# Security Overrides — and why yours are not inherited
+---
+title: "Security Overrides — and why yours are not inherited"
+description: "Why the pnpm overrides of nest-server do not reach your project, and how to keep the dependency tree of your project free of known vulnerabilities."
+---
 
 ## The problem in one sentence
 
@@ -227,6 +230,6 @@ These are the same rules the framework applies to itself
 
 ## Related
 
-- [`.claude/rules/package-management.md`](../.claude/rules/package-management.md) — fixed-version
+- [`.claude/rules/package-management.md`](https://github.com/lenneTech/nest-server/blob/main/.claude/rules/package-management.md) — fixed-version
   policy, the pnpm pin contract, and the incident behind rule 1
 - `pnpm-workspace.yaml` in this package — the framework's own annotated override block

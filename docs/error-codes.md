@@ -1,4 +1,7 @@
-# Error Codes Documentation
+---
+title: "Error Codes"
+description: "All error codes of nest-server with their format, meaning and how to resolve them."
+---
 
 This document lists all available error codes with their descriptions and solutions.
 

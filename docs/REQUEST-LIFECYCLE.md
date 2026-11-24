@@ -1,4 +1,7 @@
-# Request Lifecycle & Security Architecture
+---
+title: "Request Lifecycle & Security Architecture"
+description: "The complete lifecycle of a request through @lenne.tech/nest-server: REST and GraphQL flows, every security mechanism, and how CrudService and the Safety Net work together."
+---
 
 This document explains the complete lifecycle of a request through `@lenne.tech/nest-server`, covering both REST and GraphQL flows, all security mechanisms, and the interaction between CrudService and the Safety Net.
 
