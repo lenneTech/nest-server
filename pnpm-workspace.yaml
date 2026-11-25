@@ -506,6 +506,12 @@ overrides:
   # (memory leak) and well above the 2.0.5 that fixes GHSA-frvp-7c67-39w9 (static-file path
   # traversal). Keeping it would have held the package at 2.0.11 for no benefit. The old comment's
   # "regresses to 1.19.14" is stale - that was true while the SDK declared ^1.19.9 alone.
+  # Security: i18next — GHSA-6jcc-5g8w-32mx (medium, patched 26.3.4; in GitHub's global database since 2026-11-24, so
+  #   `pnpm audit` reports it) and GHSA-5jr9-983r-c8x4 (high, ReDoS in the nesting regexp, patched 26.4.4):
+  #   @compodoc/compodoc 2.0.0 (newest) exact-pins i18next 26.3.3 for its own UI strings. Dev tooling only
+  #   (`pnpm run docs`). Target is the oldest 26.x that clears both, as on the current line since 12.10.0. Remove once
+  #   compodoc pins >= 26.4.4. Verified 2026-11-25.
+  'i18next@>=26.0.0 <26.4.4': '26.4.4'
 
 # Supply-chain hold-back: do not resolve a version published less than a day ago, so a compromised
 # release has time to be detected and unpublished before it can enter this lockfile.

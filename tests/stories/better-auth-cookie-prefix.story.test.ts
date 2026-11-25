@@ -207,6 +207,60 @@ describe('Story: BetterAuth COOKIE_PREFIX end-to-end lockstep', () => {
     expect(sessionRes?.user?.email).toBe(email);
   });
 
+  /**
+   * @regression   11.46.7 — a JWT-mode frontend with NUXT_PUBLIC_COOKIE_PREFIX=acme keeps the JWT in `acme-jwt-token`;
+   *   the middleware read `lt-jwt-token` only, so a request carrying the JWT cookie without an Authorization header (SSR
+   *   with forwarded cookies) was anonymous and Better-Auth's plugin routes answered 401.
+   * @seen-failing Read the fixed `lt-jwt-token` cookie in Strategy 2 of CoreBetterAuthMiddleware
+   *   (src/core/modules/better-auth/core-better-auth.middleware.ts) — registered as mutation
+   *   `middleware-jwt-cookie-ignores-prefix` in tests/regression-mutations.json.
+   */
+  it('JWT cookie: read under <prefix>-jwt-token (plugin routes and /iam/token), not under the unprefixed lt-jwt-token', async () => {
+    if (!isBetterAuthEnabled || !betterAuthService.isJwtEnabled()) return;
+
+    const email = generateTestEmail();
+    const password = 'SecurePassword123!';
+    await testHelper.rest('/iam/sign-up/email', {
+      method: 'POST',
+      payload: { email, name: 'JWT-Cookie Test User', password, termsAndPrivacyAccepted: true },
+      statusCode: 201,
+    });
+    const iamUser = await db.collection('iam_user').findOne({ email });
+    if (iamUser) testIamUserIds.push(iamUser._id);
+    const user = await db.collection('users').findOne({ email });
+    if (user) testUserIds.push(user._id.toString());
+    await testHelper.rest('/iam/sign-in/email', { method: 'POST', payload: { email, password }, statusCode: 200 });
+    const sessionRow = await db.collection('session').findOne(
+      {
+        $or: [
+          { userId: iamUser?._id },
+          { userId: iamUser?._id?.toString() },
+          ...(user?._id ? [{ userId: user._id }, { userId: user._id.toString() }] : []),
+        ],
+      },
+      { sort: { createdAt: -1 } },
+    );
+    const rawSessionToken: string = sessionRow?.token;
+    const jwt = await betterAuthService.resolveJwtToken(rawSessionToken);
+    expect(jwt?.split('.').length, 'the session converts to a JWT').toBe(3);
+
+    const supertest = require('supertest');
+    const listPasskeys = (cookie: string) =>
+      supertest(app.getHttpServer()).get('/iam/passkey/list-user-passkeys').set('Cookie', cookie);
+
+    const prefixed = await listPasskeys(`acme-jwt-token=${jwt}`);
+    expect(prefixed.status, JSON.stringify(prefixed.body)).toBe(200);
+
+    const unprefixed = await listPasskeys(`lt-jwt-token=${jwt}`);
+    expect(unprefixed.status, 'COOKIE_PREFIX isolates the JWT cookie as it does the session cookie').toBe(401);
+
+    // nuxt-extensions fetches a fresh JWT through GET /iam/token after a reload, with cookies and no bearer; in
+    // JWT-only mode only this cookie authenticates that call, so the client returns to JWT mode through it
+    const token = await supertest(app.getHttpServer()).get('/iam/token').set('Cookie', `acme-jwt-token=${jwt}`);
+    expect(token.status, JSON.stringify(token.body)).toBe(200);
+    expect(String(token.body?.token).split('.').length, '/iam/token answers with a JWT').toBe(3);
+  });
+
   it('Sign-out: clears the overridden cookie (and only that one)', async () => {
     if (!isBetterAuthEnabled) return;
 

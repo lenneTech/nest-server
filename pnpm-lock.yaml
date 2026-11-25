@@ -26,6 +26,7 @@ overrides:
   undici@>=7.0.0 <7.30.2: 7.30.2
   hono@>=4.0.0 <4.13.18: 4.13.18
   body-parser@>=2.0.0 <2.4.0: 2.4.0
+  i18next@>=26.0.0 <26.4.4: 26.4.4
 
 importers:
 
@@ -3508,10 +3509,10 @@ packages:
     resolution: {integrity: sha512-eKCa6bwnJhvxj14kZk5NCPc6Hb6BdsU9DZcOnmQKSnO1VKrfV0zCvtttPZUsBvjmNDn8rpcJfpwSYnHBjc95MQ==}
     engines: {node: '>=18.18.0'}
 
-  i18next@26.3.3:
-    resolution: {integrity: sha512-aYVegyBdXSO93CMMihvr47jI7GHSOcIahMpJX+qzUXDzW4xDJf2uenIA+45vDU+YhiVdcfsql70AC9RVdMNrHg==}
+  i18next@26.4.4:
+    resolution: {integrity: sha512-O+rqmQUi54OwAgnZ4SAwO6aRrbXZt36VZXWt6zvq0FpC3vJbH46oQRs6u4Uwm1vf8ZI7UqOXQiJhQVTor7vRiQ==}
     peerDependencies:
-      typescript: ^5 || ^6
+      typescript: ^5 || ^6 || ^7
     peerDependenciesMeta:
       typescript:
         optional: true
@@ -5856,7 +5857,7 @@ snapshots:
       fs-extra: 11.3.6
       handlebars: 4.7.10
       html-entities: 2.6.0
-      i18next: 26.3.3(typescript@5.9.3)
+      i18next: 26.4.4(typescript@5.9.3)
       json5: 2.2.3
       loglevel: 1.9.2
       loglevel-plugin-prefix: 0.8.4
@@ -8555,7 +8556,7 @@ snapshots:
 
   human-signals@8.0.1: {}
 
-  i18next@26.3.3(typescript@5.9.3):
+  i18next@26.4.4(typescript@5.9.3):
     optionalDependencies:
       typescript: 5.9.3
 

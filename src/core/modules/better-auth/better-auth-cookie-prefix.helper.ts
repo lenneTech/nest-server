@@ -58,6 +58,23 @@ export function resolveBetterAuthSessionCookieName(basePath: string, env: NodeJS
   return `${resolveBetterAuthCookiePrefix(basePath, env)}.session_token`;
 }
 
+/** The name of the JWT cookie without `COOKIE_PREFIX`, the one `@lenne.tech/nuxt-extensions` writes by default. */
+export const DEFAULT_JWT_COOKIE_NAME = 'lt-jwt-token';
+
+/**
+ * The cookie a JWT-mode frontend keeps the Better-Auth JWT in (11.46.7): `<COOKIE_PREFIX>-jwt-token` when `COOKIE_PREFIX`
+ * is set, otherwise `lt-jwt-token`. `@lenne.tech/nuxt-extensions` names it the same way from `NUXT_PUBLIC_COOKIE_PREFIX`,
+ * sanitised by the same rule. Unlike the session cookie, the basePath never enters the name.
+ *
+ * There is no fallback to `lt-jwt-token` while `COOKIE_PREFIX` is set: the prefix isolates the apps on one host, and
+ * the session cookie does not fall back either. Before 11.46.7 the API read `lt-jwt-token` only, so with a prefix
+ * every request without an `Authorization` header (SSR with forwarded cookies, a passkey request) was anonymous.
+ */
+export function resolveJwtCookieName(env: NodeJS.ProcessEnv = process.env): string {
+  const explicit = sanitizeCookiePrefix(typeof env.COOKIE_PREFIX === 'string' ? env.COOKIE_PREFIX : '');
+  return explicit ? `${explicit}-jwt-token` : DEFAULT_JWT_COOKIE_NAME;
+}
+
 /**
  * Detect a Better-Auth cookie-prefix drift between the value the NestJS layer
  * resolves (via {@link resolveBetterAuthCookiePrefix}) and a programmatic
