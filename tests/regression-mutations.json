@@ -8604,6 +8604,39 @@
         "tests/unit/graceful-shutdown.helper.spec.ts"
       ],
       "driverSpecific": false
+    },
+    {
+      "id": "jwt-cookie-name-ignores-cookie-prefix",
+      "defect": "12.11.2 — the JWT cookie of a JWT-mode frontend was read under lt-jwt-token only, while nuxt-extensions writes <NUXT_PUBLIC_COOKIE_PREFIX>-jwt-token; with a matching COOKIE_PREFIX every request without an Authorization header (SSR with forwarded cookies, a stream re-check) was anonymous.",
+      "file": "src/core/modules/better-auth/better-auth-cookie-prefix.helper.ts",
+      "find": "  return explicit ? `${explicit}-jwt-token` : DEFAULT_JWT_COOKIE_NAME;\n",
+      "replace": "  return explicit ? DEFAULT_JWT_COOKIE_NAME : DEFAULT_JWT_COOKIE_NAME;\n",
+      "specs": [
+        "tests/unit/better-auth-cookie-prefix.spec.ts"
+      ],
+      "driverSpecific": false
+    },
+    {
+      "id": "middleware-jwt-cookie-ignores-prefix",
+      "defect": "12.11.2 — Strategy 2 of CoreBetterAuthMiddleware read the fixed lt-jwt-token cookie, so with COOKIE_PREFIX=acme a request carrying acme-jwt-token without an Authorization header was anonymous and Better-Auth's plugin routes (passkey, two-factor) answered 401.",
+      "file": "src/core/modules/better-auth/core-better-auth.middleware.ts",
+      "find": "        const jwtCookieName = resolveJwtCookieName();\n",
+      "replace": "        const jwtCookieName = 'lt-jwt-token';\n",
+      "specs": [
+        "tests/stories/better-auth-cookie-prefix.story.test.ts"
+      ],
+      "driverSpecific": false
+    },
+    {
+      "id": "stream-recheck-jwt-cookie-ignores-prefix",
+      "defect": "12.11.2 — the in-place re-check of an HTTP stream read the fixed lt-jwt-token cookie, so with COOKIE_PREFIX a stream opened from a cookie-carried JWT could not be re-checked in place.",
+      "file": "src/core/common/helpers/http-stream-auth.helper.ts",
+      "find": "    const jwt = cookies?.[resolveJwtCookieName()];\n",
+      "replace": "    const jwt = cookies?.['lt-jwt-token'];\n",
+      "specs": [
+        "tests/unit/http-stream-recheck.spec.ts"
+      ],
+      "driverSpecific": false
     }
   ]
 }

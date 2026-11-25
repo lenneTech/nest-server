@@ -687,6 +687,7 @@ handed Better-Auth the user's NEWEST session for a JWT request.
 | A session deleted outside Better-Auth's adapter is caught by the cache interval only (`jwtSessionCacheTtlMs`, 10 s) | the immediate forget runs from Better-Auth's `session.delete` hook (`wsSessionRevocationPlugin()`); delete through Better-Auth |
 | The cache lives in the import-free leaf `core-better-auth-jwt-session.cache.ts`, bounded, keyed by session id and checked against the user | config, service and user mapper reach it without importing each other; an entry never vouches for another user |
 | After a session rotation the answer's `token` is the JWT of the NEW session — also when Better-Auth's answer names no token (two-factor disable, 12.11.1) | the old JWT names a deleted session and answers 401 |
+| The JWT cookie is read under `resolveJwtCookieName()`: `<COOKIE_PREFIX>-jwt-token`, else `lt-jwt-token`, no fallback while a prefix is set (12.11.2) | `@lenne.tech/nuxt-extensions` names it after `NUXT_PUBLIC_COOKIE_PREFIX`; a fixed `lt-jwt-token` left every cookie-only request (SSR, passkey, stream re-check) anonymous with a prefix. Mutations `jwt-cookie-name-ignores-cookie-prefix`, `middleware-jwt-cookie-ignores-prefix`, `stream-recheck-jwt-cookie-ignores-prefix` |
 
 Pinned by `tests/unit/better-auth-jwt-session-binding.spec.ts` and `tests/better-auth-jwt-session.e2e-spec.ts`.
 

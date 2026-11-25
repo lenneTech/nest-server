@@ -108,11 +108,4 @@ minimumReleaseAge: 1440
 # Exact versions exempted from the hold-back. `pnpm audit --fix` writes a security fix here so it can
 # be installed the same day. Keep it empty otherwise: every entry names one exact version and goes dead
 # the moment that version stops resolving.
-minimumReleaseAgeExclude:
-  # Security fix, added 2026-11-24. mongodb 7.9.1 (mature) fixes GHSA-779g-w5r4-wr2x (credentials from the connection
-  # string in parse errors and in logged clients), GHSA-prmg-mvj2-c4f7 (NUL bytes in SASL PLAIN credentials change the
-  # authenticated identity) and GHSA-c5cf-gf4q-92vj (OIDC bearer token leak), all medium, repository advisories not yet
-  # in GitHub's global database. mongoose 9.12.3 requires mongodb ~7.8 and 7.8.x has no fix, so the driver can only move
-  # together with mongoose 9.13.0 (mongodb ~7.9), published 2026-11-23 18:39 UTC by the maintainers' GitHub Actions
-  # release (npm OIDC, SLSA provenance). Inert from 2026-11-24 18:39 UTC: remove it at the next dependency change.
-  - 'mongoose@9.13.0'
+minimumReleaseAgeExclude: []

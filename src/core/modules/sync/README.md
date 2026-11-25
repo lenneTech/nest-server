@@ -141,7 +141,7 @@ A hint tells a connected client that pulling is worthwhile; sync works without t
   stream is registered in the same registry and re-checked at once on an invalidation naming the caller or their
   tenant, and otherwise before the first hint after `graphQl.subscriptionRevalidationMs`.
   - **In place (12.11.0)** when the stream was opened with a Better-Auth credential — the session cookie, a bearer
-    session token or Better-Auth JWT, the `lt-jwt-token` cookie: the re-check runs that credential again
+    session token or Better-Auth JWT, the JWT cookie (`lt-jwt-token`, `<COOKIE_PREFIX>-jwt-token` with a prefix): the re-check runs that credential again
     (`createHttpStreamReauthenticator()`) and the tenant resolution, like a WebSocket's. Unchanged rights keep the
     stream open and the hint is delivered without a reconnect; changed user id, roles, verification or tenant scope
     close it (`Closing SSE hint stream of user …: User authorization changed` / `Session no longer valid` /

@@ -9,9 +9,11 @@
 import { describe, expect, it } from 'vitest';
 
 import {
+  DEFAULT_JWT_COOKIE_NAME,
   detectCookiePrefixDrift,
   resolveBetterAuthCookiePrefix,
   resolveBetterAuthSessionCookieName,
+  resolveJwtCookieName,
 } from '../../src/core/modules/better-auth/better-auth-cookie-prefix.helper';
 
 describe('resolveBetterAuthCookiePrefix', () => {
@@ -77,6 +79,33 @@ describe('resolveBetterAuthSessionCookieName', () => {
 
   it('sanitises the override before composing the name', () => {
     expect(resolveBetterAuthSessionCookieName('/iam', { COOKIE_PREFIX: 'a;c=me' })).toBe('acme.session_token');
+  });
+});
+
+describe('resolveJwtCookieName (12.11.2)', () => {
+  /**
+   * @regression   12.11.2 — nest-server read the JWT cookie of a JWT-mode frontend under `lt-jwt-token` only, while
+   *   @lenne.tech/nuxt-extensions writes `<NUXT_PUBLIC_COOKIE_PREFIX>-jwt-token`. With a matching COOKIE_PREFIX every
+   *   request without an Authorization header (SSR with forwarded cookies, a stream re-check) was anonymous.
+   * @seen-failing Ignore COOKIE_PREFIX in resolveJwtCookieName() in
+   *   src/core/modules/better-auth/better-auth-cookie-prefix.helper.ts — registered as mutation
+   *   `jwt-cookie-name-ignores-cookie-prefix` in tests/regression-mutations.json.
+   */
+  it("follows COOKIE_PREFIX like the frontend: '<prefix>-jwt-token'", () => {
+    expect(resolveJwtCookieName({ COOKIE_PREFIX: 'acme' })).toBe('acme-jwt-token');
+    expect(resolveJwtCookieName({ COOKIE_PREFIX: '  my.app_1 ' })).toBe('my.app_1-jwt-token');
+  });
+
+  it("keeps 'lt-jwt-token' without a prefix, whatever the basePath", () => {
+    expect(resolveJwtCookieName({})).toBe(DEFAULT_JWT_COOKIE_NAME);
+    expect(DEFAULT_JWT_COOKIE_NAME).toBe('lt-jwt-token');
+    expect(resolveJwtCookieName({ COOKIE_PREFIX: '' })).toBe('lt-jwt-token');
+    expect(resolveJwtCookieName({ COOKIE_PREFIX: '   ' })).toBe('lt-jwt-token');
+  });
+
+  it('sanitises the prefix by the frontend rule before composing the name', () => {
+    expect(resolveJwtCookieName({ COOKIE_PREFIX: 'ac;me=x' })).toBe('acmex-jwt-token');
+    expect(resolveJwtCookieName({ COOKIE_PREFIX: ';=' })).toBe('lt-jwt-token');
   });
 });
 
