@@ -1,4 +1,5 @@
 import { hasApiTokenCredential } from '../../modules/api-token/core-api-token.helpers.js';
+import { resolveJwtCookieName } from '../../modules/better-auth/better-auth-cookie-prefix.helper.js';
 import { isLegacyJwt } from '../../modules/better-auth/core-better-auth-token.helper.js';
 import { extractSessionToken, parseCookieHeader } from '../../modules/better-auth/core-better-auth-web.helper.js';
 import { getBetterAuthTokenService } from '../../modules/better-auth/core-better-auth.registry.js';
@@ -25,14 +26,12 @@ import type { ResolvedTenantContext } from '../services/core-tenant-context.regi
  * re-checked in place like a GraphQL WebSocket (`recheckHttpStreamInPlace()`).
  *
  * WHICH CREDENTIALS: the ones `CoreBetterAuthMiddleware` resolves, in its order — the bearer token of the
- * `Authorization` header (a Better-Auth JWT or session token), the `lt-jwt-token` cookie when no header was sent, then
+ * `Authorization` header (a Better-Auth JWT or session token), the JWT cookie when no header was sent (`lt-jwt-token`, or
+ * `<COOKIE_PREFIX>-jwt-token` with a prefix), then
  * the Better-Auth session cookie (`<prefix>.session_token`, signed or not) — each verified and loaded through
  * Better-Auth's token service, the one the IAM role guard uses. A legacy JWT is Passport's and an API token has checks
  * of its own: neither can be re-run here, and such a stream keeps ending on every re-check.
  */
-
-/** The cookie a JWT-mode frontend keeps the Better-Auth JWT in — the one `CoreBetterAuthMiddleware` reads. */
-const JWT_COOKIE_NAME = 'lt-jwt-token';
 
 /** What a request carried to authenticate, as it was when the stream was opened. */
 interface HttpStreamCredential {
@@ -73,7 +72,8 @@ function credentialTokens(credential: HttpStreamCredential): string[] {
       add(token);
     }
   } else {
-    const jwt = cookies?.[JWT_COOKIE_NAME];
+    // The cookie `CoreBetterAuthMiddleware` reads: `<COOKIE_PREFIX>-jwt-token`, else `lt-jwt-token` (12.11.2)
+    const jwt = cookies?.[resolveJwtCookieName()];
     if (typeof jwt === 'string' && jwt.split('.').length === 3 && !isLegacy(jwt)) {
       add(jwt);
     }
@@ -90,7 +90,7 @@ function credentialTokens(credential: HttpStreamCredential): string[] {
 
 /**
  * Build the re-authentication of an HTTP stream from the request that opened it: a function that re-runs the
- * request's Better-Auth credential (bearer token, `lt-jwt-token` cookie, session cookie — see the file comment) and
+ * request's Better-Auth credential (bearer token, JWT cookie, session cookie — see the file comment) and
  * resolves to the user it authenticates as NOW, or to `null` when it no longer does (a signed-out or expired session,
  * an expired JWT).
  *

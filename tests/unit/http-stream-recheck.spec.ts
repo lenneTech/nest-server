@@ -307,6 +307,27 @@ describe('HTTP stream re-checked in place', () => {
       ]);
     });
 
+    /**
+     * @regression   12.11.2 — with COOKIE_PREFIX the frontend keeps the JWT in `<prefix>-jwt-token`; the re-check read
+     *   `lt-jwt-token` only, so a stream opened from a cookie-carried JWT could not be re-checked in place.
+     * @seen-failing Read the fixed `lt-jwt-token` cookie in credentialTokens() in
+     *   src/core/common/helpers/http-stream-auth.helper.ts — registered as mutation
+     *   `stream-recheck-jwt-cookie-ignores-prefix` in tests/regression-mutations.json.
+     */
+    it("re-runs the JWT cookie under COOKIE_PREFIX's name, and not the unprefixed one", async () => {
+      const service = tokenService({ [IAM_JWT]: USER });
+      process.env.COOKIE_PREFIX = 'acme';
+      try {
+        expect(await createHttpStreamReauthenticator({ cookies: { 'acme-jwt-token': IAM_JWT }, headers: {} })?.()).toBe(
+          USER,
+        );
+        expect(createHttpStreamReauthenticator({ cookies: { 'lt-jwt-token': IAM_JWT }, headers: {} })).toBeUndefined();
+      } finally {
+        delete process.env.COOKIE_PREFIX;
+      }
+      expect(service.verifyAndLoadUser.mock.calls.map(([token]) => token)).toEqual([IAM_JWT]);
+    });
+
     it('goes on to the session cookie when the bearer token fails, as the middleware does', async () => {
       tokenService({ [IAM_JWT]: new Error('JWT expired'), [SESSION_TOKEN]: USER });
       const reauthenticate = createHttpStreamReauthenticator({
