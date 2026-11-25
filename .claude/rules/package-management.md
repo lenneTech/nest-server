@@ -169,7 +169,7 @@ Two ordering rules, both enforced by the contract test:
 Package overrides live in the `overrides:` section of **`pnpm-workspace.yaml`** (they moved out of `package.json`'s `pnpm.overrides` in the pnpm 11 upgrade). They force transitive dependencies to a security-patched version.
 
 **Keep the set minimal.** On the pnpm 11 upgrade the list was pruned from 36 to the 9 then still
-load-bearing (it has since grown back to 20, mostly as new advisories landed) — an override is only necessary if removing it lets the package resolve back INTO its vulnerable range (verify with a with/without lockfile diff; `pnpm audit` is the arbiter). Each surviving entry carries its CVE rationale as a comment. Remove an entry once its parent dependency ships a fixed version.
+load-bearing (it has since grown back to 20, mostly as new advisories landed) — an override is only necessary if removing it lets the package resolve back INTO its vulnerable range (verify with a with/without lockfile diff; `pnpm audit` is the arbiter). Each surviving entry carries its CVE rationale as a comment. Remove an entry once its parent dependency ships a fixed version. Since 11.46.7 the set holds `i18next` 26 -> 26.4.4: `@compodoc/compodoc` 2.0.0 exact-pins 26.3.3, and GHSA-6jcc-5g8w-32mx reached GitHub's global database on 2026-11-24, so `pnpm audit` failed the build (dev tooling only).
 
 **The one exception is a peer conflict nobody downstream can fix.** `'@nestjs/cli>webpack'` (added
 2026-10-20) carries no advisory: @nestjs/cli exact-pins a webpack that a newer transitive
