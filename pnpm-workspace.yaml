@@ -89,6 +89,12 @@ overrides:
   #   @nestjs/graphql 14.1.2 exact-pins ws 8.22.0, so the declared `ws` dependency alone cannot lift it. Target in lockstep with the
   #   declared `ws` version (12.6.12); key and target move together. Verified 2026-11-14.
   'ws@>=8.0.0 <8.23.0': '8.23.0'
+  # Security: i18next — GHSA-6jcc-5g8w-32mx (medium, patched 26.3.4; in GitHub's global database since 2026-11-24, so
+  #   `pnpm audit` reports it) and GHSA-5jr9-983r-c8x4 (high, ReDoS in the nesting regexp, patched 26.4.4):
+  #   @compodoc/compodoc 2.0.0 (newest) exact-pins i18next 26.3.3 for its own UI strings. Dev tooling only
+  #   (`pnpm run docs`). Target is the oldest 26.x that clears both, as on the current line since 12.10.0. Remove once
+  #   compodoc pins >= 26.4.4. Verified 2026-11-25.
+  'i18next@>=26.0.0 <26.4.4': '26.4.4'
 
 # Supply-chain hold-back: never resolve a version published less than a day ago, so a compromised
 # release has time to be detected and unpublished. pnpm 11's own default, set explicitly so the policy

@@ -2,6 +2,7 @@ import { Injectable, Logger, NestMiddleware } from '@nestjs/common';
 import { NextFunction, Request, Response } from 'express';
 
 import { hasApiTokenCredential } from '../api-token/core-api-token.helpers.js';
+import { resolveJwtCookieName } from './better-auth-cookie-prefix.helper.js';
 import { isLegacyJwt } from './core-better-auth-token.helper.js';
 import { BetterAuthSessionUser, CoreBetterAuthUserMapper, MappedUser } from './core-better-auth-user.mapper.js';
 import { convertExpressHeaders, extractSessionToken } from './core-better-auth-web.helper.js';
@@ -142,14 +143,18 @@ export class CoreBetterAuthMiddleware implements NestMiddleware {
 
     // Strategy 2: Try JWT from cookie (for JWT mode when frontend stores JWT as cookie)
     // In JWT mode (cookies=false), the frontend may store the JWT in a cookie
-    // (e.g., lt-jwt-token) instead of sending it as an Authorization header.
+    // (`lt-jwt-token`, `<COOKIE_PREFIX>-jwt-token` with a prefix) instead of sending it as an Authorization header.
     // This bridges the gap between cookie-based frontend storage and JWT verification.
     if (!req.user && !req.headers.authorization && this.betterAuthService.isJwtEnabled()) {
       try {
-        // Try parsed cookies first, then raw header (cookie-parser may not have run yet)
-        let jwtFromCookie = req.cookies?.['lt-jwt-token'];
+        // Try parsed cookies first, then raw header (cookie-parser may not have run yet). The name follows
+        // COOKIE_PREFIX like the frontend's (`<prefix>-jwt-token`, else `lt-jwt-token`; 12.6.15).
+        const jwtCookieName = resolveJwtCookieName();
+        let jwtFromCookie = req.cookies?.[jwtCookieName];
         if (!jwtFromCookie && req.headers.cookie) {
-          const match = req.headers.cookie.match(/(?:^|;\s*)lt-jwt-token=([^;]+)/);
+          const match = req.headers.cookie.match(
+            new RegExp(`(?:^|;\\s*)${jwtCookieName.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}=([^;]+)`),
+          );
           if (match) {
             jwtFromCookie = decodeURIComponent(match[1]);
           }
