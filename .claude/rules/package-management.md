@@ -174,7 +174,7 @@ load-bearing (it has since grown back to as many as 20, mostly as new advisories
 and they were removed, leaving `@graphql-tools/utils` and `multer`, both on an upstream EXACT pin with
 an open advisory. Those two left on 2026-10-29 (nest-server 12.1.0), once `@nestjs/graphql` 14.1.0 and
 `@nestjs/platform-express` 12.3.2 moved their pins past the fixes: **the set is empty** (`overrides: {}`,
-written explicitly so `check:overrides` reads it as a decision). An override is only necessary if removing it lets the package resolve
+written explicitly so `check:overrides` reads it as a decision). Since 12.6.15 a further entry, `i18next` 26 -> 26.4.4: `@compodoc/compodoc` 2.0.0 exact-pins 26.3.3, and GHSA-6jcc-5g8w-32mx reached GitHub's global database on 2026-11-24, so `pnpm audit` failed the build (dev tooling only; the same entry the current line carries since 12.10.0). An override is only necessary if removing it lets the package resolve
 back INTO its vulnerable range (verify with a with/without lockfile diff; `pnpm audit` is the arbiter).
 "Cheap insurance against a parent re-pinning downwards" is not a reason to keep one: `pnpm audit` and
 `check:overrides` run on every `check` and report such a regression the day it happens. Each surviving entry carries its CVE rationale as a comment. Remove an entry once its parent dependency ships a fixed version.

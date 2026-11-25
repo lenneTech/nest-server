@@ -6,6 +6,7 @@ settings:
 
 overrides:
   ws@>=8.0.0 <8.23.0: 8.23.0
+  i18next@>=26.0.0 <26.4.4: 26.4.4
 
 importers:
 
@@ -3484,10 +3485,10 @@ packages:
     resolution: {integrity: sha512-AXcZb6vzzrFAUE61HnN4mpLqd/cSIwNQjtNWR0euPm6y0iqx3G4gOXaIDdtdDwZmhwe82LA6+zinmW4UBWVePQ==}
     engines: {node: '>=16.17.0'}
 
-  i18next@26.3.3:
-    resolution: {integrity: sha512-aYVegyBdXSO93CMMihvr47jI7GHSOcIahMpJX+qzUXDzW4xDJf2uenIA+45vDU+YhiVdcfsql70AC9RVdMNrHg==}
+  i18next@26.4.4:
+    resolution: {integrity: sha512-O+rqmQUi54OwAgnZ4SAwO6aRrbXZt36VZXWt6zvq0FpC3vJbH46oQRs6u4Uwm1vf8ZI7UqOXQiJhQVTor7vRiQ==}
     peerDependencies:
-      typescript: ^5 || ^6
+      typescript: ^5 || ^6 || ^7
     peerDependenciesMeta:
       typescript:
         optional: true
@@ -5687,7 +5688,7 @@ snapshots:
       fs-extra: 11.4.1
       handlebars: 4.7.10
       html-entities: 2.6.0
-      i18next: 26.3.3(typescript@6.0.3)
+      i18next: 26.4.4(typescript@6.0.3)
       json5: 2.2.3
       loglevel: 1.9.2
       loglevel-plugin-prefix: 0.8.4
@@ -8097,7 +8098,7 @@ snapshots:
 
   human-signals@5.0.0: {}
 
-  i18next@26.3.3(typescript@6.0.3):
+  i18next@26.4.4(typescript@6.0.3):
     optionalDependencies:
       typescript: 6.0.3
 
