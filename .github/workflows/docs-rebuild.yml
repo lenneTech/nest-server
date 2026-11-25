@@ -1,0 +1,38 @@
+# Rebuilds docs.lennetech.app when the docs of this repository change on main.
+# Template from lt-docs (template/.github/workflows/docs-rebuild.yml), see the page "Writing docs".
+#
+# Needs the secret LT_DOCS_TRIGGER_TOKEN (organization secret of lenneTech). Without it the job
+# only prints a warning, so it never fails before the secret is set up.
+name: Docs rebuild
+
+on:
+  push:
+    branches: [main]
+    paths: ['docs/**']
+  workflow_dispatch:
+
+permissions: {}
+
+jobs:
+  trigger:
+    name: Trigger docs.lennetech.app rebuild
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Call the pipeline trigger of lt-docs
+        env:
+          TRIGGER_TOKEN: ${{ secrets.LT_DOCS_TRIGGER_TOKEN }}
+          # Branch of lt-docs that is built; becomes main with the deployment (DEV-4367)
+          LT_DOCS_REF: dev
+        run: |
+          if [ -z "$TRIGGER_TOKEN" ]; then
+            echo "::warning::LT_DOCS_TRIGGER_TOKEN is not set, docs.lennetech.app is not rebuilt."
+            exit 0
+          fi
+          curl --fail-with-body --silent --show-error --output /dev/null -X POST \
+            --form-string "token=$TRIGGER_TOKEN" \
+            --form-string "ref=$LT_DOCS_REF" \
+            --form-string "variables[DOCS_SOURCE_REPO]=$GITHUB_REPOSITORY" \
+            --form-string "variables[DOCS_SOURCE_SHA]=$GITHUB_SHA" \
+            "https://gitlab.lenne.tech/api/v4/projects/274/trigger/pipeline"
+          echo "Rebuild of docs.lennetech.app triggered for $GITHUB_REPOSITORY at $GITHUB_SHA."
