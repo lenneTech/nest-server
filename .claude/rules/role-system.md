@@ -540,6 +540,14 @@ permission error returned as 401 kicks a logged-in user out of the whole app.
 `S_NO_ONE` is 403 even without a session because authenticating can *never* unlock it — a 401 would
 tell the client to log in and retry, which is a lie.
 
+"Not authenticated" includes a session that has ENDED: a browser keeps sending the cookie of an expired session, and
+the API answers it like no cookie at all. Since 12.11.3 the tenant safety net (`resolveTenantFilter()`) follows the
+rule too — 401 for a client operation nobody is signed in to, 403 for a signed-in caller and for server work; before,
+it answered 403 to everyone, so a frontend with an expired session reading tenant data from a public route showed an
+error instead of the sign-in (DEV-4393). Pinned against both role guards, REST and GraphQL, by
+`tests/session-expired-status.e2e-spec.ts` (`RolesGuard`) and `tests/session-expired-status-iam.e2e-spec.ts`
+(`BetterAuthRolesGuard`); the cases live in `tests/helpers/session-expiry-cases.ts`.
+
 Exception: `ErrorCode.EMAIL_VERIFICATION_REQUIRED` is a legitimate **401** (thrown at sign-in, where
 no session exists yet). Frontends must branch on the ErrorCode, not on the status alone, so this one
 does not trigger the logout flow.

@@ -82,6 +82,14 @@ class ActiveTestController {
     return items.map((item) => item.name).sort();
   }
 
+  /** Public, but reads tenant-scoped data: only a tenant context makes that possible, so the safety net decides. */
+  @Get('public-items')
+  @Roles(RoleEnum.S_EVERYONE)
+  async publicItems() {
+    const items = await this.itemModel.find().lean().exec();
+    return items.map((item) => item.name).sort();
+  }
+
   @Get('token')
   @Roles(DefaultHR.MEMBER)
   @ApiTokenScopes('items:read')
@@ -272,6 +280,29 @@ describe('multiTenancy.isTenantActive (e2e)', () => {
   describe('without a tenant header', () => {
     it("drops a deactivated tenant from the user's tenant list, so its data stays out of reach", async () => {
       const response = await get('/active/items', { 'x-test-user-id': USER }).expect(200);
+      expect(response.body).toEqual(['on-item']);
+    });
+  });
+
+  describe('safety net: 401 for nobody signed in, 403 for a signed-in caller', () => {
+    /**
+     * @regression   12.11.3 — the safety net answered 403 to everyone, so a frontend whose session had expired got
+     *   "access denied" from a public route reading tenant-scoped data and never signed out:
+     *   `@lenne.tech/nuxt-extensions` reads only a 401 as "signed out" (DEV-4393).
+     * @seen-failing Throw `new ForbiddenException(message)` for every caller again in resolveTenantFilter()
+     *   (src/core/common/persistence/policies/tenant.policy.ts) — registered as mutation
+     *   `tenant-safety-net-anon-403-route` in tests/regression-mutations.json.
+     */
+    it('answers an anonymous caller 401 and a signed-in one 403 when a public route reads tenant data', async () => {
+      const anonymous = await get('/active/public-items').expect(401);
+      expect(anonymous.body.message).toContain('Tenant context required');
+
+      const signedIn = await get('/active/public-items', { 'x-test-user-id': USER }).expect(403);
+      expect(signedIn.body.message).toContain('Tenant context required');
+    });
+
+    it('paired control: a member naming the tenant reads its items on the same route', async () => {
+      const response = await get('/active/public-items', { 'x-tenant-id': ON, 'x-test-user-id': USER }).expect(200);
       expect(response.body).toEqual(['on-item']);
     });
   });

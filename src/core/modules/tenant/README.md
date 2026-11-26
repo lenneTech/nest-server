@@ -24,7 +24,7 @@ Request + X-Tenant-Id Header
 **Defense-in-depth:** Two layers of protection:
 
 1. **Guard level:** CoreTenantGuard validates membership and sets `tenantId` (only after successful check)
-2. **Plugin level:** Safety Net — throws `ForbiddenException` when a tenantId-scoped schema is accessed without valid tenant context
+2. **Plugin level:** Safety Net — refuses access to a tenantId-scoped schema without valid tenant context: 401 when nobody is signed in (since 12.11.3 — an expired session must reach the sign-in), 403 for a signed-in caller
 
 ## Configuration
 
@@ -309,8 +309,8 @@ anonymous caller of a public route through.
 
 | User State                                            | Filter Applied                                                      |
 | ----------------------------------------------------- | ------------------------------------------------------------------- |
-| Not authenticated, no context                         | Safety Net: `ForbiddenException` on tenantId-schemas                |
-| Authenticated, no memberships                         | Safety Net: `ForbiddenException` on tenantId-schemas                |
+| Not authenticated, no context                         | Safety Net: 401 `UnauthorizedException` on tenantId-schemas         |
+| Authenticated, no memberships                         | Safety Net: 403 `ForbiddenException` on tenantId-schemas            |
 | Authenticated, has memberships                        | `{ tenantId: { $in: [user's tenant IDs] } }`                        |
 | Authenticated + hierarchy role                        | `{ tenantId: { $in: [qualified tenant IDs] } }` (filtered by level) |
 | Admin without header                                  | No filter (sees all data via `isAdminBypass`)                       |
@@ -442,7 +442,7 @@ For high-frequency endpoints that don't access tenant-scoped data, use `@SkipTen
 
 ## Security Notes
 
-> **Defense-in-Depth:** The Mongoose tenant plugin uses `tenantId` from `RequestContext`, which is only set by `CoreTenantGuard` after successful membership validation. The raw `X-Tenant-Id` header is **never** used directly for filtering. Even if the guard is bypassed (e.g., via `@SkipTenantCheck()`), the plugin's Safety Net throws `ForbiddenException` when a tenantId-scoped schema is accessed without valid tenant context.
+> **Defense-in-Depth:** The Mongoose tenant plugin uses `tenantId` from `RequestContext`, which is only set by `CoreTenantGuard` after successful membership validation. The raw `X-Tenant-Id` header is **never** used directly for filtering. Even if the guard is bypassed (e.g., via `@SkipTenantCheck()`), the plugin's Safety Net refuses access to a tenantId-scoped schema without valid tenant context (401 when nobody is signed in, 403 otherwise).
 
 > **Explicit tenantId on writes:** The plugin only auto-sets `tenantId` on new documents when no explicit value is provided. Service-layer code that accepts user-supplied `tenantId` as a creation parameter could allow cross-tenant writes. Never pass user-supplied `tenantId` directly to `create()` or `new Model()`.
 

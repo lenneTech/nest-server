@@ -734,6 +734,24 @@ betterAuth: {
 `session.disableSessionRefresh`. A value of `expiresInHours` that is not a positive number is ignored with a warning.
 `betterAuth.options.session` still wins key by key.
 
+#### The first administrator
+
+`POST /system-setup/init` (or `systemSetup.initialAdmin`) creates the administrator with a verified address. It still
+asks for a password: that becomes a credential account nobody can use while `emailAndPassword` is off, and it starts to
+work if e-mail and password sign-in is switched on later. Use a long random value and do not keep it.
+
+The administrator then signs in through the provider with the same address. Better-Auth adds the provider account to
+the existing user only when the provider reports the address as verified; otherwise the sign-in ends with
+`error=account_not_linked`. Google and GitHub report it. **Microsoft Entra ID reports it only with the optional ID token
+claim `verified_primary_email`** (app registration → Token configuration → Add optional claim → ID;
+`verified_secondary_email` covers further addresses).
+
+**Never make linking work by trusting the provider instead.** Listing it in
+`betterAuth.options.account.accountLinking.trustedProviders`, or returning `emailVerified: true` from
+`mapProfileToUser`, skips that check. An administrator of an Entra tenant can give any user any e-mail address (with
+`tenantId` unset: of any tenant), and that user then signs in as the account holding the address — your administrator
+included. Microsoft advises against identifying users by the e-mail claim for this reason.
+
 #### Microsoft Entra ID: one organization, identity only
 
 ```typescript
