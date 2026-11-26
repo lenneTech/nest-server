@@ -1,8 +1,11 @@
 # Rebuilds docs.lennetech.app when the docs of this repository change on main.
 # Template from lt-docs (template/.github/workflows/docs-rebuild.yml), see the page "Writing docs".
 #
-# Needs the secret LT_DOCS_TRIGGER_TOKEN (organization secret of lenneTech). Without it the job
-# only prints a warning, so it never fails before the secret is set up.
+# Needs the secrets LT_DOCS_TRIGGER_TOKEN and LT_DOCS_GITLAB_HOST (organization secrets of
+# lenneTech). Without them the job only prints a warning, so it never fails before they are set up.
+# The host is a secret, not a variable: this repository is public, so are its workflow logs, and
+# GitHub masks only secrets there (a curl error names the host alone, which is why the secret holds
+# just the host and not the whole URL).
 name: Docs rebuild
 
 on:
@@ -22,11 +25,12 @@ jobs:
       - name: Call the pipeline trigger of lt-docs
         env:
           TRIGGER_TOKEN: ${{ secrets.LT_DOCS_TRIGGER_TOKEN }}
+          GITLAB_HOST: ${{ secrets.LT_DOCS_GITLAB_HOST }}
           # Branch of lt-docs that is built; becomes main with the deployment (DEV-4367)
           LT_DOCS_REF: dev
         run: |
-          if [ -z "$TRIGGER_TOKEN" ]; then
-            echo "::warning::LT_DOCS_TRIGGER_TOKEN is not set, docs.lennetech.app is not rebuilt."
+          if [ -z "$TRIGGER_TOKEN" ] || [ -z "$GITLAB_HOST" ]; then
+            echo "::warning::LT_DOCS_TRIGGER_TOKEN or LT_DOCS_GITLAB_HOST is not set, docs.lennetech.app is not rebuilt."
             exit 0
           fi
           curl --fail-with-body --silent --show-error --output /dev/null -X POST \
@@ -34,5 +38,5 @@ jobs:
             --form-string "ref=$LT_DOCS_REF" \
             --form-string "variables[DOCS_SOURCE_REPO]=$GITHUB_REPOSITORY" \
             --form-string "variables[DOCS_SOURCE_SHA]=$GITHUB_SHA" \
-            "https://gitlab.lenne.tech/api/v4/projects/274/trigger/pipeline"
+            "https://$GITLAB_HOST/api/v4/projects/274/trigger/pipeline"
           echo "Rebuild of docs.lennetech.app triggered for $GITHUB_REPOSITORY at $GITHUB_SHA."

@@ -194,12 +194,12 @@ See the module README: "Removing a Tenant".
 - [ ] Admin user can access any tenant (if adminBypass: true)
 - [ ] Non-member gets 403 `#LTNS_0103: Not a member of this tenant`
 - [ ] Unauthenticated + header → 401 `#LTNS_0100` (re-authentication is the remedy, so it is not a 403)
-- [ ] Public endpoint accessing tenantId-schema without context throws 403 (Safety Net)
+- [ ] Public endpoint accessing tenantId-schema without context is refused by the Safety Net: 401 without a session (an expired one included), 403 when signed in
 - [ ] IAM endpoints work without `X-Tenant-Id` header when `skipTenantCheck: true` (default)
 
 ## Security
 
-> **Defense-in-Depth:** The guard validates membership and sets `req.tenantId`. The Mongoose plugin only uses this validated value (via RequestContext) — never the raw header. Additionally, the plugin's Safety Net throws `ForbiddenException` when a tenantId-scoped schema is accessed without valid tenant context.
+> **Defense-in-Depth:** The guard validates membership and sets `req.tenantId`. The Mongoose plugin only uses this validated value (via RequestContext) — never the raw header. Additionally, the plugin's Safety Net refuses access to a tenantId-scoped schema without valid tenant context (401 when nobody is signed in, 403 otherwise).
 
 > **Tenant overrides user.roles:** When a tenant header is present, only `membership.role` is checked. `user.roles` is ignored (except ADMIN bypass). This prevents users from claiming higher privileges via `user.roles` when operating within a specific tenant.
 
@@ -213,7 +213,7 @@ See the module README: "Removing a Tenant".
 | Forgetting `X-Tenant-Id` header                  | 403 or Safety Net exception        | Add header to all tenant-scoped API calls                                  |
 | Using only `@Roles(S_USER)` for tenant endpoints | No tenant membership check         | Use `@Roles(DefaultHR.MEMBER)` for tenant-level access                     |
 | Querying membership without bypass               | Empty results due to tenant filter | Use `RequestContext.runWithBypassTenantGuard()`                            |
-| Public endpoint accessing tenantId-schema        | 403 Safety Net exception           | Use `@SkipTenantCheck()` + `RequestContext.runWithBypassTenantGuard()`     |
+| Public endpoint accessing tenantId-schema        | 401 / 403 Safety Net exception     | Use `@SkipTenantCheck()` + `RequestContext.runWithBypassTenantGuard()`     |
 | Passing user-supplied tenantId to create()       | Cross-tenant write possible        | Let plugin auto-set tenantId from context                                  |
 | Custom hierarchy doesn't match config            | Roles fail unexpectedly            | Ensure `createHierarchyRoles()` input matches `multiTenancy.roleHierarchy` |
 | `@SkipTenantCheck()` on BetterAuth handler       | Redundant since v11.21.2           | Remove — auto-skip handles this via `betterAuth.skipTenantCheck` (default) |

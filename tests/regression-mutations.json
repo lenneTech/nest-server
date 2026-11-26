@@ -8637,6 +8637,28 @@
         "tests/unit/http-stream-recheck.spec.ts"
       ],
       "driverSpecific": false
+    },
+    {
+      "id": "tenant-safety-net-anon-403-policy",
+      "defect": "12.11.3 — the tenant safety net answered 403 to a client operation without a user; a frontend with an expired session got \"access denied\" from a public route reading tenant-scoped data instead of the 401 that signs it out (DEV-4393).",
+      "file": "src/core/common/persistence/policies/tenant.policy.ts",
+      "find": "  throw context?.fromRequest ? accessDeniedException(context.currentUser, message) : new ForbiddenException(message);\n",
+      "replace": "  throw new ForbiddenException(message);\n",
+      "specs": [
+        "tests/unit/persistence-policies.spec.ts"
+      ],
+      "driverSpecific": false
+    },
+    {
+      "id": "tenant-safety-net-anon-403-route",
+      "defect": "12.11.3 — the tenant safety net answered 403 to a client operation without a user over HTTP; a frontend with an expired session got \"access denied\" from a public route reading tenant-scoped data instead of the 401 that signs it out (DEV-4393).",
+      "file": "src/core/common/persistence/policies/tenant.policy.ts",
+      "find": "  throw context?.fromRequest ? accessDeniedException(context.currentUser, message) : new ForbiddenException(message);\n",
+      "replace": "  throw new ForbiddenException(message);\n",
+      "specs": [
+        "tests/tenant-active.e2e-spec.ts"
+      ],
+      "driverSpecific": false
     }
   ]
 }

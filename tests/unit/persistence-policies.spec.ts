@@ -1,4 +1,4 @@
-import { BadRequestException, ForbiddenException } from '@nestjs/common';
+import { BadRequestException, ForbiddenException, HttpException } from '@nestjs/common';
 import { afterEach, describe, expect, it } from 'vitest';
 
 import { RoleEnum } from '../../src/core/common/enums/role.enum';
@@ -77,6 +77,33 @@ describe('persistence policies', () => {
       expect(() => inContext({ currentUser: user('u1') }, () => resolveTenantFilter('Doc'))).toThrow(
         ForbiddenException,
       );
+    });
+
+    /**
+     * @regression   12.11.3 — the safety net answered 403 to a client operation without a user, so a frontend whose
+     *   session had expired got "access denied" from a public route reading tenant-scoped data and never signed out:
+     *   `@lenne.tech/nuxt-extensions` reads only a 401 as "signed out" (DEV-4393).
+     * @seen-failing Throw `new ForbiddenException(message)` for every caller again in resolveTenantFilter()
+     *   (src/core/common/persistence/policies/tenant.policy.ts) — registered as mutation
+     *   `tenant-safety-net-anon-403-policy` in tests/regression-mutations.json.
+     */
+    it('answers the safety net with 401 for an anonymous client, 403 for a signed-in caller and for server work', () => {
+      multiTenancy();
+      const refusal = (context: Partial<IRequestContext>): { message: string; status: number } => {
+        try {
+          RequestContext.run(context as IRequestContext, () => resolveTenantFilter('Doc'));
+        } catch (error) {
+          return { message: (error as Error).message, status: (error as HttpException).getStatus() };
+        }
+        throw new Error('the safety net did not refuse');
+      };
+
+      // An expired session or a public route: nobody is signed in, signing in is the remedy
+      expect(refusal({ fromRequest: true })).toEqual({ message: expect.stringMatching(/^Tenant context required/), status: 401 });
+      // Signed in, but without a tenant context: a permission problem, signing in again changes nothing
+      expect(refusal({ currentUser: user('u1'), fromRequest: true }).status).toBe(403);
+      // Work the server does on its own inside a context of its own (no request): no client to tell anything
+      expect(refusal({}).status).toBe(403);
     });
 
     it('applies no filter under an explicit bypass or for an excluded schema', () => {

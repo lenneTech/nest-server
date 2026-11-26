@@ -103,6 +103,10 @@ Creates the initial admin user. Only works when zero users exist, and only where
 | `password` | string | Yes      | Minimum 8 characters     |
 | `name`     | string | No       | Defaults to email prefix |
 
+On a project that signs in through a provider alone (`betterAuth.emailAndPassword.enabled: false`) the password is
+required as well but cannot be used for signing in; the administrator signs in through the provider, which must report
+the address as verified. See "The first administrator" in `src/core/modules/better-auth/README.md`.
+
 **Success Response (201):**
 
 ```json

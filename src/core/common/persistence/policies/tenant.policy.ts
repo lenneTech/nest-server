@@ -1,5 +1,6 @@
 import { ForbiddenException, Logger } from '@nestjs/common';
 
+import { accessDeniedException } from '../../exceptions/access-denied.exception.js';
 import { ConfigService } from '../../services/config.service.js';
 import { RequestContext } from '../../services/request-context.service.js';
 
@@ -100,14 +101,15 @@ export function isTenantPolicyBypassed(modelName?: string): boolean {
  * Resolve tenant filter from RequestContext for read operations (queries, aggregates).
  *
  * Defense-in-depth: If a schema has tenantId but there is no valid tenant context,
- * throws ForbiddenException instead of returning unfiltered data (Safety Net).
+ * throws instead of returning unfiltered data (Safety Net) — 401 for a client operation without a user, 403 otherwise.
  *
  * @returns
  * - `undefined` → no filter should be applied (bypass active or plugin disabled)
  * - `{}` → empty filter (admin bypass without header — sees all data)
  * - `{ tenantId: string }` → filter by single validated tenant
  * - `{ tenantId: { $in: string[] } }` → filter by user's tenant memberships
- * @throws ForbiddenException when tenantId-schema is accessed without valid tenant context
+ * @throws when tenantId-schema is accessed without valid tenant context: UnauthorizedException (401) for a client
+ *   operation without a user, ForbiddenException (403) for a signed-in caller and for server work
  */
 export function resolveTenantFilter(modelName?: string): Record<string, any> | undefined {
   if (isTenantPolicyBypassed(modelName)) return undefined;
@@ -127,9 +129,12 @@ export function resolveTenantFilter(modelName?: string): Record<string, any> | u
 
   // SAFETY NET: Schema has tenantId but no valid tenant context.
   // Throw instead of returning unfiltered data to prevent data leaks.
-  throw new ForbiddenException(
-    'Tenant context required: this data is tenant-scoped but no valid tenant context was provided',
-  );
+  const message = 'Tenant context required: this data is tenant-scoped but no valid tenant context was provided';
+  // A CLIENT operation without a user (an expired session, a public route) is answered 401: a tenant context comes
+  // from a membership, so signing in is the remedy, and a 403 kept a frontend with an expired session from signing
+  // out (it reads only 401 as "signed out"). A signed-in caller keeps the 403 — the same rule as every other
+  // permission layer (`accessDeniedException()`). Server work without a request keeps the 403 as well.
+  throw context?.fromRequest ? accessDeniedException(context.currentUser, message) : new ForbiddenException(message);
 }
 
 /**
